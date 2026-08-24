@@ -29,9 +29,9 @@
  *   lifts the box, and carries it to the front of the shop. The job reads as
  *   working, and the rooms simply stay empty. It is the whole feature failing
  *   with nothing anywhere to say so.
- * - **The range is by NEAREST**, mirroring `larderRanges`: a room takes what the
- *   shelves it serves are stocked or ticked for, and refuses what none of them
- *   wants — or a stockroom is just a second yard with a roof.
+ * - **The reserve is one pool.** Every room takes what the sales floor is
+ *   stocked or ticked for, so belt direction never makes an empty rack refuse
+ *   overflow merely because another rack was geometrically nearer.
  * - **Leg B** — stock in a room reaches the floor board that is short of it,
  *   which is what stops leg A being a pile-builder.
  * - **The larder is not raided.** An ingredient sat in the room for the fryer
@@ -97,6 +97,8 @@ const c = content();
 const AMBIENT = c.items.filter((it) => !it.tags.includes('frozen') && !it.tags.includes('needs-freezer'));
 check(AMBIENT.length >= 2, 'the catalog has two ambient items', `${AMBIENT.length}`);
 const [ITEM_A, ITEM_B] = AMBIENT;
+const CRAFTED = AMBIENT.find((it) => c.recipes.some((r) => r.output_id === it.id));
+check(!!CRAFTED, 'the catalog has an ambient recipe output to test as ordinary stock');
 
 /** The same reset every other sweep makes — see `verify-hand` on each field. */
 function fresh({ kind = RUNNER.id } = {}) {
@@ -204,7 +206,7 @@ const holders = (g, itemId) => g.layout.shelves
 }
 
 // ---------------------------------------------------------------------------
-// 2. The range is by NEAREST, and it refuses what nothing near it wants.
+// 2. Every room shares the sales range, and refuses what the floor never wants.
 //
 // Asked of the function rather than through a run, because it is a pure
 // question about geometry and asking it through a worker would be asserting
@@ -223,7 +225,7 @@ const holders = (g, itemId) => g.layout.shelves
   eq(g.stockroomRanges()?.get(room.id)?.size ?? -1, 0, 'a room serving bare shelves takes nothing');
 
   // Tick one floor board for A and stand B on another: both are things the
-  // floor is stocked for, so both are things the room may hold.
+  // floor is stocked for, so both are things every room may hold.
   floors[0].assigned = [ITEM_A.id];
   floors[1].stacks = [{ item_id: ITEM_B.id, qty: 3, price: 3, stockedDay: g.day, soldDay: g.day }];
   const set = g.stockroomRanges()?.get(room.id);
@@ -383,6 +385,54 @@ const holders = (g, itemId) => g.layout.shelves
   // get struck off the shop's range for having been held in reserve.
   run(g, 600);
   check(!g.droppedItem(ITEM_A.id), 'so the shop never gives up on what is in its own stockroom');
+}
+
+// ---------------------------------------------------------------------------
+// 8. An idle catalogue recipe does not switch the stockroom off.
+//
+// `isCrafted` used to be the supplier's veto, so a recipe existing anywhere in
+// the catalogue made its output impossible for staff to order everywhere. In a
+// shop with no chef and no matching production line, a full sales board plus an
+// empty stockroom therefore stayed exactly that way: the spare unit contributed
+// no reserve, and the next sale had to wait for a van ordered after the fact.
+// ---------------------------------------------------------------------------
+if (CRAFTED) {
+  const g = fresh();
+  let room = makeRoom(g, g.layout.shelves[0]);
+  const overflow = makeRoom(g, g.layout.shelves.find((sh) => !sh.boh));
+  const floor = g.layout.shelves.find((sh) => !sh.boh);
+  floor.assigned = [CRAFTED.id];
+  floor.stacks = [{
+    item_id: CRAFTED.id,
+    qty: g.shelfCapacity(floor, CRAFTED),
+    price: 3,
+    stockedDay: g.day,
+    soldDay: g.day,
+  }];
+  room.stacks = [{
+    item_id: CRAFTED.id,
+    qty: g.shelfCapacity(room, CRAFTED),
+    price: 3,
+    stockedDay: g.day,
+    soldDay: g.day,
+  }];
+
+  // This runner is the test's only body. Give it the ordinary buying directive
+  // so the assertion drives the real restock job rather than duplicating its
+  // arithmetic here.
+  g.roster[g.roster.length - 1].jobs = [{ job: 'restock', weight: 10 }];
+  g.orders.auto = true;
+  g.orders.assign = true;
+
+  check(!g.makesHere(CRAFTED.id),
+    'a recipe output is not made here when nobody is assigned to manufacture it');
+  check(g.stockroomRanges()?.get(overflow.id)?.has(CRAFTED.id) === true,
+    'every overflow room shares the shop floor range');
+
+  const ordered = until(g, () => g.orders.pending.some((o) => o.item_id === CRAFTED.id));
+  check(ordered, 'the ordering system buys overstock after the first stockroom unit is full');
+  check(g.orders.pending.some((o) => o.item_id === CRAFTED.id && o.qty > 0),
+    'and the reserve order contains real stock');
 }
 
 // ---------------------------------------------------------------------------

@@ -342,7 +342,9 @@
     "cost": 340,
     "kind": "station",
     "payload": {
-      "station": "blast-freezer"
+      "station": "blast-freezer",
+      "run": "Cold",
+      "sort": 17
     },
     "requires": []
   },
@@ -353,7 +355,9 @@
     "cost": 180,
     "kind": "station",
     "payload": {
-      "station": "blender"
+      "station": "blender",
+      "run": "Drinks",
+      "sort": 21
     },
     "requires": []
   },
@@ -365,7 +369,9 @@
     "kind": "station",
     "payload": {
       "station": "butcher",
-      "group": "farm"
+      "group": "farm",
+      "run": "Prep",
+      "sort": 0.6
     },
     "requires": []
   },
@@ -376,7 +382,9 @@
     "cost": 280,
     "kind": "station",
     "payload": {
-      "station": "candy-kettle"
+      "station": "candy-kettle",
+      "run": "Prep",
+      "sort": 22
     },
     "requires": []
   },
@@ -388,7 +396,9 @@
     "kind": "station",
     "payload": {
       "station": "churn",
-      "group": "farm"
+      "group": "farm",
+      "run": "Prep",
+      "sort": 0.7
     },
     "requires": []
   },
@@ -399,7 +409,9 @@
     "cost": 240,
     "kind": "station",
     "payload": {
-      "station": "coffee-machine"
+      "station": "coffee-machine",
+      "run": "Drinks",
+      "sort": 19
     },
     "requires": []
   },
@@ -410,7 +422,9 @@
     "cost": 210,
     "kind": "station",
     "payload": {
-      "station": "deep-fryer"
+      "station": "deep-fryer",
+      "run": "Cooking",
+      "sort": 28
     },
     "requires": []
   },
@@ -421,7 +435,9 @@
     "cost": 230,
     "kind": "station",
     "payload": {
-      "station": "grill"
+      "station": "grill",
+      "run": "Cooking",
+      "sort": 26
     },
     "requires": []
   },
@@ -432,7 +448,9 @@
     "cost": 190,
     "kind": "station",
     "payload": {
-      "station": "juicer"
+      "station": "juicer",
+      "run": "Drinks",
+      "sort": 20
     },
     "requires": []
   },
@@ -444,7 +462,9 @@
     "kind": "station",
     "payload": {
       "station": "mill",
-      "group": "farm"
+      "group": "farm",
+      "run": "Prep",
+      "sort": 0.8
     },
     "requires": []
   },
@@ -455,7 +475,9 @@
     "cost": 200,
     "kind": "station",
     "payload": {
-      "station": "mixer"
+      "station": "mixer",
+      "run": "Prep",
+      "sort": 25
     },
     "requires": []
   },
@@ -466,7 +488,9 @@
     "cost": 220,
     "kind": "station",
     "payload": {
-      "station": "oven"
+      "station": "oven",
+      "run": "Cooking",
+      "sort": 27
     },
     "requires": []
   },
@@ -477,7 +501,9 @@
     "cost": 200,
     "kind": "station",
     "payload": {
-      "station": "preserving-pot"
+      "station": "preserving-pot",
+      "run": "Prep",
+      "sort": 24
     },
     "requires": []
   },
@@ -488,7 +514,9 @@
     "cost": 170,
     "kind": "station",
     "payload": {
-      "station": "sandwich-press"
+      "station": "sandwich-press",
+      "run": "Cooking",
+      "sort": 29
     },
     "requires": []
   },
@@ -499,7 +527,9 @@
     "cost": 320,
     "kind": "station",
     "payload": {
-      "station": "soft-serve"
+      "station": "soft-serve",
+      "run": "Cold",
+      "sort": 18
     },
     "requires": []
   },
@@ -510,7 +540,9 @@
     "cost": 200,
     "kind": "station",
     "payload": {
-      "station": "stock-pot"
+      "station": "stock-pot",
+      "run": "Prep",
+      "sort": 23
     },
     "requires": []
   },
@@ -521,7 +553,9 @@
     "cost": 150,
     "kind": "station",
     "payload": {
-      "station": "toaster"
+      "station": "toaster",
+      "run": "Cooking",
+      "sort": 30
     },
     "requires": []
   },

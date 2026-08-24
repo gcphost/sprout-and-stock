@@ -1185,6 +1185,78 @@ function armIntoShelf(g, { item = GOODS, prep = null, turn = 0, past = false, lo
 }
 
 // ---------------------------------------------------------------------------
+// 11e. A LOAD-ONLY SHELF LOADER CAN START THE TRIP TO A SKIP.
+//
+// The destination half already accepted given-up stock in 11d, but the source
+// half refused it: `armPull` skipped every given-up stack before making the
+// crate. That left a perfectly connected shelf → load → unload → skip rig
+// idle at its first machine. The controls are both sides of the safety rule:
+// live stock is never pulled just because a skip exists, and dead stock is not
+// put on a run that has no skip downstream.
+// ---------------------------------------------------------------------------
+{
+  const sourceRig = () => {
+    const g = fresh();
+    for (const old of g.layout.shelves ?? []) {
+      for (const q of [0, 1, 2, 3]) {
+        const at = anchorTile(old.x, old.z, q);
+        const rot = [0, 1, 2, 3].find((r) => {
+          const faced = anchorTile(at.x, at.z, r);
+          return faced.x === old.x && faced.z === old.z;
+        });
+        if (rot == null) continue;
+        if (!canPlace(g.layout, { kind: 'arm', x: at.x, z: at.z, rot }).ok) continue;
+        const put = g.placeFixture('me', {
+          kind: 'arm', piece: ARM.id, x: at.x, z: at.z, rot,
+        });
+        if (!put.ok) continue;
+        const arm = g.beltAt(at.x, at.z);
+        const room = (g.layout.shelves ?? []).find((sh) => sh.x === old.x && sh.z === old.z);
+        if (arm && room) return { g, arm, room };
+      }
+    }
+    return null;
+  };
+  const stock = (g, room) => {
+    room.assigned = [];
+    room.stacks = [{ item_id: GOODS.id, qty: 5, price: GOODS.base_price, stockedDay: g.day }];
+  };
+
+  const dead = sourceRig();
+  check(!!dead, 'a loader can stand aimed at a shop-floor shelf');
+  if (dead) {
+    const { g, arm, room } = dead;
+    stock(g, room);
+    g.orders.dropped[GOODS.id] = g.day;
+    check(g.droppedItem(GOODS.id), 'the source shelf holds stock the shop has given up on');
+    const pulled = g.armPull(arm, room, { shelves: [], bins: [{ id: 'downstream-skip' }] });
+    check(pulled, 'a downstream skip lets the load-only half pull it off the shelf');
+    eq(g.shelfStack(room, GOODS.id)?.qty ?? 0, 0, '...leaving none behind on the board');
+    check(g.deliveries.some((d) => d.belt === arm.id && lotQty(d, GOODS.id) === 5),
+      '...and making the crate the unload half can bin');
+  }
+
+  const live = sourceRig();
+  if (live) {
+    const { g, arm, room } = live;
+    stock(g, room);
+    check(!g.armPull(arm, room, { shelves: [], bins: [{ id: 'downstream-skip' }] }),
+      'the same route never pulls live stock merely because it reaches a skip');
+    eq(g.shelfStack(room, GOODS.id)?.qty ?? 0, 5, '...so every live unit stays on the board');
+  }
+
+  const nowhere = sourceRig();
+  if (nowhere) {
+    const { g, arm, room } = nowhere;
+    stock(g, room);
+    g.orders.dropped[GOODS.id] = g.day;
+    check(!g.armPull(arm, room, { shelves: [], bins: [] }),
+      'given-up stock is not pulled onto a run with no skip downstream');
+    eq(g.shelfStack(room, GOODS.id)?.qty ?? 0, 5, '...and remains recoverable on its shelf');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 12. One swing stocks every side, not the first one that takes something.
 //
 // Invisible in play and invisible in a still frame: a loader that served two
@@ -2364,7 +2436,7 @@ function smooth(g, label, crates, ticks, at = {}) {
         kind, piece: kind === 'sorter' ? 'sorter' : (kind === 'arm' ? ARM.id : BELT.id),
         x: at.x, z: at.z, rot,
       }).ok)) continue;
-      rig = { sorter: g.beltAt(sorter.x, sorter.z), arm, dead };
+      rig = { sorter: g.beltAt(sorter.x, sorter.z), arm, dead, feeder };
       break;
     }
     if (rig) break;
@@ -2430,6 +2502,73 @@ function smooth(g, label, crates, ticks, at = {}) {
     const off = g.setSorterReject('me', now.id, null);
     check(off.ok, 'and it can be cleared again', off.error ?? '');
     eq(g.findFixture(now.id)?.reject ?? null, null, '...back to splitting');
+
+    // ...and a reject that matched the AIM follows the aim through a turn.
+    //
+    // The pair above says a reject side is not forgotten by R. This is the
+    // other half and it only exists because of what writes the field: one menu
+    // row, "send strays the way it points", which sends whatever `rot` is when
+    // you press it. So the two are set together and R moved only one of them —
+    // and the side it left behind is not merely stale, it is very often the
+    // FEEDER, which is the tug of war `conveyorBranches` has always refused.
+    //
+    // Both halves or neither: a reject that differs from the aim is somebody
+    // naming a side, and turning the piece must not overwrite it.
+    // Turned to face the dead line first, so the state under test is reached
+    // rather than hoped for: `rot` and `reject` naming the same side, which is
+    // the only state that one menu row can leave a junction in.
+    let aimed = g.findFixture(now.id);
+    for (let i = 0; i < 4 && (aimed.rot ?? 0) !== toDead; i++) {
+      const spin = g.rotateFixture('me', aimed.id, 1);
+      aimed = g.findFixture(spin.rotated ?? aimed.id);
+    }
+    eq(aimed.rot ?? 0, toDead, 'a junction can be aimed at the dead line');
+    const same = g.setSorterReject('me', aimed.id, toDead);
+    check(same.ok, '...and given that same side as its reject', same.error ?? '');
+    const spun2 = g.rotateFixture('me', aimed.id, 1);
+    check(spun2.ok, 'a junction aimed at its own reject can be turned', spun2.error ?? '');
+    const after2 = g.findFixture(spun2.rotated ?? aimed.id);
+    eq(after2?.reject, after2?.rot, 'a reject that followed the aim follows the turn');
+    check((after2?.rot ?? 0) !== toDead, '...to a side it was not on before');
+
+    // ...and the side the run ARRIVES on is refused outright.
+    //
+    // It looks exactly as usable as the other three — a conveyor cell touching
+    // a conveyor cell — and what it does is worse than nothing: `sorterOut`
+    // hands the box to the feeder, `beltExit` puts it back on the feeding line,
+    // and it rides into the junction again. Nothing spills, nothing is lost and
+    // nothing is logged. The crate circles two cells for the rest of the save,
+    // which reads as a reject line that never fires.
+    const at = after2;
+    const toFeeder = [0, 1, 2, 3].find((r) => {
+      const n = anchorTile(at.x, at.z, r);
+      return n.x === rig.feeder.x && n.z === rig.feeder.z;
+    });
+    check(Number.isInteger(toFeeder), 'the feeder is one of the junction\'s four sides');
+    const bad = g.setSorterReject('me', at.id, toFeeder);
+    check(!bad.ok, 'the side the run arrives on is refused as a reject line');
+    check((g.findFixture(at.id)?.reject ?? null) !== toFeeder,
+      '...and the refusal came before anything was stored');
+
+    // ...and a save that is ALREADY in that state is not honoured either.
+    //
+    // Written straight onto the record rather than through the press, which is
+    // the one place in here that is right to do: it is a state the press now
+    // refuses, so there is no other way to be in it — and every junction given
+    // one before today is in it.
+    const rec = g.beltAt(at.x, at.z);
+    const was = rec.reject;
+    rec.reject = toFeeder;
+    const back = [];
+    for (let i = 0; i < 8; i++) {
+      const to = g.sorterOut(rec, stray(200 + i));
+      back.push(`${to?.x},${to?.z}`);
+    }
+    check(!back.includes(`${rig.feeder.x},${rig.feeder.z}`),
+      'a stored feeder reject never hands a box back up the run', back.join(' '));
+    check(new Set(back).size > 1,
+      '...it splits, exactly as a junction with no reject line does', back.join(' '));
+    rec.reject = was;
   }
 }
 
@@ -2767,6 +2906,30 @@ function smooth(g, label, crates, ticks, at = {}) {
       check(mixed.ok, 'a run that starts on a taken square lays the rest anyway',
         mixed.error ?? '');
     }
+
+    // A DIFFERENT conveyor used to be accepted as a swap by `canPlace`, so a
+    // belt drag across a loader silently sold the loader and replaced it. A
+    // sweep adds around existing machinery; only a deliberate one-cell press
+    // may replace it.
+    const guarded = fresh();
+    const path = beltRun(guarded, 5);
+    check(!!path, 'there is room for a run that crosses existing machinery');
+    if (path) {
+      const machine = guarded.placeFixture('me', {
+        kind: 'arm', piece: ARM.id, x: path[2].x, z: path[2].z, rot: 0,
+      });
+      check(machine.ok, 'a loader stands in the path before the drag', machine.error ?? '');
+      const kept = guarded.beltAt(path[2].x, path[2].z);
+      const swept = guarded.buildRun('me', {
+        kind: 'belt', piece: BELT.id, x: path[0].x, z: path[0].z, to: path[4],
+      });
+      check(swept.ok, 'the belt run lays around the loader', swept.error ?? '');
+      eq(swept.laid, 4, 'the occupied cell is skipped');
+      eq(guarded.beltAt(path[2].x, path[2].z)?.id, kept?.id,
+        'and the existing loader is not erased');
+      eq(guarded.beltAt(path[2].x, path[2].z)?.kind, 'arm',
+        'nor replaced by the dragged belt');
+    }
   }
 }
 {
@@ -2993,6 +3156,110 @@ function smooth(g, label, crates, ticks, at = {}) {
     return { g, cells };
   }
 
+  // The visible stroke before the old hidden long hop. One crate owns the
+  // carrier through its loaded descent and empty return; the next waits on the
+  // incoming rail rather than floating over a piston that is below the floor.
+  {
+    const rig = lane(1, 1);
+    check(!!rig, 'there is a tunnel whose piston can be watched');
+    if (rig) {
+      const { g, cells } = rig;
+      const mouth = g.beltAt(cells[IN].x, cells[IN].z);
+      const feeder = g.beltAt(cells[IN - 1].x, cells[IN - 1].z);
+      const queue = g.beltAt(cells[IN - 2].x, cells[IN - 2].z);
+      const first = g.dropGoods(GOODS.id, 1, { x: feeder.x, z: feeder.z }, { exact: true });
+      const next = g.dropGoods(GOODS.id, 1, { x: queue.x, z: queue.z }, { exact: true });
+      check(!!first && !!next, 'two crates can queue at the tunnel mouth');
+      check(g.loadBelt(feeder, first) && g.loadBelt(queue, next),
+        'both start on the incoming rail');
+
+      let arrived = false;
+      for (let i = 0; i < 20 && !arrived; i++) {
+        g.step(0.1);
+        arrived = first.belt === mouth.id && Math.abs(first.off) < 1e-9;
+      }
+      check(arrived, 'the first crate stops exactly on the piston before descending');
+      eq(first.x, mouth.x, 'it does not roll forward through the mouth seam');
+      eq(first.deck ?? 0, 0, 'and it is standing at floor level, not already sinking');
+      g.step(0.1);
+      // THE DESCENT IS THE CRATE'S OWN `deck`, which is the whole of what makes
+      // a tunnel the lift's mechanism rather than a second one beside it. It
+      // was two clocks on the crate and a `carrier` record per box on the wire;
+      // a fraction between two storeys says all of it, and the shaft already
+      // spoke that language.
+      check(first.deck < 0 && first.deck > -1,
+        'the accepted crate is between the floor and the span', `${first.deck}`);
+      eq(first.x, mouth.x, 'it does not move along the span while descending');
+      eq(first.z, mouth.z, '...on either axis');
+      check(!g.beltHidden(first), 'and it stays visible for that descent');
+      const wire = g.snapshot().deliveries.find((d) => d.id === first.id);
+      near(wire?.deck, first.deck, 'the renderer receives that same fraction', 0.011);
+      eq(wire?.carrier, undefined, 'and no second per-crate carrier record beside it');
+      eq(wire?.under, undefined, '...nor a depth of the tunnel\'s own');
+
+      let buried = false;
+      for (let i = 0; i < 20 && !buried; i++) {
+        g.step(0.1);
+        buried = g.beltHidden(first);
+      }
+      check(buried, 'only reaching the bottom hides the crate');
+      near(first.deck, -1, 'which is the span itself, one storey down', 0.011);
+      check(next.belt !== mouth.id,
+        'the following crate stays off the mouth while the span is occupied');
+      let admitted = false;
+      for (let i = 0; i < 100 && !admitted; i++) {
+        g.step(0.1);
+        admitted = next.belt === mouth.id;
+      }
+      check(admitted, 'and the following crate is admitted once the span is free');
+    }
+  }
+
+  // The other visible half: the hidden leg must stop exactly under the output
+  // carrier, then rise before it is allowed onto the outgoing rail.
+  {
+    const rig = lane(1, 1);
+    check(!!rig, 'there is a tunnel whose exit piston can be watched');
+    if (rig) {
+      const { g, cells } = rig;
+      const mouth = g.beltAt(cells[IN].x, cells[IN].z);
+      const exit = g.beltAt(cells[OUT].x, cells[OUT].z);
+      const crate = g.dropGoods(GOODS.id, 1, { x: mouth.x, z: mouth.z }, { exact: true });
+      check(!!crate && g.loadBelt(mouth, crate), 'a crate starts into that tunnel');
+      // ARRIVAL IS GEOMETRY, not `belt`. A crate is filed against the cell it
+      // last left for the whole of a long hop, so the exit's id does not appear
+      // until the box is up and away — the question here is where it physically
+      // is, which is over the far mouth's square and below the floor.
+      let arrived = false;
+      for (let i = 0; i < 100 && !arrived; i++) {
+        g.step(0.1);
+        arrived = Math.abs(crate.x - exit.x) < 1e-6 && Math.abs(crate.z - exit.z) < 1e-6
+          && crate.deck < -1e-6;
+      }
+      check(arrived, 'the hidden leg reaches the output mouth');
+      check(crate.deck <= -1 + 1e-6 || !g.beltHidden(crate),
+        'and it arrives from below rather than along the floor');
+      const bottomWire = g.snapshot().deliveries.find((d) => d.id === crate.id);
+      near(bottomWire?.deck, crate.deck, 'the renderer receives it at that depth', 0.011);
+
+      // The rise is the descent's mirror and is asserted as one, because the
+      // half that looks perfect is the one that ships broken: a riser put on
+      // the near cell carries a box UP correctly and steps the box coming DOWN
+      // off the end of its own shaft. `conveyorLines` makes the same choice for
+      // a lift and its note says the same thing.
+      let rising = false;
+      let rose = null;
+      for (let i = 0; i < 40 && !rising; i++) {
+        g.step(0.1);
+        rising = crate.deck < -1e-6 && crate.deck > -1 + 1e-6 && !g.beltHidden(crate);
+        if (rising) rose = { x: crate.x, z: crate.z };
+      }
+      check(rising, 'the crate rises out of the output mouth before moving onward');
+      eq(rose?.x, exit.x, 'it remains stopped horizontally throughout that rise');
+      eq(rose?.z, exit.z, '...on either axis');
+    }
+  }
+
   /** Boxes out of the far mouth over a window, against a queue at the near one. */
   function through(inTier, seconds) {
     const rig = lane(inTier, 1);
@@ -3006,10 +3273,20 @@ function smooth(g, label, crates, ticks, at = {}) {
       g.loadBelt(g.beltAt(c.x, c.z), crate);
     }
     const was = units(g);
-    run(g, Math.round(seconds * 10));
+    // Ticks any box spent part way down the shaft. The stroke used to be a
+    // constant of its own with a rung divided into it; it is a leg of the path
+    // now, so what a quicker mouth buys has to show up as a shorter DESCENT and
+    // not only as more boxes out the far end — otherwise the rung is buying the
+    // crossing alone and the two vertical strokes are free.
+    let sinking = 0;
+    for (let i = 0; i < Math.round(seconds * 10); i++) {
+      g.step(0.1);
+      if (g.deliveries.some((d) => d.belt && d.deck < -1e-6 && d.deck > -1 + 1e-6)) sinking++;
+    }
     return {
       past: g.deliveries.filter((d) => d.belt && d.x >= exit.x - 0.01).length,
       mult: g.fixtureStats(g.beltAt(cells[IN].x, cells[IN].z)).speed_mult,
+      sinking,
       kept: units(g) === was,
     };
   }
@@ -3021,11 +3298,14 @@ function smooth(g, label, crates, ticks, at = {}) {
   if (slow && quick) {
     eq(slow.mult, 1, 'a mouth on its first rung runs at its authored speed');
     eq(quick.mult, SORT_MULT, '...and one on its top rung at its own');
+    check(quick.sinking < slow.sinking,
+      'a quicker mouth spends less of the window part way down its own shaft',
+      `slow ${slow.sinking} ticks, quick ${quick.sinking}`);
     check(slow.past > 0, 'boxes come out of a slow tunnel', `${slow.past} of 4 in 4s`);
     check(quick.past > slow.past,
       '...and more of them out of a quick one in the same window',
       `slow ${slow.past}, quick ${quick.past}`);
-    check(slow.kept && quick.kept, 'and nothing is created or destroyed underground');
+    check(slow.kept && quick.kept, 'and nothing is created or destroyed in the span');
   }
 
   /** Ticks to reach the far mouth, and ticks from there to the next belt. */
@@ -3065,6 +3345,93 @@ function smooth(g, label, crates, ticks, at = {}) {
     check(farQuick.out < both.out,
       'the far mouth buys its own step out instead, or its ladder is a dead button',
       `slow ${both.out} ticks, quick ${farQuick.out}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 21b. WHICH two ends found each other, which is a matching and not a lookup.
+//
+// A mouth is an entry if there is another one ahead of it facing the same way,
+// and that sentence is complete for two mouths and wrong for four. Asked cell
+// by cell, the middle of a chain answers yes twice: it is somebody's exit AND
+// its own entry, so a row of two tunnels is three, and the middle one swallows
+// whatever the run was supposed to do in between.
+//
+// Everything about it is invisible twice over. A crate that crossed a span and
+// a crate that rode the surface are the same box on the same shelf, so what the
+// shop looks like afterwards says nothing — and the one thing you CAN see is
+// the art, which is the wrong tell: both halves of the middle pair draw as
+// entries, so it reads as a mouth that will not turn rather than as the wrong
+// two ends having paired.
+//
+// Its rig is the live save it came off: two mouths dropped next to each other,
+// a working run of three cells beyond them, then the far pair. The bug handed
+// the near pair's exit four cells down the row to the far pair's entry, over
+// the top of the run in between — which never carried a thing, and an unbuilt
+// run and a bypassed one are the same still frame.
+//
+// The claims are a PAIR and worthless split in half: the near exit hands to the
+// surface cell in front of it, AND the far pair still opens a tunnel of its own.
+// A rule that simply refused a second tunnel on the row passes the first and
+// turns the far one off.
+// ---------------------------------------------------------------------------
+{
+  // Four mouths and three ordinary belts between the pairs — the gap is under
+  // `TUNNEL_SPAN`, which is what puts the far pair's entry in range of the near
+  // pair's exit and is the whole of how this happens.
+  const MOUTHS = new Set([0, 1, 5, 6]);
+  const LEN = 8;
+  const g = fresh();
+  const cells = beltRun(g, LEN);
+  check(!!cells, 'there is room for two tunnels with a run between them');
+  if (cells) {
+    for (const [i, c] of cells.entries()) {
+      const kind = MOUTHS.has(i) ? 'under' : 'belt';
+      const put = g.placeFixture('me', {
+        kind, piece: kind === 'under' ? MOUTH.id : BELT.id, x: c.x, z: c.z, rot: 0,
+      });
+      check(put.ok, `a ${kind} goes down at ${c.x},${c.z}`, put.error ?? '');
+    }
+    const at = (i) => g.beltAt(cells[i].x, cells[i].z);
+    const pair = (i) => tunnelExit(g.layout, at(i));
+
+    // The near pair, which is the ordinary reading and was never in doubt.
+    const near = pair(0);
+    check(near && near.x === cells[1].x, 'the first mouth pairs with the one in front of it');
+
+    // ...and its exit is an exit and NOTHING else. A mouth that answered here
+    // is drawn turned round, so this is also the assertion about the picture.
+    eq(pair(1), null, 'that pair\'s far end does not open a second tunnel of its own');
+
+    const on = conveyorNext(g.layout, at(1));
+    check(on && on.x === cells[2].x && on.z === cells[2].z,
+      'it hands to the cell standing in front of it instead of four down the row',
+      on ? `${on.x},${on.z}` : 'nowhere');
+
+    // The half that a blanket refusal would fail: the far pair is still a
+    // tunnel, because the mouth that could have claimed its entry is spoken for.
+    const far = pair(5);
+    check(far && far.x === cells[6].x, 'the far pair is still a tunnel');
+    eq(pair(6), null, '...whose own far end is likewise only an exit');
+
+    // And the run in between actually carries, which is the failure said as a
+    // journey rather than as a lookup: conservation plus a box that was seen on
+    // every surface cell the bypass used to skip.
+    const crate = g.dropGoods(GOODS.id, 2, { x: cells[0].x, z: cells[0].z }, { exact: true });
+    check(!!crate, 'a crate goes on the first mouth');
+    if (crate) {
+      const was = units(g);
+      g.loadBelt(at(0), crate);
+      const seen = new Set();
+      for (let i = 0; i < 600; i++) {
+        g.step(0.1);
+        if (crate.belt) seen.add(crate.belt);
+      }
+      for (const i of [2, 3, 4]) {
+        check(seen.has(at(i).id), `the box rode the surface cell at ${i} rather than over it`);
+      }
+      eq(units(g), was, 'and nothing is created or destroyed on the way');
+    }
   }
 }
 
@@ -3126,6 +3493,82 @@ function smooth(g, label, crates, ticks, at = {}) {
     // between and a comparison against it is a comparison with nothing.
     check(until(g, () => said()?.n === 2),
       'the next one climbs the counter rather than re-arming a flag');
+
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 22b. …and it FORGETS a box that stopped existing.
+//
+// `sortChoice` is which way out a crate was given, remembered so the answer
+// cannot flicker twenty times a second, and it is deleted when the box leaves
+// the junction's line. That covers every way a crate leaves by TRAVELLING and
+// none of the ways it stops existing — a hand lifts it off the belt, `lotAdd`
+// merges it into the box in front, it spoils, `binOrphans` takes it at the day
+// roll. Eleven places filter a crate out of `this.deliveries` and there is no
+// chokepoint to hang a delete on, so tidying at the exits is one new exit away
+// from being wrong again: it is pruned against what is RIDING instead.
+//
+// Ids never repeat, so a stale entry is dead weight for the life of the
+// process. It cannot produce a wrong answer — no crash, no misroute, nothing in
+// the feed — it can only grow, which is why it is here rather than findable by
+// playing. A size is the only shape this claim has.
+//
+// It needs a junction with a real BRANCH, which is the thing that made the
+// first draft of this pass for the wrong reason: `sorterOut` returns before it
+// remembers anything when there is only one way out, so a sorter in a straight
+// run never fills the map at all and "it was forgotten" is satisfied by "it was
+// never written".
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 3);
+  check(!!cells, 'there is room for a junction to remember something at');
+  if (cells) {
+    lay(g, [cells[0], cells[2]]);
+    let branch = null;
+    for (const r of [0, 1, 2, 3]) {
+      const n = anchorTile(cells[1].x, cells[1].z, r);
+      if (g.beltAt(n.x, n.z)) continue;
+      if (!canPlace(g.layout, { kind: 'belt', x: n.x, z: n.z, rot: 0 }).ok) continue;
+      const away = { x: n.x + (n.x - cells[1].x), z: n.z + (n.z - cells[1].z) };
+      const put = g.placeFixture('me', {
+        kind: 'belt', piece: BELT.id, x: n.x, z: n.z, rot: aim(n, away),
+      });
+      if (!put.ok) continue;
+      branch = g.beltAt(n.x, n.z);
+      break;
+    }
+    check(!!branch, 'a branch line goes down beside it');
+    const made = branch && g.placeFixture('me', {
+      kind: 'sorter', piece: 'sorter', x: cells[1].x, z: cells[1].z,
+      rot: aim(cells[1], branch),
+    });
+    check(!!made?.ok, 'and the junction between them', made?.error ?? '');
+
+    if (branch && made?.ok) {
+      const junction = () => g.beltAt(cells[1].x, cells[1].z);
+      const held = crateOn(g, junction(), GOODS, 2);
+      check(until(g, () => (g.sortChoice?.size ?? 0) > 0),
+        'a box at a junction is remembered while it is deciding');
+      // Taken away BY HAND rather than through any of the eleven filters, which
+      // is the whole point: the prune is not hung on an exit.
+      g.deliveries = g.deliveries.filter((d) => d.id !== held.id);
+      g.step(0.1);
+      eq(g.sortChoice?.size ?? 0, 0, 'and forgotten the tick after it stops existing');
+
+      // ...and the shop whose last run has GONE, which is the one state the
+      // sweep above cannot reach: with no lines left there is nothing riding to
+      // compare the memory against, so the pass returns before it prunes.
+      crateOn(g, junction(), GOODS, 2);
+      check(until(g, () => (g.sortChoice?.size ?? 0) > 0), 'a second box is remembered');
+      for (const c of [...cells, { x: branch.x, z: branch.z }]) {
+        const at = g.beltAt(c.x, c.z);
+        if (at) g.removeFixture('me', at.id);
+      }
+      g.step(0.1);
+      eq(g.sortChoice?.size ?? 0, 0, 'and tearing the run out forgets it too');
+    }
   }
 }
 
@@ -3743,6 +4186,116 @@ const bedAt = (g) => (at) => {
     // reached through and what any future "where can this go" would read.
     const met = conveyorMeets(g.layout, arm);
     check((met.pens ?? []).some((p) => p.id === pen.id), 'the run reports the pen it meets');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 26. A DRAG BACK ALONG A RUN YOU OWN AIMS IT.
+//
+// Invisible twice over, which is why it is here: a line that reversed and a line
+// that ignored you are the same picture until a crate goes down it, and the shop
+// is the same shop either way — same cells, same cost, same everything but the
+// one number a belt exists to express. The gesture was refused for as long as
+// there have been drags ("nothing could go there"), because the skip above it is
+// about the KIND and was answering a question about DIRECTION as a side effect.
+//
+// Its control is the drag that says nothing new — the same run dragged the same
+// way is still an error, or "it aims what it crosses" becomes "every sweep is a
+// success", and a press that reports a change it did not make is worse than one
+// that refuses.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 5);
+  check(!!cells, 'there is room for a five-cell run to reverse');
+  if (cells) {
+    const east = g.buildRun('me', {
+      kind: 'belt', piece: BELT.id, x: cells[0].x, z: cells[0].z, to: cells[4],
+    });
+    eq(east.laid, 5, 'the run goes down east');
+    const ids = cells.map((c) => g.beltAt(c.x, c.z)?.id);
+    const cash = g.cash;
+    const ver = g.layoutVersion;
+    // A box already riding it, because a run is storage: reversing a line is a
+    // gesture made in a working shop, and whatever it does to the goods on that
+    // line is the one thing nobody would think to look at.
+    const riding = crateOn(g, g.beltAt(cells[2].x, cells[2].z));
+    const held = units(g);
+
+    // The same five squares, dragged the other way.
+    const back = g.buildRun('me', {
+      kind: 'belt', piece: BELT.id, x: cells[4].x, z: cells[4].z, to: cells[0],
+    });
+    check(back.ok, 'dragging back along it is not a refusal', back.error ?? '');
+    eq(back.laid, 0, '...and lays nothing, because the cells are already there');
+    eq(back.aimed, 5, '...it aims all five');
+    eq(g.layoutVersion, ver + 1, '...in ONE re-flow');
+    eq(g.cash, cash, '...and turning what you already own is free');
+
+    for (let i = 4; i > 0; i--) {
+      const cell = g.beltAt(cells[i].x, cells[i].z);
+      const to = cell && g.beltNext(cell);
+      eq(`${to?.x},${to?.z}`, `${cells[i - 1].x},${cells[i - 1].z}`,
+        `the cell at ${cells[i].x},${cells[i].z} now faces west`);
+    }
+
+    // The cells are the SAME cells. A re-aim that went through `placeFixture`
+    // (or through `repositionFixture`) would re-mint every id on the run, and a
+    // crate's address is a cell id — so the run would reverse and every box on
+    // it would be orphaned, which is stock destroyed by a gesture that looks
+    // like it worked.
+    eq(JSON.stringify(cells.map((c) => g.beltAt(c.x, c.z)?.id)), JSON.stringify(ids),
+      'and not one cell was re-laid under a new id');
+    eq(units(g), held, 'the box on the run is still there');
+    check(!!riding.belt && g.deliveries.includes(riding),
+      '...and still riding rather than dropped on the floor');
+
+    // The control: nothing new to say is still nothing done.
+    const again = g.buildRun('me', {
+      kind: 'belt', piece: BELT.id, x: cells[4].x, z: cells[4].z, to: cells[0],
+    });
+    check(!again.ok, 'dragging it the way it already points changes nothing');
+  }
+}
+{
+  // ...and it is the ARMED kind only. A belt swept across a loader still steps
+  // round it — the skip this is built beside is about not turning machinery back
+  // into plain belt, and re-aiming it instead would be the same loss wearing a
+  // rotation: a loader aims at the shelf it stocks, so a sweep that turned it
+  // would silently unhook every unit on the aisle.
+  const g = fresh();
+  const path = beltRun(g, 5);
+  check(!!path, 'there is room for a run that crosses a loader');
+  if (path) {
+    const machine = g.placeFixture('me', {
+      kind: 'arm', piece: ARM.id, x: path[2].x, z: path[2].z, rot: 1,
+    });
+    check(machine.ok, 'a loader stands in the path', machine.error ?? '');
+    const was = g.beltAt(path[2].x, path[2].z)?.rot;
+    const swept = g.buildRun('me', {
+      kind: 'belt', piece: BELT.id, x: path[0].x, z: path[0].z, to: path[4],
+    });
+    check(swept.ok, 'the belt run lays around it', swept.error ?? '');
+    eq(g.beltAt(path[2].x, path[2].z)?.rot, was, 'and the loader still aims where it did');
+    eq(swept.aimed, 0, '...with nothing reported as aimed');
+  }
+}
+{
+  // ...and a PRESS is not a drag. One cell is still the swap gesture — the hover
+  // ghost is drawn from `canPlace`, which refuses a belt on a belt, so a press
+  // that turned one would be a green-ghost bug pointed the other way: a click
+  // that does something while its own preview stands red over the square.
+  const g = fresh();
+  const cells = beltRun(g, 2);
+  check(!!cells, 'there is room for a cell to press on');
+  if (cells) {
+    g.buildRun('me', { kind: 'belt', piece: BELT.id, x: cells[0].x, z: cells[0].z, to: cells[1] });
+    const was = g.beltAt(cells[0].x, cells[0].z)?.rot;
+    const press = g.buildRun('me', {
+      kind: 'belt', piece: BELT.id, x: cells[0].x, z: cells[0].z, to: null, rot: (was + 2) % 4,
+    });
+    check(!press.ok, 'a one-cell press on a belt is still refused');
+    eq(g.beltAt(cells[0].x, cells[0].z)?.rot, was, '...and turns nothing');
   }
 }
 

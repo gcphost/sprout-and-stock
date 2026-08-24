@@ -6,6 +6,7 @@ import { pinLast, byRank, PALETTE_LEAD, KEYED } from './bar.js';
 // it for a grade. There is one rate and everything that goes down uses it.
 import {
   FIXTURES, isProp, isGround, isPaint, isSurface, FLOOR_KIND, STOCK_KINDS, shelfKind, FIXTURE_REFUND,
+  CEILING, goesOverhead,
 } from '../shared/build.js';
 import { homeKind } from '../shared/tags.js';
 // `E` beside `wayDefault`, and for the same reason the curtain reads its kind
@@ -300,6 +301,14 @@ export function subOfTool(t, groupId) {
  * own price; if a planter and a barrel need different words, they are different
  * kinds or they are the same thing with two looks.
  *
+ * `run` is which section of the strip it sits in — the caption drawn in the gap
+ * before the first tile of the run, see `runLabels`. Per kind for the reason
+ * above and one more: it is a claim about the RULES ("the only home for frozen
+ * goods"), so it must not be something a second freezer design could disagree
+ * with. A kind with none is in no section, which is the right answer for a tab
+ * that is already filed by something else — Decoration by tag, Floors by being
+ * one catalogue of one thing.
+ *
  * Kinds in palette order, within their group. A kind missing from here still
  * builds — it just gets the generic icon, which is the honest answer for one
  * nobody has described.
@@ -308,21 +317,25 @@ export const KIND_TOOLS = {
   shelf: {
     icon: ICONS.shelf,
     group: 'shop',
+    run: 'Shelves',
     blurb: 'Anything that needs no freezing. Browsed from the side it faces.',
   },
   freezer: {
     icon: ICONS.freezer,
     group: 'shop',
+    run: 'Cold',
     blurb: 'The only home for frozen goods. Four times the shelf life.',
   },
   warmer: {
     icon: ICONS.warmer,
     group: 'shop',
+    run: 'Hot',
     blurb: 'The only home for hot food. Anything else in one cooks slowly.',
   },
   checkout: {
     icon: ICONS.checkout,
     group: 'shop',
+    run: 'Tills',
     blurb: 'Takes money. Needs a clear run alongside for the queue.',
   },
   // Reusing `move` and `station` rather than baking two new glyphs: `ICONS`
@@ -331,31 +344,37 @@ export const KIND_TOOLS = {
   belt: {
     icon: ICONS.move,
     group: 'logistics',
+    run: 'Runs',
     blurb: 'Carries crates one cell at a time, the way it faces. Walk over it.',
   },
   arm: {
     icon: ICONS.station,
     group: 'logistics',
+    run: 'Runs',
     blurb: 'A belt cell that also stocks. Put it in the run beside a shelf.',
   },
   sorter: {
     icon: ICONS.supplier,
     group: 'logistics',
+    run: 'Runs',
     blurb: 'A junction. R sets the branch; the crew pick which box goes down it.',
   },
   under: {
     icon: ICONS.move,
     group: 'logistics',
-    blurb: 'Two mouths, up to four cells apart, both facing the way goods go. The squares between stay yours.',
+    run: 'Runs',
+    blurb: 'Two mouths, up to four cells apart, both facing the way goods go. Mouths block walking; the squares between stay yours.',
   },
   lift: {
     icon: ICONS.station,
     group: 'logistics',
-    blurb: 'Joins the floor to the ceiling. Whatever feeds it decides which way it carries.',
+    run: 'Runs',
+    blurb: 'Joins the floor to the ceiling. Whatever feeds it decides which way it carries; R sets which side it comes out at.',
   },
   plot: {
     icon: ICONS.plot,
     group: 'farm',
+    run: 'Beds',
     blurb: 'Earth, outside. Turn it over before it takes a seed.',
   },
   // Reusing `plot` rather than baking a glyph: `ICONS` throws on a name nobody
@@ -363,10 +382,12 @@ export const KIND_TOOLS = {
   pen: {
     icon: ICONS.plot,
     group: 'farm',
+    run: 'Pens',
     blurb: 'A shelter for animals, outside. Fills up on its own — collect it from the gate, and never sow it. Paint a paddock around it to keep more than one.',
   },
   bin: {
     icon: ICONS.close,
+    run: 'Waste',
     // Shop rather than Building, and it is a judgement rather than a fact about
     // the code: a skip is a thing you stand somewhere, like a till, not part of
     // the shell. Filed under the tab you are on when you notice you need one.
@@ -434,11 +455,13 @@ export const KIND_TOOLS = {
   bay: {
     icon: ICONS.crate,
     group: 'logistics',
+    run: 'Pads',
     blurb: 'Drag out an area. Wholesale orders land here as pallets — make it bigger to take bigger deliveries.',
   },
   drop: {
     icon: ICONS.crate,
     group: 'logistics',
+    run: 'Pads',
     blurb: 'Drag out an area. Where hands get cleared and stock waits to be shelved. Indoors it is a stockroom.',
   },
   // The one of the three that carries a job for the crew rather than for the
@@ -447,6 +470,7 @@ export const KIND_TOOLS = {
   break: {
     icon: ICONS.staff,
     group: 'logistics',
+    run: 'Pads',
     blurb: 'Drag out an area. Your crew dock and charge here instead of topping up wherever they finished, and come back fuller. One cell holds one unit.',
   },
   // The fourth pad, and it sits with the roads because it is the END of one.
@@ -463,6 +487,7 @@ export const KIND_TOOLS = {
     icon: ICONS.walk,
     group: 'outdoors',
     sub: 'roads',
+    run: 'Parking',
     blurb: 'Drag out an area. Hardstanding out front for shoppers who drive here — one cell parks one, and they walk in from where they left it.',
   },
   // The fifth pad, and the only one filed by what it holds rather than by where
@@ -475,6 +500,7 @@ export const KIND_TOOLS = {
   paddock: {
     icon: ICONS.plot,
     group: 'farm',
+    run: 'Grazing',
     blurb: 'Drag out an area. Grazing for a pen standing in it — every four cells is another animal, and more animals fill it faster.',
   },
   // The ground the world came with, and the last cell in the game to become
@@ -497,17 +523,40 @@ export const KIND_TOOLS = {
     icon: ICONS.move,
     group: 'outdoors',
     sub: 'roads',
+    run: 'Driving',
     blurb: 'Drag out an area. Vans and shoppers’ cars come in on whichever way is cheapest, and they would rather drive on this than on your grass.',
   },
   path: {
     icon: ICONS.walk,
     group: 'outdoors',
     sub: 'roads',
+    run: 'Walking',
     blurb: 'Drag out an area. Anybody walking outdoors would rather go round on this than cut across the grass. A striped one laid over a road is a crossing.',
   },
 };
 
+/**
+ * The tabs a STOREY is a question on — derived from the table above rather than
+ * named, so the day a kind is authored overhead the switch appears on whichever
+ * tab it was filed under.
+ *
+ * It is a fact about the TAB and deliberately not about what is armed, which is
+ * the whole of what makes the switch reachable: gated on the tool, you could
+ * not go up there without first arming something that goes up there, and the
+ * one thing you most want to do up there — point at a duct you have already
+ * built — needs no tool at all. The tools that cannot follow you up are drawn
+ * dead instead (`off` in `buildGroups`), which is the same deal a tile you
+ * cannot afford already offers.
+ *
+ * Per group and never per sub-tab: a storey is a bigger question than which
+ * shelf of one tab you are on, and Logistics has no subs to disagree about.
+ */
+export const DECK_GROUPS = new Set(
+  Object.entries(KIND_TOOLS).filter(([k]) => goesOverhead(k)).map(([, t]) => t.group),
+);
+
 export const BUILD_TOOLS = [
+
   // The shell. These go on the lines *between* tiles rather than on a tile, so
   // they aim differently — `Scene.pickEdge` rather than `pickTile` — but they
   // sit in the same palette because from the player's side it is all building.
@@ -516,15 +565,32 @@ export const BUILD_TOOLS = [
     edge: 1,
     group: 'shell',
     sub: 'walls',
+    run: 'Walls',
     icon: ICONS.build,
     name: 'Wall',
     blurb: 'Encloses. Anything the walls close in counts as indoors.',
+  },
+  // The low wall, filed with the walls rather than with the fence it is a look
+  // of. Where a thing goes on the bar is a fact about what somebody has in mind
+  // when they reach for it — a hedge and a railing are what you put round the
+  // farm, and a waist-high partition is what you put across a room. It is still
+  // one family: tap either and the menu offers all four.
+  {
+    id: 'low-wall',
+    edge: E.LOW_WALL,
+    group: 'shell',
+    sub: 'walls',
+    run: 'Walls',
+    icon: ICONS.build,
+    name: 'Low wall',
+    blurb: 'Waist high, and you see over it. Never makes a room — so a partition, never an annex. Takes paint like any wall.',
   },
   {
     id: 'window',
     edge: 2,
     group: 'shell',
     sub: 'walls',
+    run: 'Glazing',
     icon: ICONS.ambient,
     name: 'Window',
     blurb: 'A wall you can see through. Still encloses. Tap one you have already built to reglaze it.',
@@ -539,6 +605,7 @@ export const BUILD_TOOLS = [
     edge: 10,
     group: 'shell',
     sub: 'walls',
+    run: 'Glazing',
     icon: ICONS.ambient,
     name: 'Shopfront',
     blurb: 'Glass from the floor to the lintel. Costs what a window costs — it is the same wall.',
@@ -548,6 +615,7 @@ export const BUILD_TOOLS = [
     edge: 11,
     group: 'shell',
     sub: 'walls',
+    run: 'Glazing',
     icon: ICONS.ambient,
     name: 'Bay window',
     blurb: 'Glazing that steps out over a sill. It projects into the street, never into the aisle.',
@@ -557,9 +625,24 @@ export const BUILD_TOOLS = [
     edge: 12,
     group: 'shell',
     sub: 'walls',
+    run: 'Glazing',
     icon: ICONS.ambient,
     name: 'High window',
     blurb: 'A strip up under the lintel: light, no view. What a stockroom wants.',
+  },
+  {
+    id: 'door',
+    edge: 3,
+    group: 'shell',
+    sub: 'walls',
+    run: 'Doors',
+    icon: ICONS.shop,
+    name: 'Doorway',
+    // The second sentence is the whole affordance for step 15. Nothing on screen
+    // could otherwise say that a door has a setting: there is no palette button
+    // for a staff doorway on purpose — you find out a door should be one after the
+    // room exists — so the tool that builds them is where it has to be said.
+    blurb: 'A way through. Still counts as part of the enclosure. Tap one you have already built to say who it is for.',
   },
   // The span. Its own tool rather than a look on the doorway, for the reason the
   // roller door is one: a family is the set of things that swap for a *refit*,
@@ -570,36 +653,10 @@ export const BUILD_TOOLS = [
     edge: E.ARCH,
     group: 'shell',
     sub: 'walls',
+    run: 'Doors',
     icon: ICONS.build,
     name: 'Archway',
     blurb: 'A way through with nothing in it. Encloses like a doorway. Tap one you have already built to keep shoppers out.',
-  },
-  // The low wall, filed with the walls rather than with the fence it is a look
-  // of. Where a thing goes on the bar is a fact about what somebody has in mind
-  // when they reach for it — a hedge and a railing are what you put round the
-  // farm, and a waist-high partition is what you put across a room. It is still
-  // one family: tap either and the menu offers all four.
-  {
-    id: 'low-wall',
-    edge: E.LOW_WALL,
-    group: 'shell',
-    sub: 'walls',
-    icon: ICONS.build,
-    name: 'Low wall',
-    blurb: 'Waist high, and you see over it. Never makes a room — so a partition, never an annex. Takes paint like any wall.',
-  },
-  {
-    id: 'door',
-    edge: 3,
-    group: 'shell',
-    sub: 'walls',
-    icon: ICONS.shop,
-    name: 'Doorway',
-    // The second sentence is the whole affordance for step 15. Nothing on screen
-    // could otherwise say that a door has a setting: there is no palette button
-    // for a staff doorway on purpose — you find out a door should be one after the
-    // room exists — so the tool that builds them is where it has to be said.
-    blurb: 'A way through. Still counts as part of the enclosure. Tap one you have already built to say who it is for.',
   },
   // The roller door. Its own tool rather than a look on the doorway, because a
   // family is the set of things that swap for a *refit* — and swapping a $34
@@ -609,6 +666,7 @@ export const BUILD_TOOLS = [
     edge: 15,
     group: 'shell',
     sub: 'walls',
+    run: 'Doors',
     icon: ICONS.crate,
     name: 'Roller door',
     blurb: 'A garage bay door, rolled up under its lintel. Part of the enclosure, like any doorway. Tap one you have already built to say who it is for.',
@@ -628,6 +686,7 @@ export const BUILD_TOOLS = [
     edge: wayDefault('curtain'),
     group: 'shell',
     sub: 'walls',
+    run: 'Doors',
     icon: ICONS.staff,
     name: 'Strip curtain',
     blurb: 'Hangs clear of the floor, so belts and crates carry on through it. Shoppers do not. Tap one to open it to everybody.',
@@ -642,6 +701,7 @@ export const BUILD_TOOLS = [
     id: 'fence',
     edge: 5,
     group: 'farm',
+    run: 'Fencing',
     icon: ICONS.plot,
     name: 'Fence',
     blurb: 'Marks out the farm. Blocks the way, but never makes a room.',
@@ -652,6 +712,7 @@ export const BUILD_TOOLS = [
     id: 'hedge',
     edge: E.HEDGE,
     group: 'farm',
+    run: 'Fencing',
     icon: ICONS.plot,
     name: 'Hedge',
     blurb: 'A fence made of planting. Same job, same price — it just is not a fence.',
@@ -660,6 +721,7 @@ export const BUILD_TOOLS = [
     id: 'railing',
     edge: E.RAILING,
     group: 'farm',
+    run: 'Fencing',
     icon: ICONS.plot,
     name: 'Railing',
     blurb: 'Posts and a rail. Blocks the way and you can see the whole field through it.',
@@ -668,6 +730,7 @@ export const BUILD_TOOLS = [
     id: 'gate',
     edge: 4,
     group: 'farm',
+    run: 'Fencing',
     icon: ICONS.build,
     name: 'Gate',
     blurb: 'A way through a fence. Tap one you have already built to keep shoppers out of the field.',
@@ -779,6 +842,12 @@ export function buildTools(ui) {
         // authored tomorrow lands where its author said rather than at the back
         // of whatever `SELECT *` handed back — see `byRank`.
         sort: p.sort ?? 0,
+        // Which run of the strip it belongs to — see `runLabels`. Off the KIND
+        // rather than the piece, and that is the same split `icon` and `blurb`
+        // make one line down: a run is a claim about the RULES (this is where
+        // frozen goods live), so every design of a freezer is in it, and a
+        // second shelf design must not be able to open a section of its own.
+        run: KIND_TOOLS[kind]?.run ?? '',
         name: p.name,
         blurb: KIND_TOOLS[kind]?.blurb ?? '',
       });
@@ -880,6 +949,16 @@ export function buildTools(ui) {
        * came before say nothing and do not move.
        */
       group: u.payload.group ?? 'appliance',
+      /**
+       * ...and which section of that tab, beside how far up it. Both ride the
+       * payload for `group`'s reason: a machine is an upgrade rather than a
+       * piece, so there is no `fixtures` row under it to carry `sort` and no
+       * entry in `KIND_TOOLS` to carry `run` — every appliance in the game is
+       * one kind. Unset is the old behaviour exactly: no section, and the order
+       * the catalogue happened to hand back.
+       */
+      run: u.payload.run ?? '',
+      sort: u.payload.sort ?? 0,
       icon: ICONS.station,
       // An appliance IS a variant, so it draws the way every other shape does.
       art: artForTool({ kind: 'station' }, machine, u.payload.station),
@@ -903,6 +982,12 @@ export function buildTools(ui) {
  */
 export function buildGroups(ui) {
   const cash = ui?.state?.cash ?? 0;
+  // Whether you are up a storey, which is a second reason a tile can be dead —
+  // see `DECK_GROUPS`. Asked of `buildDeck` rather than of the switch's own
+  // state, so the tiles and the lit chip can never disagree: while you are
+  // carrying something that has to go on the floor the pair reads Floor, and
+  // nothing is greyed.
+  const up = ui?.buildDeck === CEILING;
   const tools = buildTools(ui).map((t) => {
     const cost = ui?.buildCosts?.[t.id];
     // How many of these are standing in the shop. It was a line of the old
@@ -919,15 +1004,22 @@ export function buildGroups(ui) {
     // support — affording a cell of tarmac is not affording the drive, and the
     // drag prices itself as you pull it out.
     const poor = cost != null && cost > cash;
+    // ...and what cannot go where you are pointing. Its own flag rather than
+    // `poor`, because the two are different sentences: `poor` colours the price,
+    // and the price is not what is wrong with a shelf while you are on the
+    // ceiling.
+    const off = up && !goesOverhead(t.kind);
     return {
       ...t,
       note: cost == null ? '' : money(cost),
       poor,
+      off,
       badge: have ? String(have) : '',
       // The shortfall goes in the tip, because the tile has room for the price
       // and not for the arithmetic — and greyed-out with no reason given is the
       // one state where somebody would otherwise think the button was broken.
-      title: `${t.name} — ${t.blurb}${poor ? ` · ${money(cost)} and you have ${money(cash)}` : ''}`,
+      title: `${t.name} — ${t.blurb}${poor ? ` · ${money(cost)} and you have ${money(cash)}` : ''}${
+        off ? ' · Only a belt, loader or sorter goes overhead' : ''}`,
       // Whether this one comes in shapes, which is what earns the tile its
       // chevron and makes a hold on it mean something. Asked of the PIECE, since
       // that is what `variantsOf` reads and what the popover will offer — a tool
@@ -942,13 +1034,58 @@ export function buildGroups(ui) {
       // where a thing you BUILD sits, and Demolish is not one of those — a row
       // authored at 99 must not be able to shove it off the end.
       const items = pinLast(byRank(tools.filter((t) => inGroup(t, g.id))));
-      return { ...g, items, subs: splitGroup(g, items) };
+      // ...and then labelled, per STRIP rather than per tab, which is the whole
+      // of why this is not done one line up: a split group renders its subs and
+      // never the flat list, and a sub holding one run wants no label at all.
+      const subs = splitGroup(g, items);
+      return {
+        ...g,
+        items: runLabels(items),
+        subs: subs?.map((sub) => ({ ...sub, items: runLabels(sub.items) })) ?? null,
+      };
     })
     // A tab holding nothing but the bulldozer opens onto nothing you can build,
     // which is worse than no tab — and it is what an Appliances tab looks like
     // in a world where nobody has authored a machine yet. Pinned entries do not
     // count towards a tab earning its place.
     .filter((g) => g.items.some((t) => !t.last));
+}
+
+/**
+ * A strip in runs, each run wearing its name in the gap before it.
+ *
+ * The same mechanism the roster uses (`head`, see `staffGroups` and `bar.js`)
+ * pointed at the palette, and for the same complaint: Shop is thirteen tiles of
+ * furniture in five families, and sorting them put every family together
+ * without saying anywhere that a family is what you are looking at. Two racks
+ * six tiles apart read as an unsorted strip even when the strip is sorted —
+ * `pallet-rack` is shelving and `cold-rack` is a freezer, which is the one thing
+ * about them the pictures cannot say and a two-letter caption can.
+ *
+ * THE ORDER IS NOT THIS FUNCTION'S JOB, and that is the trap to know about
+ * before adding a run to anything. A label is put on the FIRST entry of each
+ * maximal run, so a strip whose ranking interleaves two runs comes out with the
+ * same word twice — which reads as the sort having failed, in the one place
+ * that exists to say it has not. Whatever ranks a tab (`sort` on the row, the
+ * order of `BUILD_TOOLS`) has to keep a run together; the shell's own array was
+ * reordered for exactly that, so its walls, its glazing and its ways through are
+ * three runs rather than five.
+ *
+ * Only with two runs in the strip, which is the roster's rule and `splitGroup`'s
+ * one level down: a single label is a heading over everything, saying what the
+ * tab already says. An entry with no run at all is in none of them — Decoration
+ * is filed by tag on its sub-tabs already, and the pinned bulldozer belongs to
+ * no family by definition.
+ */
+function runLabels(items) {
+  const runs = [...new Set(items.filter((t) => !t.last && t.run).map((t) => t.run))];
+  if (runs.length < 2) return items;
+  let at = null;
+  return items.map((t) => {
+    if (t.last || !t.run || t.run === at) return t;
+    at = t.run;
+    return { ...t, head: t.run };
+  });
 }
 
 /**
@@ -2245,14 +2382,7 @@ export const SECTIONS = [
       (ui.state?.shelves ?? []).filter((s) => !(s.stacks ?? []).some((k) => k.qty > 0)).length,
       (ui.state?.plots ?? []).filter((p) => p.crop_id).length,
       (ui.state?.plots ?? []).filter((p) => p.ready).length,
-      (ui.state?.queues ?? []).reduce((a, q) => a + q.queue, 0),
-      // ...and the footfall switch, for the reason every other switch is in a
-      // signature: `run` repaints, but without it in here the next snapshot's
-      // diff decides nothing has changed and throws that repaint away — so the
-      // button would go on saying Show while the floor was already tinted.
-      // It is client state rather than a field on the wire, which is exactly
-      // why it has to be named: nothing else in this list would ever move.
-      ui.scene?.heat?.on === true]),
+      (ui.state?.queues ?? []).reduce((a, q) => a + q.queue, 0)]),
     /**
      * ONE drawn block instead of fourteen rows across three tabs.
      *
@@ -2261,14 +2391,7 @@ export const SECTIONS = [
      * everything the panel machinery needs and the picture does not care about:
      * the key, the title, the badge and the signature above.
      */
-    rows: (ui) => [{
-      html: reportHtml(ui),
-      // The picture's one pair of presses. `acts` on the row rather than
-      // handlers inside `report.js`, so that file stays what its header says it
-      // is — a pure snapshot-to-HTML function — and the panel machinery wires
-      // these the same way it wires a stepper or a switch tile.
-      acts: { footfall: (u) => u.toggleFootfall() },
-    }],
+    rows: (ui) => [{ html: reportHtml(ui) }],
   },
 
   {
@@ -2425,7 +2548,7 @@ export const SECTIONS = [
      * supplier's three. The track name is in it too, so the Music row keeps up
      * with the playlist while you have the tab open.
      */
-    live: () => `${mix.signature()}|${music.nowPlaying()?.id ?? '-'}`
+    live: (ui) => `${mix.signature()}|${music.nowPlaying()?.id ?? '-'}`
       + `|${CORNERS.map((c) => (isOff(c.id) ? '-' : '+')).join('')}`
       // ...and who is in the shop. Both halves of it move behind this menu's
       // back — a code is minted by a promise nobody awaits, and a friend
@@ -2439,7 +2562,10 @@ export const SECTIONS = [
       // ...and the two readouts, same reason. Both of them draw somewhere other
       // than this panel, so the tile is the only thing on screen that can
       // confirm the press landed.
-      + `|${DEBUGS.map((d) => (debugOn(d.id) ? '+' : '-')).join('')}`,
+      + `|${DEBUGS.map((d) => (debugOn(d.id) ? '+' : '-')).join('')}`
+      // Footfall is client state too: there is no snapshot field whose change
+      // could otherwise keep this switch in step with the overlay.
+      + `|${ui.scene?.heat?.on === true ? '+' : '-'}`,
     // Every line here is clamped to one line in a 214px panel, so the copy has
     // to be short enough to survive it — an ellipsis mid-word is worse than a
     // blunter phrase. The long version lives in `sub`, which is also the hover.
@@ -2681,6 +2807,15 @@ function switchGrid(ui) {
         on: !isOff(c.id),
         title: isOff(c.id) ? 'Put away.' : c.sub,
       })),
+      {
+        id: 'footfall',
+        icon: ICONS.walk,
+        name: 'Footfall',
+        on: ui.scene?.heat?.on === true,
+        title: ui.scene?.heat?.on
+          ? 'Shown. The floor is tinted by where shoppers actually walk.'
+          : 'Hidden. Show where shoppers actually walk.',
+      },
       // The two developer readouts, which until now could only be turned on by
       // typing in the address bar — see client/debug.js for why that is not a
       // switch. Drawn off `DEBUGS` rather than written out for the reason
@@ -2733,6 +2868,7 @@ function switchGrid(ui) {
       // caught lying in.
       cinema: () => { setCinema(!cinemaOn()); ui.paintSection(); },
       stats: () => { setStats(!statsOn()); ui.paintSection(); },
+      footfall: () => ui.toggleFootfall(),
       ...Object.fromEntries(CORNERS.map((c) => [
         `corner:${c.id}`, () => { setOff(c.id, !isOff(c.id)); ui.paintSection(); },
       ])),

@@ -54,6 +54,15 @@ export const DEBUGS = [
     name: 'Tile grid',
     sub: 'every tile wearing its coordinates, and the one under the pointer',
   },
+  {
+    id: 'flow',
+    // No belt glyph in `client/icons.js`, and the map is about DIRECTION rather
+    // than about the piece — `move` is the arrows. `icon()` would fall back to
+    // the gear, which says nothing.
+    icon: 'move',
+    name: 'Conveyor map',
+    sub: 'every run as one line — junctions, merges, dead ends, and amber for a line that reaches nothing',
+  },
 ];
 
 /** localStorage is a hostile environment: private mode, quota, a stale value. */

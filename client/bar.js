@@ -44,7 +44,7 @@
  *
  * Shapes:
  *   group   = { id, name, icon, blurb, items: [item], subs?: [group] }
- *   item    = { id, icon, art, name, note, badge, title, warn, poor, last, head }
+ *   item    = { id, icon, art, name, note, badge, title, warn, poor, off, last, head }
  *   choice  = { options: [{ id, name, art }], picked, open, onPick } | null
  *
  * `head` is a run label — a word drawn in the gap *before* that entry, upright,
@@ -186,6 +186,10 @@ export function renderBar(el, {
   // events in some browsers, and the tip explaining WHY it cannot be pressed is
   // a hover away — so the one state that most needs its explanation would be the
   // one state with no way to ask for it. The press is refused below instead.
+  // `off` is the second of those and works the same way: what cannot go on the
+  // storey you are pointing at (see `DECK_GROUPS` in client/sections.js). Two
+  // flags rather than one, because they are two sentences and only one of them
+  // is about the price — the tip says which.
   // `armed` is a state of its own rather than a flavour of `on`, and the reason
   // is what the two mean: `on` is a tool in your hand, which stays there until
   // you put it down, and `armed` is a question that expires. So it carries the
@@ -195,10 +199,10 @@ export function renderBar(el, {
   setHtml(el.items, items.map((it, i) => `
     ${it.head ? `<span class="run" aria-hidden="true"><i>${esc(it.head)}</i></span>` : ''}
     <button class="tool${it.id === picked ? ' on' : ''}${it.warn ? ' warn' : ''}${
-  it.armed ? ' armed' : ''}${it.poor ? ' poor' : ''}"
+  it.armed ? ' armed' : ''}${it.poor ? ' poor' : ''}${it.off ? ' off' : ''}"
       data-slot="${i}" data-entry="${esc(it.id)}" title="${esc(it.title ?? it.name)}"
       ${it.armed ? `style="--arm:${Number(it.armed)}ms"` : ''}
-      ${it.poor ? 'aria-disabled="true"' : ''}>
+      ${it.poor || it.off ? 'aria-disabled="true"' : ''}>
       ${i < KEYED ? `<span class="key">${i + 1}</span>` : ''}
       ${it.badge ? `<span class="have">${esc(it.badge)}</span>` : ''}
       <span class="ico${it.art ? ' art' : ''}">${it.art ?? it.icon}</span>
@@ -267,7 +271,7 @@ export function renderBar(el, {
     b.onpointerdown = (e) => {
       // A hold ARMS the tile on its way to the shape card (`onShapes`), so it is
       // the same press as a tap as far as affording it goes.
-      if (!onLong || it.poor) return;
+      if (!onLong || it.poor || it.off) return;
       held = false;
       from = { x: e.clientX, y: e.clientY };
       // The tile fills while you hold it. A hold with no progress on it is
@@ -296,7 +300,7 @@ export function renderBar(el, {
       // The tile says so (greyed, price in the accent colour) and the tip beside
       // the pointer has the arithmetic, which is the same deal a section row you
       // cannot afford already offers: dim, and dead.
-      if (it.poor) return undefined;
+      if (it.poor || it.off) return undefined;
       if (it.shapes && onShapes && e.target.closest('[data-more]')) return onShapes(it);
       return onPick(it);
     };

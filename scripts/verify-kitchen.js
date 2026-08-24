@@ -359,6 +359,23 @@ function urn(g, tier = 1) {
   return st;
 }
 
+// A recipe is only "made here" when the shop has both halves of production:
+// the matching appliance and somebody assigned to manufacture. This distinction
+// is what lets the ordering system use spare stockroom capacity in a shop with
+// idle machinery or no chef.
+{
+  const g = fresh();
+  urn(g);
+  check(!g.makesHere('zz-kit-brew'),
+    'an appliance with no chef does not reserve its output from the supplier');
+  check(g.hire(TEST_WORKER.id).ok, 'a chef can be taken on for the production test');
+  check(g.makesHere('zz-kit-brew'),
+    'a staffed appliance marks its selected output as made here');
+  g.roster[g.roster.length - 1].jobs = [{ job: 'shelve', weight: 1 }];
+  check(!g.makesHere('zz-kit-brew'),
+    'removing the manufacturing directive hands that output back to overstock');
+}
+
 /** Put an armful in somebody's hands. */
 const hold = (g, itemId, qty) => { g.players.me.carry = { item_id: itemId, qty }; };
 

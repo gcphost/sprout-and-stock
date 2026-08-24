@@ -27,7 +27,7 @@ import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
   FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS, FIXTURES,
-  footprint, sizeOf, deckOf, CEILING, LIFT_WAYS,
+  footprint, sizeOf, deckOf, CEILING, LIFT_WAYS, rot4,
 } from '../shared/build.js';
 
 export { T };
@@ -745,6 +745,30 @@ function compose(req, storeW, storeH, allowDrops = true) {
   // re-flow that same call triggers, and the refund made it look like the tap
   // had simply not registered. A reservation is the generator promising not to
   // build somewhere; it was never a rule about what you may do.
+  /**
+   * The squares a SHAFT owns, which it owns on both storeys.
+   *
+   * `conveyorAt` gives a lift's square to the lift on each deck — that is what
+   * lets a run on either one hand to it — so any other conveyor cell standing
+   * on that square is not a second run. It is a cell nothing in the game can
+   * address: no feeder can name it, its own hand-off is never travelled, and
+   * the renderer strips it (`conveyorBody` drops a belt sharing a lift's roof),
+   * so it cannot even be pointed at to be deleted.
+   *
+   * `conveyorSwap` stops a new one being made, in both orders. This is the same
+   * rule said about the ones that ALREADY EXIST — laid before that fix, by the
+   * obvious build order: draw the duct, then drop a shaft under it. A keeping
+   * rule rather than a migration, for `canKeep`'s own reason: an unaddressable
+   * cell is not a fact about the cell, it is a fact about what is standing next
+   * to it, so it has to be re-answered every re-flow rather than once.
+   *
+   * Gathered before the loop because placements are in build order and the
+   * shaft is usually the LATER of the two — asked as we go, the belt is already
+   * in `beltsOut` by the time its lift turns up.
+   */
+  const shaftSquares = new Set((req.placements ?? [])
+    .filter((p) => p.kind === 'lift').map((p) => `${p.x},${p.z}`));
+
   const reserved = new Set();
   const reserve = (a) => a && reserved.add(`${a.x},${a.z}`);
   const free = (x, z) => at(x, z) === T.FLOOR
@@ -830,6 +854,13 @@ function compose(req, storeW, storeH, allowDrops = true) {
       continue;
     }
     if (!(budget[p.kind] > 0)) { shed(p); continue; }
+    // ...and a conveyor standing on a SHAFT'S square is a cell nothing can ever
+    // address again — see `shaftSquares`. Refunded like any other shed, so the
+    // orphan a save has been carrying costs nothing to be rid of.
+    if (p.kind !== 'lift' && FIXTURES[p.kind]?.flow && shaftSquares.has(`${p.x},${p.z}`)) {
+      if (!drop()) return incomplete(layoutSoFar(), null);
+      continue;
+    }
     if (!canKeep(layoutSoFar(), p).ok) {
       if (!drop()) return incomplete(layoutSoFar(), null);
       continue;
@@ -890,23 +921,30 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // Nothing reserved. A belt has no working spot, so there is no tile the
       // generator has to keep clear for it.
     } else if (p.kind === 'under') {
-      // A mouth IS a belt cell — same stamp, same non-blocking, same reason.
-      // What it does NOT do is stamp anything on the cells it reaches over:
-      // those belong to nobody, which is the entire feature. See
-      // `FIXTURES.under`.
+      // A mouth IS a belt cell, but unlike the buried span its visible housing
+      // occupies the square. What it does NOT do is stamp or occupy anything on
+      // the cells it reaches over: those belong to nobody, which is the entire
+      // feature. An overhead mouth has no floor footprint, like every other
+      // ceiling conveyor.
+      if (FIXTURES[p.kind]?.blocks && deckOf(p) !== CEILING) occupy(p.x, p.z);
       if (deckOf(p) !== CEILING) set(p.x, p.z, T.BELT);
       const under = makeUnder(p.id, p.x, p.z, p.rot ?? 0);
       under.tier = p.tier ?? 1;
       under.variant = p.variant ?? '';
       under.piece = p.piece ?? null;
       under.deck = deckOf(p);
+      // ...and whether this mouth comes up onto the OTHER storey — the sorter's
+      // own field, on the piece that is now the same mechanism. Carried across a
+      // re-flow with the rest, or every wall segment you drag puts the shop's
+      // tunnels back on the floor behind you.
+      under.riser = p.riser === true;
       undersOut.push(under);
     } else if (p.kind === 'lift') {
       // The one piece on both storeys, so it stamps and occupies the floor cell
       // like the housing it is — you cannot walk through the column.
       occupy(p.x, p.z);
       set(p.x, p.z, T.BELT);
-      const lift = makeLift(p.id, p.x, p.z, LIFT_WAYS.includes(p.way) ? p.way : null);
+      const lift = makeLift(p.id, p.x, p.z, LIFT_WAYS.includes(p.way) ? p.way : null, p.rot ?? 0);
       lift.tier = p.tier ?? 1;
       lift.variant = p.variant ?? '';
       lift.piece = p.piece ?? null;
@@ -948,6 +986,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
       if (FIXTURES[p.kind]?.blocks && deckOf(p) !== CEILING) occupy(p.x, p.z);
       if (deckOf(p) !== CEILING) set(p.x, p.z, T.BELT);
       const sorter = makeSorter(p.id, p.x, p.z, p.rot ?? 0);
+      sorter.riser = p.riser === true;
       sorter.tier = p.tier ?? 1;
       sorter.variant = p.variant ?? '';
       sorter.piece = p.piece ?? null;
@@ -1494,7 +1533,7 @@ function makeBin(id, x, z, rot) {
  * speed tier you sold silently does nothing.
  */
 /**
- * One mouth of an underground run.
+ * One mouth of a tunnel.
  *
  * Exactly a belt with a different kind on it: the span it reaches is derived
  * from where the other mouth is standing (`tunnelExit`), so there is no partner,
@@ -1525,23 +1564,23 @@ function makeBelt(id, x, z, rot) {
 }
 
 /**
- * One cell of the lift, which is the only piece that stands on both storeys.
+ * One shaft — the only piece that stands on both storeys.
  *
- * No `rot`: which way it carries is read off the deck it is on, so there is
- * nothing here for the R key to clear. See `FIXTURES.lift`.
- */
-/**
- * One shaft.
+ * `way` is the field a belt has not got, and it is deliberately NOT `rot`: up
+ * and down are not quarter turns. `null` is every shaft ever built and means
+ * *derive it* — a floor run arriving lifts, a duct arriving drops — which is
+ * right until two runs arrive, when the derivation has to pick one arbitrarily
+ * and half the time picks the other one. Set, it is the answer, and the crates
+ * that were already going that way simply pass through.
  *
- * `way` is the only field a belt has not got, and it is deliberately NOT `rot`:
- * up and down are not quarter turns, and `rot` is the field the R key clears.
- * `null` is every shaft ever built and means *derive it* — a floor run arriving
- * lifts, a duct arriving drops — which is right until two runs arrive, when the
- * derivation has to pick one arbitrarily and half the time picks the other one.
- * Set, it is the answer, and the crates that were already going that way simply
- * pass through.
+ * `rot` is the other half of the same question and answers the other axis:
+ * `way` is which STOREY it lands on, `rot` is which SIDE it carries on to once
+ * it is there. It was pinned at 0 here for as long as a lift was unturnable,
+ * and this is the place that would have made R a dead key however rotatable the
+ * kind said it was: `compose` rebuilds every record from its placement, so a
+ * field this constructor writes as a literal is a field the press cannot move.
  */
-function makeLift(id, x, z, way = null) {
+function makeLift(id, x, z, way = null, rot = 0) {
   return {
     tier: 1,
     variant: '',
@@ -1549,7 +1588,7 @@ function makeLift(id, x, z, way = null) {
     kind: 'lift',
     x,
     z,
-    rot: 0,
+    rot: rot4(rot),
     deck: 0,
     way,
   };
@@ -1576,6 +1615,12 @@ function makeSorter(id, x, z, rot) {
     // Which quarter turn takes what nothing wants. Null on every sorter ever
     // built, which is what makes the reject line opt-in — see `sorterOut`.
     reject: null,
+    // ...and whether the square on the OTHER STOREY is a way out at all. False
+    // on every junction ever built, and it has to be asked rather than derived:
+    // a belt beside a junction was laid at the junction, where a duct over one
+    // is a route across the shop that happens to pass over it. See
+    // `conveyorBranches`.
+    riser: false,
   };
 }
 

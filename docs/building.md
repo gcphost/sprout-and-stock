@@ -1857,6 +1857,66 @@ generator) said about a region. The client keeps a *second*, fixtures-only copy
 for one purpose, the ghost, and that copy decides nothing: a paste with no
 preview is a stamp you aim by faith.
 
+**A selection could not say how far it reached, and that is what dropped the
+pads.** The first two decisions above are in tension the moment you copy a
+*room*: a blueprint is four layers, and the box it was gathered from was the
+bounding box of the fixtures you had picked — because a selection is a list of
+fixture ids and ground has nothing to be picked *by*. It has no id, no record and
+nothing to hang a ring on. A room's ground is exactly what lies between and
+beyond its units: a stockroom is shelving round the edges and Storage painted out
+to the walls, and a break area has no units in it at all. So the layer that makes
+a walled annex a room was the one layer a stamp of a room could not carry, while
+the other three arrived perfectly — which reads as the pads simply not being
+part of the feature.
+
+The marquee is the answer, because it is a *region* whichever end you read it
+from. It hands over the four ground-plane corners it covered, `quadCells`
+(`shared/build.js`) turns those into squares on the server, and the copy is
+gathered from that region **and** the fixtures' own box — the union, so
+shift-clicking two units on either side of a room still copies what is between
+them. Four things about it:
+
+- It is a **quad and never a tile rectangle**. The camera is at 45°, so a square
+  dragged on screen lands on the floor as a diamond, and the axis-aligned box
+  round that diamond is very nearly twice the area — a region taken from it comes
+  home with the aisle next door.
+- The **anchor moves with it**, and that is the half that would fail silently.
+  Every layer is stored relative to the top-left of the region, so a client still
+  anchoring on the top-left of the *fixtures* draws a preview sitting up and left
+  of where the stamp lands, by however far the drag reached past the shelves. A
+  ghost honest about what will be built and wrong about where is worse than none.
+- **No region is the old behaviour to the cell**, which is the control: a
+  selection you clicked together rather than dragged sends no corners, and the
+  copy is the fixtures' box exactly as it was.
+- **The shell's own ground stays behind**, the way the shell's own walls already
+  do. `freezeYard` writes a pad with no `piece`, because nobody bought it and
+  there is no catalog row to name for one — and passed on as an empty piece that
+  is the *bulldozer*, so a copied delivery bay would paste as a hole scraped in
+  the destination's floor.
+
+**And what a copy carries, a remove takes.** Copy-paste is half a gesture: the
+one people make is *copy the room, stamp it down the other side, delete the
+original*. Remove had always been a fixture verb, so the third press took the
+shelves and left everything the copy had carried standing exactly where it was —
+floor still painted, pads still pads, walls still up — and what that leaves is a
+room-shaped stain you scrub by hand with the eraser. So `removeSelection` takes
+the region too, through the same `selectionRegion` the copy reads, in the reverse
+order a paste lays it: fixtures, then paint, then walls, then ground, because
+each is a precondition of the next and `canPaintGround` refuses a cell with
+something standing on it. The refunds go through the ordinary verbs and never a
+rate of its own, so a copy-and-delete circuit always loses money.
+
+`selectionRegion` is **one function for exactly this reason**: a remove that
+reached a cell shorter than the copy leaves the same stain in a smaller shape,
+and two spellings of "which cells" is how that happens. The sweep asserts it as a
+comparison — what `copyFixtures` says it would carry, against what the remove
+took — rather than as a count either could satisfy alone.
+
+The region is also the opt-in, and it is doing real work: a selection clicked
+together has no corners, so Remove is the fixture verb it always was, and only a
+box you dragged means "and the ground under it" — which is what a box means in
+every editor there has ever been.
+
 And **`holdReflow` may not wrap the whole paste**, which is the opposite of what
 every other multi-fixture verb in this file does. That hold is safe "because
 nothing between the verbs reads the layout", and for a run of belts it is true —

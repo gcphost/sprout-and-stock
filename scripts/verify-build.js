@@ -861,16 +861,15 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   eq(held(after), anyItem.id, 'including what it was labelled as');
   check(after && after.x === dest.x && after.z === dest.z, 'it landed where it was put');
 
-  // Selling it back: has to be emptied first, and refunds half.
+  // Selling it back tips its stock into crates itself, then refunds half. A
+  // separate Empty press here is pure ceremony: Remove already names the shelf
+  // and the game already has a lossless place for everything on it to go.
   stand(g, after);
-  const tooFull = g.removeFixture('me', after.id);
-  check(!tooFull.ok, 'a stocked fixture cannot be removed');
-  check(g.emptyFixture('me', after.id).ok, 'emptying it first works');
-  eq(totalOnFloor(g, anyItem.id), 7, 'its stock is on the floor, not gone');
-
   const cashBeforeSell = g.cash;
   const gone = g.removeFixture('me', after.id);
-  check(gone.ok, 'removing an empty fixture works', gone.error);
+  check(gone.ok, 'removing a stocked shelf works', gone.error);
+  eq(gone.emptied, 7, 'and reports how much it tipped out');
+  eq(totalOnFloor(g, anyItem.id), 7, 'its stock is on the floor, not gone');
   eq(g.layout.shelves.length, before, 'the shop is back to where it started');
   eq(round2(g.cash - cashBeforeSell), round2(unit / 2), 'and refunded half the price');
 
@@ -896,6 +895,19 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
     eq(round2(cashWas - gs.cash), round2(sold.cost), 'charged what the upgrade sells it for');
     const madeIt = gs.layout.stations.find((s) => s.id === built.placed);
     eq(madeIt?.station, name, 'and it is the appliance that was asked for');
+
+    // A press on bare floor goes through the row gesture even when it lays one
+    // unit. The gesture has to carry WHICH appliance through both the client
+    // and `buildRun`; dropping it turns every legal tile into "nothing could go
+    // there" because `placeFixture` quite correctly refuses an unnamed machine.
+    const runAt = findFreeFloor(gs);
+    const run = gs.buildRun('me', {
+      kind: 'station', station: name, x: runAt.x, z: runAt.z, rot: runAt.rot,
+    });
+    check(run.ok, 'an appliance can be placed through the row gesture', run.error);
+    const ran = gs.layout.stations.find((s) => s.id === run.placed);
+    eq(ran?.station, name, 'and the row gesture keeps which appliance was armed');
+    check(gs.removeFixture('me', run.placed).ok, 'the row-placed appliance can be cleaned up');
 
     // Which is the half that was impossible before: selling one back used to
     // un-own the upgrade, so you could never have two and never really lose one.

@@ -141,6 +141,97 @@ not walk.**
 
 ---
 
+## Where a crate goes, in order
+
+The steps below are the argument each piece was built from, in the order they
+were built. This section is the **current answer** in one place, because there
+are five kinds and two storeys now and no single file says the whole sentence.
+If you are here because a box went somewhere you did not expect, start with this
+and then read the step that owns the rung it went wrong on.
+
+Two functions decide everything. `conveyorFlow` says **where a cell hands on**,
+once per layout, cached — and `sorterOut` says **which of a junction's ways this
+particular box takes**, per crate, per tick. Everything else reads one of those
+two, which is what keeps the renderer's picture and the sim's crate the same
+shop.
+
+### 1. Which way does this cell hand on? (`conveyorFlow`, `conveyorNext`)
+
+| Kind | Its answer |
+|---|---|
+| `belt` | Its own `rot`. It is the only kind that is *declared*, and that is why the walk below has a source at all. |
+| `under` | Its far mouth if it is an entry, else its own `rot` — see `tunnelExit`. |
+| `arm` (loader) | **Derived.** `rot` is the side it *unloads into*, so it cannot also be the pass-through. |
+| `sorter` | **Derived** for the straight-on; `rot` is the branch. |
+| `lift` | **Derived** for the storey (`way` overrides), and `rot` picks which side it lands on up there. |
+
+Derivation is a **forward walk from the belts**, never a per-cell question: a
+loader's neighbours may be loaders, so asking them is circular, and both
+cell-by-cell shapes were built and both were wrong (see step 2). At each derived
+cell `choose` takes, in order: straight on if the way it came allows it; else a
+neighbour that is a *through* (a conveyor on the far side too, which is what
+tells a run from a spur); else a plain belt over another loader; else rotation
+order; else — **last** — the rise to the other storey.
+
+Then, in order, three passes that only exist because of what cannot be answered
+during the walk: **lifts** resolve after it (a shaft fed by a loader has no
+answer until that loader has one, and asking during the walk took the server
+down once); **leftovers** — cells no belt is upstream of — are resolved and then
+propagated from, so a beltless chain does not answer one cell at a time; and a
+loader whose `rot` names a shelf, a machine or a skip is a **terminus** unless
+there is a duct over it.
+
+### 2. Pairing and spanning
+
+- A **tunnel mouth** pairs with the nearest mouth ahead, same facing, same
+  storey, within `TUNNEL_SPAN + 1` — and only if nobody behind it has already
+  claimed it (`tunnelClaimed`). Pairing is a matching, not a lookup.
+- A **lift** hands to a cell *beside* it on the other deck, never its own
+  square. `way` picks the deck, `rot` prefers the side, and both fall back
+  rather than pin.
+- **Up is a fifth way out** and only two things ever look: a junction told to
+  (`riser`), and a loader that has run out of aisle. A plain belt never does,
+  or a duct laid across the shop would silently join every run it crossed.
+
+### 3. Which way does THIS box take? (`sorterOut`, junctions only)
+
+Every other cell has exactly one answer. A junction has up to five, and it
+decides per crate:
+
+1. **Keen lines only.** A way out is keen if `conveyorServes`/`conveyorMeets`
+   walks it forward and finds somewhere *every pile* in the box could be put
+   away — `shelfAccepts` for shelving, hopper room for a machine, a skip for
+   rubbish and for anything the shop has given up on. There is no filter to
+   maintain, so a junction is right about an item authored this afternoon.
+2. **Exactly one keen line ⇒ that one**, even if it is jammed. Waiting is what
+   every other cell does; re-sorting the box onto a clear line it cannot be put
+   away on is worse.
+3. **Several keen ⇒ alternate between the clear ones**, remembered per crate
+   (`sortChoice`) so the answer cannot flicker tick to tick.
+4. **None keen ⇒ the reject side** if one is set, else alternate across the
+   whole junction — but never down a line whose only end is a skip, and never
+   *eject* while any way out is keen.
+
+Backpressure is asked **after** keenness, never before. A jam on the only line
+that wants the goods must not take that line out of the running.
+
+### 4. And where does it leave the network?
+
+Only a **loader** ever hands goods out of a run: `armSwing`'s ladder is units
+first (shelving, hopper, skip — all four sides, `rot` only decides which is
+tried first), then the rise if there is a duct, then the ground off-ramp capped
+at `ARM_DROP_STACK`. A belt, a mouth and a shaft all run *past* a shelf. A run
+aimed squarely at the thing it was laid to fill is the commonest wrong build in
+the game, and `whatThisCosts` names it by hand for that reason.
+
+### What none of this says
+
+**Whether the line you built reaches anything at all.** Every rung above is a
+correct local answer, and a run that serves nothing gives correct local answers
+all day. See *What is lacking* at the foot of this document.
+
+---
+
 ## Step 1 — the belt
 
 A `belt` row in `FIXTURES` ([shared/build.js:81](shared/build.js#L81)):
@@ -254,6 +345,23 @@ the camera*, so it reads as flaky rather than as directional.
 The drag also sets the facing: the direction of the drag **is** the direction of
 the belt, which is the one gesture in the game where that is unambiguous, and it
 is why belts want a drag rather than `faceAlong`.
+
+…and it says that about cells **already there**, which for a long time it did
+not. A drag steps round an occupied square rather than stopping — a sweep across
+a shop clips a shelf — and that skip is about the *kind*: it is not consent to
+turn every loader it crosses back into plain belt. It was also, silently,
+answering a question about *direction*. So dragging the belt tool back down a run
+you had already laid did nothing at all ("nothing could go there"), and the only
+way to reverse a line was to knock it out cell by cell and lay it again. A cell
+of the **armed kind** is now aimed the way the drag went (`buildRun`, and
+`showBeltDrag` draws those squares green so the preview and the press agree);
+everything else is stepped round exactly as before. It is free, it is one
+re-flow, and it is on the undo stack with the rest of the press. Three lines that
+keep it honest: a drag that says nothing new is still an error, a **press** of one
+cell is still the swap gesture rather than a turn (the hover ghost comes from
+`canPlace`, which refuses a belt on a belt), and the cells keep their **ids** —
+a crate's address is a cell id, so a re-aim that went through `placeFixture` or
+`repositionFixture` would reverse the run and orphan every box on it.
 
 At the end of step 1 you can lay a loop of belt and watch a crate go round it.
 Nothing loads it and nothing takes off it. That is deliberately playable on its
@@ -1039,7 +1147,7 @@ sentence step 1 already wrote about pads.
 
 ---
 
-## Step 7 — the underground, and the tile it does NOT own
+## Step 7 — the tunnel, and the tile it does NOT own
 
 Built, as the `under` kind — the section below is the argument it was built
 from, and the one thing it renamed is the kind: `belt-under` became `under`,
@@ -1060,11 +1168,11 @@ shop floor wants back.
 
 ### The shape
 
-One kind, `belt-under`, laid twice: the first press is the mouth going down,
+One kind, `under`, laid twice: the first press is the mouth going down,
 the second within range is the mouth coming up, and the pair is matched the way
-a run is — by facing and distance, not by a stored id. Each end is an ordinary
-conveyor cell: it stamps `T.BELT`, blocks nobody, turns with **R**, and costs
-what its catalog row says. Nothing new about either of them.
+a run is — by facing and distance, not by a stored id. Each end is a conveyor
+cell with a visible housing: it stamps `T.BELT`, blocks walking on its own tile,
+turns with **R**, and costs what its catalog row says.
 
 **The cells between belong to nobody, and that is the whole feature.** They
 stamp no tile, take no walk grid, reserve no working spot — so you floor them,
@@ -1090,6 +1198,19 @@ travel, which is a thing the sim already has.
 keeps, so a stored partner id is a field that resets when you turn one end —
 and the press is **R**. What you would watch is a tunnel that works until you
 straighten it.
+
+**…and a derived pair is a MATCHING rather than a lookup**, which is the trap
+the first shape shipped with. Asked cell by cell, "is there a mouth ahead of me
+facing my way" makes the middle of a chain an entry *and* an exit at once: four
+mouths in a row are three tunnels, and the middle one hands its box straight
+over whatever the run was doing between the two pairs. On the save it was found
+on that was a **lift** — every box that arrived arrived correctly, the lift
+simply never carried one, and an unbuilt lift and a bypassed one are the same
+still frame. So a mouth is an entry only if nobody behind it has already claimed
+it (`tunnelClaimed`), and the answer alternates down the chain. The one thing
+you *can* see is the wrong tell: both halves of the middle pair draw as entries,
+so it reads as art that will not turn rather than as the wrong two ends having
+found each other.
 
 **The crate must not be drawn at the mouth.** `d.belt` names the entry for the
 whole trip, so `syncPallet` would park the box on the ramp for the length of
@@ -1121,12 +1242,52 @@ checkouts and its own outbound leg, and costs no floor at all.
 ### It is a field on the PLACEMENT, not four more kinds
 
 `deck` — 0 or `CEILING` — on the placement, read by `deckOf`. An overhead run
-wants belts, loaders, junctions and tunnel mouths, so kinds would be four
-duplicates that then have to be kept in step with the four originals for ever;
-the piece you build with stays the piece you build with, and the storey is a
-fact about where you were pointing. It rides a re-flow the way `mode`, `auto`
-and `reject` do — named in `compose` and named again in `repositionFixture`, or
-the first wall segment you drag drops the whole run onto the floor.
+wants belts, loaders and junctions, so kinds would be three duplicates that then
+have to be kept in step with the three originals for ever; the piece you build
+with stays the piece you build with, and the storey is a fact about where you
+were pointing. It rides a re-flow the way `mode`, `auto` and `reject` do — named
+in `compose` and named again in `repositionFixture`, or the first wall segment
+you drag drops the whole run onto the floor.
+
+**Three of the five, and `goesOverhead` is the one spelling of which.** The test
+was `def.flow`, which reads as "is this a conveyor" and is true of the two
+pieces that have no storey to be on. A **lift** is what joins the two — it
+answers `conveyorAt` on both decks off one square, so a shaft laid overhead is
+the same shaft said twice, and the only build instruction there has ever been
+for one is "put it on the floor at the end of the run". A **tunnel** gives the
+SQUARE back, which is the one thing a ceiling has not got to give, and
+`tunnelAhead` matches its far mouth on x,z alone — so an overhead mouth pairs
+with a floor mouth in the same column and hands its crate down a storey, which
+is the hand-off bug below arriving through the one piece whose pairing is a scan
+rather than a neighbour. Nothing refused either of them and no assertion failed:
+an overhead lift built, drew, and joined two storeys that were already joined.
+What it was reported as is the half you can see — the Floor/Overhead switch
+appearing for the two tools that cannot use one, which is the green-ghost rule
+said about a control. So one predicate answers it in all four places that ask:
+the refusal (`canPlace`), the field on the placement (`placeFixture`, and
+`buildRun`'s skip, which reads the storey before the refusal is reached), what
+the client sends, and which tiles of the palette are dead while you are up there
+(`off` in `buildGroups`).
+
+**...and the fourth of those used to be the switch itself, which is the half
+that had to be given back.** Gated on the armed tool (`UI.deckable`), the storey
+could only be reached by first arming something that goes up there — so the one
+thing you most want to do overhead was the one thing you could not do: pointing
+at a duct you have already built, to turn it, move it or take it out, needs no
+tool in your hand at all, and every one of those presses aims at the storey this
+switch decides. The switch is a fact about the TAB now (`DECK_GROUPS`, derived
+from `KIND_TOOLS` so an overhead kind authored tomorrow lands the switch on
+whichever tab it was filed under), and the promise it was making — everything on
+this bar can go where you are pointing — is paid on the tiles instead: what
+cannot follow you up is drawn dead, the same deal a tile you cannot afford
+already offers, with its own flag rather than `poor` because the price is not
+what is wrong with a shelf on the ceiling. Two things keep that honest.
+`buildDeck` asks `goesOverhead` again of what is ARMED, so a storey can never
+outlive a placement that could use it — and the case that leaves is a fixture in
+your HANDS, where the pair reads Floor because that is where a carried shelf
+would land. And `toggleDeck` puts down anything armed that cannot come with you,
+or you are holding a tool off a button nobody can press, which is the
+quiet-build-mode bug one storey up.
 
 **The one line that makes it a second storey is that a neighbour must match
 deck.** Flow, lines, branches, jams and hand-offs are all keyed by fixture id
@@ -1147,9 +1308,10 @@ thing a roof gives you, and the run may not stack.
 ### The lift, and why its direction is derived
 
 `lift` is the one cell that spans both storeys — it answers `conveyorAt` on
-each, which is what lets a run on either hand to it. It has no `rot` and wants
-none: up and down are not quarter turns, and a stored direction is a field the
-**R** key clears (`repositionFixture` names every field it keeps). So the shaft
+each, which is what lets a run on either hand to it. Which WAY it carries is not
+`rot`: up and down are not quarter turns, and `rot` is the field the **R** key
+moves — the shaft's own aim, which is the other axis and is a section of its
+own below. So the shaft
 runs whichever way the goods already are: a floor run arriving means up, a duct
 arriving means down. Build one at the end of an aisle and it lifts; build one at
 the end of the duct and it drops.
@@ -1166,6 +1328,33 @@ The recursion is not a fact about lifts, it is a fact about **when**: after the
 forward walk, every loader the run can reach has an answer sitting in the map,
 so the same question is a lookup. Lifts resolve there and the walk runs again
 from them.
+
+### …and WHICH side it lands on, which is `rot`
+
+`way` answers the storey and says nothing about the square. A shaft has up to
+four ways out on the deck it arrives at, and `liftOut` took the first one in
+enum order — so which cell a descending crate carried on into was decided by the
+numbering of `[0, 1, 2, 3]`, and the only way to route round a wrong one was to
+demolish whichever neighbour kept winning. On the save this came off, a lift
+landing beside a belt to its east and a tunnel mouth to its north always chose
+the belt, and the north leg could not be built at all.
+
+Nothing about it is visible: a shaft that chose the wrong exit and one whose
+other leg has not been built yet are the same still frame. Every box arrives
+correctly, down a leg that works, and the run you meant simply never carries
+anything.
+
+So `rot` means WHICH SIDE IT LANDS ON — the loader's meaning of the key rather
+than the belt's, and the two axes are `way` for the storey and `rot` for the
+square. Two things keep it cheap. It is a **preference and never a pin**: a
+shaft aimed at a wall, at its own feeder or at nothing falls through to the same
+scan it always used, or one press of R turns a working loop into a terminus.
+And `rot` defaults to **0**, which is the side the scan already tried first, so
+every lift in every save answers exactly as it did — which is the control
+`verify:ceiling` §4c opens with. The trap it sprang on the way in is one this
+document has already recorded twice: `makeLift` wrote `rot: 0` as a literal, and
+`compose` rebuilds every record from its placement, so the press could not have
+moved it however rotatable the kind said the piece was.
 
 ### The three geometry claims, and the one that shipped half-right
 
@@ -1220,13 +1409,17 @@ the run as a carrier — so the shaft's one authored band came back as a pair of
 tall slabs lying in the cage. What moves in a lift is the crate; a second moving
 thing beside it is noise.
 
-### An overhead loader reaches ONE cell
+### An overhead loader reaches both sides
 
-The one beneath it (`armReach`), and that is what keeps a ceiling run from being
-a floor run that costs no floor. A run down an aisle serves the units either
-side of every cell; a duct over the same aisle serves whatever it is directly
-above. One machine per unit against one per pair — the ceiling buys you the
-square and charges you in loaders, which is a trade rather than an upgrade.
+The same four neighbouring floor cells as a floor loader (`armReach`). A duct
+over an aisle therefore serves the units on both sides instead of requiring a
+separate loader per shelf. The ceiling still buys the square back; it does not
+quietly change the meaning of the machine when you move a working aisle up.
+
+The journey is the difference. A floor loader hands straight across. An
+overhead loader carries the crate out from the duct and then lowers it toward
+the floor fixture, so the simulation path and the rendered spur form the same
+L rather than a box disappearing at ceiling height and appearing in a shelf.
 
 `armReach` is in `shared/build.js` because **five** loops enumerate a loader's
 sides and all of them have to agree: the swing that pours, the two walks that
@@ -1304,7 +1497,7 @@ of it.
 
 ## Step 9 — up is a way OUT
 
-Built. `verify:ceiling`, 368 assertions.
+Built. `verify:ceiling`, 401 assertions.
 
 Step 8 gave the shop a second storey and then made reaching it cost a floor
 tile, which is the thing the storey was bought to stop. An aisle with shelving
@@ -1329,11 +1522,19 @@ of askers short enough to argue about.
 
 ### Two things ask, and a plain belt is not one of them
 
-**A junction**, because that is the piece whose entire job is choosing between
-ways out. And that is not a special case: you do not *aim* a branch today either
-— `conveyorBranches` takes every neighbouring cell that is not the straight-on
-and is not feeding it, and `rot` only ever decided which goes first. Building a
-sorter where two storeys meet is the choosing.
+**A junction told to** (`riser`, off on every junction ever built). It shipped
+automatic on the argument that you do not aim a branch — `conveyorBranches`
+takes every neighbour that is not the straight-on and is not feeding it, and
+`rot` only decides which goes first — and a real shop found that wrong the same
+afternoon. The difference is what you were pointing at when you built the thing:
+a belt beside a junction was laid *at* the junction, where a duct over one is a
+route across the shop that happens to pass over it, and a return leg passes over
+everything. The shop that found it had a junction feeding an aisle of fifteen
+shelves with the return duct crossing its square on the way home: the keen test
+held while a shelf could take the goods, and the moment the aisle filled nothing
+was keen and a third of everything went up the return leg to park at the end of
+it. Every box that arrived arrived correctly, which is the "sorter that does not
+sort" report exactly.
 
 **A loader with nowhere else**, which is `choose`'s last resort and the endcap.
 Last, and that is the whole opt-in: a loader mid-aisle with a duct crossing over
@@ -1466,10 +1667,12 @@ until two runs arrive on the same square — which is how the two levels of one
 loop rejoin, and is the ordinary thing to build once a duct exists. There is
 nothing to derive there, so `liftTo` takes the floor's arbitrarily and half the
 shops that build it get a shaft lifting crates away from the run they were
-trying to merge into. Nothing on screen is wrong, because a lift is not aimed.
+trying to merge into. Nothing on screen is wrong: the storey a shaft carries to
+is not something you can point at.
 
 `way` — `null` / `up` / `down` — is a field on the placement and deliberately
-**not** `rot`, for the reason a lift has no `rot` at all: R clears that field.
+**not** `rot`, because up and down are not quarter turns and `rot` is spoken
+for: it is which SIDE the shaft lands on, one axis over.
 `null` is every shaft ever built and derives exactly as before. It rides
 `compose` and `repositionFixture` the way `auto` and `reject` do, or R clears it
 through the back door.
@@ -1513,6 +1716,127 @@ halves.
   it.** The housing's open sides are cut from the x,z set the walls are, and a
   rise contributes none — so a junction whose only exit is upward is panelled
   shut and the crate rises through the roof of it.
+
+---
+
+## Step 10 — a tunnel is a lift that goes down
+
+Built. `verify:ceiling` §12, and `verify:belts`' tunnel sections restated.
+
+The tunnel and the lift did the same job — carry a box between two places a
+conveyor cannot reach across — and they did it with two completely separate
+pieces of machinery. The lift had `crate.deck`, a fraction between two storeys,
+and a gate (`shaftGrant`, `shaftBusyUntil`, `shaftEndpoint`) that let exactly one
+crate into a shaft at a time. The tunnel had `underPiston` counting 0..2 through
+a stroke, `underRise` for the far end, `underMouth` as an owner, a map of owners
+rebuilt every tick, a `carrier` record per crate on the wire, and a `travelDt`
+that spent part of each tick holding the box still while the carrier moved.
+
+Every one of those is a second spelling of *a box is between decks*, and two
+spellings of one fact are two state machines that drift.
+
+### The span dips
+
+`BASEMENT = -1` is a **storey below**, and it is an address rather than a place
+you build. Nothing may be placed there: `goesOverhead` is unchanged, `canPlace`
+never offers it, and no cell ever answers `deckOf` with it. What lives at −1 is a
+crate, in transit, and nothing else — which is exactly what a span was already.
+
+`conveyorLines` inserts two corner points at that deck, so the leg between two
+mouths stops being one long flat edge and becomes the shape a shaft already has:
+
+```
+      entry                              exit
+  ──────●                                  ●──────   deck 0
+        │                                  │
+        └──────────────────────────────────┘         deck -1
+      down          across                up
+```
+
+`dist` charges all three legs, for `conveyorLines`' own stated reason — the
+crate's one number and the drawn polyline have to measure the same journey, or
+every queue behind a tunnel stands a tile out. It is still one `dist` step
+longer than a cell, so `wholeLegs` goes on holding the queue at the mouth and a
+span still carries exactly one box.
+
+**What retired with it:** `underPiston`, `underRise`, `underMouth`, the owner
+map, `UNDER_PISTON_SECONDS`, `travelDt`, the wire's `under`/`mouth`/`carrier`
+fields, and the client's `carrierState`. A stroke is a cell-time at the mouth's
+own rung now, which is what `speed_mult` on a tunnel already meant everywhere
+else.
+
+### Three things this cost, and each is worth knowing
+
+**`beltHidden` is "at the bottom", not "below the floor".** The two vertical
+strokes are the half of a tunnel there is anything to watch, and a box that
+vanished the instant it started down would be a piston animating an empty shaft.
+So only the leg AT `BASEMENT` — the one with nothing drawn along it — is hidden.
+
+**On screen the storey is a well, not a storey.** The sim thinks in decks
+because that is what makes this the lift's mechanism; the renderer spends the
+same fraction on the piston's own stroke (`crateY`). A box that really sank four
+metres would be four metres of hole nobody can see into.
+
+...and for two steps that well was not DRAWN, which is the half that made the
+sentence above read as an excuse. The ground under the shop is solid — one apron
+box, the size of the world, from y 0 down — so a carrier sinking into it was not
+going underground, it was being clipped by it. What you watched was a crate
+dissolving at floor level over a machine with a dark square on top, which is the
+shape of a rendering fault with the simulation doing exactly what it says. The
+well is cut now: `buildWorld` puts a hole in the apron (a `Shape` with one hole
+per mouth rather than a box) and lays the mouth's floor slab as a four-piece
+collar round it, and `attachTunnelPiston` lines it with four walls and a pan.
+Two things fell out. The drop went from 0.265 to `UNDER_PISTON_DROP` — the old
+figure was the depth of a well that did not exist, and a crate's goods stand
+about half a tile proud of it, so a box that had finished its descent still had
+the shopping above ground when `beltHidden` took it away. And `UNDER_DECK_LIP`
+stopped being its own 0.30: it is `WELL_HALF`, because the rail stub and the
+hole edge drifting apart is a length of track hanging over open air.
+
+**A mouth's carrier is the LIFT's carrier**, which is one `buildPiston` and one
+`strokePiston` for both. They were two — a sleeve-and-rod up the shaft, a single
+thin post down the well, on two sets of constants a hair apart — and that is the
+same two-spellings trap `mouthSink` retired on the clock side, said about the
+geometry.
+
+**A mouth's carrier is found by POSITION, not by `belt`.** A crate keeps the id
+of the cell it last left for the whole of a long hop, so the far mouth's own rise
+would never appear under its id — the box would climb into view half a cell up
+the shop. `mouthSink` and `drawPosition` both match on where the box actually is.
+
+### ...and now it can come up on the other storey
+
+`riser` — the sorter's own field, on the piece that is now the same mechanism.
+Set on a mouth, its span carries straight on past the floor and hands to the run
+overhead; off, it surfaces onto the line it faces, which is every tunnel ever
+laid. One field, one message (`sorter-riser`), one row on the menu: a
+`tunnel-riser` beside it would be two spellings of a switch that means the same
+thing, which is the split this whole step exists to close.
+
+It is **chosen rather than derived**, for `sorter.riser`'s reason exactly: a duct
+over a mouth is a route across the shop that happens to pass over that square,
+and a return leg passes over everything. And it is **guarded on there being a
+cell up there** — a mouth switched on over bare roof is a terminus, and the run
+simply stopping is the one failure that reads as the toggle having broken the
+tunnel rather than as an empty ceiling. That is the shop where you flip the
+switch before laying the duct, which is the order anybody would do it in.
+
+So the three journeys are: underground→floor (the control), underground→ceiling
+(the toggle), and floor→ceiling, which is the lift and always was.
+
+### What is still open
+
+- **The gate is not shared yet.** A tunnel gets one-box-per-span from
+  `wholeLegs` and its queue from the pitch clamp, which is what it had before
+  there was a piston at all. The shaft's own gate — the alternation that stops a
+  permanent queue on one storey monopolising a shared square — is still lift-only,
+  and its arithmetic is hardcoded to the `0..CEILING` pair. A mouth only needs it
+  once something can feed a tunnel from two storeys at once.
+- **An entry cannot be fed from the ceiling.** The toggle moves the far end's
+  output. Taking from a duct is the ceiling piece's decision (a sorter's `riser`,
+  a loader's last resort), which already works — but a plain overhead belt
+  pointing at a mouth's square still carries straight on.
+- **Nothing routes a box to a storey**, which is step 9's open item unchanged.
 
 ---
 
@@ -1612,6 +1936,59 @@ in the game where a facing is unambiguous.
 
 It is worth knowing before playing it, because twenty presses is exactly the
 thing that will make somebody conclude belts are tedious rather than unfinished.
+
+---
+
+## What is lacking
+
+Audited at day 221 of `demo-world` — 115 conveyor cells, 24 lines, 4 lifts, 12
+tunnel mouths, 4 junctions. Everything below is a gap rather than a bug: the
+routing rungs in *Where a crate goes* all answered correctly.
+
+**1. A line that reaches nothing is silent, and that is the big one.** 32 of
+those 115 cells have a forward walk that meets no shelf, hopper, skip, pen or
+bed — so a box put on one of them rides to the end and stops. Every readout in
+the game says the run is fine, because every rung of it *is*: the chevrons point
+somewhere, `conveyorLines` cuts a clean graph, and the flow overlay draws it in
+OK-green. `whatThisCosts` warns per CELL ("nothing in front of it", "nothing
+beside it to work") and nothing anywhere asks the question about the LINE. The
+sorter is the one piece that already knows — `sorterWants` is exactly this walk
+— and it keeps the answer to itself, so what a dead line reads as is a junction
+that will not send anything down it.
+
+  The cheap fix is one colour: `conveyorMeets(L, head).shelves+stations+bins`
+  empty ⇒ draw that line in `FLOW_INK.warn` and cap it with a marker. It costs
+  one call per line on a walk that is already cached, and it turns "goods go
+  where I think" from a thing you reason about into a thing you look at.
+
+**2. There is no per-crate trace.** The overlay is a picture of the network, not
+of a decision. A junction's roof marks say which way it sent the *last* box; a
+crate that took a line you did not expect leaves nothing behind to explain it,
+and the explanation is a four-rung ladder over a forward walk of the whole
+downstream shop. "Why did that go left" is currently answered by reading
+`sorterOut`.
+
+**3. `sortChoice` is never pruned.** It is keyed by crate id and deleted when a
+box leaves the junction's line — but a crate lifted off a belt by hand, merged,
+binned or spoiled while it holds an entry leaves that entry behind for the life
+of the process. Small, unbounded, and invisible.
+
+**4. `conveyorMeets`' cache watches seven arrays and not `unders`/`lifts`.**
+`conveyorFlow` watches all four conveyor lists by identity; this one watches
+`belts`, `arms`, `sorters` and the four unit lists. It is correct today only
+because `compose` rebuilds every array on every re-flow, so the belts identity
+changes whenever the lifts one does. That is a coincidence rather than a rule,
+and the failure it would produce — a run that reaches a shelf through a shaft
+you just built, and does not know it — is exactly the silent kind.
+
+**5. Nothing on a run consults an EDGE.** A crate crosses a wall as happily as
+it crosses a strip curtain; `verify:belts` records the pair as a claim that
+passes today for the wrong reason. The day a run respects the walls it passes
+through, the curtain has to become the exception.
+
+**6. An overhead loader's spur is drawn at ceiling height** pointing at the unit
+on the floor below it. The hand-off is right and the picture is a stub into thin
+air.
 
 ---
 

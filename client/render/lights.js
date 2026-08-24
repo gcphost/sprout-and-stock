@@ -378,9 +378,13 @@ export function emittersIn(fixtures, pieceOf, ceilingY, signals = null) {
     out.push({
       x: f.x,
       // Hung things light from the ceiling; everything else from about the
-      // height of a shade on a stand. Read off the kind rather than authored,
-      // the same argument `seamStep` makes: the art already knows.
-      y: f.kind === 'prop-ceiling' ? ceilingY - 0.1 : 0.85,
+      // height of a shade on a stand. A freezer is the other fixed fitting: its
+      // light is mounted in the upper cabinet, not floating in the middle of
+      // the stock. Keeping that source high makes the authored shelf strips
+      // below read as a top-down wash rather than a bare bulb between two rows.
+      // Read off the kind rather than the piece id so every freezer design gets
+      // the same honest source position.
+      y: f.kind === 'prop-ceiling' ? ceilingY - 0.1 : (f.kind === 'freezer' ? 1.18 : 0.85),
       z: f.z,
       color: emits.color ?? '#ffd9a0',
       intensity: (emits.intensity ?? 1) * worth,

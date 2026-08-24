@@ -56,7 +56,7 @@
 
 import { Game } from '../server/sim/index.js';
 import { content } from '../server/content.js';
-import { runCells, runFollows, RUN_KINDS, FIXTURES, canPlace, BELT_RUN_MAX, isGround, isPaint } from '../shared/build.js';
+import { runCells, fixtureRunCells, runFollows, RUN_KINDS, FIXTURES, canPlace, BELT_RUN_MAX, TUNNEL_SPAN, tunnelExit, isWalkableTile, isGround, isPaint } from '../shared/build.js';
 import { kindOf } from '../shared/pieces.js';
 import { E } from '../shared/edges.js';
 
@@ -222,6 +222,37 @@ function clearBlock(g, w, h, kind = 'shelf') {
 }
 
 // ---------------------------------------------------------------------------
+// 2d. A tunnel is the exception to a repeated row.
+// ---------------------------------------------------------------------------
+{
+  const from = { x: 4, z: 4 };
+  const cells = fixtureRunCells('under', from, { x: 40, z: 7 }, BELT_RUN_MAX, 3);
+  eq(cells.length, 2, 'a tunnel drag draws two mouths, not a repeated row');
+  eq(cells[0].rot, 0, 'the near mouth faces along the drag');
+  eq(cells[1].rot, 0, 'the far mouth faces the same way');
+  eq(cells[1].x - cells[0].x, TUNNEL_SPAN + 1, 'the span is capped at four empty cells');
+  eq(cells[1].z, cells[0].z, 'a diagonal gesture locks the tunnel to its dominant axis');
+
+  const g = fresh();
+  const at = clearBlock(g, TUNNEL_SPAN + 2, 1, 'under');
+  check(!!at, 'there is room for a tunnel span');
+  const res = g.buildRun('me', {
+    kind: 'under', x: at.x, z: at.z, to: { x: at.x + TUNNEL_SPAN + 8, z: at.z }, rot: 2,
+  });
+  check(res.ok, 'a tunnel drag builds', res.error ?? '');
+  eq(res.laid, 2, '...exactly its two mouths');
+  const mouths = (g.layout.unders ?? []).filter((u) => u.z === at.z);
+  eq(mouths.length, 2, 'and leaves the cells between empty');
+  check(!!tunnelExit(g.layout, mouths.find((u) => u.x === at.x)),
+    'the two mouths face as a working tunnel');
+  check(!isWalkableTile(g.layout, at.x, at.z), 'the visible entry mouth blocks walking');
+  check(!isWalkableTile(g.layout, at.x + TUNNEL_SPAN + 1, at.z),
+    'the visible exit mouth blocks walking');
+  check(isWalkableTile(g.layout, at.x + 1, at.z),
+    'while the tunnel span between them stays walkable');
+}
+
+// ---------------------------------------------------------------------------
 // 3. THE CONTROL FOR THE STAMP. A shop that has copied nothing pastes nothing.
 // ---------------------------------------------------------------------------
 {
@@ -349,6 +380,196 @@ if (FLOOR) {
 } else {
   check(true, 'no floor authored in this catalog — the four-layer claims are skipped');
   checks += 14;
+}
+
+// ---------------------------------------------------------------------------
+// 5b. THE REGION — the layer a blueprint of a ROOM could not carry.
+//
+// A selection is a list of fixtures, so the box a copy was about used to be
+// "whatever the units you picked happen to span". A room's ground is exactly
+// what lies between and beyond its units: a storage room is shelving round the
+// edges and painted floor out to the walls, and a break area has no units in it
+// at all. So the layer that makes a walled annex a room was the one layer a
+// stamp of a room dropped — and it dropped it while the other three arrived
+// perfectly, which is what makes this invisible except by counting.
+//
+// Its CONTROL is the assertion that decides whether any of this is opt-in: a
+// copy with no region is the old game to the cell. Every selection built by
+// clicking rather than dragging is one of those.
+//
+// Its CENTREPIECE is the pure-ground case, which the fixture path can never
+// reach: a region with no fixtures in it at all still copies, still stamps, and
+// still comes back out in one Ctrl+Z.
+// ---------------------------------------------------------------------------
+if (FLOOR) {
+  const g = fresh();
+  const src = clearBlock(g, 4, 3);
+
+  // Four cells of ground in a row, with a unit standing on the FIRST only. The
+  // fixtures' own box is one cell; the region is four.
+  for (let i = 0; i < 4; i++) {
+    const r = g.buildGround('me', { x: src.x + i, z: src.z, piece: FLOOR });
+    check(r.ok, `ground laid at ${i}`, r.error ?? '');
+  }
+  const unit = g.placeFixture('me', { kind: 'shelf', x: src.x, z: src.z, rot: 0 });
+  check(unit.ok, 'a unit on the first cell of it', unit.error ?? '');
+
+  // The control first, and against the same shop: no region, so the copy is the
+  // one cell the unit stands on.
+  const bare = g.copyFixtures('me', [unit.placed]);
+  check(bare.ok, 'a copy with no region still works', bare.error ?? '');
+  eq(bare.w, 1, '...and is one cell wide, exactly as it always was');
+  eq(bare.ground, 1, '...carrying the one square under the unit and no more');
+
+  // The same selection, dragged. `quadCells` is what the client would have run
+  // the corners through, so the corners here are what a box round those four
+  // cells lands on — the sweep names them directly rather than going through a
+  // camera it does not have.
+  const region = [
+    { x: src.x - 0.4, z: src.z - 0.4 }, { x: src.x + 3.4, z: src.z - 0.4 },
+    { x: src.x + 3.4, z: src.z + 0.4 }, { x: src.x - 0.4, z: src.z + 0.4 },
+  ];
+  const wide = g.copyFixtures('me', [unit.placed], region);
+  check(wide.ok, 'and the same selection dragged out of a box copies too', wide.error ?? '');
+  eq(wide.w, 4, '...four cells wide, which is the box and not the unit');
+  eq(wide.ground, 4, '...carrying every square of ground in it');
+  eq(wide.fixtures, 1, '...and still exactly the one unit');
+
+  const at = clearBlock(g, 4, 1);
+  const groundWas = g.ground.length;
+  const cash = g.cash;
+  const res = g.undoStep('a room', () => g.pasteClipboard('me', at));
+  check(res.ok, 'the room stamps down', res.error ?? '');
+  eq(res.laid, 1, '...one fixture');
+  eq(g.ground.length - groundWas, 4, '...on four squares of ground it laid itself');
+  // The ANCHOR, which is the one thing here that would fail silently: the unit
+  // is on the region's own corner, so it has to land on the tile you named. Off
+  // by the distance the drag reached past it and the stamp is simply somewhere
+  // else — a blueprint that builds the right thing in the wrong place.
+  check(g.placements.some((p) => p.x === at.x && p.z === at.z),
+    'and the unit lands on the tile you pointed at, not offset by the drag');
+  g.undo();
+  eq(g.ground.length, groundWas, '...and one Ctrl+Z takes the ground back up with it');
+  eq(g.cash, cash, '...for exactly what the lot cost');
+
+  // The centrepiece. Nothing picked at all — which is every break area in
+  // existence, since painted ground is the whole of what one is.
+  const only = g.copyFixtures('me', [], region);
+  check(only.ok, 'a region with no fixtures in it copies', only.error ?? '');
+  eq(only.fixtures, 0, '...as no fixtures');
+  eq(only.ground, 4, '...and four squares of ground');
+
+  const to = clearBlock(g, 4, 1);
+  const was = g.ground.length;
+  const pure = g.undoStep('a pad', () => g.pasteClipboard('me', to));
+  check(pure.ok, 'and stamps as ground alone', pure.error ?? '');
+  eq(pure.laid, 0, '...laying no fixtures, which is not the same as laying nothing');
+  eq(g.ground.length - was, 4, '...and four squares that were not there before');
+  g.undo();
+  eq(g.ground.length, was, '...and it comes back out in one press');
+} else {
+  check(true, 'no floor authored in this catalog — the region claims are skipped');
+  checks += 21;
+}
+
+// ---------------------------------------------------------------------------
+// 5bb. WHAT A COPY CARRIES, A REMOVE TAKES.
+//
+// The gesture this is about is the one people actually make: copy the room,
+// stamp it down the other side, delete the original. Remove was a FIXTURE verb,
+// so the third press took the shelves and left everything the copy had carried
+// standing where it was — and what that leaves behind is a room-shaped stain:
+// floor still painted, pads still pads, walls still up, with nothing standing on
+// them to point at. It reads as delete not working on ground.
+//
+// So the claim is a COMPARISON rather than a value, and it has to be: the two
+// verbs agreeing is the whole feature, and a remove that reached one cell
+// shorter than the copy would leave a smaller stain and pass every assertion
+// written as a count. Its control is the same one the copy has — a selection
+// with no region is the old verb exactly, ground untouched.
+// ---------------------------------------------------------------------------
+if (FLOOR) {
+  const g = fresh();
+  const src = clearBlock(g, 4, 3);
+  for (let i = 0; i < 4; i++) g.buildGround('me', { x: src.x + i, z: src.z, piece: FLOOR });
+  const unit = g.placeFixture('me', { kind: 'shelf', x: src.x, z: src.z, rot: 0 });
+  check(unit.ok, 'a unit standing on a strip of floor', unit.error ?? '');
+  const region = [
+    { x: src.x - 0.4, z: src.z - 0.4 }, { x: src.x + 3.4, z: src.z - 0.4 },
+    { x: src.x + 3.4, z: src.z + 0.4 }, { x: src.x - 0.4, z: src.z + 0.4 },
+  ];
+
+  // Counted as rows that still carry a DESIGN, not as rows: the eraser leaves
+  // an entry behind saying "plain floor" rather than deleting one, which is what
+  // makes taking up a pad indoors leave a shop rather than a hole.
+  const designs = () => g.ground.filter((c) => c.p).length;
+
+  // The control, on a shop that has one: no region, so Remove is the fixture
+  // verb it always was and not a square of ground moves.
+  const groundWas = designs();
+  const plain = g.undoStep('a unit', () => g.removeSelection('me', [unit.placed]));
+  check(plain.ok, 'a remove with no region works', plain.error ?? '');
+  eq(designs(), groundWas, '...and takes up no ground at all');
+  g.undo();
+
+  // ...and the same selection dragged. What the copy would carry is the
+  // measurement, read off `copyFixtures` rather than written out, or the two
+  // rules can drift apart while both sweeps go on passing.
+  const would = g.copyFixtures('me', [unit.placed], region);
+  check(would.ok, 'the same selection copies', would.error ?? '');
+  eq(would.ground, 4, '...carrying four squares');
+
+  const id = g.placements.find((p) => p.x === src.x && p.z === src.z)?.id;
+  const res = g.undoStep('the room', () => g.removeSelection('me', [id], region));
+  check(res.ok, 'and a remove over that region works', res.error ?? '');
+  eq(res.done, 1, '...taking the unit');
+  eq(groundWas - designs(), would.ground,
+    '...and exactly the ground the copy would have carried, no more and no less');
+  eq(res.cleared, would.ground, '...and says so');
+  eq(g.placements.some((p) => p.id === id), false, 'the unit really is gone');
+
+  // One press, one entry — the claim that makes it safe to reach for at all.
+  g.undo();
+  eq(designs(), groundWas, 'one Ctrl+Z puts the ground back');
+  check(g.placements.some((p) => p.x === src.x && p.z === src.z), '...and the unit with it');
+
+  // The circuit, which is what stops copy-and-delete being a printer: half back
+  // on the way out and full price on the way in, so a round trip always loses.
+  const cash = g.cash;
+  g.copyFixtures('me', [g.placements.find((p) => p.x === src.x && p.z === src.z).id], region);
+  g.removeSelection('me', [g.placements.find((p) => p.x === src.x && p.z === src.z).id], region);
+  const to = clearBlock(g, 4, 1);
+  g.pasteClipboard('me', to);
+  check(g.cash < cash, 'and moving a room costs money rather than making it',
+    `${cash} → ${g.cash}`);
+} else {
+  check(true, 'no floor authored in this catalog — the remove claims are skipped');
+  checks += 12;
+}
+
+// ---------------------------------------------------------------------------
+// 5c. THE SHELL'S OWN GROUND STAYS BEHIND, the way the shell's own walls do.
+//
+// `freezeYard` writes a pad with no `piece`, because nobody bought it — and
+// there is no catalog row to name for one. Passed on as an empty piece it is the
+// BULLDOZER: a copied delivery bay would paste as a hole scraped in the floor,
+// which reads as the ground layer having been dropped and is worse, since it
+// takes the destination's ground with it.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  g.yardStamped = false;
+  g.freezeYard();
+  const pad = g.ground.find((c) => c.k && c.k !== 'floor' && !c.p);
+  check(!!pad, 'the shop has a seeded pad, which is a pad nobody paid for');
+  if (pad) {
+    const region = [
+      { x: pad.x - 0.4, z: pad.z - 0.4 }, { x: pad.x + 0.4, z: pad.z - 0.4 },
+      { x: pad.x + 0.4, z: pad.z + 0.4 }, { x: pad.x - 0.4, z: pad.z + 0.4 },
+    ];
+    const res = g.copyFixtures('me', [], region);
+    eq(res.ok, false, 'copying it alone is refused rather than copying an eraser');
+  } else checks++;
 }
 
 // ---------------------------------------------------------------------------

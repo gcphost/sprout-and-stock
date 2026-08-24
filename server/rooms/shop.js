@@ -295,8 +295,15 @@ export const ShopRoom = (Base) => class extends Base {
 
   registerMessages() {
     this.onMessage('input', (client, m) => {
-      // Sprint rides here rather than on a message of its own — see `setInput`.
-      this.game.setInput(client.sessionId, Number(m?.dx) || 0, Number(m?.dz) || 0, !!m?.sprint);
+      // Sprint and which camera you are behind both ride here rather than on
+      // messages of their own — see `setInput`.
+      this.game.setInput(
+        client.sessionId,
+        Number(m?.dx) || 0,
+        Number(m?.dz) || 0,
+        !!m?.sprint,
+        !!m?.fpv,
+      );
     });
 
     // Stop a shoplifter. Named rather than proximity, like every other verb
@@ -616,6 +623,22 @@ export const ShopRoom = (Base) => class extends Base {
       ));
     });
 
+    // ...and whether a junction's fifth way out — the other storey — counts.
+    // Build mode only, like the rest of the conveyor settings.
+    //
+    // A TUNNEL MOUTH answers it too, and the fold says the pieces rather than
+    // one of them: a batch is one message, so "3 pieces" is the only honest
+    // summary of a pick that could hold both.
+    this.onMessage('sorter-riser', (client, m) => {
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setSorterRiser(client.sessionId, id, m?.on === true),
+        (n) => (m?.on === true
+          ? `${n} pieces can send things to the other storey now.`
+          : `${n} pieces keep everything on their own storey.`),
+      ));
+    });
+
     // ...and which way a shaft carries. Build mode only, like the three above,
     // and bulk like them because a loop rejoining on two levels is built out of
     // more than one shaft.
@@ -878,15 +901,18 @@ export const ShopRoom = (Base) => class extends Base {
     // rather than read off `bulkFixtures`, which keeps only the count.
     this.onMessage('build-remove', (client, m) => {
       const ids = targets(m);
-      let back = 0;
+      // The region rides along for the reason it rides along on `build-copy`,
+      // and it is the same region: what a copy carries, a remove takes. A
+      // selection clicked together sends none, and is the old verb exactly.
       const res = this.game.undoStep(ids.length > 1 ? 'removing those' : 'removing that',
-        () => this.game.bulkFixtures(ids, (id) => {
-          const r = this.game.removeFixture(client.sessionId, id);
-          if (r?.ok) back += r.refund ?? 0;
-          return r;
-        }, (n) => `Removed ${n} fixtures — $${back.toFixed(2)} back.`));
+        () => this.game.removeSelection(client.sessionId, ids, m?.region ?? null));
       client.send('action-result', res);
-      if (res.ok) this.sendLayout();
+      if (res.ok) {
+        this.sendLayout();
+        // Paint comes off with the rest and `paintFaces` never re-flows, so the
+        // overlay would otherwise arrive only on the next thing that did.
+        this.broadcast('paint', this.game.paint);
+      }
     });
 
     /**
@@ -917,15 +943,17 @@ export const ShopRoom = (Base) => class extends Base {
      * Ctrl+C and Ctrl+V.
      *
      * The clipboard itself never crosses the wire in either direction — see
-     * `Game.copyFixtures`. Copy sends the ids the player had picked; paste sends
-     * the cell they pointed at. Both are well inside the 4KB inbound cap where
-     * the thing they are about is not.
+     * `Game.copyFixtures`. Copy sends the ids the player had picked and the four
+     * ground-plane corners of the box they dragged them out of; paste sends the
+     * cell they pointed at. All of it is well inside the 4KB inbound cap where
+     * the thing it is about is not.
      *
      * The paste is one `undoStep`, which is the whole reason this is safe to
      * press: a stamp of twenty things is one Ctrl+Z, not twenty.
      */
     this.onMessage('build-copy', (client, m) => {
-      client.send('action-result', this.game.copyFixtures(client.sessionId, targets(m)));
+      client.send('action-result',
+        this.game.copyFixtures(client.sessionId, targets(m), m?.region ?? null));
     });
 
     this.onMessage('build-paste', (client, m) => {

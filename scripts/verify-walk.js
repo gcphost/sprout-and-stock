@@ -19,6 +19,12 @@
  * 3. **A refusal leaves you standing.** Clicking through a wall you have not
  *    put a door in yet is an ordinary thing to do, not an error state.
  *
+ * ...and since first person got a pace of its own, a fourth that is invisible
+ * for a different reason: a player walking and a player walking are the same
+ * still frame either way, and the shop afterwards is the same shop. See §6,
+ * whose centrepiece is that BOTH movers are boosted — a tapped walk carries no
+ * input vector at all, so it is the one that fails quietly.
+ *
  * Runs on an ephemeral Game, so it never touches the live shop.
  *
  *   node scripts/verify-walk.js
@@ -199,6 +205,134 @@ check(bed.soil === 'untilled', 'and four seconds of crawling over a bed does not
 g.setInput('me', 0, 0);
 tick(4);
 check(bed.soil === 'tilled', 'and standing still on the same bed does');
+
+// ---------------------------------------------------------------------------
+// 6. The pace, which is a fact about the CAMERA and about the player
+//
+// Everything in here is invisible twice over: a player walking and a player
+// walking are the same still frame, and the shop afterwards is the same shop.
+// Only the clock moved — which is precisely the report this shipped for.
+//
+// Its control is the assertion that decides whether any of this is opt-in. A
+// player who never said `fpv` is every player who has ever walked anywhere in
+// this game, in a sweep, in a balance run, in a shop somebody is playing from
+// up there, and a control that is wrong has quietly changed all of them.
+//
+// Its centrepiece is the ROUTED leg, which is the half that would have been
+// forgotten and the half that fails silently: `p.input` is empty for the whole
+// of a tapped walk, so a boost hung off the steering vector leaves pointing at
+// the far shelf slower than walking to it, in the same view, with nothing on
+// screen to say why. Both movers or neither.
+//
+// `FPV_SPEED` is restated here rather than imported, for the reason
+// `verify:grace` restates its ramp: an assertion that reads the constant it is
+// checking passes whatever that constant becomes.
+// ---------------------------------------------------------------------------
+
+const FPV_PACE = 1.35;
+
+/**
+ * Somewhere with a clear run east of it.
+ *
+ * Found rather than written down, because the shop this sweep furnishes is a
+ * generated one: a literal tile is a tile that is open until the day the
+ * generator puts a shelf on it, and what that fails as is a pace assertion
+ * measuring a wall.
+ */
+function openRun(game) {
+  const { w, h } = game.layout;
+  for (let z = 1; z < h - 1; z++) {
+    for (let x = 1; x < w - 3; x++) {
+      let clear = true;
+      for (let s = 0; s < 6; s++) {
+        if (!game.canWalk(x + s * 0.5, z, x + (s + 1) * 0.5, z)) { clear = false; break; }
+      }
+      if (clear) return { x, z };
+    }
+  }
+  return null;
+}
+
+const start = openRun(g);
+check(!!start, 'the sweep found somewhere with three clear tiles east of it');
+
+if (start) {
+  /** Steer east for a fixed slice and answer how far that got you. */
+  const steered = (fpv) => {
+    const h = fresh();
+    h.players.me.x = start.x;
+    h.players.me.z = start.z;
+    h.setInput('me', 1, 0, false, fpv);
+    step(h, 0.5);
+    return h.players.me.x - start.x;
+  };
+
+  const flat = steered(false);
+  const eye = steered(true);
+  check(flat > 0.1, 'the control actually walked', `${flat.toFixed(3)} tiles`);
+  // To the thousandth, because "faster" is satisfied by a rounding error and
+  // the thing being asserted is a specific multiplier.
+  check(
+    Math.abs(eye - flat * FPV_PACE) < 1e-3,
+    'first person steers at exactly the multiplier',
+    `${flat.toFixed(3)} -> ${eye.toFixed(3)}, wanted ${(flat * FPV_PACE).toFixed(3)}`,
+  );
+
+  /** ...and the same slice of a walk the player TAPPED rather than steered. */
+  const routed = (fpv) => {
+    const h = fresh();
+    h.players.me.x = start.x;
+    h.players.me.z = start.z;
+    // The flag arrives the way it does in play — on an input message, with no
+    // direction on it, which is the state a player who is standing still and
+    // about to click is in.
+    h.setInput('me', 0, 0, false, fpv);
+    const r = h.walkTo('me', start.x + 3, start.z);
+    if (!r.ok) return null;
+    step(h, 0.5);
+    return h.players.me.x - start.x;
+  };
+
+  const tapFlat = routed(false);
+  const tapEye = routed(true);
+  check(tapFlat !== null && tapFlat > 0.1, 'a tapped walk sets off', `${tapFlat}`);
+  check(
+    tapFlat !== null && tapEye !== null && Math.abs(tapEye - tapFlat * FPV_PACE) < 1e-3,
+    'and a tapped walk is boosted by the same multiplier as a steered one',
+    `${tapFlat?.toFixed(3)} -> ${tapEye?.toFixed(3)}`,
+  );
+
+  // Sprint still multiplies the walk rather than having been replaced by it.
+  // Without this the honest way to read the change is "first person IS the
+  // sprint", and there would be nothing left to press.
+  const h = fresh();
+  h.players.me.x = start.x;
+  h.players.me.z = start.z;
+  h.setInput('me', 1, 0, true, true);
+  step(h, 0.25);
+  check(
+    h.players.me.x - start.x > eye * 0.5 + 1e-3,
+    'sprinting in first person still beats walking in it',
+  );
+
+  // And the claim that says WHY this rides on the input message rather than
+  // being a switch on the shop: one shop, two people, one of them in first
+  // person. A mode kept anywhere but on the player answers for both.
+  const two = fresh();
+  two.addPlayer('you', 'Guest');
+  for (const who of ['me', 'you']) {
+    two.players[who].x = start.x;
+    two.players[who].z = start.z;
+  }
+  two.setInput('me', 1, 0, false, false);
+  two.setInput('you', 1, 0, false, true);
+  step(two, 0.5);
+  check(
+    two.players.you.x - two.players.me.x > 0.1,
+    'two people in one shop walk at their own camera\'s pace',
+    `${(two.players.me.x - start.x).toFixed(3)} vs ${(two.players.you.x - start.x).toFixed(3)}`,
+  );
+}
 
 console.log(`\nverify:walk — ${checks} assertions\n`);
 if (!failures.length) {

@@ -129,7 +129,7 @@ export function reportHtml(ui) {
     ${todayBlock(ui, st, days)}
     ${repBlock(s, st)}
     ${weekBlock(days)}
-    ${floorBlock(ui, s, st)}
+    ${floorBlock(s, st)}
     ${wrongBlock(st)}
   </div>`;
 }
@@ -587,7 +587,7 @@ function floorNote(level, s) {
  * counts with no ceiling to be a share of — so they are a sentence, which is
  * what the form heuristic says to do with a number that is not a shape.
  */
-function floorBlock(ui, s, st) {
+function floorBlock(s, st) {
   const shelves = s.shelves ?? [];
   const plots = s.plots ?? [];
   const queues = s.queues ?? [];
@@ -603,43 +603,7 @@ function floorBlock(ui, s, st) {
     `${planted} of ${plots.length}${ready ? ` · ${ready} ready` : ''}`)}
     <p class="rp-note">${waiting} queueing across ${queues.length} till${
   queues.length === 1 ? '' : 's'} · ${st.harvested ?? 0} picked today</p>
-    ${footfallRow(ui)}
   </section>`;
-}
-
-/**
- * The one control in a panel that is otherwise a picture.
- *
- * It lives HERE rather than in the settings switch grid, and that placement is
- * the argument. This block is the state of the floor — how many units hold
- * anything, how many beds are in, how long the line is — and where people
- * actually walk is the same question asked about the same floor. Filed under
- * settings it would be a preference about the client; filed here it is a
- * reading, next to the other readings, in the menu you already opened to ask
- * how the shop is doing.
- *
- * The overlay is drawn on the world rather than in the panel, so the press is
- * one you make on the way OUT — which is why the caption says what will happen
- * on the floor rather than describing a switch.
- *
- * One press and no Reset beside it. There was one, back when the map was the
- * browser's: it cleared a localStorage key, and a button that only clears a
- * cache is a button that answers a question nobody asked. The map is the shop's
- * now, it fades a night's worth at every roll (`fadeTraffic`), and a shop you
- * rearrange forgets its old shape by itself within a fortnight.
- */
-function footfallRow(ui) {
-  // Read off the scene, which is the only thing that knows — the switch is a
-  // fact about the client, so it is deliberately not on the wire. A field in
-  // the snapshot would be the server answering a question about your screen.
-  const on = !!ui.scene?.heat?.on;
-  return `<div class="rp-foot">
-    <button class="rp-fbtn${on ? ' on' : ''}" data-act="footfall"
-      aria-pressed="${on ? 'true' : 'false'}"
-      title="${on ? 'Hide the footfall overlay.' : 'Tint the floor by where shoppers actually walk.'}">
-      ${on ? 'Hide footfall' : 'Show footfall'}
-    </button>
-  </div>`;
 }
 
 /**

@@ -2025,9 +2025,12 @@ function restock(game, s) {
   // to the pad and stay there — which is the *spread* bug arriving one step
   // earlier, through the door that spends the money.
   const homes = new Map();
-  const homedAt = (shelf, id) => {
+  const homesFor = (id) => {
     if (!homes.has(id)) homes.set(id, game.homeShelves(id));
-    return game.homedAt(shelf, id, homes.get(id));
+    return homes.get(id);
+  };
+  const homedAt = (shelf, id) => {
+    return game.homedAt(shelf, id, homesFor(id));
   };
   // ...and which machines each stockroom unit is the larder for, once for the
   // whole queue and for the same reason. Null in every shop with no appliance
@@ -2076,7 +2079,11 @@ function restock(game, s) {
       if (givenUp(game, id)) return 0;
       // Not where the shop keeps this. Nothing will shelve it here, so a van of
       // it lands on the pad and stays.
-      if (!homedAt(target, id)) return 0;
+      // The shop floor stays consolidated. A stockroom is deliberately the
+      // opposite: once its current home is full, the next compatible empty unit
+      // is real reserve capacity and the buyer may fill it.
+      if (!homedAt(target, id)
+          && !(target.boh === true && game.homeFull(id, true, homesFor(id)))) return 0;
       // ...and the same for a back room whose machines have no use for it, with
       // the same reservation override. Asked here as well as in `shelvesFor`
       // because this is the half that spends money: a board in the stockroom
@@ -2124,7 +2131,7 @@ function restock(game, s) {
     // a worker restocking a thin shelf, and the appliance quietly never worth
     // what it cost. Your own press is untouched — that is the whole point of
     // the change this guards.
-    if (game.isCrafted(item.id)) continue;
+    if (game.makesHere(item.id)) continue;
 
     const unit = wholesalePrice(item, game.folded(), game.season);
     // Orders arrive as a pallet, so they aren't capped by what one pair of hands
@@ -3797,7 +3804,7 @@ function larderOrder(game, s, c, budget) {
         // buying the intermediate — the mixer fed dough off the van, the mill
         // idle beside it, and the chain that docs/production.md exists to make
         // worth building paid for and never used.
-        if (game.isCrafted(id)) continue;
+        if (game.makesHere(id)) continue;
         // ...and the same veto, because this path spends money too. An
         // ingredient the shop has given up on strands exactly as a product
         // does: `shelvesFor` refuses a dropped item BEFORE it asks about
@@ -3958,21 +3965,15 @@ function shelvesFor(game, itemId, c, spoken = null) {
     // one a home too, which is the whole override. Waived once the home is out
     // of room, which is the only state in which this rule was refusing goods
     // rather than gathering them.
-    // A spill TOPS UP, it never opens a board. That is the difference between
-    // the waiver doing its job and the spread bug wearing its clothes: with a
-    // farm behind it, "any other legal unit" is every bare board in the shop,
-    // and each one it claims is a board the range never gets — so a shop with
-    // four beds of carrots quietly becomes three shelves of carrots and stops
-    // widening, which reads as the crew being stupid rather than as an overflow
-    // rule. Topping up a board that already holds this is the half that empties
-    // the yard without costing anything: it is stock going where that stock
-    // already lives, and `homeShelves` keeps the fullest unit the home, so it
-    // still settles rather than spreading. What waits instead is surplus with a
-    // full home and nowhere it has ever been — which is a crate on the pad, and
-    // the honest signal that you need another unit.
+    // On the SHOP FLOOR a spill tops up and never opens a board. Otherwise a
+    // farm behind it turns every bare sales unit into carrots and consumes the
+    // range. In the BACK, opening the next board is precisely what the fixture
+    // was marked for: reserve capacity. That distinction is also what keeps a
+    // belt from ejecting a paid-for crate beside an empty stockroom unit while
+    // preserving one visible home for the item out front.
     const side = sh.boh === true ? 'back' : 'floor';
     if (!game.homedAt(sh, itemId, homes)
-        && !(spill[side] && game.shelfStack(sh, itemId))) return false;
+        && !(spill[side] && (side === 'back' || game.shelfStack(sh, itemId)))) return false;
     // Set aside for something else is a no even when it's bare — otherwise a
     // stocker with an armful fills the shelf you reserved and the reservation
     // only means anything until the next delivery lands. A LIST of reservations
@@ -4106,7 +4107,6 @@ function pickItem(game, shelf, c) {
   const nearTill = (game.layout.checkouts ?? []).some((t) => Math.hypot(shelf.x - t.x, shelf.z - t.z) <= IMPULSE_RADIUS);
   const endcap = (it) => (nearTill ? Math.max(1, impulsePull(it)) : 1);
 
-  const crafted = new Set(c.recipes.map((r) => r.output_id));
   // What a stockroom is FOR, and the reason this function needed telling at all.
   // It scores by margin × who wants it, which is the shop floor's question — so
   // a unit you marked as the back room was filled with whatever sells well out
@@ -4117,7 +4117,10 @@ function pickItem(game, shelf, c) {
 
   const scored = c.items
     .filter((it) => {
-      if (crafted.has(it.id)) return false;   // whoever has `craft` makes these
+      // A recipe in the catalogue is not production in this shop. If there is
+      // no chef working a matching appliance, the supplier treats the item as
+      // ordinary stock and may fill both its sales board and its reserve.
+      if (game.makesHere(it.id)) return false;
       if (!game.backRoomTakes(shelf, it.id, backTakes)) return false;
       // "Never order this" has to bite here as well as on the quantity, or the
       // shop keeps choosing a banned item for every bare shelf, orders nothing,
@@ -4152,7 +4155,11 @@ function pickItem(game, shelf, c) {
   // Since `shelvesFor` now sends that item home instead, the goods would land
   // on the pad and stay there. A bare unit with nothing new to put on it is a
   // bare unit; that is a shop with room to grow, not a shelf of duplicates.
-  return scored.find((x) => !already.has(x.it.id))?.it ?? null;
+  const fresh = scored.find((x) => !already.has(x.it.id))?.it;
+  // A second copy on the shop floor is accidental range spread. A second copy
+  // in the stockroom is the feature: once one reserve unit is full, another
+  // compatible empty one is additional depth for the same line.
+  return fresh ?? (shelf.boh === true ? scored[0]?.it ?? null : null);
 }
 
 /**

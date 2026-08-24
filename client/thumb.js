@@ -32,6 +32,7 @@
 
 import { partsAt, variantModel, skinnedParts, skinKey, tierProgress } from '../shared/model.js';
 import { FIXTURES } from '../shared/build.js';
+import { T } from '../shared/tiles.js';
 import {
   PALETTE, TILE_STYLE, EDGE_STYLE, bondOf, brickBond, edgeBands, jitter, patternColor, shade,
   stripeBars, stripeDuty,
@@ -91,6 +92,60 @@ const hex = (c) => (typeof c === 'number' ? `#${(c >>> 0).toString(16).padStart(
 // ---- the projector ---------------------------------------------------------
 
 /**
+ * THE CARRIER ON A BELT IS A CHEVRON, and the model does not say so.
+ *
+ * A part flagged `motion: scroll` is a slat, and the renderer does not draw it:
+ * `addConveyorSlats` takes every one of them OUT of the model
+ * (`Scene.isSlat` / `conveyorBody`) and re-lays them as arrows along the way the
+ * cell hands on, at `Scene.aimCarrier`'s own size. So the row is authored with
+ * three small pads and the shop has never drawn a pad — which left the palette
+ * showing a picture of the belt as it was before the arrows, on the one entry
+ * where the question anybody has is *which way do the goods go*.
+ *
+ * It is the "a picture of a thing has to come from the thing" rule failing in
+ * its quietest form: nothing here was stale or wrong, the drawing was simply
+ * faithful to a model the renderer overrules.
+ *
+ * Both numbers below are `aimCarrier`'s, restated rather than imported, and that
+ * is the one thing to know before touching either: this module may not import
+ * `scene.js` (it is loaded by the bar, three.js is not), so the two are a pair
+ * that has to be moved together. Getting it wrong is not a bug you can see — a
+ * chevron a fifth too small still reads as an arrow.
+ */
+const CHEVRON = [[-0.05, -0.5], [0.5, 0], [-0.05, 0.5], [-0.5, 0.5], [0.05, 0], [-0.5, -0.5]];
+const CARRIER_ACROSS = 1.55;
+const CARRIER_ALONG = 1.15;
+
+/** Is this a part the renderer re-lays rather than the model drawing it? */
+const isSlat = (p) => p?.motion?.kind === 'scroll';
+
+/**
+ * The model as the renderer will actually draw it: slats swapped for arrows.
+ *
+ * A pass over the parts rather than a branch inside `artForPiece`, because the
+ * shape card (`artForVariant`) and the fixture menu draw the same models and a
+ * belt that pointed on the bar and not in the card would be two pictures of one
+ * thing again.
+ */
+function carriers(parts) {
+  if (!parts?.some(isSlat)) return parts;
+  return parts.map((p) => {
+    if (!isSlat(p)) return p;
+    const [thin, high, long] = p.scale ?? [0.07, 0.03, 0.56];
+    const span = p.motion?.amount ?? 0.25;
+    return {
+      ...p,
+      shape: 'chevron',
+      scale: [
+        Math.max(thin, Math.min(long * CARRIER_ALONG, span * 0.62)),
+        high,
+        long * CARRIER_ACROSS,
+      ],
+    };
+  });
+}
+
+/**
  * A part's cross-section in plan, counter-clockwise seen from above.
  *
  * A box and a cylinder differ only here, which is why there is one drawing path
@@ -101,6 +156,15 @@ function ring(part) {
   const [sx, , sz] = part.scale ?? [1, 1, 1];
   const hx = sx / 2;
   const hz = sz / 2;
+  // The carrier, and it is a cross-section rather than a third drawing path for
+  // exactly the reason a cylinder is one: what a chevron and a box differ in is
+  // their plan, and everything downstream — the lit sides, the top, the depth
+  // sort — is the same code either way. Same six points as
+  // `Scene.carrierGeometry`, in the same order round as the box above, pointing
+  // along its own +x.
+  if (part.shape === 'chevron') {
+    return CHEVRON.map(([u, v]) => [u * sx, v * sz]);
+  }
   if (part.shape !== 'cylinder') return [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]];
   return Array.from({ length: 10 }, (_, i) => {
     const a = (i / 10) * Math.PI * 2;
@@ -282,7 +346,7 @@ const edgeArt = new Map();
 export function artForModel(model) {
   if (!model) return null;
   if (modelArt.has(model)) return modelArt.get(model);
-  const art = draw(partsAt(model, 0));
+  const art = draw(carriers(partsAt(model, 0)));
   modelArt.set(model, art);
   return art;
 }
@@ -384,9 +448,27 @@ export function artForPiece(row, kind, variant = '') {
   if (!byShape) { byShape = new Map(); pieceArt.set(row, byShape); }
   if (byShape.has(variant)) return byShape.get(variant);
   const ground = FIXTURES[kind]?.ground;
-  const base = ground == null ? [] : [{
+  /**
+   * ...and a BELT cell draws as the floor it was laid on, which is a fact about
+   * the shop and not about the tile.
+   *
+   * `TILE_STYLE` has no `T.BELT` in it and that is not an omission: `buildWorld`
+   * substitutes floor or grass for a belt cell before it ever looks the style up
+   * (`raw === T.BELT ? …`), because a run is a track laid on your floor rather
+   * than a slab of its own — a belt out to the yard would otherwise draw a strip
+   * of shop across the grass.
+   *
+   * Read through a `?? PALETTE.soilRough` written for the plot, every conveyor
+   * in the palette stood on a square of DIRT — five buttons whose ground was a
+   * colour the shop has never once drawn under one. It is this file's own trap
+   * from CLAUDE.md said about a fallback: a lookup's meaning came from what was
+   * absent from a table, and the day something new was absent it answered
+   * confidently and wrongly.
+   */
+  const under = ground == null ? null : TILE_STYLE[ground] ?? TILE_STYLE[T.FLOOR];
+  const base = under == null ? [] : [{
     shape: 'box',
-    color: TILE_STYLE[ground]?.color ?? PALETTE.soilRough,
+    color: under.color,
     pos: [0, -0.04, 0],
     scale: [1, 0.08, 1],
   }];
@@ -396,7 +478,7 @@ export function artForPiece(row, kind, variant = '') {
   // sign that is switched OFF: a button showing a dark panel is a button showing
   // nothing, for a thing that will be lit the moment you hang it up. So a
   // watcher is drawn at the far end, which is the look it is FOR.
-  const art = draw([...base, ...partsAt(model, row?.signal ? 1 : 0)]);
+  const art = draw([...base, ...carriers(partsAt(model, row?.signal ? 1 : 0))]);
   byShape.set(variant, art);
   return art;
 }

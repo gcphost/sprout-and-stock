@@ -38,6 +38,22 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 9 parts · 4 stages, driven by tier · **4 boards of goods** (12 facings drawn)
 
+Covered — Wall corner tier 1: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
+Covered — Wall corner tier 2: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
+Covered — Wall corner tier 3: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
+Covered — Wall corner tier 4: 2 of 8 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
+Covered — Wall corner (other way) tier 1: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
+Covered — Wall corner (other way) tier 2: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
+Covered — Wall corner (other way) tier 3: 2 of 6 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
+Covered — Wall corner (other way) tier 4: 2 of 8 boards (under another board — an L corner). Goods there cannot be seen, so the renderer stocks the boards you can.
+
 Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other way) — looks only, same price and same ladder.
 
 1. **Plain shelving** — free, as built
@@ -105,7 +121,7 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 
 `freezer` · kind `freezer` · $260 to build
 
-9 parts · 4 stages, driven by tier · **4 boards of goods** (12 facings drawn) · has glass
+13 parts · 4 stages, driven by tier · **4 boards of goods** (12 facings drawn) · has glass
 
 Shapes: Standard, Chest, Wall run, Wall corner, Wall corner (other way), Endcap — looks only, same price and same ladder.
 
@@ -372,27 +388,31 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 ### `under`
 
-Indoors or out, blocks nobody, nobody stands at it, rotates.
+Indoors or out, owns its cell (people walk around it), nobody stands at it, rotates.
 
-#### Underground
+#### Tunnel
 
 `under` · kind `under` · $60 to build
 
-10 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof
+19 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
 
-1. **Underground** — free, as built
-2. **Quick underground** — $95, speed ×1.8
-3. **Maglev underground** — $265, speed ×3
+1. **Tunnel** — free, as built
+2. **Quick tunnel** — $95, speed ×1.8
+3. **Maglev tunnel** — $265, speed ×3
 
 ### `lift`
 
-Indoors only, owns its cell (people walk around it), nobody stands at it.
+Indoors only, owns its cell (people walk around it), nobody stands at it, rotates.
 
 #### Lift
 
 `lift` · kind `lift` · $120 to build
 
 16 parts · no `surface` boards — goods pile on its roof · has glass
+
+1. **Standard** — free, as built
+2. **Quick hoist** — $60, speed ×1.8
+3. **Maglev hoist** — $150, speed ×3
 
 ## Decorations
 

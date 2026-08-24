@@ -239,6 +239,9 @@ export const FIXTURES = {
     // the one thing a belt IS about, which way it runs, was the one thing the
     // preview could not tell you.
     flow: { out: 0 },
+    // ...and it is one of the three the ceiling is made of. See `goesOverhead`
+    // for why that is not the same set as "has a flow".
+    overhead: true,
   },
   /**
    * The arm — a pair of hands bolted to the floor.
@@ -284,6 +287,7 @@ export const FIXTURES = {
     // — and both still say no to a second piece on the square.
     label: 'Loader', blocks: true, ground: T.BELT, where: 'any', rotates: true, anchor: null,
     flow: { out: 0 },
+    overhead: true,
     works: true,
   },
   /**
@@ -316,14 +320,16 @@ export const FIXTURES = {
     // ...and the same again, for the same reason: it wears the same housing.
     label: 'Sorter', blocks: true, ground: T.BELT, where: 'any', rotates: true, anchor: null,
     flow: { out: 0 },
+    overhead: true,
     works: true,
   },
   /**
-   * The underground — two mouths and a span that belongs to NOBODY.
+   * The tunnel — two mouths and a span that belongs to NOBODY.
    *
-   * Structurally a belt again, and deliberately so: non-blocking, `T.BELT`, a
-   * facing, hands on to what it faces. The one thing it adds is that what it
-   * faces may be four cells away instead of one.
+   * Structurally a belt again: `T.BELT`, a facing, hands on to what it faces.
+   * The visible mouth is a machine housing and occupies its square; the span
+   * alone is buried and blocks nobody. The other thing it adds is that
+   * what it faces may be four cells away instead of one.
    *
    * A bridge was the other shape and it is wrong here. A belt is `blocks:
    * false`, so shoppers already walk over a run — a walkway would sell
@@ -341,9 +347,15 @@ export const FIXTURES = {
    * it keeps, so a stored pair would be cleared by the one press most likely to
    * follow laying one — **R** — and what you would watch is a tunnel that works
    * until you straighten it.
+   *
+   * FLOOR ONLY, and that falls out of the paragraph above: what a tunnel gives
+   * back is the SQUARE, and a ceiling has not got one to give. It is also the
+   * one piece whose far end is found by a scan rather than by a neighbour, and
+   * that scan matches on x,z alone — so an overhead mouth pairs with a floor
+   * mouth in the same column. See `goesOverhead`.
    */
   under: {
-    label: 'Underground', blocks: false, ground: T.BELT, where: 'any', rotates: true, anchor: null,
+    label: 'Tunnel', blocks: true, ground: T.BELT, where: 'any', rotates: true, anchor: null,
     flow: { out: 0 },
   },
   /**
@@ -354,21 +366,34 @@ export const FIXTURES = {
    * lift is the whole of what joins the two: everything else about an overhead
    * run is an ordinary belt, loader or sorter carrying `deck: 1`.
    *
-   * Which WAY it goes is not a field and is not aimed — it falls out of the deck
-   * it is standing on. A floor lift sends up, a ceiling lift sends down, and the
-   * cell it hands to is its own x,z on the other deck. That is `under`'s
-   * derivation with the distance taken out, and it is derived for `under`'s
-   * reason: `repositionFixture` names every field it keeps, so a stored
-   * partner or a stored direction is one the R key clears, and what you would
-   * watch is a lift that works until you straighten it. `rot` is free here and
-   * means nothing, which is exactly why nothing about a lift can survive R
-   * wrongly.
+   * Which WAY it goes is not `rot` and is derived before it is set: it falls out
+   * of whoever feeds it, and `way` is the override for the one case that
+   * derivation cannot answer (a run arriving on both storeys at once). That is
+   * `under`'s pairing with the distance taken out, and it is a separate field
+   * for `under`'s reason: `repositionFixture` names every field it keeps, so a
+   * direction stored in `rot` is one the R key clears, and what you would watch
+   * is a lift that works until you straighten it.
+   *
+   * `rot` is WHICH SIDE IT LANDS ON, which is the loader's meaning of the key
+   * rather than the belt's. A shaft has up to four ways out on the deck it
+   * arrives at and it used to take them in enum order, so the one thing about a
+   * lift a player wants to say — carry on THAT way — was the one thing the
+   * piece could not be told. It is a preference and never a pin (see
+   * `liftOut`), so an aim that has been walled off falls back to the scan
+   * instead of turning the shaft into a terminus.
    *
    * BLOCKS, like the loader and for its reason: it is a column with a track
    * going up it, not ground you walk over.
+   *
+   * FLOOR ONLY, which is the one place in here where "it goes on both storeys"
+   * and "you may build it on either" are opposite claims. A shaft already
+   * answers `conveyorAt` on both decks from one square, so a second one laid
+   * overhead is the same lift said twice — and the only instruction there has
+   * ever been for building one is "put it on the floor at the end of the run".
+   * See `goesOverhead`.
    */
   lift: {
-    label: 'Lift', blocks: true, ground: T.BELT, where: 'indoor', rotates: false, anchor: null,
+    label: 'Lift', blocks: true, ground: T.BELT, where: 'indoor', rotates: true, anchor: null,
     flow: { out: 0 },
   },
   /**
@@ -1726,6 +1751,68 @@ export function groundStroke(start, to, max = GROUND_STROKE_MAX, thick = 1, L = 
 export const strokeThick = (kind) => (kind === 'road' ? ROAD_THICK : 1);
 
 /**
+ * Which cells a selection box covered, given the four ground-plane corners the
+ * screen rectangle landed on.
+ *
+ * `groundStroke`'s argument said about a box somebody dragged with the CAMERA in
+ * the way. The marquee is a screen rectangle — `fixturesInRect` tests against it
+ * in screen space, exactly, and that is right for a fixture, which is drawn most
+ * of a tile up-screen of the ground it stands on. Ground has no such freedom: a
+ * cell is where it is, so the honest question is which cells lie under the box.
+ *
+ * It is a **quad and never a tile rect**, which is the whole reason this exists.
+ * The camera is at 45°, so a square dragged on screen lands on the floor as a
+ * diamond, and the axis-aligned box around that diamond is very nearly twice the
+ * area — a copy region taken from it comes home with the aisle next door and the
+ * yard behind it. Four corners cost eight numbers on the wire, which is
+ * `build-edge`'s rule (send the ends, re-derive the cells) said about an area.
+ *
+ * Convex by construction — a rectangle projected onto a plane is one — so the
+ * test is the standard "same side of all four edges", written to accept either
+ * winding rather than trusting the client to send them round the right way.
+ *
+ * @param {object} L layout, which is also the clip: nothing outside it exists
+ * @param {?Array<{x: number, z: number}>} quad four corners, in order round the box
+ */
+export function quadCells(L, quad) {
+  if (!L || !Array.isArray(quad) || quad.length !== 4) return [];
+  const pts = quad.map((p) => ({ x: Number(p?.x), z: Number(p?.z) }));
+  if (pts.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.z))) return [];
+
+  const lo = {
+    x: Math.max(0, Math.floor(Math.min(...pts.map((p) => p.x)))),
+    z: Math.max(0, Math.floor(Math.min(...pts.map((p) => p.z)))),
+  };
+  const hi = {
+    x: Math.min(L.w - 1, Math.ceil(Math.max(...pts.map((p) => p.x)))),
+    z: Math.min(L.h - 1, Math.ceil(Math.max(...pts.map((p) => p.z)))),
+  };
+
+  // A cell is in if its CENTRE is, which is the same call `pickTile` makes about
+  // a single square: a box that took every cell it clipped a corner of would
+  // reach a tile further out on all four sides than the one you were pointing at.
+  const inside = (x, z) => {
+    let neg = false;
+    let pos = false;
+    for (let i = 0; i < 4; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % 4];
+      const cross = (b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x);
+      if (cross < 0) neg = true;
+      if (cross > 0) pos = true;
+      if (neg && pos) return false;
+    }
+    return true;
+  };
+
+  const out = [];
+  for (let z = lo.z; z <= hi.z; z++) {
+    for (let x = lo.x; x <= hi.x; x++) if (inside(x, z)) out.push({ x, z });
+  }
+  return out;
+}
+
+/**
  * Which design of ground is painted on each cell, as a lookup.
  *
  * The layer that carries the *design*, kept clear of `tiles`, which carries
@@ -2142,6 +2229,43 @@ export function runCells(from, to, max = BELT_RUN_MAX, rot = 0, follow = true) {
 /** Does a drag of this kind turn each cell to follow the gesture? See above. */
 export const runFollows = (kind) => RUN_KINDS.includes(kind);
 
+/**
+ * The fixtures one drag of a named kind lays.
+ *
+ * Almost every fixture is a row: every square the pointer crosses gets one.
+ * A tunnel is the deliberate exception. It is two mouths with an unowned
+ * span between them, locked to the dominant axis of the gesture and capped at
+ * the longest span `tunnelExit` can discover. Both mouths face from the press
+ * toward the release, because that direction is the direction goods travel.
+ *
+ * A click still lays one mouth. That preserves the original two-click way of
+ * assembling or repairing a tunnel while making a drag the direct two-ended
+ * gesture the palette describes.
+ */
+export function fixtureRunCells(kind, from, to, max = BELT_RUN_MAX, rot = 0) {
+  if (kind !== 'under') return runCells(from, to, max, rot, runFollows(kind));
+  if (!from) return [];
+
+  const end = to ?? from;
+  const dx = end.x - from.x;
+  const dz = end.z - from.z;
+  if (!dx && !dz) return [{ x: from.x, z: from.z, rot: rot4(rot) }];
+
+  const alongX = Math.abs(dx) >= Math.abs(dz);
+  const delta = alongX ? dx : dz;
+  const distance = Math.min(Math.abs(delta), TUNNEL_SPAN + 1);
+  const step = Math.sign(delta);
+  const facing = alongX ? (step > 0 ? 0 : 2) : (step > 0 ? 1 : 3);
+  return [
+    { x: from.x, z: from.z, rot: facing },
+    {
+      x: from.x + (alongX ? step * distance : 0),
+      z: from.z + (alongX ? 0 : step * distance),
+      rot: facing,
+    },
+  ];
+}
+
 /** A cell whose pass-through is DERIVED rather than being its own `rot`. */
 export const derivedFlow = (kind) => kind === 'arm' || kind === 'sorter';
 
@@ -2156,14 +2280,62 @@ export function conveyorsOf(L) {
  * save in existence.
  *
  * It is a field on the PLACEMENT rather than a second set of kinds, for R3's
- * reason and for a sharper one: a ceiling run wants belts, loaders, sorters and
- * tunnels, so kinds would be four duplicates that then have to be kept in step
- * with the four originals for ever. It rides a re-flow the way `mode`, `auto`
- * and `reject` do — named in `compose`, or the first wall segment you drag
- * drops the whole overhead run onto the floor.
+ * reason and for a sharper one: a ceiling run wants belts, loaders and sorters,
+ * so kinds would be three duplicates that then have to be kept in step with the
+ * three originals for ever. It rides a re-flow the way `mode`, `auto` and
+ * `reject` do — named in `compose`, or the first wall segment you drag drops the
+ * whole overhead run onto the floor.
  */
 export const CEILING = 1;
+
+/**
+ * ...and the storey BELOW, which is an address and never a place you build.
+ *
+ * A tunnel used to be its own physics: a pair of mouths, a `underPiston` clock
+ * counting 0..2 through a stroke, a second clock (`underRise`) for the far end,
+ * an owner map of its own, and a span that was one long flat leg the crate was
+ * simply hidden along. Every one of those is a thing the LIFT already does with
+ * one number — `crate.deck`, a fraction between two storeys — and two spellings
+ * of "a box is between decks" is two state machines that drift.
+ *
+ * So a tunnel is a lift that goes down. The span dips to this deck, the crate's
+ * own `deck` carries it, and the piston is drawn from that fraction exactly as
+ * the shaft's carrier is.
+ *
+ * It is NOT a third storey. Nothing may be placed here: `goesOverhead` is
+ * unchanged, `canPlace` never offers it, and no cell ever answers `deckOf` with
+ * it — the span belongs to nobody, which is the whole of what a tunnel gives
+ * back and the reason Factorio's underground belt is a pair of mouths rather
+ * than a floor you lay. Only a crate is ever down here, and only in transit.
+ */
+export const BASEMENT = -1;
+
 export const deckOf = (c) => (c?.deck === CEILING ? CEILING : 0);
+
+/**
+ * May this kind be built on the ceiling at all?
+ *
+ * It was `def.flow`, which reads as "is this a conveyor" and is one kind too
+ * broad in each direction that matters. A **lift** is the piece that JOINS the
+ * two storeys — it answers `conveyorAt` on both decks from one square — so a
+ * lift laid overhead is a second spelling of the lift already there, and the
+ * only build instruction there has ever been for one (docs/belts.md step 8) is
+ * "put a Lift on the floor at the end of the run". A **tunnel** is the piece
+ * that gives a floor SQUARE back, which is the one thing a ceiling has not got
+ * to give — and `tunnelAhead` matches its far mouth on x,z alone, so an
+ * overhead mouth pairs with a floor mouth in the same column and hands its
+ * crate down a storey. That is docs/belts.md's own "a hand-off has a storey"
+ * bug, arriving through the one piece whose pairing is a scan rather than a
+ * neighbour.
+ *
+ * It is asked in four places and they are the four halves of one decision: the
+ * refusal (`canPlace`), the field on the placement (`Game.placeFixture`), what
+ * the client sends, and whether the Floor/Overhead pair is on screen at all
+ * (`UI.deckable`). A control offered for a placement the rules refuse is the
+ * green-ghost bug wearing a switch — which is exactly how this was reported,
+ * as a storey toggle that appeared for the two pieces that cannot use one.
+ */
+export const goesOverhead = (kind) => !!FIXTURES[kind]?.overhead;
 
 /**
  * Two cells are neighbours only on the same deck — and this one line is what a
@@ -2237,13 +2409,13 @@ export const sameFixture = (a, b) => !!a && !!b
   && a.x === b.x && a.z === b.z && a.kind === b.kind && deckOf(a) === deckOf(b);
 
 /**
- * The tiles a loader can reach — four beside it, or the ONE beneath it.
+ * The tiles a loader can reach — the four beside it, on either storey.
  *
- * An overhead loader is deliberately the weaker of the two, and that is what
- * keeps a ceiling run from being a floor run that costs no floor: a run down an
- * aisle serves the units either side of every cell, where a duct over the same
- * aisle serves whatever it is directly above. One machine per unit against one
- * per pair. The ceiling buys you the SQUARE back and charges you in loaders.
+ * An overhead loader serves the floor fixtures on both sides of the aisle just
+ * as a floor loader does. The difference is the journey: its spur runs out from
+ * the duct and then drops, while a floor loader hands straight across. Keeping
+ * the footprint identical is what makes moving a working aisle overhead free
+ * the square without silently halving what each loader serves.
  *
  * Here rather than in either half, because FIVE loops enumerate a loader's
  * sides and every one of them has to agree: the swing that pours, the two
@@ -2254,7 +2426,6 @@ export const sameFixture = (a, b) => !!a && !!b
  * is the green-ghost bug on a ceiling.
  */
 export function armReach(c) {
-  if (deckOf(c) === CEILING) return [{ x: c.x, z: c.z }];
   return [0, 1, 2, 3].map((r) => anchorTile(c.x, c.z, r));
 }
 
@@ -2271,29 +2442,81 @@ export function armReach(c) {
 export const TUNNEL_SPAN = 4;
 
 /**
- * The far mouth this one hands to, or null if it is the far mouth itself.
- *
- * Both ends are laid facing the way the goods travel, so "am I an entry" is the
- * same question as "is there another mouth ahead of me, pointing the same way".
- * Nothing is stored and nothing is paired at build time — see `BUILD_KINDS.under`
- * for why a partner id would not survive the R key.
+ * The nearest mouth ahead of this one facing the same way, spoken for or not.
  *
  * The NEAREST one wins, so three mouths in a line are two tunnels rather than
  * one that skips the middle — otherwise laying a third would silently re-route
- * the pair you already had.
+ * the pair you already had. A mouth ahead pointing some OTHER way ends the scan
+ * rather than being skipped past, or the pair you can see is beaten by one you
+ * cannot.
+ *
+ * ON ITS OWN STOREY, and this is a BELT rather than a rule — `overhead` is what
+ * keeps a mouth off the ceiling in the first place, and `verify:ceiling` §2b is
+ * where that is argued. It is asked here as well because this scan matched on
+ * x,z alone, which made it the second cell in the game that could span two
+ * storeys: pair a floor mouth with a duct mouth and the crate changes deck with
+ * no shaft anywhere near it, which is `verify:ceiling` §3's whole claim undone
+ * by a lookup. A save built before the placement rule is exactly the shop that
+ * has one, and `compose` still writes `under.deck` — so the refusal at the press
+ * cannot be the only thing standing between a tunnel and a storey.
  */
-export function tunnelExit(L, cell) {
-  if (!cell || cell.kind !== 'under') return null;
-  const step = anchorTile(cell.x, cell.z, cell.rot ?? 0);
+function tunnelAhead(L, cell, back = false) {
+  const step = anchorTile(cell.x, cell.z, rot4((cell.rot ?? 0) + (back ? 2 : 0)));
   const dx = step.x - cell.x;
   const dz = step.z - cell.z;
+  const deck = deckOf(cell);
   for (let i = 1; i <= TUNNEL_SPAN + 1; i++) {
     const x = cell.x + dx * i;
     const z = cell.z + dz * i;
-    const other = (L?.unders ?? []).find((u) => u.x === x && u.z === z);
+    const other = (L?.unders ?? []).find((u) => u.x === x && u.z === z && deckOf(u) === deck);
     if (other) return (other.rot ?? 0) === (cell.rot ?? 0) ? other : null;
   }
   return null;
+}
+
+/**
+ * Is this mouth already the far end of somebody else's tunnel?
+ *
+ * PAIRING IS A MATCHING, NOT A LOOKUP, and that is the whole of this function.
+ * Asked cell by cell, "is there a mouth ahead of me" makes the middle of a chain
+ * an entry AND an exit at once: four mouths in a row are three tunnels, the
+ * middle pair swallows whatever the run was supposed to do between them, and
+ * both halves of it draw as entries — which is the one thing about it you can
+ * see, and it reads as the art not turning rather than as the wrong two ends
+ * having found each other.
+ *
+ * What that cost on a live save: a mouth handed its crate four cells down the
+ * row to the far pair's entry, straight over a LIFT standing in between. Every
+ * box that arrived arrived correctly and the run looked like it was working —
+ * the lift simply never carried anything, which is what an unbuilt lift looks
+ * like too.
+ *
+ * The scan backwards stops at the FIRST mouth it meets for the same reason the
+ * forward one does: anything further back would have met that one first, so it
+ * is the only cell that could be claiming this one. And the answer alternates
+ * down the chain — an entry's exit is spoken for, and the mouth after THAT is
+ * free to open a tunnel of its own — which terminates because every step walks
+ * strictly backwards along one axis.
+ */
+function tunnelClaimed(L, cell) {
+  const behind = tunnelAhead(L, cell, true);
+  if (!behind) return false;
+  return !tunnelClaimed(L, behind);
+}
+
+/**
+ * The far mouth this one hands to, or null if it is the far mouth itself.
+ *
+ * Both ends are laid facing the way the goods travel, so "am I an entry" is the
+ * same question as "is there another mouth ahead of me, pointing the same way,
+ * that nobody behind me has already claimed". Nothing is stored and nothing is
+ * paired at build time — see `BUILD_KINDS.under` for why a partner id would not
+ * survive the R key.
+ */
+export function tunnelExit(L, cell) {
+  if (!cell || cell.kind !== 'under') return null;
+  if (tunnelClaimed(L, cell)) return null;
+  return tunnelAhead(L, cell);
 }
 
 /**
@@ -2307,8 +2530,15 @@ export function tunnelExit(L, cell) {
 export function conveyorAt(L, x, z, deck = 0) {
   const cx = Math.round(x);
   const cz = Math.round(z);
-  return conveyorsOf(L).find((c) => c.x === cx && c.z === cz
-    && (c.kind === 'lift' || deckOf(c) === deck)) ?? null;
+  const cells = conveyorsOf(L);
+  // A lift owns this square on BOTH storeys. Belts are listed before lifts in
+  // `conveyorsOf`, so a single `.find()` returned a co-located roof belt first
+  // and contradicted `conveyorFlow`, whose deck map deliberately lets the lift
+  // overwrite that cell. Prefer the shaft explicitly, then answer the ordinary
+  // deck lookup when there is no lift.
+  return cells.find((c) => c.kind === 'lift' && c.x === cx && c.z === cz)
+    ?? cells.find((c) => c.x === cx && c.z === cz && deckOf(c) === deck)
+    ?? null;
 }
 
 /**
@@ -2358,7 +2588,7 @@ export function conveyorAt(L, x, z, deck = 0) {
  * once, because a kind missing from one copy of it is a machine that works and
  * a shop that will not admit it does.
  */
-function unitOn(L, x, z) {
+export function unitOn(L, x, z) {
   return (L?.shelves ?? []).some((u) => u.x === x && u.z === z)
     || (L?.stations ?? []).some((u) => u.x === x && u.z === z)
     || (L?.bins ?? []).some((u) => u.x === x && u.z === z);
@@ -2435,6 +2665,8 @@ function conveyorFlow(L) {
    */
   const risesTo = (c) => {
     if (c.kind === 'lift') return null;
+    // A junction only looks up when it has been TOLD to — see `conveyorBranches`.
+    if (c.kind === 'sorter' && c.riser !== true) return null;
     const n = acrossFrom(c);
     const other = at.get(`${n.x},${n.z},${n.deck}`);
     if (!other || other.id === c.id || other.kind === 'lift') return null;
@@ -2447,7 +2679,29 @@ function conveyorFlow(L) {
     // the derivation would happily pick the branch as the pass-through and the
     // piece would have one output that it used twice.
     const branch = c.kind === 'sorter' ? stepFrom(c, c.rot ?? 0) : null;
+    /**
+     * The side the box CAME FROM, which is never a way out.
+     *
+     * `feedsUs` is the general form of this and it cannot answer here, because
+     * it reads a neighbour's straight-on out of `map` — and a junction reaches
+     * this cell down a BRANCH, which is not that neighbour's straight-on and
+     * therefore not in there. So a cell arrived at off a junction's side saw the
+     * junction as open, and with nothing else beside it that is what it picked:
+     * a two-cell tug of war with the piece that had just handed it the box.
+     *
+     * Which is `conveyorBranches`' own trap sprung from the other end — that
+     * function drops any neighbour whose flow points back, so the branch it
+     * just travelled disqualifies itself and the sorter ends up with no branch
+     * at all. A loader bolted to a skip beside a junction is the build it
+     * breaks, and both halves look perfectly wired.
+     *
+     * `backR` is the way ON, so the way BACK is its opposite. Null when the box
+     * arrived from a lift, which is no quarter turn at all — nothing to exclude,
+     * and the shaft is refused by `risesTo`'s own guard.
+     */
+    const cameFrom = backR === null || backR === undefined ? null : rot4(backR + 2);
     const open = around(c).filter((o) => !feedsUs(o, c)
+      && o.r !== cameFrom
       && !(branch && o.x === branch.x && o.z === branch.z));
     /**
      * ...and with no way out ON THIS STOREY, the rise — docs/belts.md step 9.
@@ -2565,11 +2819,44 @@ function conveyorFlow(L) {
       const ways = [map.get(c.id)];
       const br = c.kind === 'sorter' ? stepFrom(c, c.rot ?? 0) : null;
       if (br && at.has(`${br.x},${br.z},${br.deck}`)) ways.push(br);
+      /**
+       * ...and EVERY OTHER SIDE, because that is what a junction has been since
+       * it became a four-way and this loop was still walking the two it had
+       * when it was a T.
+       *
+       * `conveyorBranches` is what actually routes a crate, and it takes every
+       * neighbour that is not the straight-on and is not feeding in — `rot` only
+       * decides which goes first. So a sorter's incidental exits are ways out
+       * the sim sends boxes down and the walk never travelled, which is this
+       * loop's own note about the named branch, said about the sides nobody
+       * typed: they fall through to the per-cell guess at the bottom of this
+       * function, and for a loader aimed at a shelf or a machine that guess is
+       * "terminus".
+       *
+       * What it costs is the shop the piece is for. A junction with an aisle of
+       * loaders coming off one side — each aimed at the appliance it feeds —
+       * has every cell of that aisle declared a dead end, so the first loader
+       * takes a box and hands on to nobody. The sorter goes on offering it the
+       * branch and the whole row is fed one machine deep, which reads as a
+       * loader that will not pass anything through, and every piece in it is
+       * aimed correctly the entire time.
+       *
+       * Derived off `around`/`feedsUs` rather than by calling
+       * `conveyorBranches` — that function asks `conveyorNext` of its
+       * neighbours, which is a call back into this one, and the lift's own note
+       * two screens down is about the afternoon that took the server out.
+       */
+      if (c.kind === 'sorter') {
+        for (const o of around(c)) {
+          if (feedsUs(o, c)) continue;
+          ways.push({ x: o.x, z: o.z, deck: o.deck });
+        }
+      }
       // ...and a junction's RISE, for the same reason its named branch is here:
       // a way out the walk does not travel is a way out whose loaders never get
       // a feeder, so they fall through to the per-cell guess and a whole duct
       // decides, one cell at a time, which way it runs.
-      if (c.kind === 'sorter') {
+      if (c.kind === 'sorter' && c.riser === true) {
         const up = acrossFrom(c);
         const on = at.get(`${up.x},${up.z},${up.deck}`);
         if (on && on.id !== c.id && on.kind !== 'lift') ways.push(up);
@@ -2638,7 +2925,23 @@ function conveyorFlow(L) {
    * disagree in a shop with two candidate cells.
    */
   const liftOut = (f, deck) => {
-    for (const r of [0, 1, 2, 3]) {
+    // THE SIDE YOU AIMED AT FIRST, then rotation order.
+    //
+    // A shaft has up to four ways out on the deck it lands on, and until R
+    // meant anything here it took the lowest-numbered one — so which cell a
+    // descending crate carried on into was decided by an enum, and the only way
+    // to change it was to demolish whichever neighbour happened to win. On the
+    // save this came off, a lift landing beside a belt to its east and a tunnel
+    // mouth to its north always chose the belt, and the north leg could not be
+    // built at all.
+    //
+    // Preferring rather than pinning is the whole care needed: `rot` is free on
+    // every shaft ever built (it defaults to 0, which is east, which is what the
+    // scan already tried first), so no existing lift moves — and a shaft aimed
+    // at a wall, at its own feeder or at nothing still falls through to the scan
+    // rather than becoming a terminus, which is `faceAlong`'s `keep` said about
+    // a machine: an aim that only ever WORKS cannot make a shop stop working.
+    for (const r of [rot4(f.rot ?? 0), 0, 1, 2, 3]) {
       const n = anchorTile(f.x, f.z, r);
       const other = at.get(`${n.x},${n.z},${deck}`);
       if (!other || other.id === f.id || other.kind === 'lift') continue;
@@ -2740,12 +3043,12 @@ function conveyorFlow(L) {
      * answered this way: a loader with a feeder was resolved above and is part
      * of a run whatever it pours into.
      */
-    // A CEILING loader is a terminus the same way, and it is the one that does
-    // not read its `rot`: it serves the unit directly beneath it (`armDeck`),
-    // so the tile it empties into is its own. Left out, an overhead loader is
-    // the beltless leftover this branch is about and guesses a neighbour.
+    // A CEILING loader is a terminus on the same terms now: it reads `rot` as
+    // the first neighbouring floor fixture it serves. Left out, an overhead
+    // loader with no feeder is the beltless leftover this branch is about and
+    // guesses a conveyor neighbour instead.
     const out = c.kind === 'arm'
-      ? (deckOf(c) === CEILING ? { x: c.x, z: c.z } : anchorTile(c.x, c.z, c.rot ?? 0))
+      ? anchorTile(c.x, c.z, c.rot ?? 0)
       : null;
     /**
      * ...unless there is a DUCT OVER IT, and this is the one place step 9 had
@@ -2770,14 +3073,28 @@ function conveyorFlow(L) {
      * branch was ever asking. The units still go first — that is `armSwing`'s
      * ladder, not this map, and it is untouched.
      */
-    if (out && risesTo(c)) {
-      map.set(c.id, risesTo(c));
-      queue.push(c);
-      walk();
-      continue;
-    }
     if (out && !at.has(`${out.x},${out.z},${deckOf(c)}`) && unitOn(L, out.x, out.z)) {
-      map.set(c.id, null);
+      /**
+       * ...UNLESS THERE IS A DUCT OVER IT, and it belongs here and nowhere
+       * earlier — which is the whole of what this branch got wrong once.
+       *
+       * "A loader emptying into a unit hands on to nobody" stopped being true
+       * when the same square gained a way out. Asked BEFORE `choose` though, it
+       * is a different and much worse sentence: every loader the walk never
+       * reached rises, including all seven of an aisle stocked one machine per
+       * shelf with the return duct running over the top of it. Which is not a
+       * subtle failure — the run stops being a run, each cell posts its box
+       * straight up, and the riser marks draw a row of seven lifts where there
+       * should be one at the end.
+       *
+       * `choose` below already rises as its LAST resort, so the ordinary end of
+       * a chain is handled there. What is left for here is only the loader that
+       * `choose` would never be asked about: one whose `rot` names a shelf, a
+       * machine or a skip, which was a terminus and now has somewhere to go.
+       */
+      const up = risesTo(c);
+      map.set(c.id, up ?? null);
+      if (up) { queue.push(c); walk(); }
       continue;
     }
     map.set(c.id, choose(c, null));
@@ -2808,12 +3125,32 @@ export function conveyorNext(L, cell) {
   if (cell.kind === 'under') {
     const far = tunnelExit(L, cell);
     if (far) return { x: far.x, z: far.z, deck: deckOf(far) };
+    /**
+     * ...and the far end may come up on the OTHER STOREY, which is the whole of
+     * what the toggle buys: a span that arrives under an aisle can hand its box
+     * to the duct overhead instead of onto the floor in front of it.
+     *
+     * `riser` is the sorter's own field and the ask is the same one, for the
+     * same reason: a duct over a mouth is a route across the shop that happens
+     * to pass over that square, so it is chosen rather than derived — otherwise
+     * laying a return leg would silently re-point every tunnel it flew over.
+     *
+     * Guarded on there BEING a cell up there, or a mouth switched on over bare
+     * roof is a terminus and the run simply stops — which is the one failure
+     * that reads as the toggle having broken the tunnel rather than as an empty
+     * ceiling.
+     */
+    if (cell.riser === true) {
+      const up = acrossFrom(cell);
+      if (conveyorAt(L, up.x, up.z, up.deck)) return up;
+    }
     return stepFrom(cell, cell.rot);
   }
-  // The one cell that changes storey. Not aimed, so R cannot break it — and
-  // read off the flow map rather than worked out here, because which way it
-  // carries depends on who feeds it and that is not known until the walk has
-  // run. See `liftTo`.
+  // The one cell that changes storey. Read off the flow map rather than worked
+  // out here, because which STOREY it carries to depends on who feeds it and
+  // that is not known until the walk has run — and because R aims the shaft at
+  // one of the four ways out up there, which is the same walk's answer. See
+  // `liftTo` and `liftOut`.
   if (cell.kind === 'lift') return conveyorFlow(L).get(cell.id) ?? null;
   if (!derivedFlow(cell.kind)) return stepFrom(cell, cell.rot);
   return conveyorFlow(L).get(cell.id) ?? null;
@@ -2886,25 +3223,32 @@ export function conveyorBranches(L, cell) {
   /**
    * ...and the fifth, which is straight up or straight down — step 9.
    *
-   * A junction is the one piece in the shop whose whole job is choosing between
-   * ways out, so a duct hanging over one is a way out in exactly the sense the
-   * four beside it already are: you do not AIM a branch, you build a conveyor
-   * next to a junction and it becomes one. `rot` only ever decided which goes
-   * first. Standing a sorter where two storeys meet is the choosing, and it is
-   * what the return leg is made of — the goods this aisle has no home for go
-   * overhead and away, with no floor tile spent on the shaft.
+   * `riser` IS THE ASK, and it shipped automatic for one afternoon on the
+   * argument that you do not aim a branch: `conveyorBranches` takes every
+   * neighbour that is not the straight-on and is not feeding it, and `rot` only
+   * decides which goes first, so standing a junction where two storeys meet
+   * reads like the choosing. That argument is wrong about the one axis it was
+   * being applied to, and the difference is what you were pointing at when you
+   * built the thing. A belt beside a junction was laid *at* the junction. A duct
+   * over one is a route across the shop that happens to pass over it — and a
+   * return leg passes over everything, which is the whole reason to have it.
    *
-   * It cannot outrank a line that WANTS the box, and nothing here has to make
-   * sure of that: `sorterOut` sorts by `sorterWants` and only ever splits across
-   * the keen ones. A duct that serves nothing is never keen, which is the same
-   * protection the dead spur beside it already has.
+   * A real shop found it the same day: a junction feeding an aisle of fifteen
+   * shelves, with the return duct crossing over its square on the way home.
+   * While a shelf could take the goods the keen test held (`sorterOut` only
+   * splits across lines that WANT the box, and a duct that serves nothing is
+   * never keen) — and the moment the aisle filled, nothing was keen and a third
+   * of everything went up the return leg to park at the end of it. Every box
+   * that did arrive arrived correctly, which is the "sorter that does not sort"
+   * report exactly.
    *
-   * Same two guards as `risesTo` — never a shaft, never something already
-   * pointing at us — because a branch that is also a feeder is a two-cell tug of
-   * war, and at a junction that is the likely one.
+   * Off is every junction ever built. Same two guards as `risesTo` besides —
+   * never a shaft, never something already pointing at us — because a branch
+   * that is also a feeder is a two-cell tug of war, and at a junction that is
+   * the likely one.
    */
   const up = acrossFrom(cell);
-  const above = conveyorAt(L, up.x, up.z, up.deck);
+  const above = cell.riser === true ? conveyorAt(L, up.x, up.z, up.deck) : null;
   if (above && above.id !== cell.id && above.kind !== 'lift'
     && !(straight && straight.x === up.x && straight.z === up.z
       && deckOf(straight) === up.deck)) {
@@ -2980,7 +3324,10 @@ export function alongPath(pts, at) {
   // below and the box is drawn on the far deck the tick it sets off — the ride
   // is the one part of an overhead run you can actually watch, and it would not
   // exist. `deck` comes back as a fraction for exactly that reason.
-  const d = (p) => (p?.deck === CEILING ? CEILING : 0);
+  // Three storeys rather than two, and the third is the tunnel's. A point may
+  // sit at `BASEMENT` even though no CELL ever does — the span is the one leg
+  // of a path with nothing standing on either end of it.
+  const d = (p) => (p?.deck === CEILING ? CEILING : (p?.deck === BASEMENT ? BASEMENT : 0));
   if (!pts?.length) return { x: 0, z: 0, deck: 0, leg: 0, k: 0 };
   if (pts.length === 1) return { x: pts[0].x, z: pts[0].z, deck: d(pts[0]), leg: 0, k: 0 };
   let left = Math.max(0, at);
@@ -3077,14 +3424,37 @@ export function conveyorLines(L) {
 
   // Every way out of every cell, which is one for all of them but a junction.
   const ways = new Map();
+  /**
+   * ...and WHICH STOREY each cell is handed its boxes on, which is the one
+   * thing `cellOf` throws away and the one thing a shaft needs.
+   *
+   * `conveyorNext` answers a point — an x, a z and a deck — and a lift answers
+   * `conveyorAt` on both storeys, so resolving that point to a cell collapses
+   * "the duct hands to the shaft" and "the aisle hands to the shaft" into the
+   * same fact. `deckOf` on the shaft itself cannot tell them apart either: it
+   * is a field on the placement and reads 0 whichever end you mean.
+   */
+  const inDecks = new Map();
+  const arrives = (p, o) => {
+    const d = deckOf(p);
+    const seen = inDecks.get(o.id) ?? [];
+    if (!seen.includes(d)) seen.push(d);
+    inDecks.set(o.id, seen);
+  };
   for (const c of cells) {
     const out = [];
-    const n = cellOf(conveyorNext(L, c));
-    if (n) out.push(n);
+    const raw = conveyorNext(L, c);
+    const n = cellOf(raw);
+    if (n) {
+      out.push(n);
+      arrives(raw, n);
+    }
     if (c.kind === 'sorter') {
       for (const b of conveyorBranches(L, c)) {
         const o = cellOf(b);
-        if (o && !out.some((w) => w.id === o.id)) out.push(o);
+        if (!o) continue;
+        arrives(b, o);
+        if (!out.some((w) => w.id === o.id)) out.push(o);
       }
     }
     ways.set(c.id, out);
@@ -3096,6 +3466,21 @@ export function conveyorLines(L) {
       feeders.get(w.id).push(c);
     }
   }
+
+  /**
+   * The storey a crate is on when it REACHES a shaft that heads a line.
+   *
+   * Everywhere else in a path the answer is the cell before it. A lift that
+   * opens a line has no cell before it — nothing feeds it, or two things do —
+   * so the honest answer is read off who hands to it: a shaft carries between
+   * storeys, so if anything feeds it from the deck its exit is NOT on, that is
+   * the ride, and the box is drawn taking it. Fed only from the deck it hands
+   * out on, it is a pass-through and there is no ride to draw.
+   */
+  const liftEntry = (f, exit) => {
+    const other = exit === CEILING ? 0 : CEILING;
+    return (inDecks.get(f.id) ?? []).includes(other) ? other : exit;
+  };
 
   /** Does a line have to BEGIN here — see the three answers above. */
   const opens = (c) => {
@@ -3156,26 +3541,87 @@ export function conveyorLines(L) {
      * to cell `i`'s own point either way, which is the only thing any reader of
      * the two asks of them.
      */
+    /**
+     * ...and WHICH STOREY the box is on at each cell of it, which is `deckOf`
+     * everywhere except a shaft NOBODY IS RIDING.
+     *
+     * `deck` on a lift is a fact about the placement and reads 0 whichever end
+     * of the shaft you mean, which is the right answer for both real rides:
+     * going up the box starts on the floor and going down it ends there, so a
+     * path that puts the shaft's own point on the floor is telling the truth
+     * about half of each and the other half is the riser below.
+     *
+     * A shaft used as a PASS-THROUGH is the case that has no floor half at all.
+     * A lift told `up` hands to a cell beside it on the CEILING, so a duct
+     * arriving overhead simply carries on — the whole reason `way` gives the
+     * pass-through away for nothing — and the drawn path dived four metres to
+     * the floor and climbed straight back for it. What that reads as is a lift
+     * grabbing a box, taking it down to a storey with nothing on it, and
+     * throwing it back up onto the rail: the shape of a routing bug, when the
+     * routing was right the whole time. It cost two extra tiles of travel and a
+     * `wholeLegs` hold at either end of a hop that never happens.
+     *
+     * So a shaft that hands out on the storey it was handed the box on stays on
+     * that storey, and NOTHING else moves — an ascent, a descent and a shaft
+     * with no exit at all are `deckOf` to the byte, which is what keeps this off
+     * the queueing that a real ride is choreographed by.
+     */
+    const decks = path.map((c) => deckOf(c));
+    for (let i = 0; i < path.length; i++) {
+      const c = path[i];
+      if (c.kind !== 'lift') continue;
+      const out = ways.get(c.id) ?? [];
+      if (!out.length) continue;
+      const exit = deckOf(out[0]);
+      const entry = i > 0 ? decks[i - 1] : liftEntry(c, exit);
+      if (entry === exit) decks[i] = entry;
+    }
     const dist = [0];
-    const pts = [{ x: path[0].x, z: path[0].z, deck: deckOf(path[0]) }];
+    const pts = [{ x: path[0].x, z: path[0].z, deck: decks[0] }];
     for (let i = 1; i < path.length; i++) {
       const a = path[i - 1];
       const b = path[i];
       const flat = Math.abs(b.x - a.x) + Math.abs(b.z - a.z);
-      const rise = deckOf(b) !== deckOf(a);
-      if (rise && flat) {
+      const rise = decks[i] !== decks[i - 1];
+      /**
+       * A SPAN DIPS, which is what makes a tunnel a lift pointed downward.
+       *
+       * The leg between two mouths was one flat edge and the crate was hidden
+       * along it by a rule of its own. Two corner points at `BASEMENT` turn it
+       * into the shape a shaft already has — down over the entry, across
+       * underground, up at the exit — so the crate's own `deck` fraction is the
+       * descent, `alongPath` interpolates it like any other leg, and the piston
+       * is drawn from the same number the lift's carrier is.
+       *
+       * `dist` charges all three legs for `conveyorLines`' own stated reason:
+       * the crate's one number and the drawn polyline have to measure the same
+       * journey, or every queue behind a tunnel stands a tile out. It is still
+       * one `dist` step longer than a cell, so `wholeLegs` goes on holding the
+       * queue at the mouth and a span still carries exactly one box.
+       */
+      const span = !rise && a.kind === 'under' && b.kind === 'under'
+        && tunnelExit(L, a)?.id === b.id;
+      if (span) {
+        pts.push({ x: a.x, z: a.z, deck: BASEMENT });
+        pts.push({ x: b.x, z: b.z, deck: BASEMENT });
+        dist.push(dist[i - 1] + 1 + flat + 1);
+      } else if (rise && flat) {
         const shaft = a.kind === 'lift' ? a : b;
-        const flatDeck = a.kind === 'lift' ? deckOf(b) : deckOf(a);
+        const flatDeck = a.kind === 'lift' ? decks[i] : decks[i - 1];
         pts.push({ x: shaft.x, z: shaft.z, deck: flatDeck });
         dist.push(dist[i - 1] + 1 + flat);
       } else {
         dist.push(dist[i - 1] + (flat || 1));
       }
-      pts.push({ x: b.x, z: b.z, deck: deckOf(b) });
+      pts.push({ x: b.x, z: b.z, deck: decks[i] });
     }
     const line = {
       id: path[0].id,
       cells: path,
+      // Which storey the box is on at each of them. Only ever interesting at a
+      // shaft, and `deckOf` is a lie at exactly those — so every reader that
+      // asks a LINE what deck one of its cells is on has to ask this.
+      decks,
       dist,
       len: dist[dist.length - 1],
       pts,
@@ -3236,8 +3682,150 @@ export function conveyorLines(L) {
     drain();
   }
 
-  const out = { lines, byCell, order, feeds: from };
+  const out = { lines, byCell, order, feeds: from, ways: to };
   LINES.set(L, { belts, arms, sorters, unders, lifts, out });
+  return out;
+}
+
+const LOOPS = new WeakMap();
+
+/**
+ * Where the network eats itself: the cycles, and the pairs that hand to each
+ * other.
+ *
+ * Everything else about a conveyor is a fact about ONE CELL, and every readout
+ * in the game says it that way — the slats lie along the path, the chevrons
+ * point at `conveyorNext`, the end pips cap a terminus. All of which is
+ * correct, all of which is legible, and none of which can say the one thing
+ * that actually goes wrong when somebody wires a corner up: a ring is four
+ * correct arrows. Standing in the shop looking at it, every cell is doing what
+ * it says, and the crates go round for ever.
+ *
+ * So this is deliberately the first thing about a run that is a fact about the
+ * NETWORK. Two answers, and they are not the same claim:
+ *
+ *   a **cycle** is a set of lines you can leave and come back to. It is not an
+ *   error and must never be drawn as one — a loop with loaders down it is a
+ *   thing people build on purpose, and docs/belts.md is explicit that the boxes
+ *   going round ARE the buffer and the one signal the shop is backed up. What
+ *   it is is a fact you cannot see, so it is worth saying out loud;
+ *
+ *   a **tug** is two cells that hand to each other, and that one is always a
+ *   mistake. Nothing rides a two-cell ring — the pair simply passes a box back
+ *   and forth for the rest of the save — and this file's own notes call it out
+ *   four separate times as the shape a derivation falls into. It is a cycle of
+ *   length two and it is listed separately for exactly that reason: read as one
+ *   more loop it would be drawn in the colour that means "on purpose".
+ *
+ * Both are derived rather than stored, and cached against the same five arrays
+ * `conveyorLines` watches — a re-flow builds new ones, which is what makes a
+ * purchase or a demolition land.
+ *
+ * @returns {{cycles: object[][], inCycle: Set<string>, tugs: object[][]}}
+ *          `inCycle` is keyed by LINE id; `tugs` are pairs of cells.
+ */
+export function conveyorLoops(L) {
+  const cut = conveyorLines(L);
+  const had = LOOPS.get(L);
+  if (had && had.cut === cut) return had.out;
+
+  // Tarjan, over the line graph rather than the cell graph. A line is the unit
+  // everywhere else in here and it is the unit a player reads — "this run comes
+  // back on itself" is the sentence, not "these nineteen squares do".
+  const index = new Map();
+  const low = new Map();
+  const onStack = new Set();
+  const stack = [];
+  const cycles = [];
+  const inCycle = new Set();
+  let next = 0;
+
+  // Iterative rather than recursive: a shop can hold hundreds of lines and this
+  // is walked from a render frame.
+  for (const root of cut.lines) {
+    if (index.has(root.id)) continue;
+    const work = [{ line: root, i: 0 }];
+    index.set(root.id, next);
+    low.set(root.id, next);
+    next += 1;
+    stack.push(root);
+    onStack.add(root.id);
+    while (work.length) {
+      const frame = work[work.length - 1];
+      const outs = cut.ways.get(frame.line.id) ?? [];
+      if (frame.i < outs.length) {
+        const w = outs[frame.i];
+        frame.i += 1;
+        if (!index.has(w.id)) {
+          index.set(w.id, next);
+          low.set(w.id, next);
+          next += 1;
+          stack.push(w);
+          onStack.add(w.id);
+          work.push({ line: w, i: 0 });
+        } else if (onStack.has(w.id)) {
+          low.set(frame.line.id, Math.min(low.get(frame.line.id), index.get(w.id)));
+        }
+        continue;
+      }
+      work.pop();
+      const parent = work[work.length - 1];
+      if (parent) {
+        low.set(parent.line.id, Math.min(low.get(parent.line.id), low.get(frame.line.id)));
+      }
+      if (low.get(frame.line.id) !== index.get(frame.line.id)) continue;
+      const group = [];
+      for (;;) {
+        const l = stack.pop();
+        onStack.delete(l.id);
+        group.push(l);
+        if (l.id === frame.line.id) break;
+      }
+      // A component of one is only a cycle if it hands to ITSELF, which is what
+      // a ring `conveyorLines` had to cut arbitrarily comes back as.
+      const self = group.length === 1
+        && (cut.ways.get(group[0].id) ?? []).some((w) => w.id === group[0].id);
+      if (group.length < 2 && !self) continue;
+      cycles.push(group);
+      for (const l of group) inCycle.add(l.id);
+    }
+  }
+
+  // ...and the tugs, which are asked of CELLS. A pair that hands to each other
+  // is usually two cells of one line — or, in the shape that keeps happening, a
+  // sorter whose named branch is the cell feeding it — so the line-level answer
+  // above cannot draw the distinction the pair needs.
+  const cells = [...(L?.belts ?? []), ...(L?.arms ?? []), ...(L?.sorters ?? []),
+    ...(L?.unders ?? []), ...(L?.lifts ?? [])];
+  const at = new Map();
+  for (const c of cells) {
+    if (c.kind === 'lift') {
+      at.set(`${c.x},${c.z},0`, c);
+      at.set(`${c.x},${c.z},${CEILING}`, c);
+    } else at.set(deckKey(c), c);
+  }
+  const exits = (c) => {
+    const out = [];
+    const n = conveyorNext(L, c);
+    if (n) out.push(n);
+    if (c.kind === 'sorter') out.push(...conveyorBranches(L, c));
+    return out.map((w) => at.get(`${w.x},${w.z},${deckOf(w)}`)).filter(Boolean);
+  };
+  const tugs = [];
+  const paired = new Set();
+  for (const c of cells) {
+    for (const w of exits(c)) {
+      if (w.id === c.id) continue;
+      const key = c.id < w.id ? `${c.id}|${w.id}` : `${w.id}|${c.id}`;
+      if (paired.has(key)) continue;
+      if (!exits(w).some((b) => b.id === c.id)) continue;
+      paired.add(key);
+      tugs.push([c, w]);
+    }
+  }
+
+  const out = { cycles, inCycle, tugs };
+  LOOPS.set(L, { cut, out });
   return out;
 }
 
@@ -3464,6 +4052,36 @@ export function fixturesOf(L) {
 function conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping) {
   if (!def.flow || keeping) return null;
   const deck = deckOf(spec);
+  /**
+   * A SHAFT swaps what is standing on either storey, because it is the cell on
+   * both of them.
+   *
+   * `conveyorAt` gives a lift's square to the lift on each deck — that is what
+   * lets a run on either one hand to it — so a duct cell left standing on that
+   * square is not a second run, it is a cell nothing in the game can ever
+   * address again. Which is exactly what you get by building in the obvious
+   * order: lay the ceiling run, then drop a shaft under it to bring the goods
+   * down. The crate rides the lift and everything looks right, and the orphan
+   * belt sits there for the rest of the save.
+   *
+   * The other direction already behaved: a duct dragged ACROSS a lift is
+   * refused on that one cell and the run is connected through the shaft anyway,
+   * because the cells either side address the square and get the lift. This is
+   * the half where the second cell survives, and the fix is to treat the storey
+   * above a new shaft the way `conveyorSwap` already treats the square under
+   * any other conveyor — one press, `removeFixture`'s own refund, no way to
+   * print money by swapping.
+   *
+   * ABOVE the tile test rather than after it, which is the whole of why the
+   * first draft of this was silent. A shaft goes on ordinary floor, so `ground`
+   * is `T.FLOOR` and the belt-stamp guard below returns before anything asks
+   * about the storey — and a swap that is not reported by `canPlace` is a
+   * demolition the ghost never mentioned.
+   */
+  const above = spec.kind === 'lift' ? conveyorAt(L, x, z, CEILING) : null;
+  if (above && above.id !== ignoreId && above.kind !== spec.kind) {
+    return { ok: true, warn: `replaces the ${FIXTURES[above.kind]?.label?.toLowerCase() ?? 'run'} overhead` };
+  }
   // Overhead, the tile says NOTHING. A ceiling cell stamps no ground — that is
   // the whole of what it gives back — so `T.BELT` is not there to refuse the
   // second one, exactly as `blocked` is not there to refuse a second belt. This
@@ -3541,7 +4159,21 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
    * deck since there is no tile stamp up there to do it.
    */
   if (deckOf(spec) === CEILING) {
-    if (!def.flow) return no('only a conveyor can go on the ceiling');
+    /**
+     * ...and "a conveyor" is three of the five, which is a distinction the
+     * refusal has to draw rather than imply.
+     *
+     * `def.flow` was the test, and it reads as "is this a conveyor" — true of a
+     * lift and a tunnel, neither of which has a storey to be on: see
+     * `goesOverhead`. Named in the refusal, because the two that fail here fail
+     * for a reason a player can act on, and "only a conveyor can go on the
+     * ceiling" said over a Lift is the game denying what the tool is.
+     */
+    if (!def.overhead) {
+      return no(def.flow
+        ? `a ${def.label.toLowerCase()} goes on the floor — the ceiling takes belts, loaders and sorters`
+        : 'only a conveyor can go on the ceiling');
+    }
     /**
      * ...and the roof is a PLACEMENT rule, never a keeping one.
      *

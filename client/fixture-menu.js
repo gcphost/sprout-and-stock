@@ -10,7 +10,7 @@
  * the snapshot and sends messages, not part of the HUD's own state.
  */
 
-import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, holdsGoods, shelfKind, sameFixture } from '../shared/build.js';
+import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, anchorTile, holdsGoods, shelfKind, sameFixture } from '../shared/build.js';
 import { pieceFor } from '../shared/pieces.js';
 import { homeKind } from '../shared/tags.js';
 import { LOT_KINDS, lotStacks, lotHas, lotLabel } from '../shared/lot.js';
@@ -491,6 +491,7 @@ export function showFixture(ui, f) {
     const why = {
       checkout: 'Quarter turn. Sets where you serve and which way the queue runs.',
       station: 'Quarter turn. Sets which side you load it from.',
+      lift: 'Quarter turn. Sets which side it carries on to at the other end.',
     }[kind] ?? 'Quarter turn. Sets which aisle shoppers browse it from.';
     foot.push(actIcon('rotate', ICONS.rotate, 'Rotate', alone ?? why, 'Rotate', { key: 'R', ...only }));
   }
@@ -1144,7 +1145,7 @@ const MODIFIERS = [
     on: (live) => live?.boh === true,
     name: (on) => (on ? 'In the back' : 'On the shop floor'),
     sub: (on) => (on
-      ? 'Crew-only. Shoppers cannot see it, the chef takes ingredients from here before stripping a shelf people are buying from, and the shop fills it with what the nearest appliances need.'
+      ? 'Crew-only reserve. The shop orders extra into available space; staffed production also keeps its current ingredients here.'
       : 'Shoppers browse it. Tap to make it crew-only storage — a kitchen is a room you mark out, not furniture you buy.'),
     verb: 'build-boh',
   },
@@ -1285,9 +1286,39 @@ function armRows(ui, f, live, { lives = [live] } = {}) {
  */
 function rejectRows(ui, f, live, { lives = [live] } = {}) {
   const rot = live?.rot ?? 0;
+  /**
+   * ...and WHICH SIDE that is, as a tile.
+   *
+   * The header above is right that the junction is aimed and you can see which
+   * way — from directly overhead, on a camera that turns. "That way" and a
+   * compass word are the same problem: the shop has no north on screen and the
+   * player has tile numbers, which are drawn on the floor under the piece by
+   * the Tile grid and are the one address in this game that does not rotate.
+   *
+   * It also makes the row honest about a state it could not previously show at
+   * all. `reject` is an independent quarter turn — `setSorterReject` takes any
+   * of the four — and this menu only ever offers the aimed one, so a press of R
+   * afterwards leaves the two disagreeing and NEITHER row lit. With the tile
+   * named, the row says where the press would send them rather than implying
+   * that is where they go now.
+   *
+   * The tile comes off `f` and never off `live`: a sorter reaches the wire as
+   * id, `auto`, `reject`, `riser` and `rot` — where it STANDS is not on it,
+   * because every other reader already knows. Taken from `live` it read 0,0,
+   * and `anchorTile` of that is a cheerful "goes to 1,0" on every junction in
+   * the shop.
+   *
+   * ...and only for a selection of ONE. The row is a single row for however
+   * many are picked, and six junctions have six different sides — so a named
+   * tile there would be right about whichever the menu happened to open on and
+   * wrong about the rest.
+   */
+  const one = (lives?.length ?? 1) === 1 ? (f ?? live) : null;
+  const at = one && Number.isFinite(one.x) ? anchorTile(one.x, one.z, rot) : null;
+  const where = at ? `goes to ${at.x},${at.z}` : 'goes that way';
   return [
     { set: null, name: 'Split what nothing wants', sub: 'Shares strays across every line out of the junction.' },
-    { set: rot, name: 'Send strays the way it points', sub: 'Anything no line can take goes that way — down the line, or set down if that side is ground.' },
+    { set: rot, name: 'Send strays the way it points', sub: `Anything no line can take ${where} — down the line, or set down if that side is ground.` },
   ].map((r) => {
     const at = allSay(lives, (l) => (Number.isInteger(l?.reject) ? l.reject : null) === r.set);
     return {
@@ -1297,6 +1328,41 @@ function rejectRows(ui, f, live, { lives = [live] } = {}) {
       picked: at,
       run: at ? null : () => ui.withBuildMode(
         () => ui.net.send('sorter-reject', { ids: aimAt(ui, f), rot: r.set }),
+      ),
+    };
+  });
+}
+
+/**
+ * Whether a junction's fifth way out — the other storey — counts.
+ *
+ * Off on every junction ever built, and deliberately not derived the way its
+ * four horizontal branches are. A belt beside a junction was laid AT the
+ * junction; a duct over one is a route across the shop that happens to pass
+ * over that square, and a return leg passes over everything.
+ */
+function riserRows(ui, f, live, { lives = [live] } = {}) {
+  const up = (live?.deck ?? f.deck ?? 0) ? 'the floor below' : 'the run overhead';
+  // A MOUTH SAYS IT DIFFERENTLY, because it is a different sentence about the
+  // same switch. A junction gains a fifth way out and still weighs it against
+  // the four it had; a tunnel has exactly one way out and this moves it — the
+  // span surfaces onto the duct instead of onto the floor in front of it.
+  const mouth = (f?.kind ?? live?.kind) === 'under';
+  return (mouth ? [
+    { on: false, name: 'Come up onto the floor', sub: 'The span surfaces and hands on to the line it faces.' },
+    { on: true, name: `Come up to ${up}`, sub: 'The span carries straight on past the floor. Needs a run up there to hand to, or it stays on the floor.' },
+  ] : [
+    { on: false, name: 'Keep it on this storey', sub: 'Only the lines beside it are ways out.' },
+    { on: true, name: `Also send some to ${up}`, sub: 'Adds the same square on the other storey as a branch — a keen line still wins.' },
+  ]).map((r) => {
+    const at = allSay(lives, (l) => (l?.riser === true) === r.on);
+    return {
+      icon: ICONS.stocker,
+      name: r.name,
+      sub: r.sub,
+      picked: at,
+      run: at ? null : () => ui.withBuildMode(
+        () => ui.net.send('sorter-riser', { ids: aimAt(ui, f), on: r.on }),
       ),
     };
   });
@@ -1400,9 +1466,18 @@ function settingRows(ui, f, live, sel = {}) {
   if (many.every((g) => g.kind === 'sorter')) {
     under('Which way it sends things', sortRows(ui, f, live, sel));
     under('What nothing wants', rejectRows(ui, f, live, sel));
+    under('The other storey', riserRows(ui, f, live, sel));
   }
   if (many.every((g) => g.kind === 'lift')) {
     under('Which way it carries', liftRows(ui, f, live, sel));
+  }
+  // A tunnel mouth wears the same switch, because a span coming up under an
+  // aisle wants the duct over it as often as it wants the floor. Only the
+  // downstream mouth can use it — the upstream one's way out is the span — and
+  // the row is offered on both because which is which is a derivation
+  // (`tunnelExit`) that changes the day somebody lays a third mouth in line.
+  if (many.every((g) => g.kind === 'under')) {
+    under('Where it comes up', riserRows(ui, f, live, sel));
   }
   under('Set up', modifierRows(ui, f, live, sel));
   return rows;
@@ -1520,6 +1595,7 @@ export function liveFixture(ui, f) {
   if (f.kind === 'sorter') return s.sorters?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'arm') return s.arms?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'lift') return s.lifts?.find((x) => x.id === f.id) ?? null;
+  if (f.kind === 'under') return s.unders?.find((x) => x.id === f.id) ?? null;
   return null;
 }
 
@@ -1995,7 +2071,10 @@ function wireFixtureMenu(ui, f, live) {
         // server folds the refusals and says how many would not go, and a client
         // that pruned the list would be a second opinion about a rule the server
         // already owns.
-        send('build-remove', { id: f.id, ids: ui.pickedIds() });
+        // `region` for the reason Ctrl+C sends one: what a copy carries, a
+        // remove takes, and a selection nobody dragged sends null and is the old
+        // verb exactly.
+        send('build-remove', { id: f.id, ids: ui.pickedIds(), region: ui.pickRegion });
         ui.closePanel();
       }
     });

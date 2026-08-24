@@ -604,6 +604,31 @@ Thirty sweeps, about a minute:
   sorter that works intermittently, which cannot be told from one that is
   guessing. Paired with "both good lines are still shared", or narrowing the
   pool to a single winner passes the first half and turns the splitter off.
+  And since the drag learned to AIM what it crosses, four claims about the one
+  number a belt exists to express — a line reversed and a line that ignored you
+  are the same picture until a crate goes down it. That a drag back along a run
+  you own turns every cell of the ARMED kind, free, in one re-flow; that a
+  loader in the same path is still stepped round rather than turned, which is
+  the skip's own argument (a loader aims at the shelf it stocks, so a sweep that
+  re-aimed it would unhook the aisle while looking like a tidy-up); that the
+  cells keep their **ids**, since a crate's address is a cell id and a re-aim
+  routed through `placeFixture` would reverse the run and orphan every box on
+  it; and the control, which is that a drag saying nothing new is still an
+  error — "it aims what it crosses" must not become "every sweep succeeds".
+  And since a tunnel's ends stopped being a LOOKUP, §21b — which is one claim
+  that is worthless split in half. Asked cell by cell, "is there a mouth ahead
+  of me facing my way" makes the middle of a chain an entry AND an exit at once:
+  four mouths in a row are three tunnels, and the middle one hands its box
+  straight over whatever the run was doing between the two pairs. On the save it
+  was found on that was a **lift** — every box that arrived arrived correctly
+  and the lift simply never carried one, which is what an unbuilt lift looks
+  like too. So pairing is a MATCHING (`tunnelClaimed`): a mouth is an entry only
+  if nobody behind it has claimed it, and the answer alternates down the chain.
+  Both halves or neither — the near exit hands to the cell in front of it AND
+  the far pair is still a tunnel, since a rule that just refused a second one on
+  the row passes the first and turns the far one off. The one thing you can SEE
+  is the wrong tell: both halves of the middle pair draw as entries, so it reads
+  as art that will not turn.
 
 - `verify:ceiling` guards the SECOND STOREY, and everything in it is invisible
   twice over — a crate that rode a duct and one a hire carried are the same box
@@ -639,10 +664,11 @@ Thirty sweeps, about a minute:
   lookup that turns one back into a cell defaults to the floor: with nothing
   underneath, the box parked for the rest of the save; with the ordinary build
   underneath, it dropped four metres and carried on being a perfectly ordinary
-  crate. Plus the overhead loader reaching ONE cell rather than four (`armReach`,
-  the one spelling, because five loops enumerate a loader's sides), a re-flow and
-  an **R** press keeping the storey, and conservation. It authors one item and
-  four fixture rows and removes them on exit.
+  crate. Plus the overhead loader reaching the same four floor neighbours as a
+  floor loader (`armReach`, the one spelling, because five loops enumerate a
+  loader's sides), with the crate travelling out and then down that L-shaped
+  spur; a re-flow and an **R** press keeping the storey; and conservation. It
+  authors one item and four fixture rows and removes them on exit.
   Since step 9 — the same square being a way OUT rather than only a place to be
   — its sharpest control is that **the rise is CHOSEN**. Up is a fifth exit, and
   the moment one exists the two networks the file's own section 3 keeps apart can
@@ -869,7 +895,34 @@ Thirty sweeps, about a minute:
   the other way round sells the whole upgrade ladder at a discount you can run
   with two keys), and the **ids** — while the *variant* does come with it, which
   is the pair: a shape is free and a rung is not, answered differently by one
-  call. Plus the ORDER, which is where it found its bug on the first run:
+  call. Since the region it also guards the layer a blueprint of a ROOM could not
+  carry, and its control there is the assertion that decides whether any of it is
+  opt-in: a copy with no region is the old game to the cell, which is every
+  selection anybody clicked together rather than dragged. A selection is a list
+  of fixture ids and ground has nothing to be picked *by* — no id, no record,
+  nothing to hang a ring on — so the box was whatever the units happened to span,
+  and a room's ground is exactly what lies between and beyond them: a stockroom
+  is shelving round the edges and Storage painted out to the walls, and a break
+  area has no units in it at all. Its centrepiece is therefore the pure-ground
+  case, which the fixture path can never reach — nothing picked, four squares
+  copied, stamped, and taken back in one press. Paired with the ANCHOR, which is
+  the half that fails silently: every layer is relative to the region's corner,
+  so a preview still anchored on the fixtures' corner draws the stamp up and left
+  of where it lands by however far the drag reached past the shelves, which is a
+  blueprint that builds the right thing in the wrong place. And that the shell's
+  own ground stays behind the way the shell's own walls do — `freezeYard` writes
+  a pad with no `piece`, and an empty piece IS the bulldozer, so a copied
+  delivery bay would paste as a hole scraped in the destination's floor. And
+  since Remove learned about the region, the SYMMETRY, which is written as a
+  comparison rather than a value because that is the whole of what it guards:
+  what `copyFixtures` says it would carry, against what `removeSelection` took.
+  The gesture is copy the room, stamp it the other side, delete the original —
+  and a remove reaching one cell shorter than the copy leaves a room-shaped
+  stain (floor still painted, pads still pads) that reads as delete not working
+  on ground, while passing any assertion written as a count. `selectionRegion` is
+  one function for exactly that reason. Paired with the circuit, which is what
+  stops copy-and-delete printing money. Plus the
+  ORDER, which is where it found its bug on the first run:
   `holdReflow` around the whole paste leaves `canPlace`, `canPlaceEdges` and
   `canPaintFaces` reading the layout as it was before the first cell, so a stamp
   of an aisle onto bare grass refuses every shelf in it and then reports "none of
@@ -1014,7 +1067,7 @@ what the next step was meant to be.
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, and the fence that stopped being the only thing a boundary could be made of | steps 1–9, 11, 13–27, 29 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
-| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg | steps 1–4, 2b, 3b, 4b and 7–9 built; 5–6 proposed |
+| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg, the tunnel that stopped being its own ecosystem — a span that DIPS to a storey below, so a mouth is a lift pointed down and the piston is the crate's own `deck` rather than two clocks beside it, plus the toggle that brings a span up onto the ceiling instead of the floor, and **Where a crate goes, in order** — the whole routing ladder in one place, with the audit's gap list at the foot | steps 1–4, 2b, 3b, 4b and 7–10 built; 5–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, and the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board | steps 1–9 built |
@@ -2844,8 +2897,9 @@ what the next step was meant to be.
   runs arrive on the same square — the ordinary way two levels of one loop
   rejoin — where there is nothing to derive and `liftTo` takes the floor's
   arbitrarily. `way` (`null`/`up`/`down`) is a field on the placement,
-  deliberately not `rot`, for the reason a lift has no `rot` at all: R clears
-  that field. `null` is every shaft ever built. The **pass-through comes free
+  deliberately not `rot` — up and down are not quarter turns, and `rot` is
+  spoken for one axis over (see the next entry). `null` is every shaft ever
+  built. The **pass-through comes free
   and is not a fourth setting** — a shaft told Down hands to a floor cell beside
   it, so a crate that arrived along the floor carries straight on into it while
   one that arrived overhead descends into the same cell. The one thing it needs
@@ -2855,6 +2909,56 @@ what the next step was meant to be.
   arrays by identity — so mutating in place hands every reader the map from
   before you pressed the button until somebody builds something. A setting that
   takes effect next Tuesday reads as a button that does nothing.
+- **…and a shaft's `rot` is WHICH SIDE IT LANDS ON, which is the loader's
+  meaning of the key rather than the belt's.** `way` answers the storey and says
+  nothing about the square, and a shaft has up to four ways out on the deck it
+  arrives at — so `liftOut` took the first in enum order, and which cell a
+  descending crate carried on into was decided by the numbering of `[0,1,2,3]`.
+  A lift landing beside a belt to its east and a tunnel mouth to its north
+  always chose the belt, and the north leg could not be built at all: the only
+  way round was to demolish the neighbour that kept winning. It is invisible,
+  because a shaft that chose the wrong exit and one whose other leg has not been
+  built yet are the same still frame — every box arrives correctly, down a leg
+  that works, and the run you meant never carries a thing. Two things keep it
+  cheap. It is a **preference and never a pin**: an aim at a wall, at its own
+  feeder or at nothing falls through to the scan it always used, or one press of
+  R turns a working loop into a terminus. And `rot` defaults to **0**, which is
+  the side the scan already tried first, so no shaft in any save moves. The trap
+  on the way in is this file's own, twice over: `makeLift` wrote `rot: 0` as a
+  **literal**, and `compose` rebuilds every record from its placement — so the
+  press could not have moved it however rotatable `BUILD_KINDS` said the piece
+  was, and what that reads as is an R key that does nothing on one kind.
+- **…and a lift's `deck` is a fact about the PLACEMENT, so asking the cell what
+  storey a box on it is on gets the floor every time.** It reads 0 whichever end
+  of the shaft you mean, and that is the right answer for both real rides — going
+  up the box starts on the floor, going down it ends there — so a path that puts
+  the shaft's own point on the floor is telling the truth about half of each and
+  the riser covers the other half. The **pass-through** is the case with no floor
+  half at all: a shaft told `up` hands to a cell beside it on the CEILING, so a
+  duct arriving overhead crosses its square (which is what `setLiftWay` means by
+  the pass-through costing nothing), and the drawn path dived four metres and
+  climbed straight back for it. What that reads as is a lift snatching a box off
+  the rail, taking it to a storey with nothing on it, and throwing it back up —
+  the shape of a routing bug, with the routing right the whole time. So a LINE
+  carries the answer (`line.decks`, `conveyorLines`) and every reader that asks a
+  line what storey one of its cells is on asks that instead: the seam
+  (`beltExit`, which charges the rise as a tile of the hop), the exit polyline,
+  the two descent gates, and the flow overlay's `hop`. It moves the
+  pass-through and **nothing else** — an ascent, a descent and a shaft with no
+  exit at all are `deckOf` to the byte, deliberately, because `wholeLegs` and the
+  shaft's approach caps are choreographed off exactly those distances.
+- **…and the platform's way HOME was the one stroke nothing scheduled.** Every
+  other move a carrier makes has a clock — a pickup off `shaftGrantAt`, a loaded
+  ride off `shaftCarryUntil`, the empty drop after a box has risen off
+  `shaftBusyUntil` — and coming down from the top with nothing left to do was the
+  *fall-through*: `commitEndpoint(id, 0)`, so the client is simply told it is
+  down and it arrives there in one frame. It survived because the case it shows
+  in did not exist. A shaft that carries a box up schedules its own drop on the
+  tick the box lands, so the fall-through only ever caught a platform left at the
+  top by something that did NOT ride it — which is exactly what a pass-through
+  is, since the piston still rises to give the box something to cross ON. A
+  grant is answered **above** the new stroke, which is what keeps a busy duct
+  from twitching its lift down between boxes.
 - **…and a ROOF is a fact about the walls, which is `canKeep`'s bug rebuilt one
   storey up.** That function exists because `where` is not a fact about a shelf:
   knock a hole in your wall, un-enclose the building, and every fixture reads as

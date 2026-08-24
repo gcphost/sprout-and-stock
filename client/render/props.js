@@ -37,12 +37,13 @@ const materialCache = new Map();
  * writing depth over the goods behind it — the same trick the thought bubble
  * has always used, and without it a freezer door hides its own contents.
  */
-export function material(color, alpha = 1) {
+export function material(color, alpha = 1, glow = false) {
   const glass = alpha < 1;
-  const key = glass ? `${color}@${alpha}` : String(color);
+  const key = `${glow ? 'glow:' : ''}${glass ? `${color}@${alpha}` : String(color)}`;
   let m = materialCache.get(key);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({
+    const Material = glow ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
+    m = new Material({
       color: new THREE.Color(color),
       flatShading: true,
       ...(glass ? { transparent: true, opacity: alpha, depthWrite: false } : {}),
@@ -256,7 +257,7 @@ export function buildModel(model, {
 
     const geo = GEO[part.shape] ?? GEO.box;
     const alpha = (part.alpha ?? 1) * ghost;
-    const mesh = new THREE.Mesh(geo, material(part.color, alpha));
+    const mesh = new THREE.Mesh(geo, material(part.color, alpha, part.glow));
     const [sx, sy, sz] = part.scale ?? [0.3, 0.3, 0.3];
     const [px, py, pz] = part.pos ?? [0, 0, 0];
     mesh.scale.set(sx, sy, sz);

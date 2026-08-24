@@ -4,8 +4,9 @@
 
 import {
   canPlaceEdges, edgeRun, canPaintGround, canPaintFaces, faceRun, faceKey,
-  groundStroke, strokeThick, GROUND_STROKE_MAX, runCells, runFollows, BELT_RUN_MAX, RUN_KINDS, CONVEYOR_KINDS, canPlace, FIXTURES, CEILING,
+  groundStroke, strokeThick, GROUND_STROKE_MAX, fixtureRunCells, BELT_RUN_MAX, RUN_KINDS, CONVEYOR_KINDS, canPlace, FIXTURES, CEILING, goesOverhead,
   faceAlong, isProp, isWalkableTile, workSpotOf, REACH, conveyorAt, groundIndex, rot4,
+  quadCells, footprint,
 } from '../shared/build.js';
 import { E, SOLID, edgeBetween } from '../shared/edges.js';
 import { lotStacks, lotMain, lotRoom, lotTotal } from '../shared/lot.js';
@@ -439,7 +440,7 @@ net.on('host-gone', () => { import('./coop.js').then((m) => m.showHostGone()); }
 // ---------------------------------------------------------------------------
 
 const keys = new Set();
-let lastInput = { dx: 0, dz: 0, sprint: false };
+let lastInput = { dx: 0, dz: 0, sprint: false, fpv: false };
 
 addEventListener('keydown', (e) => {
   // Typing in the panel's search box is not walking. Without this, searching
@@ -630,9 +631,16 @@ addEventListener('keydown', (e) => {
    * menu borrowed puts nothing on screen saying you are in it, and a deck you
    * cannot see you are on is worse than a bulldozer you cannot see — every
    * press would land four metres above where you are looking.
+   *
+   * It is no longer the ONLY way up, and that is the point of `setDeck`: the
+   * storey is a pair of chips in the bar's nav row now, and both ends go through
+   * one call so the key and the buttons cannot come to mean different things.
+   * The key stays gated on the mode rather than on a conveyor being armed —
+   * `setDeck` answers a shelf with a sentence, which is what a key that would
+   * otherwise silently do nothing owes you.
    */
   if (k === 'e' && ui.paletteArmed) {
-    ui.toast(ui.toggleDeck() ? 'Building overhead' : 'Building on the floor');
+    ui.setDeck(!ui.buildDeck);
     refreshGhost();
   }
   // ...and M picks the selected one up, which is the Move button's key. Its own
@@ -1251,15 +1259,18 @@ function refreshGhost(force = false) {
     if (ghostKey !== null) { ghostKey = null; scene.setBuildGhost(null); }
     const tile = scene.pickTile(pointer.x, pointer.y);
     const cells = pasteCells(tile);
-    const fits = cells.filter((c) => c.state === 'ok').length;
+    // The squares cover the ground the stamp carries as well as its units, or a
+    // copied room previews as the four shelves in it and nothing else.
+    const squares = stampFootprint(tile, cells);
+    const fits = squares.filter((c) => c.state === 'ok').length;
     // Keyed on the anchor and nothing else: the clipboard cannot change while
     // one is held (copying again replaces it, which re-keys through `stampSeq`)
     // and every cell of it is derived from that one tile.
-    scene.setFloorGhost(cells.length ? cells : null,
-      fits === cells.length ? 'ok' : (fits ? 'warn' : 'no'));
+    scene.setFloorGhost(squares.length ? squares : null,
+      fits === squares.length ? 'ok' : (fits ? 'warn' : 'no'));
     scene.setRunGhost(cells.length ? `stamp${stampSeq}:${tile.x},${tile.z}` : null, cells);
-    ui.setBuildVerdict(cells.length
-      ? { ok: !!fits, warn: fits < cells.length ? `${cells.length - fits} would not fit` : null,
+    ui.setBuildVerdict(squares.length
+      ? { ok: !!fits, warn: fits < squares.length ? `${squares.length - fits} would not fit` : null,
         reason: 'none of that would go there' }
       : null);
     scene.setAimTarget(null);
@@ -1684,6 +1695,14 @@ addEventListener('blur', () => keys.clear());
 // the result, or one flick of a trackpad crosses the whole range.
 const WHEEL_UNIT = { 0: 100, 1: 3, 2: 1 };   // pixels, lines, pages
 
+/**
+ * A browser turns a trackpad pinch into a pixel-mode Ctrl+wheel stream. Those
+ * deltas already describe one continuous gesture; treating them as hundred-
+ * pixel mouse notches makes the world move barely a tenth as far as the
+ * fingers. Exponential scaling keeps equal finger travel an equal zoom ratio.
+ */
+const PINCH_ZOOM_GAIN = 0.01;
+
 // Leftover notch while the wheel is turning something rather than zooming. A
 // rotation is a *quarter*, so unlike zoom it cannot take a fractional step: a
 // trackpad streams a dozen small deltas per flick, and spending each one on a
@@ -1715,6 +1734,13 @@ canvas.addEventListener('wheel', (e) => {
   // Nothing held: the wheel is the zoom again, and a part-turn banked against a
   // fixture you have already put down must not be waiting for the next one.
   rotWheel = 0;
+  if (e.ctrlKey && e.deltaMode === 0) {
+    const factor = Math.exp(-e.deltaY * PINCH_ZOOM_GAIN);
+    // A synthetic or accessibility gesture can deliver one unusually large
+    // event. Keep that event useful without letting it cross the whole range.
+    scene.zoomByFactor(Math.max(0.5, Math.min(2, factor)));
+    return;
+  }
   scene.zoomBy(Math.max(-3, Math.min(3, steps)));
 }, { passive: false });
 
@@ -2548,14 +2574,16 @@ function dropTouch(id) {
 // which raises the camera. No easing on either path — see `spinView` — because
 // the shop is being held rather than sent somewhere.
 //
-// The two are deliberately not the same speed. A quarter turn is 90px because
+// The two are deliberately not the same speed. A quarter turn is 135px because
 // yaw is unbounded and you spend it in whole corners, while the whole tilt is
 // 46° end to end: at the same rate a flick would cross it twice, so it is four
-// times slower and the full sweep is about 180px.
+// times slower and the full sweep is about 280px. Both were 1.5x faster and it
+// was too twitchy to hold an angle; the RATIO between them is the part that is
+// reasoned about, so slow them together or the tilt stops being the slow one.
 // ---------------------------------------------------------------------------
-const SPIN_STEP = 90;         // px of drag per quarter turn
+const SPIN_STEP = 135;        // px of drag per quarter turn
 const SPIN_RAD_PER_PX = (Math.PI / 2) / SPIN_STEP;
-const TILT_STEP = 4;          // px of drag per degree of pitch
+const TILT_STEP = 6;          // px of drag per degree of pitch
 const TILT_RAD_PER_PX = (Math.PI / 180) / TILT_STEP;
 
 let spin = null;
@@ -2683,12 +2711,43 @@ function endMarquee(e) {
     return true;
   }
   const hits = scene.fixturesInRect(m.x0, m.y0, m.x1, m.y1);
-  if (!hits.length) return true;
-  scene.ripple(hits[0].x, hits[0].z, 'miss');
+  /**
+   * ...and the GROUND the box covered, which is not a thing that can be picked.
+   *
+   * A selection is a list of fixtures and always has been — ground has no id, no
+   * record and nothing to hang a ring on — so for two steps the only thing a
+   * copy could reach was whatever the units you caught happened to span. A
+   * room's pads live exactly where its units do not, and a break area has no
+   * units in it at all, so the layer that makes a walled annex a room was the one
+   * layer a blueprint of a room could not carry.
+   *
+   * The box itself is the answer: it is a *region* whichever way you read it, and
+   * the four corners it landed on are eight numbers. It is kept beside the picks
+   * rather than turned into them, because everything downstream of a selection —
+   * the rings, the menu, Remove, the ladder — is about fixtures and none of it
+   * has any use for a square of lino. `ui.setPickRegion` is cleared by the same
+   * line that clears the picks, so the two can never be about different drags.
+   *
+   * Ordered after `pickMany`, and that ordering is load-bearing: the first pick
+   * of a fresh selection goes through `selectFixture`, which clears the region.
+   */
   // One call, not one per unit: eleven shelves in a drag would otherwise be
   // eleven redraws of a menu that is every item in the catalogue long. See
   // `pickMany`.
   ui.pickMany(hits);
+  const region = scene.groundQuad(m.x0, m.y0, m.x1, m.y1);
+  const painted = copyableGround(scene.storeLayout);
+  const ground = quadCells(scene.storeLayout, region)
+    .filter((c) => painted.has(`${c.x},${c.z}`));
+  if (!hits.length && !ground.length) return true;
+  // ...and the ground is DRAWN, which is the half that makes any of this
+  // legible: a unit picked gets a ring and a pad gets nothing, so a box that
+  // caught a room's floor looked exactly like a box that had missed it, and the
+  // only way to find out was to stamp the thing somewhere and count.
+  ui.setPickRegion(region, ground);
+  // One ripple, on the first — a ripple per shelf over eleven shelves is a
+  // puddle.
+  if (hits.length) scene.ripple(hits[0].x, hits[0].z, 'miss');
   return true;
 }
 
@@ -2916,12 +2975,26 @@ function whatsThere(cx, cy) {
  * green-ghost bug, and which the ghost's own per-cell `canPlace` catches,
  * because it runs the same function against the same layout.
  *
- * Fixtures only in the preview, deliberately. Ground, walls and paint travel
- * with the stamp and none of them is visible from this camera as a *ghost* —
- * a flat slab under a shelf ghost is under the shelf. The footprint squares say
- * where it all lands.
+ * Fixtures only in the *models*, deliberately. Ground, walls and paint travel
+ * with the stamp and none of them is visible from this camera as a `ghost` —
+ * a flat slab under a shelf ghost is under the shelf. The footprint squares are
+ * what say where it all lands, which is why they are the half that had to learn
+ * about the region: a copied break area is painted ground and nothing standing
+ * on it, so with the squares taken off the fixtures alone there is nothing under
+ * the pointer at all and the stamp is aimed by faith.
+ *
+ * It is an ARRAY and may legitimately be an empty one — that is the case above —
+ * so every test for "am I holding a blueprint" is `!== null` by way of an empty
+ * array being truthy, and never a length.
  */
 let clipboard = null;
+/**
+ * ...and the cells of the region that are not a fixture, as offsets off the same
+ * anchor. Only cells that carry something (`copyableGround`) — a marquee drawn wide
+ * of a room covers bare grass, and a footprint that promised to lay it would be
+ * a green square over ground the stamp does nothing to.
+ */
+let stampCells = [];
 /**
  * Bumped on every copy, and it is the ghost's cache key rather than a counter
  * anybody reads. The stamp preview is keyed on the anchor tile — because that
@@ -2942,6 +3015,7 @@ function dropStamp(dry = false) {
   // drop the thing the asker was about to describe.
   if (dry) return true;
   clipboard = null;
+  stampCells = [];
   scene.setRunGhost(null, null);
   scene.setFloorGhost(null, null);
   ui.setBuildVerdict(null);
@@ -2949,11 +3023,44 @@ function dropStamp(dry = false) {
   return true;
 }
 
+/**
+ * Ctrl+C.
+ *
+ * The REGION is the second half of the message and the reason the pads come with
+ * it: a selection is a list of fixtures, and a room's painted ground lives
+ * exactly where its units do not. The four ground-plane corners of the box you
+ * dragged (`ui.pickRegion`) are what say how far out the copy reaches, and
+ * `quadCells` is what turns them into squares — the same function, against the
+ * same layout, on both sides of the wire.
+ *
+ * Which means the ANCHOR has to be derived the same way in both places, and that
+ * is the one thing in here that would fail silently. The server offsets every
+ * layer off the top-left of the *region*, so a client that went on anchoring on
+ * the top-left of the *fixtures* would draw a preview sitting up and left of
+ * where the stamp lands, by however far the drag reached past the shelves. A
+ * ghost that is honest about what will be built and wrong about where is worse
+ * than no ghost.
+ */
 function copySelection() {
   const picks = ui.pickedFixtures();
-  if (!picks.length) { ui.toast('Nothing picked — hold Shift and click to select', true); return; }
-  const x0 = Math.min(...picks.map((f) => f.x));
-  const z0 = Math.min(...picks.map((f) => f.z));
+  const L = scene.storeLayout;
+  const dragged = quadCells(L, ui.pickRegion);
+  if (!picks.length && !dragged.length) {
+    ui.toast('Nothing picked — hold Shift and drag to select', true);
+    return;
+  }
+
+  // Every cell the copy is about, fixtures included — the anchor is the corner
+  // of THIS, not of the units. `footprint` and not the anchor tile, because a
+  // pen's record is its min corner and a 2x2 reaches a cell further both ways.
+  const keys = new Set(dragged.map((c) => `${c.x},${c.z}`));
+  for (const f of picks) {
+    for (const c of footprint(f.kind, f.x, f.z)) keys.add(`${c.x},${c.z}`);
+  }
+  const at = [...keys].map((k) => k.split(',').map(Number));
+  const x0 = Math.min(...at.map(([x]) => x));
+  const z0 = Math.min(...at.map(([, z]) => z));
+
   clipboard = picks.map((f) => ({
     dx: f.x - x0,
     dz: f.z - z0,
@@ -2965,14 +3072,62 @@ function copySelection() {
     // needs it too, because it owns the preview AND the plane the stamp aims on.
     deck: f.deck ?? 0,
   }));
+  const painted = copyableGround(L);
+  stampCells = dragged
+    .filter((c) => painted.has(`${c.x},${c.z}`))
+    .map((c) => ({ dx: c.x - x0, dz: c.z - z0 }));
+
   stampSeq++;
   // Holding the blueprint means holding nothing else. Arming a tool is what
   // puts it down (`ui.onArm`), and this is the other half of that pair — a
   // shelf ghost and a stamp footprint under one pointer would be two promises
   // about one press.
   ui.disarmTool();
-  net.send('build-copy', { ids: ui.pickedIds() });
-  ui.toast(`Copied ${picks.length} ${picks.length === 1 ? 'thing' : 'things'} — click to stamp, Escape to drop`);
+  net.send('build-copy', { ids: ui.pickedIds(), region: ui.pickRegion });
+  const n = picks.length + stampCells.length;
+  ui.toast(`Copied ${n} ${n === 1 ? 'thing' : 'things'} — click to stamp, Escape to drop`);
+}
+
+/**
+ * Which cells hold ground a copy would actually carry — `copyFixtures`' own
+ * filter, said on this side so the footprint squares promise what will land.
+ *
+ * A row with no design is one of two things. The eraser writes plain ground,
+ * which pastes as the same eraser stroke. `freezeYard` writes a PAD with no
+ * piece, and there is no catalog row to name for one, so the server leaves it
+ * behind — and a preview that did not know would paint a green square over the
+ * delivery bay and then lay nothing on it.
+ */
+function copyableGround(L) {
+  const out = new Set();
+  for (const g of L?.ground ?? []) {
+    if (g.p || !g.k || g.k === 'floor') out.add(`${g.x},${g.z}`);
+  }
+  return out;
+}
+
+/**
+ * The squares the whole stamp covers — its fixtures and the ground with them.
+ *
+ * `setFloorGhost`'s cells, where `pasteCells` is `setRunGhost`'s: one says where
+ * the press lands and the other draws the models. They were the same list while
+ * a blueprint was a list of fixtures, and a region is what separates them.
+ *
+ * The ground cells are always `ok`. A floor may be laid over anything that is
+ * already ground, so the only honest colours here are the fixtures' — and a
+ * green square is about where the press lands, not a promise about a price.
+ */
+function stampFootprint(tile, fixtures) {
+  if (!tile) return [];
+  const seen = new Set(fixtures.map((c) => `${c.x},${c.z}`));
+  const out = [...fixtures];
+  for (const c of stampCells) {
+    const key = `${tile.x + c.dx},${tile.z + c.dz}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ x: tile.x + c.dx, z: tile.z + c.dz, state: 'ok' });
+  }
+  return out;
 }
 
 /** Where the stamp would land — the ghost's cells, and the paste's own anchor. */
@@ -3174,7 +3329,7 @@ function showBeltDrag(cx, cy) {
   if (to) beltDrag.to = to;
   // Same four arguments the server re-runs this with, `rot` included, or the
   // ghost is a preview of a different run from the one the release lays.
-  const cells = runCells(beltDrag.start, to, BELT_RUN_MAX, ui.buildRot, runFollows(beltDrag.kind));
+  const cells = fixtureRunCells(beltDrag.kind, beltDrag.start, to, BELT_RUN_MAX, ui.buildRot);
   if (!cells.length) {
     scene.setFloorGhost(null, null);
     scene.setRunGhost(null, null, null);
@@ -3186,7 +3341,24 @@ function showBeltDrag(cx, cy) {
   // belt — the count alone would paint the whole run the colour of its worst
   // square, which is the opposite of what "it skips it and lays the rest" means.
   for (const c of cells) {
-    c.state = canPlace(L, { kind: beltDrag.kind, x: c.x, z: c.z, rot: c.rot, deck: ui.buildDeck }).ok ? 'ok' : 'warn';
+    // A sweep adds around what is already there; it never turns a loader or
+    // sorter back into plain belt just because the pointer crossed its cell.
+    // A one-cell press keeps the deliberate swap gesture it has always had.
+    const here = cells.length > 1 ? conveyorAt(L, c.x, c.z, ui.buildDeck) : null;
+    // ...but a cell of the ARMED kind is aimed rather than stepped round — see
+    // `Game.buildRun`, which this has to agree with in both directions. Green,
+    // and `canPlace` is not asked: it refuses a belt on a belt, which is right
+    // about a purchase and is not what this square is about. The run ghost is
+    // already drawing the piece at `c.rot`, so what is previewed IS the turn.
+    //
+    // A cell that already points that way is NOT one of these, or a drag along a
+    // run in its own direction previews green and comes back as the refusal it
+    // has always been. Same test as the server's, to the `rot4`.
+    const aimed = here && here.kind === beltDrag.kind && RUN_KINDS.includes(beltDrag.kind)
+      && rot4(here.rot ?? 0) !== c.rot;
+    c.state = aimed || (!here
+      && canPlace(L, { kind: beltDrag.kind, x: c.x, z: c.z, rot: c.rot, deck: ui.buildDeck }).ok)
+      ? 'ok' : 'warn';
   }
   const ok = cells.filter((c) => c.state === 'ok');
   scene.setFloorGhost(cells, ok.length === cells.length ? 'ok' : (ok.length ? 'warn' : 'no'));
@@ -3502,6 +3674,7 @@ canvas.addEventListener('pointerdown', (e) => {
       // you did not arm — which is the green-ghost rule said about a look.
       beltDrag = {
         start, kind: armed.kind, piece: armed.piece ?? null,
+        station: armed.station ?? null,
         variant: ui.buildVariant ?? '', id: e.pointerId,
       };
       canvas.setPointerCapture(e.pointerId);
@@ -3982,7 +4155,7 @@ function endPress(e) {
   }
   if (beltDrag && (!e || e.pointerId === beltDrag.id)) {
     const drawn = e ? showBeltDrag(e.clientX, e.clientY) : null;
-    const { start, kind, piece, variant } = beltDrag;
+    const { start, kind, piece, station, variant } = beltDrag;
     beltDrag = null;
     scene.setFloorGhost(null, null);
     scene.setRunGhost(null, null, null);
@@ -3998,7 +4171,10 @@ function endPress(e) {
       // which was invisible while the ghost was a square: arm the corner belt,
       // watch a square, get the straight one. A preview that draws the shape has
       // to be a preview of the shape that gets built.
-      net.send('build-run', { kind, piece, variant, x: start.x, z: start.z, to, rot: ui.buildRot, deck: ui.buildDeck });
+      net.send('build-run', {
+        kind, piece, station, variant, x: start.x, z: start.z, to,
+        rot: ui.buildRot, deck: ui.buildDeck,
+      });
     }
     return;
   }
@@ -5508,7 +5684,14 @@ function pressHints({ aim, board, onPile, drop }) {
         return out;
       }
       add('l', null, ui.isSelected(f) ? 'Open it' : 'Select it', () => openInTwo(f));
-      add('l', 'twice', 'Go to it', () => walkTo({ fixture: f.id }));
+      // ...except in build mode, where that double press no longer goes — see
+      // `openInTwo`. Dropped rather than greyed, which is the call this function
+      // already makes about a held clock and a carried fixture: `off` is for a
+      // press this target offers and your state vetoes, and the mode is not
+      // vetoing anything here, it has taken the walk off the table. A caption
+      // naming a gesture that does nothing is the green-ghost bug with words on
+      // it, and the other two rows still say what the buttons do.
+      if (!flying()) add('l', 'twice', 'Go to it', () => walkTo({ fixture: f.id }));
       add('r', null, (carry || haul) ? 'Take it there' : 'Go to it',
         () => walkTo({ fixture: f.id, put: !!(carry || haul) }));
       return out;
@@ -5767,9 +5950,27 @@ function pressHints({ aim, board, onPile, drop }) {
  * `DOUBLE_MS` to see whether a third is coming would put a visible pause on the
  * single commonest press in the game.
  *
- * Only when `walk` is true, which is the caller's decision. Build mode never
- * walks you: it flies the view somewhere you cannot stand (`setFreeRoam`), so
- * going there is exactly what you did not ask for.
+ * Only when `walk` is true — but that is the caller OFFERING it, and the mode
+ * is what decides. Build mode never walks you: WASD there flies the view rather
+ * than the player (`setFreeRoam`), so the shelf you just double-pressed is
+ * routinely one you are looking at from somewhere you cannot stand — a room you
+ * have this second sealed, the far side of the fence, the end of a grown farm.
+ * Walking there is exactly what you did not ask for, and what it costs is the
+ * two things the mode is actually for: your body leaves the view you had
+ * arranged, and it arrives having dropped the errand a carried fixture is on.
+ *
+ * The test is `flying()`, which is the same one the camera asks, so the view and
+ * the gesture cannot disagree about which mode this is — and it takes the paused
+ * shop with it for free. A walk ordered against a stopped clock is a press with
+ * no second half: the world does not step, so nothing moves until you unpause,
+ * by which time the press is a minute old and you have forgotten making it.
+ * That is `boardTakes`' own argument, and this is the last press in the mode
+ * that was not making it.
+ *
+ * Inside rather than at the two call sites, because the rule is a fact about the
+ * mode: a third caller that offers a walk should get it for free rather than
+ * have to remember. The rest of the ladder is untouched — a double press in
+ * there is select, then open, which is what the mode wants anyway.
  */
 const DOUBLE_MS = 400;
 let lastFixtureTap = { id: null, at: 0 };
@@ -5818,7 +6019,7 @@ function openInTwo(f, { walk = false, open = false } = {}) {
   // your way", pale is "I heard you". Selection survives the walk — you are
   // going to the thing you just named, so arriving with it deselected would be
   // the gesture forgetting its own subject.
-  if (walk && quick) {
+  if (walk && quick && !flying()) {
     scene.ripple(f.x, f.z);
     walkTo({ fixture: f.id });
     return;
@@ -6360,7 +6561,11 @@ function tapAtPointer(cx, cy) {
     // press the way an open panel does. A selection is a ring and nothing else:
     // there is no panel over the shop to dismiss, so there is nothing here worth
     // costing you the walk you just asked for.
+    // The region goes with it, and needs saying separately for `ui.escape`'s
+    // reason: a box that caught only ground holds no ref, so the line above
+    // never fires and the teal stays lit under everything you do next.
     if (ui.fixtureRef) ui.setFixtureRef(null);
+    else if (ui.pickRegion) ui.setPickRegion(null);
 
     const tile = scene.pickTile(cx, cy);
     if (!tile) return;
@@ -6438,9 +6643,11 @@ function tapAtPointer(cx, cy) {
   const piece = ui.holding?.piece ?? ui.buildPiece ?? null;
   const spec = {
     kind, piece, station, x: tile.x, z: tile.z, rot: ui.buildRot, variant: ui.buildVariant ?? '',
-    // Only a conveyor has a storey — the server refuses everything else, and
-    // sending it anyway would put a dead field on every shelf ever placed.
-    ...(FIXTURES[kind]?.flow ? { deck: ui.buildDeck } : {}),
+    // Only the three kinds the ceiling is made of have a storey — the server
+    // refuses everything else, and sending it anyway would put a dead field on
+    // every shelf ever placed. A lift and a tunnel are conveyors and are not
+    // among them: see `goesOverhead`.
+    ...(goesOverhead(kind) ? { deck: ui.buildDeck } : {}),
   };
   // `tier` rides along for the drawing only — the server decides what a new one
   // is built at. Without it this call would redraw the ghost at tier 1 on the
@@ -6576,7 +6783,7 @@ function pollInput(dt) {
     // as it stayed down — the release is what sends a zero, and the release now
     // goes to the camera.
     if (lastInput.dx || lastInput.dz) {
-      lastInput = { dx: 0, dz: 0, sprint: false };
+      lastInput = { dx: 0, dz: 0, sprint: false, fpv: scene.fpv };
       net.send('input', lastInput);
     }
     scene.flyBy(dx, dz, dt);
@@ -6611,8 +6818,21 @@ function pollInput(dt) {
    * until the next frame.
    */
   const sprint = shiftDown && !ui.paletteArmed;
-  if (dx !== lastInput.dx || dz !== lastInput.dz || sprint !== lastInput.sprint) {
-    lastInput = { dx, dz, sprint };
+  /**
+   * ...and which camera you are behind, for `FPV_SPEED`.
+   *
+   * In the diff for the same reason sprint is: this runs every frame and sends
+   * only on a change, so a flag left out of the comparison reaches the server
+   * on the next *steer* and not before — which is a press of F while walking
+   * that changes nothing until you let go of the key and take hold of it again.
+   * It is read off the scene rather than mirrored into a variable of its own,
+   * because the wheel enters first person as well as the key and a second copy
+   * of that fact is a second copy to forget.
+   */
+  const fpv = !!scene.fpv;
+  if (dx !== lastInput.dx || dz !== lastInput.dz
+    || sprint !== lastInput.sprint || fpv !== lastInput.fpv) {
+    lastInput = { dx, dz, sprint, fpv };
     net.send('input', lastInput);
   }
 }
@@ -6919,6 +7139,21 @@ function loop() {
   restoreView();
   pollInput(dt);
   if (ui.buildOn) refreshGhost();
+  // The transport network. Here rather than in `refreshGhost` because that
+  // function opens with four early returns for the drags, and a belt drag is
+  // exactly when you most want to see what the run you are laying joins onto.
+  //
+  // A SWITCH rather than the build mode it shipped gated on, which is the same
+  // call `debugOn('tiles')` makes and for the same reason: the mode is not the
+  // question. You want the map while you are laying a run and you want it again
+  // while you are watching one jam, which is not build mode at all — and gated
+  // on the mode it was also invisible to anyone who had not guessed it existed.
+  //
+  // Read every frame rather than latched off `onDebug`, exactly as `perf` is:
+  // the overlay is keyed on the layout underneath, so the frame that has to
+  // rebuild it is a frame somebody built something on, not the frame the switch
+  // was pressed. It no-ops on that key when neither has moved.
+  scene.setFlowOverlay(debugOn('flow'));
   // Every frame while the key is down, because the camera rides the player: a
   // card pinned once slides off the unit it names the moment anybody walks.
   if (peekOn) ui.setPeek(peekCards());

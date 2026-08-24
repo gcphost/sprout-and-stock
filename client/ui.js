@@ -8,12 +8,14 @@
 
 import { variantsOf } from '../shared/model.js';
 import { fixtureLabel, pieceFor, kindOf, openOf } from '../shared/pieces.js';
-import { spotsOf, deckOf, sameFixture } from '../shared/build.js';
+import {
+  spotsOf, deckOf, sameFixture, FIXTURES, CEILING, goesOverhead,
+} from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import { clockLabel, weekdayLabel } from '../shared/clock.js';
 import { pillDrives } from './input.js';
 import {
-  buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups,
+  buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups, DECK_GROUPS,
 } from './sections.js';
 import { renderBar, groupAt, nextGroup, KEYED } from './bar.js';
 import { deptsIn, deptStrip, inDept, wireDepts } from './aisles.js';
@@ -249,6 +251,8 @@ export class UI {
      * you pick something new without shift.
      */
     this.picked = [];
+    /** ...and the area they were dragged out of, if they were — `setPickRegion`. */
+    this.pickRegion = null;
     /** Is Shift down over a selection? Then the shop shows what else is like it. */
     this.kinOn = false;
     /** ...and with the bar up, what Ctrl is about to demolish — see `setRazeAim`. */
@@ -295,14 +299,15 @@ export class UI {
     this.shapesOn = false;
     this.buildRot = 0;
     /**
-     * Which storey the palette is building on. See `FIXTURES.lift`.
+     * Which storey you have ASKED for. See `FIXTURES.lift`, and `buildDeck`
+     * below for the difference between the two.
      *
      * On the UI rather than on the tool, because it is a fact about where you
      * are pointing rather than about what you picked up: laying a run, a
      * loader and a junction overhead is three tools and one storey, and a deck
      * that reset with every tool would make an overhead aisle three toggles.
      */
-    this.buildDeck = 0;
+    this.deckWanted = 0;
     // Whether that angle is YOURS. Off, the ghost faces itself against whatever
     // wall it is put against (`faceAlong`); pressing R turns the pin on and the
     // preview stops second-guessing you. See `resetRot`.
@@ -368,6 +373,7 @@ export class UI {
       buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
       buildClose: document.getElementById('build-close'),
+      deck: document.getElementById('build-deck'),
       rotate: document.getElementById('rotbtn'),
       leave: document.getElementById('closebtn'),
       undo: document.getElementById('undobtn'),
@@ -412,6 +418,15 @@ export class UI {
     // it (see `showBar`), which is exactly what the rail's own Build button does
     // — so the two ways out cannot end up meaning different things.
     this.el.buildClose.onclick = () => this.showBar(null);
+    // Which storey, from the bar. The same call E makes — including the toast,
+    // because a press whose whole effect is four metres above where you are
+    // looking needs to say so wherever it came from. Pressing the storey you are
+    // already on is deliberately inert rather than a toggle: it is a pair, so
+    // the lit one is a statement of where you are, and a statement you can press
+    // to negate is the ambiguity the pair exists to remove.
+    for (const b of this.el.deck?.querySelectorAll('[data-deck]') ?? []) {
+      b.onclick = () => this.setDeck(Number(b.dataset.deck));
+    }
     // The touch quarter-turn. Same call R makes, so the pin that stops the
     // auto-facing arguing with you comes along with it — see `rotateBuild`.
     this.el.rotate.innerHTML = ICONS.rotate;
@@ -653,11 +668,11 @@ export class UI {
     // camera. Building wins: you asked for the wheel.
     if (on) this.setFollow(null);
     this.resetRot();
-    // ...and back to the floor. The one place `buildDeck` is reset, and the
+    // ...and back to the floor. The one place the storey is reset, and the
     // argument is `resetRot`'s pointed at a storey: a deck held across a
     // session means the first press of the next one lands on a ceiling nobody
     // asked for, over ground you were looking at.
-    this.buildDeck = 0;
+    this.deckWanted = 0;
     // The mode no longer brings the palette with it — that is the second press
     // (`pressBuild`), because the bar is the most expensive thing on screen and
     // most of building is rearranging what you already own. What entering the
@@ -1359,12 +1374,19 @@ export class UI {
    */
   removeSelected() {
     const f = this.selectedFixture();
-    if (!f) return false;
+    // A region with nothing standing in it is still a selection — a break area
+    // is painted ground and no units, so a Delete that needed a fixture could
+    // clear every room in the shop except the ones made only of floor.
+    if (!f && !this.pickRegion) return false;
     // Read before anything else runs: `closePanel` below drops the selection
     // (`setFixtureRef(null)`), and so would anything that decided to close the
     // menu on the way into build mode.
     const ids = this.pickedIds();
-    this.withBuildMode(() => this.net.send('build-remove', { id: f.id, ids }));
+    // ...and the region with them, for the same reason it goes with Ctrl+C: what
+    // a copy carries, a remove takes. Read here for the same reason `ids` is —
+    // `closePanel` is two lines down and it clears both.
+    const region = this.pickRegion;
+    this.withBuildMode(() => this.net.send('build-remove', { id: f?.id ?? null, ids, region }));
     this.closePanel();
     return true;
   }
@@ -1465,16 +1487,146 @@ export class UI {
   }
 
   /**
-   * Up to the ceiling, or back down.
+   * The kind a storey would apply to right now — what you are carrying, else
+   * what is armed off the palette. Null when that is neither.
    *
-   * Deliberately NOT reset by `resetRot` or by picking a tool: see `buildDeck`.
+   * `ghostKindForTool`'s two branches in the same order and for its reason: the
+   * hands outrank the bar, because a Move errand is a placement too and an
+   * overhead duct you picked up has to be able to go back where it came from.
+   */
+  deckKind() {
+    if (this.holding) return this.holding.kind;
+    return this.toolArmed ? this.buildTool : null;
+  }
+
+  /**
+   * Whether the storey switch means anything at all right now.
+   *
+   * A fact about the TAB you are on (`DECK_GROUPS`) as well as about what is
+   * armed, and the tab is the half that matters: gated on the tool alone — which
+   * is how this shipped — you could not go up a storey without first arming
+   * something that goes up there, so the one thing you most want to do overhead
+   * is the one thing you cannot. Pointing at a duct you have already built to
+   * turn it, move it or take it out needs no tool in your hand at all, and every
+   * one of those presses aims at the storey this switch decides.
+   *
+   * What went with that gate is the promise it was making — that everything on
+   * the bar can go where you are pointing — and it is paid for on the tiles
+   * instead: what cannot follow you up is drawn dead (`off` in `buildGroups`),
+   * which says the same thing about the same button in the place you are
+   * looking. `goesOverhead` stays in the test for the fixture in your HANDS,
+   * which is a placement the bar is not offering — a duct you picked up to move
+   * has to be able to go back where it came from from any tab.
+   *
+   * `paletteArmed` as well, exactly as the E key is gated: a mode a fixture menu
+   * borrowed puts nothing on screen saying you are in it, and a storey you
+   * cannot see you are on is worse than a bulldozer you cannot see.
+   */
+  get deckable() {
+    if (!this.paletteArmed) return false;
+    return DECK_GROUPS.has(this.barTab.build) || goesOverhead(this.deckKind());
+  }
+
+  /**
+   * Which storey a press would actually land on.
+   *
+   * DERIVED rather than stored, and that is the whole of what keeps the switch
+   * honest. The storey deliberately survives changing tool (see `deckWanted` —
+   * an overhead aisle is a belt, a loader and a junction, and re-toggling
+   * between each of them is three presses for one decision), which is right for
+   * the three tools that can use it and quietly wrong for every tool that
+   * cannot: arm a shelf while up there and the ghost is refused on every tile in
+   * the building with "only a conveyor can go on the ceiling", out of a mode
+   * whose one control has just gone off screen. Asked through `deckable`, the
+   * state cannot outlive the control that shows it — the switch is on screen
+   * exactly when the answer here can be anything but zero.
+   *
+   * ...and the kind is asked again HERE, which is the half `deckable` no longer
+   * answers now that the switch is a fact about the tab. Nothing armed is a
+   * storey (there is no placement to be wrong about), and anything armed that
+   * cannot go up puts you back on the floor — the tiles that could do that are
+   * dead (`off`) and `toggleDeck` puts down anything armed that cannot follow
+   * you, so the case left is a fixture in your HANDS: carry a shelf up a storey
+   * and the pair reads Floor, which is where it would land.
+   */
+  get buildDeck() {
+    if (!this.deckWanted || !this.deckable) return 0;
+    const kind = this.deckKind();
+    return !kind || goesOverhead(kind) ? CEILING : 0;
+  }
+
+  /**
+   * Up to the ceiling, or back down. Answers the storey you ended on, or null
+   * when there was no storey to change — which is what lets the E key say why.
+   *
+   * Deliberately NOT reset by `resetRot` or by picking a tool: see `deckWanted`.
    * The one thing that does put you back on the floor is leaving build mode,
    * because a deck you cannot see you are on is the quiet-build-mode bug with a
    * storey on it — every press would land somewhere you were not looking.
    */
-  toggleDeck() {
-    this.buildDeck = this.buildDeck ? 0 : 1;
+  toggleDeck(to = !this.deckWanted) {
+    if (!this.deckable) return null;
+    this.deckWanted = to ? CEILING : 0;
+    // Going up puts down anything that cannot come with you, because its tile is
+    // about to be drawn dead: a tool armed off a button nobody can press is the
+    // quiet-build-mode bug one storey up — every press would be refused by a
+    // rule whose one explanation is greyed out behind you. Nothing goes the
+    // other way, since everything that goes overhead also goes on the floor.
+    const kind = this.deckKind();
+    if (this.deckWanted && !this.holding && kind && !goesOverhead(kind)) this.disarmTool();
+    this.syncDeck();
+    // The tiles say which of them can go where you are pointing now — see `off`
+    // in `buildGroups`. `renderHotbar` rather than `syncDeck`, which only ever
+    // touches the pair itself.
+    this.renderHotbar();
+    // The line above the bar carries the storey while you are up there, and it
+    // is the half of this that is over the world rather than down in the bar.
+    this.renderBuildHint();
     return this.buildDeck;
+  }
+
+  /**
+   * Say which storey, and say so out loud. The bar's press and the E key's, so
+   * the two can never come to mean different things.
+   *
+   * A refusal is a sentence rather than silence: E is not gated on a conveyor
+   * being armed (it is gated on the mode, like Ctrl), so the key is pressable
+   * with a shelf in hand — and a key that does nothing is a key you conclude is
+   * broken rather than one you conclude is about belts.
+   */
+  setDeck(to) {
+    const at = this.toggleDeck(to);
+    // Named rather than "only a conveyor", which is a sentence a Lift disproves
+    // while you are holding one — see `deckable`.
+    if (at === null) return this.toast('Only a belt, loader or sorter goes overhead', true);
+    return this.toast(at ? 'Building overhead' : 'Building on the floor');
+  }
+
+  /**
+   * The storey pair in the bar's nav row: is it there, and which of the two is
+   * lit.
+   *
+   * Behind a key like its neighbours in this stack, because it hangs off
+   * `syncRotate` and therefore runs at 10Hz, and the answer moves a handful of
+   * times a session. `hidden` rather than a `.show` class, unlike the floating
+   * touch buttons: this one is IN FLOW in the nav row, so an element left in the
+   * layout would hold a gap open beside the ✕ on every tab that is not
+   * conveyors.
+   */
+  syncDeck() {
+    const el = this.el.deck;
+    if (!el) return;
+    const on = this.deckable;
+    const up = this.buildDeck === CEILING;
+    const key = `${on}:${up}`;
+    if (key === this._deckKey) return;
+    this._deckKey = key;
+    el.hidden = !on;
+    for (const b of el.querySelectorAll('[data-deck]')) {
+      const lit = (b.dataset.deck === '1') === up;
+      b.classList.toggle('on', lit);
+      b.setAttribute('aria-pressed', String(lit));
+    }
   }
 
   /**
@@ -1504,6 +1656,11 @@ export class UI {
       this._rotOn = on;
       el.classList.toggle('show', on);
     }
+    // ...and the storey pair, which hangs off this chain for exactly the reason
+    // the chain exists: two of the three things it reads are not presses. What
+    // is in your hands is the server answering, and a tool the server disarmed
+    // (`syncBuildTool`) can take the switch away with nobody having touched it.
+    this.syncDeck();
     this.syncLeave();
   }
 
@@ -2028,6 +2185,7 @@ export class UI {
       this.el.buildHint.textContent = say.text;
       this.el.buildHint.classList.toggle('warn', !!say.warn);
       this.el.buildHint.classList.toggle('bad', !!say.bad);
+      this.el.buildHint.classList.toggle('deck', !!say.deck);
     }
     this.el.buildHint.classList.toggle('gone', !show);
     // `followBar` rather than `measureBar`: the height this changes takes a fifth
@@ -2122,6 +2280,28 @@ export class UI {
       return {
         text: `${v.warn} — tap anyway if you meant it · ${pillDrives() ? 'the turn button' : 'R'} rotates`,
         warn: true,
+      };
+    }
+    /**
+     * ...and last, the storey, which is the one line here that is a standing
+     * fact rather than news about the tile under the pointer.
+     *
+     * Last because everything above it is about the press you are about to
+     * make and this is about all of them: a refusal replaced by "you are
+     * upstairs" would be the copy explaining the mode instead of the tile.
+     * Standing rather than `linger`, for the same reason it is not a toast —
+     * being four metres up is true until you say otherwise, and the whole
+     * complaint this answers is that nothing on screen said so. The chip in the
+     * bar says it too; this is the half of it over the shop, where you are
+     * actually looking when you press.
+     */
+    if (this.buildDeck === CEILING) {
+      return {
+        // "presses" rather than "this run", because a storey is reachable with
+        // nothing armed now (see `deckable`) and pointing at a duct you have
+        // already built is most of what you are up here for.
+        text: `Building overhead — presses land on the ceiling · ${pillDrives() ? 'tap Floor above' : 'E'} comes back down`,
+        deck: true,
       };
     }
     return null;
@@ -2295,7 +2475,10 @@ export class UI {
     // `keepPicked` is for the one press that means the opposite — shift, which
     // is the whole gesture (`togglePicked`) — and for a re-flow re-pointing the
     // ref at the same fixture's new id.
-    if (!keepPicked) this.picked = [];
+    // The region goes with them, through its own setter — the teal on the floor
+    // is the only thing saying a selection holds ground, so a field cleared here
+    // by hand would leave a room lit up for a selection that no longer exists.
+    if (!keepPicked) { this.picked = []; this.setPickRegion(null); }
     this.scene?.setSelectedTarget(f, f ? this.markerSpots(f) : null);
     this.syncPickMarkers();
     // The standing hint names which of the two presses you are on, and picking
@@ -2404,6 +2587,35 @@ export class UI {
     if (!first) return [];
     const rest = this.picked.map((r) => this.liveRef(r)).filter(Boolean);
     return [first, ...rest.filter((f) => f.id !== first.id)];
+  }
+
+  /**
+   * The AREA the selection was dragged out of — four ground-plane corners, or
+   * null for a selection that was clicked together.
+   *
+   * The half of a selection that is not a fixture. A shelf can be picked; the
+   * floor it stands on cannot — there is no id to hold, no record to point at
+   * and nothing to draw a ring round — so the only thing that has ever said how
+   * far a selection reaches was the units in it, and a room's ground is exactly
+   * what lies between and beyond them. The marquee already knows: it is a
+   * rectangle, and a rectangle is a region whichever end you read it from.
+   *
+   * Kept beside the picks rather than folded into them, because every verb a
+   * selection feeds — Remove, the ladder, what a unit is kept for — is about
+   * fixtures and none of them has any use for a square of lino. One reader:
+   * Ctrl+C. And it is cleared by the same line that clears `picked`, or the
+   * region and the units it came with could end up describing two different
+   * drags.
+   *
+   * The `cells` are what the shop DRAWS (`setPickArea`), and they are handed in
+   * rather than derived here for the reason the corners are not derived here
+   * either: the caller has just run them through `quadCells` to decide whether
+   * the drag caught anything at all, and two answers to "which squares" is two
+   * chances for the teal on the floor to disagree with what Ctrl+C sends.
+   */
+  setPickRegion(quad, cells = []) {
+    this.pickRegion = Array.isArray(quad) && quad.length === 4 ? quad : null;
+    this.scene?.setPickArea(this.pickRegion ? cells : null);
   }
 
   /** ...and just their ids, which is what a bulk message carries. */
@@ -2737,7 +2949,7 @@ export class UI {
     // The key reaches the same tile the pointer does, so it has to be refused for
     // the same reason — a greyed tile the 6 key still arms is a button that means
     // two different things depending on how you pressed it.
-    if (t.poor) return;
+    if (t.poor || t.off) return;
     // A browse bar opens a menu rather than arming anything, so a number key
     // does exactly what tapping the entry does — see `renderBrowseBar`. It has
     // to be the same branch, or `selectBuildTool` is handed a person's id.
@@ -5167,6 +5379,13 @@ export class UI {
     // rather than beside it, because `closePanel` already clears the ref — with
     // a fixture menu up these two are one press, which is what it looks like.
     if (this.fixtureRef) return yes(() => this.setFixtureRef(null));
+    // ...and the GROUND half of a selection, which needs its own rung for the
+    // one reason it exists at all: a region can be held with no fixture in it,
+    // so the rung above never fires and the teal on the floor is a selection
+    // with nothing on screen able to dismiss it. Below the fixture rather than
+    // beside it because `setFixtureRef(null)` already clears the region — with
+    // units in the box the two are one press, which is what it looks like.
+    if (this.pickRegion) return yes(() => this.setPickRegion(null));
     // ...and a hire picked out the same way, which needs this rung more than a
     // shelf does: their ring rides on the body (`setPersonSelected`), so one
     // left behind does not merely sit there, it walks off round the shop with

@@ -74,11 +74,51 @@ const ROUGH = 1.25;
  */
 const CLUTTER = 8;
 
-const stepCost = (layout, x, z, clutter) => {
+/**
+ * What walking through somebody costs, and why it is one rather than eight.
+ *
+ * A route is planned once and followed for many ticks, so this is a *guess* in a
+ * way `CLUTTER` is not: a crate is where it was put down, and a body is only
+ * where it happened to be standing at the moment somebody else asked. That is
+ * the whole of why the number is small. At one, a person in the way is worth
+ * exactly one extra tile of walking — enough to break a tie, never enough to
+ * send anybody the long way round the building.
+ *
+ * **A tie is what this is for**, and it is the half that is not obvious.
+ * Four-way A\* over open floor has *many* equal-length routes between two
+ * points and returns the same one every time — same neighbour order, same heap,
+ * same answer — so everybody crossing a room walks the identical line and turns
+ * at the identical corner. That is why a bigger shop never helped: the extra
+ * space was never a candidate. The two arms of an L are the same length, so one
+ * body standing on the corner is enough to send the next person round the other
+ * arm, **at no cost in distance at all**. The surcharge is only ever really paid
+ * at a genuine bottleneck — a doorway — and one tile is deliberately far too
+ * little to make anybody avoid one.
+ *
+ * `CROWD_MAX` is what a pile-up can be worth. Past four bodies more cost buys no
+ * more avoidance and only lengthens routes, and half of `CLUTTER` is the point:
+ * a crate stays, so it is allowed to read as a wall; a crowd disperses, so it
+ * must never read as one.
+ *
+ * **Everybody, not only shoppers**, which is the split `CLUTTER` makes and the
+ * opposite answer to it. A crate is a mess your crew are meant to walk over and
+ * clear, so charging them for it would make the mess permanent — where a person
+ * is in the way of whoever is walking, and a stocker threading a queue jams
+ * exactly as a shopper does.
+ *
+ * Above zero and added to a base of at least one, like every other surcharge
+ * here, because `h` is Manhattan distance and is only admissible while no step
+ * is cheaper than one.
+ */
+const CROWD = 1;
+const CROWD_MAX = 4;
+
+const stepCost = (layout, x, z, clutter, crowd) => {
   const i = z * layout.w + x;
   const mess = clutter?.has(i) ? CLUTTER : 0;
-  if (layout.indoor?.[i]) return PAVED + mess;
-  return (layout.tiles[i] === T.PATH ? PAVED : ROUGH) + mess;
+  const bodies = crowd ? Math.min(crowd.get(i) ?? 0, CROWD_MAX) * CROWD : 0;
+  if (layout.indoor?.[i]) return PAVED + mess + bodies;
+  return (layout.tiles[i] === T.PATH ? PAVED : ROUGH) + mess + bodies;
 };
 
 /** Anybody who works here: a wall stops them and a sign does not. */
@@ -92,11 +132,15 @@ const anyoneCanCross = (layout, cx, cz, nx, nz) =>
  *   customers, so the choice is made once in `Game.pathTo` off the one field only
  *   a shopper has. It is the whole of "staff only" and "one way": a signed
  *   doorway is a wall to a shopper and an ordinary opening to everyone else.
+ * @param {Map<number,number>} [opts.crowd] How many bodies are standing on each
+ *   tile index. Null for every *reachability* question in the game — a crowd
+ *   never makes anywhere unreachable, so a probe asking "can this hire get to
+ *   the break area" must pay nothing for it and expand nothing extra.
  * @returns {Array<{x:number,z:number}>|null} tile path excluding the start
  *   tile, or null if unreachable.
  */
 export function findPath(grid, layout, start, goal,
-  { maxNodes = 4000, shopper = false, clutter = null } = {}) {
+  { maxNodes = 4000, shopper = false, clutter = null, crowd = null } = {}) {
   const canCross = shopper ? shopperCanCross : anyoneCanCross;
   // Handed in rather than read off the layout, because crates are not part of it
   // — they live on `Game.deliveries` and move ten times a second. Null for
@@ -163,7 +207,7 @@ export function findPath(grid, layout, start, goal,
       const nk = key(nx, nz);
       // Charged on the cell you step ONTO, so the pavement you are walking
       // along is what is being paid for rather than the one you left.
-      const tentative = cg + stepCost(layout, nx, nz, mess);
+      const tentative = cg + stepCost(layout, nx, nz, mess, crowd);
       if (tentative < (gScore.get(nk) ?? Infinity)) {
         gScore.set(nk, tentative);
         cameFrom.set(nk, current);

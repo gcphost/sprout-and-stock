@@ -107,7 +107,8 @@ import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
 import {
   canPlace, anchorTile, isWalkableTile, edgeAt, conveyorAt, conveyorNext, conveyorLines,
-  conveyorMeets, conveyorsOf, conveyorBranches, armReach, deckOf, CEILING,
+  conveyorMeets, conveyorsOf, conveyorBranches, armReach, deckOf, CEILING, BASEMENT,
+  tunnelExit,
 } from '../shared/build.js';
 import { lotTotal } from '../shared/lot.js';
 
@@ -151,7 +152,11 @@ const SORTER = {
 const LIFT = {
   id: 'zz-ceil-lift', kind: 'lift', name: 'Test Lift', cost: 90,
   model: { parts: [{ shape: 'box', color: '#4e5866', pos: [0, 0.9, 0], scale: [0.8, 1.8, 0.8] }] },
-  tiers: [{ name: 'Standard', cost: 0 }],
+  tiers: [
+    { name: 'Standard', cost: 0, speed_mult: 1 },
+    { name: 'Quick', cost: 0, speed_mult: 2 },
+    { name: 'Express', cost: 0, speed_mult: 3 },
+  ],
 };
 
 for (const row of [BELT, ARM, SORTER, LIFT]) writeContent('fixture', row, 'verify');
@@ -340,6 +345,64 @@ const spot = (d) => ({ x: d.x, z: d.z, deck: d.deck ?? 0 });
 }
 
 // ---------------------------------------------------------------------------
+// 2b. "A CONVEYOR" IS THREE OF THE FIVE.
+//
+// The roof takes the three kinds a run is MADE of and neither of the two that
+// are about the floor. A LIFT is what joins the storeys — it answers
+// `conveyorAt` on both decks off one square, so a second one laid overhead is
+// the same shaft said twice. A TUNNEL gives back the SQUARE, which is the one
+// thing a ceiling has not got to give, and its far mouth is found by a scan
+// that matches on x,z alone — so an overhead mouth pairs with a floor mouth in
+// the same column and hands its crate down a storey, which is section 7's own
+// bug arriving through the one piece whose pairing is not a neighbour.
+//
+// It was `def.flow`, which reads as "is this a conveyor" and is true of both.
+// NOT ONE ASSERTION ANYWHERE FAILED FOR IT, and that is why this is written
+// down: an overhead lift is refused by nothing, builds, draws, and joins two
+// storeys that were already joined. What it was reported as is the thing you
+// CAN see — the Floor/Overhead switch coming up for the two tools that cannot
+// use one, which is the green-ghost rule said about a control.
+//
+// Both halves, and the second is the one a value alone would miss: the field
+// must not ride on the placement either, or the refusal is the only thing
+// standing between a lift and a storey and every other caller writes one.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 4);
+
+  for (const kind of ['belt', 'arm', 'sorter']) {
+    eq(canPlace(g.layout, {
+      kind, x: row[0].x, z: row[0].z, rot: 0, deck: CEILING,
+    }).ok, true, `a ${kind} may hang from the roof`);
+  }
+  for (const kind of ['lift', 'under']) {
+    const spec = { kind, x: row[2].x, z: row[2].z, rot: 0, deck: CEILING };
+    eq(canPlace(g.layout, spec).ok, false, `a ${kind} may not`);
+    // ...and on the floor, which is the control that keeps this from being
+    // "the tool is broken" rather than "the tool is a floor tool".
+    eq(canPlace(g.layout, { ...spec, deck: 0 }).ok, true, `while a ${kind} on the floor is fine`);
+
+    // Through the STORE, because the refusal and the field are two different
+    // pieces of code and only one of them is obvious: `placeFixture` normalises
+    // the storey itself, so a press that asked for the ceiling has to come back
+    // as an ordinary floor piece rather than as a refusal or as a ceiling one.
+    const res = g.placeFixture('me', { piece: PIECE[kind], ...spec });
+    check(res.ok, `and the press lands a ${kind} anyway`, res.error ?? '');
+    const made = (kind === 'lift' ? g.layout.lifts : g.layout.unders) ?? [];
+    const cell = made.find((c) => c.id === res.placed);
+    check(!!cell, `the ${kind} is in the layout`);
+    eq(deckOf(cell), 0, 'and it is on the floor');
+    // The PLACEMENT rather than the layout record, which is the half that
+    // survives a re-flow: `compose` rebuilds the cell from this, so a storey
+    // stored here is one every reload hands back.
+    eq(g.placements.find((p) => p.id === res.placed)?.deck, undefined,
+      'with no storey on the placement at all');
+    g.removeFixture('me', res.placed);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 3. TWO STOREYS DO NOT MERGE, which is the one line a second storey IS.
 //
 // A duct laid directly over a run is the build the whole feature is bought for.
@@ -426,6 +489,45 @@ for (const feeder of ['belt', 'arm']) {
     eq(deckOf(to), 0, `a shaft fed by an overhead ${feeder} carries DOWN`);
     eq(`${to?.x},${to?.z}`, `${x0 + 3},${z}`, 'to the floor cell beside it');
   }
+}
+
+// A saved queue may already contain more than one crate part-way through a
+// down shaft. It still carries the address of the ceiling feeder until the
+// hand-off completes, and "front" is the LOWEST deck on this journey. This is
+// the exact recovery shape found in demo-world at 13,21.
+{
+  const g = fresh();
+  const row = roofRow(g, 5);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  put(g, { kind: 'belt', x: x0, z, rot: 0 });
+  const highFirst = put(g, { kind: 'belt', x: x0, z, rot: 0, deck: CEILING });
+  put(g, { kind: 'belt', x: x0 + 1, z, rot: 0 });
+  const highLast = put(g, { kind: 'belt', x: x0 + 1, z, rot: 0, deck: CEILING });
+  const lift = put(g, { kind: 'lift', x: x0 + 2, z, rot: 0 });
+  const out = put(g, { kind: 'belt', x: x0 + 3, z, rot: 0 });
+
+  check(g.setLiftWay('me', lift.id, 'down').ok,
+    'the recovered two-level junction is explicitly directed down');
+  const directed = conveyorNext(g.layout, (g.layout.lifts ?? [])[0]);
+  eq(deckOf(directed), 0, 'that down trip lands on the floor storey');
+  eq(`${directed?.x},${directed?.z}`, `${out.x},${out.z}`,
+    'and hands onto its floor run');
+
+  const rear = crateOn(g, highLast, 1);
+  const front = crateOn(g, highFirst, 1);
+  Object.assign(rear, {
+    belt: highLast.id, off: 1.33, x: lift.x, z: lift.z, deck: 0.67,
+  });
+  Object.assign(front, {
+    belt: highLast.id, off: 1.83, x: lift.x, z: lift.z, deck: 0.17,
+  });
+  g.stepBelts(0.01);
+  eq(g.shaftCarry.get(lift.id), front.id,
+    'a recovered down shaft gives its piston to the lowest, front-most crate');
+  check(front.deck < 0.17 || front.belt !== highLast.id,
+    'that front crate advances out instead of being frozen by the rear crate');
+  near(rear.deck, 0.67, 'and the rear crate waits for the physical piston', 0.011);
 }
 
 // ---------------------------------------------------------------------------
@@ -524,6 +626,201 @@ for (const feeder of ['belt', 'arm']) {
 }
 
 // ---------------------------------------------------------------------------
+// 4c. WHICH SIDE IT LANDS ON, which is the other half of a shaft nobody could
+//     say anything to.
+//
+// `way` answers which STOREY. It says nothing about the square, and a shaft has
+// up to four ways out on the deck it arrives at — so `liftOut` took the first
+// one in enum order, and which cell a descending crate carried on into was
+// decided by the numbering of `[0, 1, 2, 3]`. On the save this came off, a lift
+// landing beside a belt to its east and a tunnel mouth to its north always
+// chose the belt, and the north leg could not be built at all: the only way to
+// route round it was to demolish the neighbour that kept winning.
+//
+// Nothing about it is visible. A shaft that chose the wrong exit and one whose
+// other leg has not been built yet are the same still frame — every box that
+// arrives arrives correctly, down a leg that works, and the run you meant
+// simply never carries anything.
+//
+// Its control is the assertion that decides whether any of this is opt-in: a
+// shaft's `rot` defaults to 0, which is the side the scan already tried first,
+// so every lift in every save answers exactly as it did. And its pair is that
+// the aim is a PREFERENCE — a shaft aimed at a wall falls back to the scan
+// rather than becoming a terminus, or one press turns a working loop off.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  // The row search above only promises the row. This needs a SPUR off it too,
+  // so it looks for one — where the shop is indoors is a fact about the shell.
+  const tee = (() => {
+    for (let z = 2; z < g.layout.h - 1; z++) {
+      for (let x = 1; x + 4 < g.layout.w - 1; x++) {
+        const cells = [{ x, z }, { x: x + 1, z }, { x: x + 2, z }, { x: x + 1, z: z - 1 }];
+        const ok = cells.every((c) => canPlace(g.layout, { kind: 'belt', x: c.x, z: c.z, rot: 0 }).ok
+          && canPlace(g.layout, { kind: 'lift', x: c.x, z: c.z, rot: 0 }).ok
+          && canPlace(g.layout, { kind: 'belt', x: c.x, z: c.z, rot: 0, deck: CEILING }).ok);
+        if (ok) return { x, z };
+      }
+    }
+    return null;
+  })();
+  check(!!tee, 'there is somewhere under the roof for a run with a spur off it');
+  const z = tee.z;
+  const x0 = tee.x;
+  // A duct running east into a shaft, and TWO ways on from where it lands: east
+  // along the floor, and north off it.
+  put(g, { kind: 'belt', x: x0, z, rot: 0, deck: CEILING });
+  const lift = put(g, { kind: 'lift', x: x0 + 1, z, rot: 0 });
+  const east = put(g, { kind: 'belt', x: x0 + 2, z, rot: 0 });
+  const north = put(g, { kind: 'belt', x: x0 + 1, z: z - 1, rot: 3 });
+  check(!!east && !!north, 'a shaft can land with two ways on from it');
+
+  const cell = () => (g.layout.lifts ?? []).find((f) => f.x === lift.x && f.z === lift.z);
+  const out = () => conveyorNext(g.layout, cell());
+
+  // THE CONTROL. Untouched, it answers what it always answered.
+  eq(cell()?.rot ?? 0, 0, 'a shaft is laid facing rot 0 like everything else');
+  eq(`${out()?.x},${out()?.z}`, `${east.x},${east.z}`,
+    'and an unturned one carries on the way it always did');
+
+  // ...and R moves it, which is the whole feature.
+  let turns = 0;
+  while ((cell()?.rot ?? 0) !== 3 && turns < 8) {
+    check(g.rotateFixture('me', cell().id).ok, 'a shaft turns');
+    turns++;
+  }
+  eq(cell()?.rot ?? 0, 3, 'R walks it round to face north');
+  eq(`${out()?.x},${out()?.z}`, `${north.x},${north.z}`,
+    'and it lands on the leg you aimed at instead of the one enum order picked');
+  eq(deckOf(out()), 0, 'still on the storey `way` chose, which the aim does not touch');
+
+  // The box actually goes that way, because a lookup and a journey are two
+  // different pieces of code and only one of them is obvious.
+  const held = units(g);
+  const box = crateOn(g, conveyorAt(g.layout, x0, z, CEILING), 2);
+  let onNorth = false;
+  for (let i = 0; i < 400 && !onNorth; i++) {
+    g.step(0.1);
+    onNorth = box.belt === north.id;
+  }
+  check(onNorth, 'and a crate off the duct comes down and takes it');
+  eq(units(g), held + 2, 'with nothing created or destroyed on the way');
+
+  // THE PAIR. Aimed at bare floor — a side with no conveyor on it at all — a
+  // shaft is not stranded. It falls back to the scan, or one press of R on a
+  // working loop is a shop that quietly stops moving goods.
+  const g2 = fresh();
+  const row2 = roofRow(g2, 4);
+  const z2 = row2[0].z;
+  const x2 = row2[0].x;
+  put(g2, { kind: 'belt', x: x2, z: z2, rot: 0, deck: CEILING });
+  const lift2 = put(g2, { kind: 'lift', x: x2 + 1, z: z2, rot: 0 });
+  const only = put(g2, { kind: 'belt', x: x2 + 2, z: z2, rot: 0 });
+  const cell2 = () => (g2.layout.lifts ?? []).find((f) => f.x === lift2.x && f.z === lift2.z);
+  let spins = 0;
+  while ((cell2()?.rot ?? 0) !== 2 && spins < 8) {
+    check(g2.rotateFixture('me', cell2().id).ok, 'the second shaft turns');
+    spins++;
+  }
+  eq(cell2()?.rot ?? 0, 2, 'aimed back the way it came, at nothing');
+  const still2 = conveyorNext(g2.layout, cell2());
+  eq(`${still2?.x},${still2?.z}`, `${only.x},${only.z}`,
+    'it still finds the one run it has, rather than becoming a terminus');
+}
+
+// ---------------------------------------------------------------------------
+// 4d. A SHAFT UNDER A DUCT TAKES THE DUCT'S CELL, because it IS that cell.
+//
+// `conveyorAt` gives a lift's square to the lift on BOTH storeys — that is what
+// lets a run on either one hand to it — so a duct cell left standing on that
+// square is not a second run. It is a cell nothing in the game can address
+// again: no feeder can reach it, its own hand-off is never travelled, and it
+// sits there for the rest of the save.
+//
+// The order that produces it is the obvious one, which is why this is here at
+// all: lay the ceiling run, then drop a shaft under it to bring the goods down.
+// The crate rides the lift and the picture is perfect — the orphan is a
+// one-cell line off to the side of a network that works. Two of them were found
+// on a real save by the flow overlay's dead-line colour, and nothing else in
+// the game had a word to say about either.
+//
+// The rule it joins is `conveyorSwap`'s and it is SYMMETRIC: two conveyors may
+// not share a square, and the later press wins, warned. That already held on
+// the floor (a belt over a loader swaps) and overhead (a duct over a duct), and
+// a lift's second storey was the one square in the game where it did not — the
+// press was allowed and nothing was taken out. So the pair here is the other
+// order, and it is asserted as the same sentence rather than as a refusal.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 4);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  // A duct straight across, laid FIRST.
+  const duct = [0, 1, 2].map((i) => put(g, { kind: 'belt', x: x0 + i, z, rot: 0, deck: CEILING }));
+  eq(duct.filter(Boolean).length, 3, 'a three-cell duct goes up');
+  const mid = { x: x0 + 1, z };
+
+  // ...and the ghost says what it will cost you before the press does.
+  const warn = canPlace(g.layout, { kind: 'lift', x: mid.x, z: mid.z, rot: 0 });
+  check(warn.ok, 'a shaft may go under it', warn.reason ?? '');
+  check(!!warn.warn, 'and the ghost says it replaces what is up there', warn.warn ?? 'silent');
+
+  const before = (g.layout.belts ?? []).length;
+  const lift = put(g, { kind: 'lift', x: mid.x, z: mid.z, rot: 0 });
+  check(!!lift, 'the shaft goes down under the duct');
+  eq((g.layout.belts ?? []).length, before - 1, 'and the duct cell it stands on is gone');
+  eq((g.layout.belts ?? []).filter((b) => b.x === mid.x && b.z === mid.z).length, 0,
+    'no orphan left standing on the shaft square');
+
+  // THE RUN IS STILL A RUN. The cell upstream addresses that square and gets
+  // the shaft, which is the whole reason swallowing it is safe.
+  const up = conveyorAt(g.layout, x0, z, CEILING);
+  const on = conveyorNext(g.layout, up);
+  eq(`${on?.x},${on?.z}`, `${mid.x},${mid.z}`, 'the duct still hands onto that square');
+  eq(conveyorAt(g.layout, mid.x, mid.z, CEILING)?.id, lift.id, '...and the square is the shaft');
+
+  // THE PAIR: the other order says the same sentence. A duct cell laid ON a
+  // standing shaft swaps the shaft out, warned — never two cells on one square.
+  const g2 = fresh();
+  const row2 = roofRow(g2, 4);
+  const z2 = row2[0].z;
+  const x2 = row2[0].x;
+  const lift2 = put(g2, { kind: 'lift', x: x2 + 1, z: z2, rot: 0 });
+  check(!!lift2, 'a shaft stands on its own');
+  const over = canPlace(g2.layout, { kind: 'belt', x: x2 + 1, z: z2, rot: 0, deck: CEILING });
+  check(over.ok, 'a duct cell may be laid on it', over.reason ?? '');
+  check(!!over.warn, '...and the ghost says it replaces the shaft', over.warn ?? 'silent');
+  put(g2, { kind: 'belt', x: x2 + 1, z: z2, rot: 0, deck: CEILING });
+  eq((g2.layout.lifts ?? []).length, 0, 'and the shaft is gone rather than buried');
+  eq((g2.layout.belts ?? []).filter((b) => b.x === x2 + 1 && b.z === z2).length, 1,
+    'with exactly one cell left on that square');
+
+  // ...and the ones a save is ALREADY carrying, which is the half a placement
+  // rule can never reach. Both guards above stop a new orphan being made; a
+  // shop built before them has one standing, it cannot be pointed at (the
+  // renderer strips a belt sharing a lift's roof) and so it cannot be deleted.
+  // So it is a KEEPING rule too — re-answered every re-flow, `canKeep`'s own
+  // argument, because "nothing can address this" is a fact about what is next
+  // to the cell rather than about the cell.
+  const g3 = fresh();
+  const row3 = roofRow(g3, 4);
+  const z3 = row3[0].z;
+  const x3 = row3[0].x;
+  // Written straight onto the placements, which is the only way to get one now
+  // — and is exactly the shape the save that reported this is in.
+  g3.placements.push(
+    { id: 'fx-orphan', kind: 'belt', piece: PIECE.belt, x: x3 + 1, z: z3, rot: 0, deck: CEILING, tier: 1, variant: '' },
+    { id: 'fx-shaft', kind: 'lift', piece: PIECE.lift, x: x3 + 1, z: z3, rot: 0, tier: 1, variant: '' },
+  );
+  g3.regenerateLayout();
+  eq((g3.layout.belts ?? []).filter((b) => b.x === x3 + 1 && b.z === z3).length, 0,
+    'a re-flow sheds an orphan already standing on a shaft square');
+  eq((g3.layout.lifts ?? []).filter((l) => l.x === x3 + 1 && l.z === z3).length, 1,
+    '...and keeps the shaft, which is the half that must not be shed');
+}
+
+// ---------------------------------------------------------------------------
 // 5. …and the three ways a shaft is allowed to answer NOTHING.
 // ---------------------------------------------------------------------------
 {
@@ -549,14 +846,17 @@ for (const feeder of ['belt', 'arm']) {
     JSON.stringify(to));
   eq(`${to?.x},${to?.z},${deckOf(to)}`, `${up.x},${up.z},${CEILING}`, 'but to the duct beside it');
 
-  // R IS A DEAD KEY ON A SHAFT, which is why the direction is derived. Turning
-  // one must not change which way it carries, and must not drop it downstairs.
+  // R AIMS A SHAFT, and with ONE candidate up there it can change nothing —
+  // which is the half of 4c that keeps the aim a preference. Turning this one
+  // must not strand it, must not drop it downstairs, and must not stop it
+  // handing to the only duct it can see.
   const was = JSON.stringify(conveyorNext(g.layout, lone));
   const spun = g.rotateFixture('me', lone.id);
-  check(spun.ok || !!spun.error, 'a lift answers the R key one way or the other');
+  check(spun.ok, 'a shaft turns', spun.error ?? '');
   const still = (g.layout.lifts ?? []).find((f) => f.x === lone.x && f.z === lone.z);
   check(!!still, 'and it is still standing there afterwards');
-  eq(JSON.stringify(conveyorNext(g.layout, still)), was, 'carrying exactly the way it did');
+  eq(JSON.stringify(conveyorNext(g.layout, still)), was,
+    'carrying exactly the way it did, because there is nowhere else to carry to');
 }
 
 // ---------------------------------------------------------------------------
@@ -611,10 +911,41 @@ for (const dir of ['up', 'down']) {
   let backwards = 0;
   let jumped = 0;
   let rode = 0;
+  let sawPickup = false;
+  let pickupDroppedCrate = false;
+  let pickupEnteredBasket = false;
+  let pickupBadAt = '';
+  let sawOwnedStroke = false;
+  let streamedTransform = false;
+  let ownerLeftShaft = false;
+  let ownerLeftAt = '';
+  let sawReturn = false;
+  const shaftPhases = new Set();
   let last = spot(crate);
   for (let i = 0; i < 200; i++) {
     g.step(0.1);
     const now = spot(crate);
+    const wire = g.snapshot().lifts.find((f) => f.id === lift.id);
+    if (wire?.shaftPhase) shaftPhases.add(wire.shaftPhase);
+    if (wire?.shaftPhase === 'pickup') {
+      sawPickup = true;
+      if (now.deck < 1 - 1e-6) pickupDroppedCrate = true;
+      if (Math.hypot(now.x - lift.x, now.z - lift.z) < Game.SHAFT_WAIT_OFFSET - 0.011) {
+        pickupEnteredBasket = true;
+      }
+      if (pickupDroppedCrate || pickupEnteredBasket) {
+        pickupBadAt = `${crate.id} at ${now.x},${now.z}/${now.deck}; owner ${wire.shaftOwner}`;
+      }
+    }
+    if (wire?.shaftPhase === 'carry' && wire.shaftOwner === crate.id) {
+      sawOwnedStroke = true;
+      if (wire.shaftPos !== undefined || wire.shaftVel !== undefined) streamedTransform = true;
+      if (Math.abs(now.x - lift.x) > 1e-6 || Math.abs(now.z - lift.z) > 1e-6) {
+        ownerLeftShaft = true;
+        ownerLeftAt = `${now.x},${now.z}/${now.deck} in ${wire.shaftPhase}`;
+      }
+    }
+    if (wire?.shaftPhase === 'return') sawReturn = true;
     /**
      * THE CENTREPIECE. Part way between two storeys, a box is in the shaft —
      * and the shaft is one square. Anywhere else is a crate hanging in the
@@ -638,9 +969,234 @@ for (const dir of ['up', 'down']) {
   eq(offShaft, 0, `${dir}: and every one of those is over the shaft's own square`);
   eq(backwards, 0, `${dir}: it never goes back the way it came`);
   eq(jumped, 0, `${dir}: and never skips`);
+  check(sawOwnedStroke, `${dir}: the wire names the crate as the piston owner`);
+  eq(streamedTransform, false, `${dir}: the server sends state, never a per-frame piston transform`);
+  check(!ownerLeftShaft, `${dir}: the piston never claims the crate before it reaches the shaft`, ownerLeftAt);
+  if (dir === 'down') {
+    check(sawPickup, 'down: the empty piston reaches the ceiling before accepting the crate');
+    check(!pickupDroppedCrate, 'down: the crate cannot fall during that pickup stroke', pickupBadAt);
+    check(!pickupEnteredBasket, 'down: it waits outside the basket during pickup', pickupBadAt);
+  } else {
+    check(sawReturn, 'up: the server reports the empty piston returning after release',
+      `saw ${[...shaftPhases].join(',') || 'no shaft phase'}`);
+  }
   eq(spot(crate).deck, far, `${dir}: it ends up on the far storey`);
   check(crate.x > x0 + 3, `${dir}: past the shaft`, `at ${crate.x}`);
   eq(units(g), held, `${dir}: and nothing is created or destroyed on the way`);
+}
+
+// ---------------------------------------------------------------------------
+// 6b. THE RIDE NOBODY TAKES, which is the third thing a shaft does and the one
+//     that had no geometry of its own.
+//
+// A lift told `up` hands to a cell BESIDE it on the ceiling, so a duct arriving
+// overhead simply carries on across its square. `setLiftWay`'s own note calls
+// that the pass-through and says it costs nothing — and it cost the crate two
+// tiles and a trip to the floor, because `deck` on a lift is a fact about the
+// PLACEMENT and reads 0 whichever end of the shaft you mean. Everything that
+// asked the cell got the floor, so the path dived four metres and climbed
+// straight back. What that reads as is a lift snatching a box off the rail,
+// taking it down to a storey with nothing on it, and throwing it back up: the
+// shape of a routing bug, and the routing was right the whole time.
+//
+// It is invisible in every direction but this one. The two real rides have the
+// box on the floor at one end anyway, so `deckOf` is telling the truth about
+// half of each and the riser covers the other half — which is why this survived
+// the sweep above, twice over, in both directions.
+//
+// Its control is that shop, unchanged: an ascent, a descent and a shaft with no
+// exit at all still measure exactly what they measured, which is what keeps
+// this off the queueing a real ride is choreographed by. And its pair is the
+// PLATFORM, which is the half a distance cannot say: the piston still rises, so
+// that the box has something to cross ON, and the stroke back down was the
+// rise's own — a rise this crate never makes. Left to the fall-through the
+// carrier reported itself home in one frame, which is the one moving part of an
+// overhead run anybody is watching.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 6);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  // A duct straight across, with a shaft standing in the middle of it and
+  // NOTHING on the floor beside that shaft — which is the shop this was
+  // reported from, and the reason the lift has to be told.
+  for (let i = 0; i < 6; i++) {
+    if (i === 3) continue;
+    put(g, { kind: 'belt', x: x0 + i, z, rot: 0, deck: CEILING });
+  }
+  const lift = put(g, { kind: 'lift', x: x0 + 3, z, rot: 0 });
+  check(g.setLiftWay('me', lift.id, 'up').ok, 'the shaft is told to carry up');
+
+  const cell = () => (g.layout.lifts ?? []).find((f) => f.id === lift.id) ?? lift;
+  const out = conveyorNext(g.layout, cell());
+  eq(deckOf(out), CEILING, 'so a duct arriving overhead is handed straight on along it');
+
+  // THE GEOMETRY. A crossing is flat, so the path over the shaft costs what the
+  // two cells either side of it cost and not a tile more — the arithmetic that
+  // the dive was, said as a number.
+  const net = conveyorLines(g.layout);
+  const loc = net.byCell.get(cell().id);
+  check(!!loc, 'the shaft is on a line');
+  eq(loc.line.decks[loc.i], CEILING, 'and the line has it on the storey it was handed the box on');
+  near(loc.line.dist[loc.i] - loc.line.dist[loc.i - 1], 1,
+    'a crossing is one cell of travel, not a cell plus a storey');
+  for (const p of loc.line.pts) {
+    eq(deckOf(p), CEILING, 'and no point of the drawn path is on the floor');
+  }
+
+  const crate = crateOn(g, g.beltAt(x0, z, CEILING));
+  const held = units(g);
+  let dipped = 0;
+  let sawReturn = false;
+  let sawPickup = false;
+  let home = null;
+  for (let i = 0; i < 300; i++) {
+    g.step(0.1);
+    // THE CENTREPIECE, and it is checked every tick for the reason the ride
+    // above is: a box that spends one frame at deck 0.4 in the middle of an
+    // aisle is the whole report.
+    if ((crate.deck ?? 0) < 1 - 1e-6) dipped++;
+    const wire = g.snapshot().lifts.find((f) => f.id === lift.id);
+    if (wire?.shaftPhase === 'pickup') sawPickup = true;
+    if (wire?.shaftPhase === 'return') sawReturn = true;
+    if (wire?.shaftPhase === 'idle' && home === null && crate.x > x0 + 3) home = i;
+  }
+  eq(dipped, 0, 'a box crossing a shaft never leaves the ceiling');
+  check(crate.x > x0 + 4, 'and it carries on past it', `at ${crate.x}`);
+  eq(units(g), held, 'with nothing created or destroyed on the way');
+
+  // ...AND THE PLATFORM. It goes up to be crossed, and it comes DOWN as a
+  // stroke — a lift that arrives home in one frame is the only moving part of a
+  // duct there is anything to watch, reporting itself teleported.
+  check(sawPickup, 'the piston rises to give the box something to cross on');
+  check(sawReturn, 'and eases back down afterwards rather than snapping home');
+}
+
+// A loaded save can already contain two candidates on the final ceiling cell:
+// the older crate behind and the newer one standing over the shaft. Reservation
+// order must be physical queue order, not delivery-array insertion order, or the
+// front box blocks the chosen box while the choice blocks the front box forever.
+{
+  const g = fresh();
+  const row = roofRow(g, 6);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  put(g, { kind: 'belt', x: x0, z, rot: 0, deck: CEILING });
+  const feeder = put(g, { kind: 'belt', x: x0 + 1, z, rot: 0, deck: CEILING });
+  const spare = put(g, { kind: 'belt', x: x0 + 2, z, rot: 0, deck: CEILING });
+  let lift = put(g, { kind: 'lift', x: x0 + 3, z, rot: 0 });
+  put(g, { kind: 'belt', x: x0 + 4, z, rot: 0 });
+  put(g, { kind: 'belt', x: x0 + 5, z, rot: 0 });
+  check(g.setLiftWay('me', lift.id, 'down').ok, 'the loaded-save shaft is directed down');
+  for (let rung = 2; rung <= 3; rung++) {
+    check(g.upgradeFixture('me', lift.id).ok, `that shaft reaches speed rung ${rung}`);
+    lift = g.beltAt(lift.x, lift.z);
+  }
+
+  const behind = crateOn(g, feeder, 1);
+  const front = crateOn(g, spare, 1);
+  behind.belt = spare.id;
+  behind.off = 0;
+  behind.x = spare.x;
+  behind.z = spare.z;
+  behind.deck = CEILING;
+  front.belt = spare.id;
+  front.off = 1;
+  front.x = lift.x;
+  front.z = lift.z;
+  front.deck = CEILING;
+
+  g.step(0.05);
+  const wire = g.snapshot().lifts.find((f) => f.id === lift.id);
+  eq(wire?.shaftOwner, front.id,
+    'a down lift grants the piston to the crate nearest its mouth, not the oldest candidate');
+  eq(wire?.shaftPhase, 'carry',
+    'a loaded-save crate already over the shaft resumes as boarded, not above an empty pickup');
+  near(wire?.shaftFrom, front.deck,
+    'that recovered carrier and its crate report the same position', 0.011);
+  check(wire?.shaftDuration > 0 && wire.shaftDuration <= g.beltSeconds(lift) + 0.011,
+    'the recovered loaded stroke uses the upgraded lift clock', wire?.shaftDuration);
+  let frontDescended = false;
+  let behindApproach = behind.x;
+  let overlappingGrant = false;
+  for (let i = 0; i < 80; i++) {
+    g.step(0.05);
+    const carry = g.shaftCarry?.get(lift.id);
+    const grant = g.shaftGrant?.get(lift.id);
+    if (carry && grant && carry !== grant) overlappingGrant = true;
+    if ((front.deck ?? 0) < 1 - 1e-6) frontDescended = true;
+    if ((front.deck ?? 0) > 1e-6 && (front.deck ?? 0) < 1 - 1e-6) {
+      behindApproach = Math.max(behindApproach, behind.x);
+    }
+  }
+  check(frontDescended, 'that front crate descends instead of deadlocking the queue');
+  eq(overlappingGrant, false,
+    'a following crate is never granted while the preceding carry still owns the lift');
+  near(behindApproach, lift.x - Game.SHAFT_WAIT_OFFSET,
+    'the queue closes up to, but stays outside, the basket edge', 0.011);
+  check(front.x > lift.x, 'and clears the shaft so the crate behind can follow', `at ${front.x}`);
+}
+
+// A dense queue must not turn the capacity-one shaft into an ordinary length
+// of line. Exercise several consecutive cycles at half-cell spacing: during an
+// empty pickup every crate remains outside the basket, and at most one crate is
+// ever between storeys.
+{
+  const g = fresh();
+  const row = roofRow(g, 6);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  for (let i = 0; i < 3; i++) put(g, { kind: 'belt', x: x0 + i, z, rot: 0, deck: CEILING });
+  const feeder = g.beltAt(x0 + 2, z, CEILING);
+  const lift = put(g, { kind: 'lift', x: x0 + 3, z, rot: 0 });
+  put(g, { kind: 'belt', x: x0 + 4, z, rot: 0 });
+  put(g, { kind: 'belt', x: x0 + 5, z, rot: 0 });
+  check(g.setLiftWay('me', lift.id, 'down').ok, 'the dense-queue lift is directed down');
+  const floorCrate = crateOn(g, lift, 1);
+  const queued = [];
+  for (let i = 0; i < 4; i++) {
+    const crate = g.dropGoods(GOODS.id, 1, { x: feeder.x, z: feeder.z + i + 1 }, { exact: true });
+    check(!!crate, 'the dense-queue crate exists');
+    crate.belt = feeder.id;
+    crate.off = -i * Game.CRATE_PITCH;
+    crate.x = feeder.x - i * Game.CRATE_PITCH;
+    crate.z = feeder.z;
+    crate.deck = CEILING;
+    queued.push(crate);
+  }
+  let doubleOccupied = false;
+  let pickupCrossed = false;
+  let followerCrossed = false;
+  let pickupDuringFloorOccupancy = false;
+  for (let i = 0; i < 500; i++) {
+    g.step(0.05);
+    const wire = g.snapshot().lifts.find((f) => f.id === lift.id);
+    if (floorCrate.belt === lift.id && wire?.shaftPhase === 'pickup') {
+      pickupDuringFloorOccupancy = true;
+    }
+    const vertical = queued.filter((crate) => (crate.deck ?? 0) > 1e-6
+      && (crate.deck ?? 0) < 1 - 1e-6
+      && Math.abs(crate.x - lift.x) <= 1e-6
+      && Math.abs(crate.z - lift.z) <= 1e-6);
+    if (vertical.length > 1) doubleOccupied = true;
+    if (wire?.shaftPhase === 'pickup') {
+      const owner = queued.find((crate) => crate.id === wire.shaftOwner);
+      if (owner && owner.x > lift.x - Game.SHAFT_WAIT_OFFSET + 0.011) pickupCrossed = true;
+    }
+    if (wire?.shaftOwner) {
+      const crossed = queued.some((crate) => crate.id !== wire.shaftOwner
+        && Math.abs((crate.deck ?? 0) - CEILING) <= 1e-6
+        && crate.x > lift.x - Game.SHAFT_WAIT_OFFSET + 0.011);
+      if (crossed) followerCrossed = true;
+    }
+  }
+  eq(doubleOccupied, false, 'a dense queue never puts two crates in one lift shaft');
+  eq(pickupCrossed, false, 'a dense queue remains outside the basket until pickup reaches the top');
+  eq(followerCrossed, false,
+    'a dense follower cannot replace the lift gate with spacing behind its owner');
+  eq(pickupDuringFloorOccupancy, false,
+    'a ceiling pickup cannot begin while a floor crate still occupies the lift node');
 }
 
 // ---------------------------------------------------------------------------
@@ -737,11 +1293,11 @@ for (const dir of ['up', 'down']) {
 // ---------------------------------------------------------------------------
 // 8. AN OVERHEAD LOADER SERVES THE ONE CELL BENEATH IT.
 //
-// Which is what stops a ceiling run being a floor run that costs no floor: a
-// run down an aisle serves the units either side of every cell, a duct over the
-// same aisle serves whatever it is directly above. One machine per unit against
-// one per pair. The claim is mostly about the shelves that were NOT stocked,
-// which is why it has a control standing beside it.
+// An overhead run frees the aisle square without changing what a loader means:
+// it still serves the floor units on both sides. The difference is the trip —
+// out from the duct and then down — rather than a smaller reach nobody can see
+// from above. The shelf directly beneath is the control: it is not one of the
+// loader's sides and must remain untouched.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -777,22 +1333,39 @@ for (const dir of ['up', 'down']) {
   const under = at(site.under);
   const sides = site.flank.map(at);
   check(!!under && sides.every(Boolean), 'and all three are still standing');
-  eq(armReach(arm).length, 1, 'an overhead loader reaches exactly one cell');
-  eq(`${armReach(arm)[0].x},${armReach(arm)[0].z}`, `${arm.x},${arm.z}`, 'and it is the one beneath it');
+  const reach = armReach(arm);
+  eq(reach.length, 4, 'an overhead loader reaches the same four sides as one on the floor');
+  check(site.flank.every((f) => reach.some((r) => r.x === f.x && r.z === f.z)),
+    'including both floor units across the aisle');
+  check(!reach.some((r) => r.x === arm.x && r.z === arm.z),
+    'and not the square directly beneath it');
 
   // ...and the run knows it. `conveyorMeets` is what every judgement downstream
   // is built on — a junction's keen test, the skip guard on a loader's lift —
   // and read four-ways it would report the flanks as served.
   const met = conveyorMeets(g.layout, feed);
-  eq(met.shelves.length, 1, 'the run reports one unit served');
-  eq(met.shelves[0]?.id, under.id, 'and it is the one under the loader');
+  eq(met.shelves.length, 2, 'the run reports both side units served');
+  check(sides.every((u) => met.shelves.some((sh) => sh.id === u.id)),
+    'and names the same two fixtures the loader can reach');
+
+  const probe = { id: 'overhead-side-probe', stacks: [{ item_id: GOODS.id, qty: 1 }] };
+  check(site.flank.every((f) => g.armTakes(arm, f, probe)),
+    'either side will accept a crate from the overhead loader');
 
   const crate = crateOn(g, feed, 6);
   const held = units(g);
+  let sideTrip = null;
+  for (let i = 0; i < 200 && !sideTrip; i++) {
+    g.step(0.1);
+    if (crate.spur) sideTrip = { ...crate.spur };
+  }
+  check(!!sideTrip && !!(sideTrip.dx || sideTrip.dz) && sideTrip.dd === -1,
+    'the crate travels sideways out of the duct and then down');
   run(g, 400);
   const on = (u) => (u.stacks ?? []).reduce((n, st) => n + (st.qty ?? 0), 0);
-  check(on(under) > 0, 'the shelf beneath it is stocked', `${on(under)} units`);
-  eq(sides.reduce((n, u) => n + on(u), 0), 0, 'and the shelves either side are untouched');
+  eq(on(under), 0, 'the shelf beneath it is untouched');
+  check(sides.reduce((n, u) => n + on(u), 0) > 0,
+    'and a shelf beside it is stocked', `${sides.map(on).join('/')} units`);
   eq(units(g), held, 'with nothing created or destroyed');
 }
 
@@ -1006,6 +1579,53 @@ for (const dir of ['up', 'down']) {
 }
 
 // ---------------------------------------------------------------------------
+// 10c. …AND A DUCT OVER EVERY CELL OF THAT AISLE IS STILL ONE RISER.
+//
+// The shape the return leg actually gets built in: a run down an aisle, a
+// loader per shelf, and the duct laid over the whole length of it on the way
+// home. Reported from a chair as "all my loaders have got an elevator now" —
+// seven of them, where there should be one at the end.
+//
+// The cause was ORDER. `conveyorFlow`'s leftover loop resolves loaders the
+// forward walk never reached, and the rise was asked there BEFORE `choose` got
+// its go — so any loader in that loop with a duct over it posted its box
+// straight up rather than carrying along the aisle. `choose` already rises as
+// its last resort, which is what makes the end of a chain work; what the
+// leftover loop is for is the loader `choose` would never be asked about.
+//
+// So this is a claim about SIX cells that must NOT rise, which is the shape of
+// every regression worth writing down.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 6);
+  const z = row[0].z;
+  const x0 = row[0].x;
+  // A belt at the head so the walk reaches the aisle, then five loaders, each
+  // aimed at its own shelf, with a duct over every single cell.
+  put(g, { kind: 'belt', x: x0, z, rot: 0 });
+  const aisle = [];
+  for (let i = 1; i <= 5; i++) {
+    const res = g.placeFixture('me', { kind: 'shelf', x: x0 + i, z: z + 1, rot: 0 });
+    check(res.ok, 'a shelf goes beside the aisle', res.error ?? '');
+    aisle.push(put(g, { kind: 'arm', x: x0 + i, z, rot: 1 }));
+  }
+  for (let i = 0; i <= 5; i++) put(g, { kind: 'belt', x: x0 + i, z, rot: 0, deck: CEILING });
+
+  const rises = aisle.filter((a) => {
+    const to = conveyorNext(g.layout, a);
+    return to && to.x === a.x && to.z === a.z && deckOf(to) !== deckOf(a);
+  });
+  eq(rises.length, 1, 'a duct over the whole aisle is one riser, not one per loader');
+  eq(`${rises[0]?.x},${rises[0]?.z}`, `${x0 + 5},${z}`, 'and it is the loader at the end');
+  for (let i = 0; i < aisle.length - 1; i++) {
+    const to = conveyorNext(g.layout, aisle[i]);
+    eq(`${to?.x},${to?.z},${deckOf(to)}`, `${x0 + i + 2},${z},0`,
+      'every loader before it carries along the aisle');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 11. THE ENDCAP, END TO END — and the ladder the rise sits on.
 //
 // `armSwing` is a ladder of preferences: shelving first, because that is what
@@ -1124,10 +1744,39 @@ for (const keen of [false, true]) {
     put(g, { kind: 'arm', x: x0 + 3, z, rot: 1 });
   }
 
-  const branches = conveyorBranches(g.layout, tee);
   const isRise = (w) => w.x === tee.x && w.z === tee.z && deckOf(w) === CEILING;
-  eq(branches.filter(isRise).length, 1, 'a junction under a duct has the duct as a branch');
-  const straight = conveyorNext(g.layout, tee);
+  /**
+   * THE CONTROL, and it is the one a live shop had to teach us.
+   *
+   * Every other branch a junction has is automatic, because a belt beside one
+   * was laid AT it. A duct over one is a route across the shop that happens to
+   * pass over that square — and a return leg passes over everything, which is
+   * the whole reason to build one. Shipped automatic, and the shop that found
+   * it had a junction feeding fifteen shelves with the return duct crossing its
+   * square on the way home: the keen test held while a shelf could take the
+   * goods, and the moment the aisle filled a third of everything went up the
+   * return leg to park at the end of it.
+   */
+  eq(conveyorBranches(g.layout, tee).filter(isRise).length, 0,
+    'a duct over a junction is NOT a way out until it is asked for');
+  check(g.setSorterRiser('me', tee.id, true).ok, 'and a junction can be told to use it');
+
+  const branches = conveyorBranches(g.layout, (g.layout.sorters ?? [])[0]);
+  eq(branches.filter(isRise).length, 1, 'after which the duct is a branch');
+  // ...and R must not clear it, which is `repositionFixture`'s standing trap.
+  // Four presses, so the junction comes back to the facing the rest of this
+  // section is about — one press is also a change to where its named branch is,
+  // and this claim is not about that.
+  for (let i = 0; i < 4; i++) g.rotateFixture('me', (g.layout.sorters ?? [])[0].id);
+  eq((g.layout.sorters ?? [])[0]?.riser, true, 'and turning the junction does not forget');
+  eq((g.layout.sorters ?? [])[0]?.rot, 3, 'and it is back where it started');
+  g.regenerateLayout();
+  eq((g.layout.sorters ?? [])[0]?.riser, true, 'nor does a re-flow');
+  // The LIVE record: R re-mints the placement's id, so the one captured at
+  // build time answers for a junction that no longer exists — `conveyorNext`
+  // reads the flow map by id and comes back null, which reads as the junction
+  // having lost its straight-on.
+  const straight = conveyorNext(g.layout, (g.layout.sorters ?? [])[0]);
   eq(`${straight?.x},${straight?.z},${deckOf(straight)}`, `${x0 + 2},${z},0`,
     'and its straight-on is still the aisle');
 
@@ -1200,7 +1849,7 @@ for (const keen of [false, true]) {
   const z = row[0].z;
   const x0 = row[0].x;
   const start = put(g, { kind: 'belt', x: x0, z, rot: 0 });
-  put(g, { kind: 'belt', x: x0 + 1, z, rot: 0 });
+  const queued = put(g, { kind: 'belt', x: x0 + 1, z, rot: 0 });
   const rise = put(g, { kind: 'arm', x: x0 + 2, z, rot: 0 });
   put(g, { kind: 'belt', x: x0 + 2, z, rot: 2, deck: CEILING });
   put(g, { kind: 'belt', x: x0 + 1, z, rot: 2, deck: CEILING });
@@ -1212,14 +1861,22 @@ for (const keen of [false, true]) {
   eq(`${back?.x},${back?.z}`, `${x0},${z}`, 'on the run it came off');
 
   const crate = crateOn(g, start, 3);
+  const crate2 = crateOn(g, queued, 2);
   const held = units(g);
   let wasUp = false;
   let cameBack = false;
   let offSquare = 0;
   let rode = 0;
+  let maxOnRise = 0;
+  let secondWasUp = false;
   for (let i = 0; i < 600; i++) {
     g.step(0.1);
     const now = spot(crate);
+    const onRise = g.deliveries.filter((d) => Math.abs(d.x - rise.x) < 1e-6
+      && Math.abs(d.z - rise.z) < 1e-6
+      && (d.deck ?? 0) > 1e-6 && (d.deck ?? 0) < 1 - 1e-6);
+    maxOnRise = Math.max(maxOnRise, onRise.length);
+    if ((crate2.deck ?? 0) > 0.99) secondWasUp = true;
     /**
      * THE RIDE, which is section 6's claim about a shaft said about a rise —
      * and it is the one thing here a player could actually watch. A box part way
@@ -1244,8 +1901,127 @@ for (const keen of [false, true]) {
   eq(offSquare, 0, 'and every one of those is over the square it left');
   check(wasUp, 'a box put on a floor run reaches the duct');
   check(cameBack, 'and comes back down again rather than staying on the roof');
+  check(secondWasUp, 'a second queued crate also reaches the duct');
+  check(maxOnRise <= 1, 'but two crates never occupy the same physical piston',
+    `saw ${maxOnRise}`);
   eq(units(g), held, 'with nothing created or destroyed going round');
   eq(g.deliveries.filter((d) => d.id === crate.id).length, 1, 'and it is still one box');
+}
+
+// ---------------------------------------------------------------------------
+// 12. THE TUNNEL IS A SHAFT NOW, and its far end may come up on either storey.
+//
+// A span used to be its own physics — two clocks on the crate, an owner map, a
+// carrier record per box on the wire — and every one of those was a second
+// spelling of `deck`, which the lift already had. So the claims here are the
+// ones that say the two are ONE mechanism, and the first is the control that
+// decides whether any of it is opt-in: a mouth nobody has touched hands on to
+// the cell it faces, on the floor, exactly as every tunnel ever laid does.
+//
+// Its sharpest claim is the GUARD. A riser with nothing over it must fall back
+// to the floor rather than becoming a terminus — the toggle turning a working
+// tunnel into a dead end is the one failure that reads as the tunnel having
+// broken, and the shop it happens in is the shop where you flipped the switch
+// before laying the duct, which is the order anybody would do it in.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const row = roofRow(g, 6);
+  check(!!row, 'there is somewhere under the roof for a tunnel with a duct over it');
+  if (row) {
+    const IN = 1;
+    const OUT = 4;
+    const feed = put(g, { kind: 'belt', x: row[0].x, z: row[0].z, rot: 0 });
+    const entry = put(g, { kind: 'under', x: row[IN].x, z: row[IN].z, rot: 0 });
+    const exit = put(g, { kind: 'under', x: row[OUT].x, z: row[OUT].z, rot: 0 });
+    const ahead = put(g, { kind: 'belt', x: row[OUT + 1].x, z: row[OUT + 1].z, rot: 0 });
+
+    eq(tunnelExit(g.layout, entry)?.id, exit.id, 'the two mouths pair into a tunnel');
+
+    // -- the control ---------------------------------------------------------
+    const floorOut = conveyorNext(g.layout, exit);
+    eq(deckOf(floorOut), 0, 'an untouched mouth comes up onto the floor');
+    eq(floorOut.x, ahead.x, 'and hands on to the line it faces');
+    eq(exit.riser, false, 'with the switch off, which is every tunnel ever laid');
+
+    // -- the span is a DIP, which is what makes it the lift's mechanism -------
+    const line = conveyorLines(g.layout).byCell.get(entry.id)?.line;
+    check(!!line, 'the tunnel is part of a line');
+    const sunk = (line?.pts ?? []).filter((p) => p.deck === BASEMENT);
+    eq(sunk.length, 2, 'whose path dips to the storey below and comes back', `${sunk.length}`);
+    eq(sunk[0]?.x, entry.x, 'going down over the entry mouth');
+    eq(sunk[1]?.x, exit.x, '...and up at the far one');
+
+    // -- and a box rides it on its own `deck` --------------------------------
+    const crate = crateOn(g, feed);
+    const held = units(g);
+    let deepest = 0;
+    let sawDescent = false;
+    for (let i = 0; i < 200; i++) {
+      g.step(0.1);
+      const at = crate.deck ?? 0;
+      deepest = Math.min(deepest, at);
+      if (at < -1e-6 && at > BASEMENT + 1e-6) sawDescent = true;
+      if (crate.belt === ahead.id) break;
+    }
+    check(sawDescent, 'a crate is caught part way down the shaft');
+    near(deepest, BASEMENT, 'and reaches the span itself', 0.011);
+    eq(crate.belt, ahead.id, 'then comes up and carries on along the floor');
+    eq(crate.deck ?? 0, 0, 'at floor level');
+    eq(units(g), held, 'with nothing created or destroyed in the span');
+  }
+}
+
+{
+  const g = fresh();
+  const row = roofRow(g, 6);
+  if (row) {
+    const IN = 1;
+    const OUT = 4;
+    const feed = put(g, { kind: 'belt', x: row[0].x, z: row[0].z, rot: 0 });
+    const entry = put(g, { kind: 'under', x: row[IN].x, z: row[IN].z, rot: 0 });
+    const exit = put(g, { kind: 'under', x: row[OUT].x, z: row[OUT].z, rot: 0 });
+    put(g, { kind: 'belt', x: row[OUT + 1].x, z: row[OUT + 1].z, rot: 0 });
+
+    // -- THE GUARD: switched on over bare roof, it still uses the floor ------
+    check(g.setSorterRiser('me', exit.id, true).ok, 'a mouth takes the other-storey switch');
+    const live = g.layout.unders.find((u) => u.id === exit.id);
+    eq(live.riser, true, 'and the setting lands on the piece');
+    eq(deckOf(conveyorNext(g.layout, live)), 0,
+      'with nothing overhead it still comes up onto the floor');
+
+    // -- with a duct there, it goes up --------------------------------------
+    const duct = put(g, { kind: 'belt', x: row[OUT].x, z: row[OUT].z, rot: 0, deck: CEILING });
+    const away = put(g, {
+      kind: 'belt', x: row[OUT + 1].x, z: row[OUT + 1].z, rot: 0, deck: CEILING,
+    });
+    const up = conveyorNext(g.layout, g.layout.unders.find((u) => u.id === exit.id));
+    eq(deckOf(up), CEILING, 'and with a run overhead the span comes up to it');
+    eq(up.x, duct.x, 'on its own square');
+
+    // A box goes in on the floor and comes out on the roof, which is the whole
+    // sentence — and the two claims it is made of fail as each other, so both.
+    const crate = crateOn(g, feed);
+    const held = units(g);
+    let roof = false;
+    for (let i = 0; i < 300 && !roof; i++) {
+      g.step(0.1);
+      roof = crate.belt === duct.id || crate.belt === away.id;
+    }
+    check(roof, 'a crate posted on the floor arrives on the duct');
+    near(crate.deck ?? 0, CEILING, 'at ceiling height', 0.011);
+    eq(units(g), held, 'and nothing is lost on the way up');
+
+    // -- it survives a re-flow and an R press -------------------------------
+    g.regenerateLayout();
+    eq(g.layout.unders.find((u) => u.id === exit.id)?.riser, true,
+      'the switch survives a re-flow, which build mode fires on every wall segment');
+    const turned = g.rotateFixture('me', exit.id);
+    check(turned.ok, 'the mouth turns', turned.error ?? '');
+    const after = g.layout.unders.find((u) => u.x === exit.x && u.z === exit.z);
+    eq(after?.riser, true,
+      '...and R keeps it, which is the press most likely to follow laying one');
+  }
 }
 
 // ---------------------------------------------------------------------------

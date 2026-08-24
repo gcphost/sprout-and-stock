@@ -2781,13 +2781,26 @@
        no use for the middle two: you know which one you want before the panel
        is up, and all you need back is that it moved.
 
-       Two across, because the panel is 214px and these names are two words.
+       As many across as fit, which is two on a phone and three at the panel's
+       full 430px. It was a flat `1fr 1fr` written when the panel was 214px
+       wide — at 430 that is two tiles of 210px each to say one word and a
+       state, so the block was twice as tall as it needed to be on the tab you
+       open to press one thing and leave. `auto-fit` rather than a media query
+       because the thing that decides this is the PANEL, which is
+       `min(430px, 100vw - 24px)` and can also be dragged about: a query on the
+       viewport would answer for a window rather than for the box the tiles are
+       in. The 120px floor is what keeps a phone at two — three of them plus
+       gaps needs 366px, which a 375px screen's panel has not got.
+
        Lit is the SAME yellow `.sec-row.picked` uses, since "this one is on" and
        "this one is chosen" are the same fact wearing two words — two colours for
        it would read as two kinds of state. Off is faded rather than greyed: the
        tile is still a press, and a disabled-looking switch is one people stop
        trying. */
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: 3px 0; }
+    .grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 3px; margin: 3px 0;
+    }
     .gcell { position: relative; }
     .gtile {
       width: 100%; border: 0; font: inherit; color: var(--ink); cursor: pointer;
@@ -3128,27 +3141,6 @@
       background: var(--good); transition: width .25s ease;
     }
     .rp-clear { margin: 0; font-size: 11px; opacity: .55; line-height: 1.4; }
-
-    /* ---- the footfall switch, in the floor block -------------------------
-       The only press in a panel that is otherwise a drawing, so it is styled
-       as a button rather than as another row: a control that looked like the
-       meters above it would read as a label somebody had made clickable.
-
-       `on` is a filled state and not a tint, because what it toggles is not in
-       this panel — the overlay is out on the world behind it. A switch whose
-       effect you cannot see from where you pressed it has to say its own state
-       loudly enough to be believed after the panel is closed. */
-    .rp-foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
-    .rp-fbtn {
-      flex: 1; padding: 6px 8px; border-radius: 7px; cursor: pointer;
-      font: inherit; font-size: 11px; font-weight: 700;
-      color: var(--ink); background: var(--panel-2, rgba(127,127,127,.12));
-      border: 1px solid rgba(127,127,127,.28);
-    }
-    .rp-fbtn:hover { border-color: rgba(127,127,127,.5); }
-    .rp-fbtn.on {
-      color: #12160f; background: var(--good); border-color: transparent;
-    }
 
     /* ---- a menu with more rows than fit ----------------------------------
        What the thing IS stays at the top, what you can DO stays at the bottom,
@@ -3780,6 +3772,44 @@
     #build-close:active { background: rgba(58,49,40,.2); }
     #build-close:focus { outline: none; }
     #build-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    /* WHICH STOREY. A segmented pair, sat in its own well so the two chips read
+       as one control with a position in it rather than as two buttons that
+       happen to be next to each other — the whole job of this thing is to say
+       where you ARE, and a lone pressed button says that about half as loudly.
+
+       Sized and coloured off `.subcat` next door, because it is the same tier of
+       question (which part of the palette am I in) asked about the other axis.
+       It sits between the scroller and the ✕, so it has a fixed address on a row
+       whose left half moves. */
+    #build-deck {
+      display: flex; gap: 2px; flex: none; margin-left: 8px;
+      padding: 2px; border-radius: 10px; background: rgba(58,49,40,.07);
+    }
+    #build-deck[hidden] { display: none; }
+    #build-deck button {
+      display: flex; align-items: center; gap: 5px;
+      border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+      font: inherit; font-size: 10.5px; font-weight: 800; color: var(--ink);
+      opacity: .45; padding: 3px 9px; white-space: nowrap;
+      transition: opacity .1s, background .1s, box-shadow .1s;
+    }
+    #build-deck svg { width: 13px; height: 13px; flex: none; }
+    html.can-hover #build-deck button:hover { opacity: .82; background: rgba(58,49,40,.06); }
+    #build-deck button:focus { outline: none; }
+    #build-deck button:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+    /* The storey you are on is the raised card the open tab is, same as `.cat.on`
+       — one vocabulary for "this is where you are" across the whole bar. */
+    #build-deck button.on {
+      opacity: 1; background: linear-gradient(#fffdf8, #f3ead9);
+      box-shadow: 0 1px 3px rgba(58,49,40,.18), inset 0 0 0 1px rgba(58,49,40,.1);
+    }
+    /* ...and overhead wears a colour on top of it, so which of the two is lit
+       reads without reading the word. Deliberately NOT `--accent`, which is the
+       bulldozer and every loss in the game: being up a storey is a place, not a
+       warning. The slate is the conveyor deck's own family (see
+       client/render/palette.js), which is the only thing that ever goes up
+       there. */
+    #build-deck button[data-deck="1"].on { color: #33506f; }
     /* NOT `flex: 1`. Five tabs stretched across `#build-bar`'s full width is most
        of why this bar read as enormous: the row was a wall of empty gradient, and
        each tab was a 190px target for a 15px glyph. Content width — the row is as
@@ -4143,10 +4173,16 @@
        says about itself before you press it. It can be `on` as well — money
        spent after you armed something — and then the amber ring stays, because
        the tool genuinely is still in your hand. */
-    .tool.poor { cursor: not-allowed; }
-    html.can-hover .tool.poor:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(58,49,40,.09), 0 1px 0 rgba(58,49,40,.07); }
-    .tool.poor .ico { opacity: .34; filter: grayscale(1); }
-    .tool.poor .nm { opacity: .45; }
+    /* `.off` is the other reason a tile is dead: what cannot go on the storey you
+       are pointing at, while the Overhead chip is lit. Same greying, and
+       deliberately NOT the same treatment of the price — the number is not what
+       is wrong with a shelf on the ceiling, and shouting it would say the one
+       thing that is not true. The whole tile fades instead, price included. */
+    .tool.poor, .tool.off { cursor: not-allowed; }
+    html.can-hover .tool.poor:hover, html.can-hover .tool.off:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(58,49,40,.09), 0 1px 0 rgba(58,49,40,.07); }
+    .tool.poor .ico, .tool.off .ico { opacity: .34; filter: grayscale(1); }
+    .tool.poor .nm, .tool.off .nm { opacity: .45; }
+    .tool.off .cost, .tool.off .have { opacity: .4; }
     .tool.poor .cost { color: var(--accent); opacity: .95; }
     /* Armed and unaffordable keeps its ring — see above — so the well under the
        art must not be greyed back to nothing against it. */
@@ -4432,6 +4468,13 @@
        never disagree about what is about to happen. */
     #build-hint.warn { background: var(--warn); color: var(--ink); }
     #build-hint.bad { background: var(--accent); color: #fff; }
+    /* ...and the storey, which is neither. It is the one line in here that is a
+       standing fact rather than news about the tile under the pointer — you are
+       working four metres up until you say otherwise — so it gets the slate the
+       lit Overhead chip wears rather than either of the two judgements above. A
+       hint at the default grey would read as one more thing the bar is telling
+       you, and this one is the answer to "why is nothing landing where I point". */
+    #build-hint.deck { background: #33506f; color: #fff; }
     /* The corner HUD clears the same stack, by the same arithmetic. `--build-h`
        is 0 when no bar is up, so there is one rule rather than one per mode —
        `body.building #log` and friends were three literals that had to be kept
@@ -5615,6 +5658,40 @@
         <div id="build-tabs">
           <div id="build-groups"></div>
           <div id="build-subs" hidden></div>
+        </div>
+        <!-- WHICH STOREY, and it is a pair rather than a toggle on purpose.
+             The ceiling shipped reachable by one key and nothing else: E, with
+             nothing on screen saying the key existed and nothing saying which
+             storey it had left you on — so every press after it landed four
+             metres above where you were looking, and the only tell was a ghost
+             drawn high enough that an angled camera reads it as the tile behind.
+
+             A pair says both halves at once. One toggle showing the storey you
+             are ON cannot be told from one showing the storey it would take you
+             TO, which is the worst thing a mode button can be ambiguous about;
+             two chips with one lit is the same question answered as a place you
+             are standing rather than as a press you might make. It also says the
+             thing a key never could — that there ARE two storeys.
+
+             Outside `#build-tabs` (which scrolls) and before `#build-close`, so
+             it has an address: whichever tab you are on and however far you have
+             dragged the row, the storey is in the same place. `hidden` unless
+             what is armed can use one — see `deckable` in client/ui.js. -->
+        <div id="build-deck" hidden role="group" aria-label="Which storey">
+          <button type="button" data-deck="0" title="Build on the floor (E)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" aria-hidden="true">
+              <path d="M3 17h18"/><path d="M7 7h10" opacity=".28"/>
+            </svg>
+            <span>Floor</span>
+          </button>
+          <button type="button" data-deck="1" title="Build overhead, on the ceiling (E)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" aria-hidden="true">
+              <path d="M3 7h18"/><path d="M7 17h10" opacity=".28"/>
+            </svg>
+            <span>Overhead</span>
+          </button>
         </div>
         <!-- The way out. B and Escape are the way out on a desktop and neither
              is a key a phone has, which left the rail's own Build button as the

@@ -1842,7 +1842,7 @@ running the old code.
 | `shared/model.js` | `boardsForShare` — lifted out of the renderer, because the sim now asks the same question |
 | `shared/schemas.js` | `arranges` on a worker tier |
 | `client/render/heat.js` | the overlay, and `adopt` — it draws the sim's map and keeps none of its own |
-| `client/report.js`, `client/sections.js`, `client/footfall.js` | the switch, in the Shop panel |
+| `client/sections.js`, `client/footfall.js` | the switch, in the Settings menu |
 | `scripts/verify-spots.js` | new — 75 assertions |
 | the database | `arranges: 1` on the shop-hand's *Trusted* |
 

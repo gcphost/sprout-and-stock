@@ -87,6 +87,16 @@ const PART = z.object({
    */
   alpha: z.number().min(0.05).max(1).default(1),
   /**
+   * Draw at its authored colour without waiting for a room light to reach it.
+   *
+   * This is the visible source — an LED strip, indicator or heating element —
+   * not a lamp. It casts no light into the room; `emits` is still the one thing
+   * that does that. Keeping those separate lets a freezer put one bright strip
+   * over every board without spending four real point lights per cabinet or
+   * bleaching the aisle where their ranges overlap.
+   */
+  glow: z.boolean().default(false),
+  /**
    * "Cast a shadow anyway." Only means anything on glass, because everything
    * solid already does.
    *
