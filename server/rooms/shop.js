@@ -600,6 +600,24 @@ export const ShopRoom = (Base) => class extends Base {
       ));
     });
 
+    this.onMessage('sorter-route', (client, m) => {
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setSorterRoute(client.sessionId, id, m?.route),
+        (n) => `${n} sorters updated.`,
+      ));
+    });
+
+    // ...and who goes first where two lines meet, which is the same question
+    // asked of a plain belt. Build mode only, like the rest of them.
+    this.onMessage('belt-merge', (client, m) => {
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setBeltMerge(client.sessionId, id, m?.merge),
+        (n) => `${n} junctions updated.`,
+      ));
+    });
+
     // Which half of its job a loader does. Build mode only, like the two below.
     this.onMessage('arm-mode', (client, m) => {
       client.send('action-result', this.game.bulkFixtures(

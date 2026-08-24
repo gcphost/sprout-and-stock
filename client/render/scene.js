@@ -8,7 +8,7 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, PAD_MARK, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
+import { PALETTE, TILE_STYLE, PAD_MARK, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, conveyorAccent, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
   buildBubble, buildCashDrop, buildVehicle,
@@ -36,7 +36,7 @@ import { hash01 } from '../../shared/hash.js';
 // Only for the wall's own thickness, which the paint ghost has to stand proud
 // of — see `setFaceGhost`. Everything else in here reads edge kinds as the raw
 // numbers the layout carries, through `EDGE_STYLE`.
-import { E, SOLID, edgeBetween } from '../../shared/edges.js';
+import { E, SOLID, edgeBetween, wayBase } from '../../shared/edges.js';
 import { Lights, emittersIn, BAKED_LAYER } from './lights.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
@@ -1129,6 +1129,11 @@ const WIND_CLOCK = { value: 0 };
 /** Day-cycle endpoints, resolved once so syncState allocates nothing. */
 const SKY_HIGH = new THREE.Color(PALETTE.sky);
 const SKY_DUSK = new THREE.Color(PALETTE.skyDusk);
+// A sky needs a little depth even when the rest of the view is deliberately
+// flat. These are the pale band at the horizon, not a second light source.
+const SKY_HORIZON_HIGH = new THREE.Color('#f4f7dc');
+const SKY_HORIZON_DUSK = new THREE.Color('#ffe0bf');
+const SKY_MID = new THREE.Color();
 const SUN_HIGH = new THREE.Color(PALETTE.sunHigh);
 const SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
 const FILL_HIGH = new THREE.Color(PALETTE.fillHigh);
@@ -1147,6 +1152,96 @@ const FILL_DUSK = new THREE.Color(PALETTE.fillDusk);
  * "too dark", it is a person cut out of the ground they are standing on.
  */
 const ROOM_FILL = 0.34;
+
+/**
+ * A two-pixel-wide canvas is enough for the sky: the browser stretches its
+ * vertical gradient across the clear colour pass, so there is no dome, no
+ * camera-follow code, and no texture worth budgeting. It is painted only when
+ * a game-state update advances the day cycle, not in the frame loop.
+ */
+function makeSkyGradient() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = 96;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return { canvas, context: canvas.getContext('2d'), texture };
+}
+
+/** Write the background in screen space, so it cannot ever be picked or cast. */
+function paintSkyGradient(sky, top, horizon) {
+  const { canvas, context, texture } = sky;
+  const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, `#${top.getHexString()}`);
+  gradient.addColorStop(0.68, `#${SKY_MID.copy(top).lerp(horizon, 0.58).getHexString()}`);
+  gradient.addColorStop(1, `#${horizon.getHexString()}`);
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  texture.needsUpdate = true;
+}
+
+/**
+ * A small forest rather than a texture sheet. The two meshes each hold every
+ * tree in the ring, so sixty-ish landmarks cost two draw calls, not sixty-ish.
+ * They sit beyond the buildable lot and exist only to break up the empty lawn.
+ */
+function buildVistaForest(w, h) {
+  const count = 48;
+  const trunks = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.10, 0.15, 0.72, 5),
+    new THREE.MeshBasicMaterial({ color: '#6f563b' }),
+    count,
+  );
+  const crowns = new THREE.InstancedMesh(
+    new THREE.ConeGeometry(0.60, 2.15, 5),
+    new THREE.MeshBasicMaterial({ color: '#4f7344', flatShading: true }),
+    count,
+  );
+  const dummy = new THREE.Object3D();
+  const put = (mesh, x, y, z, scale, turn) => {
+    dummy.position.set(x, y, z);
+    dummy.scale.setScalar(scale);
+    dummy.rotation.set(0, turn, 0);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(n, dummy.matrix);
+  };
+  let n = 0;
+  for (; n < count; n++) {
+    const side = n % 4;
+    const along = hash01(`vista:${n}:along`);
+    const out = 16 + hash01(`vista:${n}:out`) * 28;
+    const spread = hash01(`vista:${n}:spread`) - 0.5;
+    let x;
+    let z;
+    if (side === 0 || side === 2) {
+      x = -10 + along * (w + 20);
+      z = side === 0 ? -out : h + out;
+    } else {
+      x = side === 1 ? w + out : -out;
+      z = -10 + along * (h + 20);
+    }
+    // A nudge stops four perfectly even ranks from reading as a fence.
+    if (side === 0 || side === 2) x += spread * 3;
+    else z += spread * 3;
+    const scale = 0.60 + hash01(`vista:${n}:size`) * 0.42;
+    const turn = hash01(`vista:${n}:turn`) * Math.PI * 2;
+    put(trunks, x, 0.36 * scale, z, scale, turn);
+    put(crowns, x, (0.72 + 1.075) * scale, z, scale, turn);
+  }
+  trunks.instanceMatrix.needsUpdate = true;
+  crowns.instanceMatrix.needsUpdate = true;
+  for (const mesh of [trunks, crowns]) {
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.raycast = () => {};
+    mesh.userData.backdrop = true;
+  }
+  const forest = new THREE.Group();
+  forest.add(trunks, crowns);
+  return forest;
+}
 
 export class Scene {
   constructor(canvas) {
@@ -1198,7 +1293,11 @@ export class Scene {
     this.shadowSlip = 0;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(PALETTE.sky);
+    this.sky = makeSkyGradient();
+    this.skyTop = new THREE.Color(PALETTE.sky);
+    this.skyHorizon = SKY_HORIZON_HIGH.clone();
+    paintSkyGradient(this.sky, this.skyTop, this.skyHorizon);
+    this.scene.background = this.sky.texture;
 
     /**
      * Two cameras, one active. See `FPV_FOV`.
@@ -1472,6 +1571,13 @@ export class Scene {
     // Whatever the player has wired up. Everything above is the sky; this is the
     // only light in the scene that anybody had to buy.
     this.lights = new Lights(this.scene);
+  }
+
+  /** Keep the painted sky in step with the same day cycle as the sun. */
+  updateSky(daylight) {
+    this.skyTop.copy(SKY_DUSK).lerp(SKY_HIGH, daylight);
+    this.skyHorizon.copy(SKY_HORIZON_DUSK).lerp(SKY_HORIZON_HIGH, daylight);
+    paintSkyGradient(this.sky, this.skyTop, this.skyHorizon);
   }
 
   resize() {
@@ -2831,6 +2937,15 @@ export class Scene {
     ground.layers.set(BAKED_LAYER);
     this.staticRoot.add(ground);
 
+    // The playable lot is still surrounded by the cheap grass apron above;
+    // this forest gives that empty space a destination. It is well outside
+    // every walkable/buyable cell and stays vastly smaller than one tufted lawn.
+    const vista = new THREE.Group();
+    vista.name = 'vista';
+    vista.add(buildVistaForest(L.w, L.h));
+    vista.traverse((o) => o.layers?.set(BAKED_LAYER));
+    this.staticRoot.add(vista);
+
     // Everything raised gets an instanced box per tile kind — and, for floor,
     // per DESIGN of floor. Which design a cell is painted lives in its own
     // sparse layer (`L.ground`) rather than in `tiles`, so the grouping key has
@@ -3778,6 +3893,129 @@ export class Scene {
       }
     }
 
+    /**
+     * A doorway has no jambs along its span — it is a hole in a wall — but two
+     * doorways turning a corner still need the shared pier that carries their
+     * lintels. Without it, both openings end at the same lattice point and the
+     * corner is a column of air. That reads as the roof having failed, not as a
+     * generous entrance.
+     *
+     * A pier belongs at a vertex only when a door reaches it from both axes.
+     * Looking at both segments on each axis covers every direction a pair can
+     * meet from, while making a four-way crossing one post rather than four.
+     * Gates, shutters and curtains deliberately keep their own constructions:
+     * this is the masonry support particular to two doorways.
+     */
+    const doorCorners = [];
+    const isDoor = (kind) => wayBase(kind) === 'door';
+    const verticalAt = (x, z) => L.edgesV?.[z * (L.w + 1) + x] ?? 0;
+    const horizontalAt = (x, z) => L.edgesH?.[z * L.w + x] ?? 0;
+
+    /**
+     * The cap on each edge stops at its lattice point. At a right-angle join,
+     * the two thin cap strips therefore leave the outer quarter of that point
+     * notched away. One square of the same cap material completes the moulding
+     * into a crisp corner without changing the thickness of either wall.
+     */
+    const cornerCaps = new Map();
+    const addCornerCap = (style, x, z, span) => {
+      const key = `${style.top}:${style.h}:${span}`;
+      if (!cornerCaps.has(key)) cornerCaps.set(key, { style, span, points: [] });
+      cornerCaps.get(key).points.push({ x: x - 0.5, z: z - 0.5 });
+    };
+    for (let z = 0; z <= L.h; z++) {
+      for (let x = 0; x <= L.w; x++) {
+        const vertical = [z > 0 && verticalAt(x, z - 1), z < L.h && verticalAt(x, z)]
+          .map((kind) => EDGE_STYLE[kind])
+          .find((style) => style?.top);
+        const horizontal = [x > 0 && horizontalAt(x - 1, z), x < L.w && horizontalAt(x, z)]
+          .map((kind) => EDGE_STYLE[kind])
+          .find((style) => style?.top);
+        if (!vertical || !horizontal || vertical.top !== horizontal.top || vertical.h !== horizontal.h) continue;
+        addCornerCap(vertical, x, z, Math.max(vertical.t, horizontal.t) + 0.06);
+      }
+    }
+
+    for (const { style, span, points } of cornerCaps.values()) {
+      const caps = new THREE.InstancedMesh(box, material(style.top), points.length);
+      caps.receiveShadow = true;
+      points.forEach((point, i) => {
+        dummy.position.set(point.x, style.h + 0.03, point.z);
+        dummy.scale.set(span, 0.07, span);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        caps.setMatrixAt(i, dummy.matrix);
+      });
+      caps.instanceMatrix.needsUpdate = true;
+      this.edgeGroup.add(caps);
+    }
+
+    for (let z = 0; z <= L.h; z++) {
+      for (let x = 0; x <= L.w; x++) {
+        const vertical = [z > 0 && verticalAt(x, z - 1), z < L.h && verticalAt(x, z)]
+          .find(isDoor);
+        const horizontal = [x > 0 && horizontalAt(x - 1, z), x < L.w && horizontalAt(x, z)]
+          .find(isDoor);
+        if (!vertical || !horizontal) continue;
+        const style = EDGE_STYLE[vertical];
+        doorCorners.push({ x: x - 0.5, z: z - 0.5, h: style.h, t: style.t, color: style.color });
+      }
+    }
+
+    if (doorCorners.length) {
+      const posts = new THREE.InstancedMesh(box, material(doorCorners[0].color), doorCorners.length);
+      posts.castShadow = true;
+      posts.receiveShadow = true;
+      doorCorners.forEach((post, i) => {
+        // A hair wider than the wall lets the pier meet both thin edge shells
+        // cleanly at the point they share, instead of leaving a daylight seam.
+        const span = post.t + 0.02;
+        dummy.position.set(post.x, post.h / 2, post.z);
+        dummy.scale.set(span, post.h, span);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        posts.setMatrixAt(i, dummy.matrix);
+      });
+      posts.instanceMatrix.needsUpdate = true;
+      this.edgeGroup.add(posts);
+    }
+
+    /**
+     * An arch's sides are corbelled into its own cell, so one arch remains an
+     * open span. Two consecutive arches are different: the two inner corbels
+     * meet at a lattice point and need one continuous centre pier below them.
+     * Otherwise that joint is a hanging T of masonry, which is especially
+     * obvious against a lit floor.
+     */
+    const archJoins = [];
+    const isArch = (kind) => wayBase(kind) === 'arch';
+    for (let z = 0; z <= L.h; z++) {
+      for (let x = 0; x <= L.w; x++) {
+        const vertical = z > 0 && z < L.h && isArch(verticalAt(x, z - 1)) && isArch(verticalAt(x, z));
+        const horizontal = x > 0 && x < L.w && isArch(horizontalAt(x - 1, z)) && isArch(horizontalAt(x, z));
+        if (!vertical && !horizontal) continue;
+        const kind = vertical ? verticalAt(x, z - 1) : horizontalAt(x - 1, z);
+        const style = EDGE_STYLE[kind];
+        archJoins.push({ x: x - 0.5, z: z - 0.5, h: style.h, t: style.t, color: style.color });
+      }
+    }
+
+    if (archJoins.length) {
+      const posts = new THREE.InstancedMesh(box, material(archJoins[0].color), archJoins.length);
+      posts.castShadow = true;
+      posts.receiveShadow = true;
+      archJoins.forEach((post, i) => {
+        const span = post.t + 0.02;
+        dummy.position.set(post.x, post.h / 2, post.z);
+        dummy.scale.set(span, post.h, span);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        posts.setMatrixAt(i, dummy.matrix);
+      });
+      posts.instanceMatrix.needsUpdate = true;
+      this.edgeGroup.add(posts);
+    }
+
     for (const { kind, vertical, boxes } of runs.values()) {
       const style = EDGE_STYLE[kind];
       const opaque = boxes.filter((b) => b.alpha === undefined);
@@ -3911,7 +4149,8 @@ export class Scene {
       // Only the people, and only once the body has been measured — see
       // `syncActors`' `onBuild` and `markUnder`.
       (rec, p) => this.markUnder(rec, p));
-    this.syncActors(state.customers, this.customers, (c) => buildCharacter(c.color));
+    this.syncActors(state.customers, this.customers,
+      (c) => buildCharacter(c.color, { variant: c.id, varied: true }));
     // ...and the animals, keyed by which piece they came out of so that
     // redrawing a hen over MCP restages every hen in the shop — `syncActors`'
     // own `keyOf`, doing here exactly what it does for a promoted hire.
@@ -4153,8 +4392,9 @@ export class Scene {
     }
 
     // The sky is the largest single block of colour on screen, so it carries
-    // most of the read. Mutated in place — `background` owns this Color.
-    this.scene.background.copy(SKY_DUSK).lerp(SKY_HIGH, daylight);
+    // most of the read. The two-pixel gradient is re-painted at state cadence,
+    // never in the draw loop.
+    this.updateSky(daylight);
   }
 
   syncActors(list, map, factory, keyOf = null, onBuild = null) {
@@ -4207,6 +4447,12 @@ export class Scene {
           // breathe in time with each other.
           pastime: null, pastimeKey: null, resting: false, slump: 0,
           phase: (hashId(a.id) % 628) / 100,
+          // Present only on the shared shopper/player body. Authored robots and
+          // animals stay untouched, so a walk animation is two pivot writes per
+          // generic character rather than a traversal across every actor.
+          walker: obj.userData.walker ?? null,
+          gait: 0,
+          gaitAmount: 0,
         };
         this.actorRoot.add(obj);
         map.set(a.id, rec);
@@ -4310,7 +4556,7 @@ export class Scene {
    */
   buildActor(p) {
     const kind = p.staff ? this.catalog.workers?.[p.staff] : null;
-    if (!kind?.model) return buildCharacter(p.color, { hat: '#ffffff' });
+    if (!kind?.model) return buildCharacter(p.color, { hat: '#ffffff', variant: p.id });
     // A skin is worn, not owned: it is looked up per HIRE rather than per kind,
     // which is the whole reason two stockers can be told apart. An id naming a
     // skin that has since been deleted resolves to nothing and draws the bot as
@@ -4860,6 +5106,22 @@ export class Scene {
         const dz = (rec.tz - rec.obj.position.z) * move;
         rec.obj.position.x += dx;
         rec.obj.position.z += dz;
+        if (rec.walker) {
+          // `dx`/`dz` are the body movement we actually drew this frame, not a
+          // snapshot guess. That keeps the feet planted when the body has
+          // reached its target and gives the same cadence at every frame rate.
+          const speed = snap ? 0 : Math.hypot(dx, dz) / Math.max(dt, 1e-3);
+          const target = Math.min(1, speed / 1.35);
+          rec.gaitAmount += (target - rec.gaitAmount) * Math.min(1, dt * 14);
+          rec.gait += dt * (3 + rec.gaitAmount * 8);
+          const swing = Math.sin(rec.gait + rec.phase) * 0.48 * rec.gaitAmount;
+          rec.walker.left.rotation.x = swing;
+          rec.walker.right.rotation.x = -swing;
+          // Arms counter-swing the legs. Kept on the same two-pivot rig so the
+          // whole gait remains four scalar writes per generic character.
+          rec.walker.leftArm.rotation.x = -swing * 0.72;
+          rec.walker.rightArm.rotation.x = swing * 0.72;
+        }
         // ...and whatever is standing on the floor under them comes along. Set
         // rather than eased again: it is already following an eased position,
         // and a second chase on top of it is a ring that lags its own feet.
@@ -7060,6 +7322,28 @@ export class Scene {
     // a full tile drew one last chevron through the marker and out into the cap.
     const ahead = path ? anchorTile(f.x, f.z, flowRot) : null;
     const handsOn = ahead && conveyorAt(L, ahead.x, ahead.z, deckOf(f));
+    /**
+     * ...and whether a MOUTH has a surface rail at all, which is a fact about
+     * what crosses that side rather than about it being a mouth.
+     *
+     * Model `+x` is the rail for both ends of a pair, and `trimDeck` kept a stub
+     * of it unconditionally — right for every mouth that surfaces on the floor,
+     * and wrong for a riser, whose only way out is straight up. What that draws
+     * is a length of track running out of the machine toward a neighbour nothing
+     * ever hands to, which reads as an outlet on a node that has not got one.
+     *
+     * `conveyorNext` and `feeds`, never `conveyorAt` — ADJACENCY IS NOT
+     * CONNECTION, and on the save this was found on the square that stub pointed
+     * at held a lift, so the adjacency test says yes and means nothing. Both
+     * directions, because an entry's rail is the side it is FED across and an
+     * exit's is the side it hands on to, and `flowRot` has already turned the
+     * art so that either one is `+x`.
+     */
+    const railTo = path ? conveyorNext(L, f) : null;
+    const railOut = !!(ahead && railTo && railTo.x === ahead.x && railTo.z === ahead.z
+      && deckOf(railTo) === deckOf(f));
+    const railIn = !!(ahead && path.feeds.some((v) => v.x === Math.sign(f.x - ahead.x)
+      && v.z === Math.sign(f.z - ahead.z)));
     const below = deckOf(f) === CEILING ? conveyorAt(L, f.x, f.z, 0) : null;
     const shaftMouth = this.machineElevatorAt(L, f) ?? (below?.kind === 'lift' ? below : null);
     const liftRoof = below?.kind === 'lift';
@@ -7085,6 +7369,8 @@ export class Scene {
       // the exit through two), so one bound serves both: keep the piece from
       // the shroud's own outer face to the tile edge, and drop the rest.
       if (f.kind === 'under') {
+        // No rail on that side, no rail. See `railOut`/`railIn`.
+        if (!railOut && !railIn) return null;
         const pos = [...(p.pos ?? [0, 0, 0])];
         const scale = [...p.scale];
         scale[0] = 0.5 - UNDER_DECK_LIP;
@@ -7165,7 +7451,8 @@ export class Scene {
       .filter((p) => !(f.kind === 'lift' && (p.pos?.[1] ?? 0) > 1.8
         && (((p.scale?.[0] ?? 0) >= 0.99 && (p.scale?.[2] ?? 1) <= 0.3)
           || ((p.scale?.[2] ?? 0) >= 0.99 && (p.scale?.[0] ?? 1) <= 0.3))))
-      .map(trimDeck);
+      // `trimDeck` answers null for a deck nothing crosses — see `railOut`.
+      .map(trimDeck).filter(Boolean);
     };
     if (model.stages) {
       return { ...model, stages: model.stages.map((s) => ({ ...s, parts: strip(s.parts) })) };
@@ -7541,10 +7828,35 @@ export class Scene {
     const glassMat = material(CONVEYOR.glass, GLASS);
     const frameMat = material(CONVEYOR.frame, 1);
     const railMat = material(railColor, 1);
-    const insetMat = material(CONVEYOR.track, 1);
     const machineBodyMat = machineRoof ? material(machineRoof.bodyColor, 1) : null;
     const machineTopMat = machineRoof ? material(machineRoof.topColor, 1) : null;
     const machineAccentMat = machineRoof ? material(machineRoof.accentColor, 1) : null;
+    /**
+     * The TRIM, which is not the carrier and was for as long as there were
+     * lifts.
+     *
+     * A loader with a riser cut into it takes its accent off its own authored
+     * hood (`machineAccentMat`), so it wears the family teal at its own rung —
+     * and a plain lift, having no authored art that survives `strip`, fell
+     * through to `railMat` and wore the belt's slate carrier instead. The two
+     * stand next to each other in every run that has one, and what that reads
+     * as is the lift's teal being a darker, duller version of the machine's.
+     * It is not a darker teal; it is not a teal.
+     *
+     * The piston keeps `railMat`, and that is the line: a carrier colour is for
+     * the thing that MOVES goods, which is what the platform is.
+     *
+     * ...and the BOTTOM RUNG keeps it too, which is the half that makes the
+     * teal worth anything. An accent that is on from the day you build the
+     * thing is decoration; one that arrives when you pay for the hoist is a
+     * readout, and a shop with one upgraded lift in a row of standard ones can
+     * be read from the door. So a stock lift is the pale carrier grey it always
+     * was, and the family teal starts at rung 2 — where `conveyorAccent`'s own
+     * second and third entries are, so it is still the same ladder the loader
+     * beside it is climbing rather than a second one that happens to rhyme.
+     */
+    const accentMat = machineAccentMat
+      ?? (tier > 1 ? material(conveyorAccent(tier), 1) : railMat);
     const connectionDeck = (connection) => (connection?.cell
       ? this.conveyorDeck(L, connection.cell) : null);
     const trackMat = (connection) => {
@@ -7578,6 +7890,24 @@ export class Scene {
     for (const deck of [0, CEILING]) {
       const base = levels[deck].y;
       const open = connections.ports[deck];
+      /**
+       * A MOUTH BRINGS ITS OWN HOUSING, the way it brings its own carrier.
+       *
+       * `under` is in `ELEVATOR_OWNERS`, so a riser mouth is handed this
+       * assembly — and everything above the floor is exactly what a mouth is
+       * already made of: posts, glazing and a capped square with a hole in it,
+       * authored. Built here as well it is a second basket standing on the same
+       * cell, at the same height, in a different colour, and the one you see is
+       * whichever the depth buffer picked. What that reads as is the mouth
+       * having been replaced by a plain dark box, with its own tier's accent
+       * strips showing through the glass like rails inside a machine.
+       *
+       * An `arm` or a `sorter` is the case this loop is really for: their
+       * housings are SOLID, so `machineRoof` opens one up. A mouth is open
+       * already. So the floor half is skipped and the ceiling half — the duct
+       * end, which a mouth genuinely has not got — is built as usual.
+       */
+      if (deck === 0 && owner.kind === 'under') continue;
       if (deck === 0 && machineRoof) {
         // Rebuild the authored solid upper body as a hollow cabinet. Its four
         // walls preserve the machine's silhouette and colour, while the absent
@@ -7635,7 +7965,7 @@ export class Scene {
       // has a floor conveyor inside its cabinet; its matching frame belongs on
       // the newly cut roof instead of being hidden underneath the machine.
       if (deck === CEILING || !machineRoof) {
-        const border = new THREE.Mesh(ELEVATOR_OPENING_BORDER_GEO, railMat);
+        const border = new THREE.Mesh(ELEVATOR_OPENING_BORDER_GEO, accentMat);
         border.position.set(ceiling.x,
           base - levels[deck].h / 2 + ELEVATOR_OPENING_BORDER_H / 2,
           ceiling.z);
@@ -7649,8 +7979,7 @@ export class Scene {
         lid.position.set(ceiling.x, lidY, ceiling.z);
         lid.raycast = NO_PICK;
         this.beltRoot.add(lid);
-        const bezel = new THREE.Mesh(ELEVATOR_LID_BEZEL_GEO, railMat);
-        if (machineAccentMat) bezel.material = machineAccentMat;
+        const bezel = new THREE.Mesh(ELEVATOR_LID_BEZEL_GEO, accentMat);
         bezel.position.set(ceiling.x,
           machineRoof
             ? machineRoof.y + machineRoof.h / 2 + ELEVATOR_LID_BEZEL_H / 2
@@ -7680,9 +8009,9 @@ export class Scene {
             );
             panel.raycast = NO_PICK;
             this.beltRoot.add(panel);
-            // A coloured lintel makes each live doorway readable at a glance
-            // and ties the housing to this conveyor tier's moving carriers.
-            addMesh(railMat,
+            // A coloured lintel makes each live doorway readable at a glance,
+            // in the same accent every machine in the family wears at this rung.
+            addMesh(accentMat,
               [dx ? ELEVATOR_FACE_TRIM_D : ELEVATOR_OPENING,
                 ELEVATOR_FACE_TRIM_H,
                 dz ? ELEVATOR_FACE_TRIM_D : ELEVATOR_OPENING],
@@ -7690,21 +8019,42 @@ export class Scene {
                 base + ELEVATOR_PORTAL_H + ELEVATOR_FACE_TRIM_H / 2,
                 ceiling.z + dz * (ELEVATOR_BASKET_HALF + ELEVATOR_FACE_TRIM_D / 2)]);
           } else {
-            addMesh(frameMat,
-              [dx ? DUCT_PANE : ELEVATOR_BASKET_SPAN, ELEVATOR_BASKET_H,
-                dz ? DUCT_PANE : ELEVATOR_BASKET_SPAN],
-              [ceiling.x + dx * ELEVATOR_BASKET_HALF,
-                base + ELEVATOR_BASKET_H / 2,
-                ceiling.z + dz * ELEVATOR_BASKET_HALF]);
-            // Closed faces get a shallow recessed-looking service panel rather
-            // than reading as an untouched slab of the same dark material.
-            addMesh(insetMat,
-              [dx ? ELEVATOR_FACE_INSET_D : ELEVATOR_FACE_INSET_W,
-                ELEVATOR_FACE_INSET_H,
-                dz ? ELEVATOR_FACE_INSET_D : ELEVATOR_FACE_INSET_W],
-              [ceiling.x + dx * (ELEVATOR_BASKET_HALF + ELEVATOR_FACE_INSET_D / 2),
-                base + ELEVATOR_BASKET_H / 2,
-                ceiling.z + dz * (ELEVATOR_BASKET_HALF + ELEVATOR_FACE_INSET_D / 2)]);
+            /**
+             * A closed face is a WINDOW: a pane with a sill, a header and two
+             * jambs round it, rather than one slab of wall.
+             *
+             * It was a slab with a slightly darker rectangle standing 0.012
+             * proud of it, which is a panel drawn ON a wall — at this camera the
+             * step is a pixel, so what you saw was two dark greys on a black box
+             * and no depth anywhere. Glass is the mouth's own answer to the same
+             * face (its basket is glazed on three sides), and it earns its keep
+             * twice: the two machines read as the same family, and the carrier
+             * inside is visible standing at rail height, which is the only part
+             * of a lift that ever moves.
+             *
+             * Four bands rather than a ring geometry because the face is not
+             * square — the basket is wider than it is tall — so `squareRing`'s
+             * one inner and one outer cannot describe it.
+             */
+            const jamb = (ELEVATOR_BASKET_SPAN - ELEVATOR_WINDOW_W) / 2;
+            const rail = (ELEVATOR_BASKET_H - ELEVATOR_WINDOW_H) / 2;
+            const wx = ceiling.x + dx * ELEVATOR_BASKET_HALF;
+            const wz = ceiling.z + dz * ELEVATOR_BASKET_HALF;
+            const mid = base + ELEVATOR_BASKET_H / 2;
+            for (const s of [-1, 1]) {
+              addMesh(frameMat,
+                [dx ? DUCT_PANE : ELEVATOR_BASKET_SPAN, rail,
+                  dz ? DUCT_PANE : ELEVATOR_BASKET_SPAN],
+                [wx, mid + s * (ELEVATOR_WINDOW_H + rail) / 2, wz]);
+              addMesh(frameMat,
+                [dx ? DUCT_PANE : jamb, ELEVATOR_WINDOW_H, dz ? DUCT_PANE : jamb],
+                [wx + (dz ? s * (ELEVATOR_WINDOW_W + jamb) / 2 : 0), mid,
+                  wz + (dx ? s * (ELEVATOR_WINDOW_W + jamb) / 2 : 0)]);
+            }
+            addMesh(glassMat,
+              [dx ? DUCT_PANE : ELEVATOR_WINDOW_W, ELEVATOR_WINDOW_H,
+                dz ? DUCT_PANE : ELEVATOR_WINDOW_W],
+              [wx, mid, wz]);
           }
           continue;
         }
@@ -8885,6 +9235,21 @@ export class Scene {
       const open = new Set();
       for (const s of [
         { x: -path.in.x, z: -path.in.z },
+        // EVERY FEEDER, and `in` is only ever one of them. `conveyorPath` says
+        // so where it builds the list — `in`/`out` is a single PAIR, so the
+        // second line into a merge has no place in the path at all and is
+        // invisible unless somebody asks for it by name. Every other reader here
+        // already does (the joins come off `outsOf`, the blades off
+        // `conveyorBranches`), and this loop was the one that did not: a
+        // junction fed from behind AND from the side had a panel drawn across
+        // the side, so the run arrived, the join lit on the ground, and the
+        // crate went through the wall. It reads as the machine refusing that
+        // line — which is exactly what it would look like if it were.
+        //
+        // Kept BESIDE `in` rather than replacing it: a head cell has no feeders
+        // at all, and `in` falls back to the way it leaves, which is what opens
+        // the back of a loader that starts a run.
+        ...path.feeds.map((f) => ({ x: -f.x, z: -f.z })),
         path.out,
         ...conveyorBranches(L, c).map((b) => ({ x: Math.sign(b.x - c.x), z: Math.sign(b.z - c.z) })),
         // EVERY SPUR, which is both directions. This was `conveyorPours` alone,
@@ -9849,6 +10214,129 @@ export class Scene {
   }
 
   /**
+   * Which lines a box could be on and still have to do with the thing you
+   * picked — the map asked about ONE fixture rather than about the shop.
+   *
+   * The overlay says the network is well formed, which is a different question
+   * from the one anybody standing in a shop actually has: *how does bread get
+   * to that shelf*. With eleven runs and four junctions on screen, following it
+   * by eye is reading four correct arrows at every fork and remembering which
+   * one you were on — and a box that took a line you did not expect leaves
+   * nothing behind to explain itself (docs/belts.md, What is lacking §2).
+   *
+   * `conveyorLines` hands back the graph both ways — `feeds` is who hands to
+   * this line, `ways` is who it hands to — so this is a walk over one of those
+   * and no new walk of the shop.
+   *
+   * IT IS A ROUTE AND NOT A REACHABLE SET, which is the whole of what makes it
+   * a readout. Lighting everything a box could get here from is the obvious
+   * build and it is the one that does not work, because a shop that is worth
+   * asking about is a shop whose runs all join up: measured on a real save —
+   * 72 belt cells, 23 loaders, 4 junctions, 23 lines — the upstream set was
+   * **15 lines of 23 whatever you picked**, so every shelf in the building
+   * answered with the same picture. What that reads as is the map ignoring you,
+   * which is precisely the report it came back with. The union of the SHORTEST
+   * ways in is 5 or 6, and it is a different 5 or 6 per aisle.
+   *
+   * So: hop distance upstream from the thing you picked, then walk back down
+   * the way you came from every line a box gets ON — one that nothing feeds.
+   * A ring has none of those, so the far end of the walk stands in for one,
+   * which draws the loop as the way in that it is.
+   *
+   * UPSTREAM ONLY, for every kind of subject. A unit is an end, so it has no
+   * other direction; a belt does, and lighting where its boxes go on as well
+   * doubled the picture on the same save (10-11 of 23) for a second claim in
+   * the same ink as the first. The question people bring to this is where the
+   * goods came FROM, and the one that arrives with it — where does this run go
+   * — is the map it was already looking at.
+   *
+   * A selection the network has never heard of returns null rather than an
+   * empty set, and that is the difference between "nothing feeds this" and "you
+   * are not asking about the belts". Greying the whole map because somebody
+   * opened a till is a readout that looks broken; the map goes back to being a
+   * map, which is what it was a moment ago.
+   *
+   * It is the shortest way rather than a PREDICTION: what a junction does with
+   * any given box is `sorterOut`'s answer and it depends on what is in the box.
+   * Nothing here claims otherwise — the lit route is the way in, and where it
+   * looks wrong is where you go and read the sorter.
+   */
+  flowFocus(cut, subjects) {
+    if (!subjects?.length) return null;
+    const { lines, feeds, ways } = cut;
+    const out = new Set();
+    /**
+     * One subject's way in, added to whatever the others found.
+     *
+     * Per subject and NOT one walk seeded with all of them, which is the same
+     * shape of mistake the flood was. Distances from a shared seed set are
+     * distances to the NEAREST of them, so a trunk feeding two picked shelves
+     * would light the route to the closer one and nothing at all for the other
+     * — a selection of six units answering with one route, which is a readout
+     * that quietly ignores five of the things you pointed at.
+     */
+    const trace = (focus) => {
+      const wired = CONVEYOR_KINDS.includes(focus.kind);
+      const seeds = lines.filter((line) => (wired
+        // By id first and by tile second, for `selectedFixture`'s own reason —
+        // and the storey has to be in it, or a duct over a belt traces whichever
+        // of the pair happens to be listed first.
+        ? line.cells.some((c) => c.id === focus.id
+          || (c.x === focus.x && c.z === focus.z && deckOf(c) === deckOf(focus)))
+        // `armReach` and `covers`, which is `conveyorMeets`' own pair: a loader
+        // fills whatever is beside it rather than only the side it is aimed at,
+        // and a pen is four cells with its record on the min corner.
+        : line.cells.some((c) => c.kind === 'arm'
+          && armReach(c).some((t) => covers(focus, t.x, t.z)))));
+      if (!seeds.length) return;
+
+      // How many hand-offs upstream each line is. BREADTH first — `shift` and
+      // not `pop` — because these are distances and not a visited set: depth
+      // first stamps whatever number the wander happened to arrive with, and
+      // the walk home below then follows it into the long way round.
+      const hops = new Map(seeds.map((l) => [l.id, 0]));
+      const queue = [...seeds];
+      while (queue.length) {
+        const line = queue.shift();
+        for (const f of feeds.get(line.id) ?? []) {
+          if (hops.has(f.id)) continue;
+          hops.set(f.id, hops.get(line.id) + 1);
+          queue.push(f);
+        }
+      }
+
+      // Where a box gets on: a line nothing hands to. A ring is fed by itself
+      // and has none, so the far end of the walk stands in — which draws the
+      // loop as the way in, which is what it is.
+      let starts = lines.filter((l) => hops.has(l.id) && !(feeds.get(l.id) ?? []).length);
+      if (!starts.length) {
+        const far = Math.max(...hops.values());
+        starts = lines.filter((l) => hops.get(l.id) === far);
+      }
+
+      for (const l of seeds) out.add(l.id);
+      for (const start of starts) {
+        let line = start;
+        out.add(line.id);
+        while (hops.get(line.id) > 0) {
+          // Downhill, and the guard is what stops a cycle walking for ever: a
+          // step that does not get closer is not a way home.
+          const next = (ways.get(line.id) ?? []).filter((w) => hops.has(w.id))
+            .sort((a, b) => hops.get(a.id) - hops.get(b.id))[0];
+          if (!next || hops.get(next.id) >= hops.get(line.id)) break;
+          line = next;
+          out.add(line.id);
+        }
+      }
+    };
+    for (const focus of subjects) trace(focus);
+    // Nothing picked is on the network ⇒ null, and not an empty set: the map
+    // going back to being a map is a different answer from every run in the
+    // shop going grey.
+    return out.size ? out : null;
+  }
+
+  /**
    * The transport network drawn as what it is: LINES, with the joins marked.
    *
    * Everything else the renderer says about a conveyor is said one cell at a
@@ -9894,10 +10382,17 @@ export class Scene {
    * Menu, it is remembered, and `?flow` still works.
    *
    * @param {boolean} on
+   * @param {object[]|null} focus what the map is being asked about — the
+   *   selection, which is one fixture or a whole shift-picked set of them
    */
-  setFlowOverlay(on) {
+  setFlowOverlay(on, focus = null) {
     const L = this.storeLayout;
-    const key = on && L ? `${this.layoutVersion}` : null;
+    // Each subject by TILE and kind rather than by id, which is `sameFixture`'s
+    // rule said about a cache key: an id is re-minted by every rotate and every
+    // re-flow, so keyed on one the map would rebuild itself on presses that
+    // changed nothing about what is selected.
+    const at = (focus ?? []).map((f) => `${f.kind}@${f.x},${f.z},${deckOf(f)}`).join('|');
+    const key = on && L ? `${this.layoutVersion}:${at}` : null;
     if (key === this.flowOverlayKey) return;
     this.flowOverlayKey = key;
 
@@ -9908,8 +10403,10 @@ export class Scene {
     }
     if (!key) return;
 
-    const { lines, feeds, byCell } = conveyorLines(L);
+    const cut = conveyorLines(L);
+    const { lines, feeds, byCell } = cut;
     if (!lines.length) return;
+    const lit = this.flowFocus(cut, focus);
     const { inCycle, tugs } = conveyorLoops(L);
     // Cells rather than lines: a tug is two squares, and both of them are
     // usually in the middle of something much longer.
@@ -9967,6 +10464,16 @@ export class Scene {
      * still draws red, because the worse of the two is the one worth seeing.
      */
     const DEAD = 'dead';
+    /**
+     * ...and the rest of the shop, while the map is answering about one thing.
+     *
+     * It outranks amber and NOT red, which is the same line those two already
+     * draw between them. A tug is always a mistake and is worth seeing wherever
+     * it is; a dead end is the ordinary state of a run somebody is half way
+     * through laying, and in a shop with eleven of them it is most of the
+     * picture — grey it, or the trace has nothing quiet to be loud against.
+     */
+    const OFF = 'off';
     const group = new THREE.Group();
     const geo = new THREE.BoxGeometry(1, 1, 1);
     // An explicit `y` wins, which is how the buried run gets under the floor —
@@ -9977,7 +10484,8 @@ export class Scene {
     // light, so the half of it under a canopy or on the night side reads as a
     // run that stops there — which is precisely the claim this exists to make
     // and it would be making it at random.
-    const ink = (c) => (c === BAD ? FLOW_INK.bad : (c === DEAD ? FLOW_INK.warn : FLOW_INK.ok));
+    const ink = (c) => (c === BAD ? FLOW_INK.bad
+      : (c === OFF ? FLOW_INK.mute : (c === DEAD ? FLOW_INK.warn : FLOW_INK.ok)));
     const paint = (mesh) => { mesh.renderOrder = 900; group.add(mesh); };
 
     /** One leg of a polyline, as a thin bar between two points. */
@@ -10140,12 +10648,12 @@ export class Scene {
      * PREFERENCE among the ways out rather than a way out of its own, so it has
      * to sit beside them and not replace one.
      */
-    const rejectArm = (c) => {
+    const rejectArm = (c, colour) => {
       if (!Number.isInteger(c.reject)) return;
       const t = anchorTile(c.x, c.z, c.reject);
       const dx = (t.x - c.x) * 0.34;
       const dz = (t.z - c.z) * 0.34;
-      const bar = new THREE.Mesh(geo, FLOW_INK.warn);
+      const bar = new THREE.Mesh(geo, ink(colour));
       bar.position.set(c.x + dx, y(c) + 0.14, c.z + dz);
       bar.scale.set(0.18, 0.18, 0.18);
       paint(bar);
@@ -10176,7 +10684,8 @@ export class Scene {
 
     for (const line of lines) {
       const bad = line.cells.some((c) => tugged.has(c.id));
-      const colour = bad ? BAD : (reaches(line) ? OK : DEAD);
+      const off = lit && !lit.has(line.id);
+      const colour = bad ? BAD : (off ? OFF : (reaches(line) ? OK : DEAD));
       for (let i = 1; i < line.pts.length; i++) {
         const a = line.pts[i - 1];
         const b = line.pts[i];
@@ -10239,13 +10748,20 @@ export class Scene {
      * side alone would promise a machine is fed by one board and quietly hide
      * the other three it is also filling.
      */
+    // A spur takes its line's answer, which is what keeps the trace honest at
+    // the one place goods leave: the stub into the shelf you picked is drawn in
+    // the same ink as the run that fills it, and the four other units the same
+    // loader also serves light with it — they are where those goods go too, and
+    // greying them would draw a run that feeds one board and nothing else.
+    const litCell = (id) => !lit || lit.has(byCell.get(id)?.line.id);
     for (const c of (L.arms ?? [])) {
       const bad = tugged.has(c.id);
+      const colour = bad ? BAD : (litCell(c.id) ? OK : OFF);
       for (const t of armReach(c)) {
-        if (unitOn(L, t.x, t.z)) spur(c, t, bad ? BAD : OK);
+        if (unitOn(L, t.x, t.z)) spur(c, t, colour);
       }
     }
-    for (const c of (L.sorters ?? [])) rejectArm(c);
+    for (const c of (L.sorters ?? [])) rejectArm(c, litCell(c.id) ? DEAD : OFF);
 
     this.actorRoot.add(group);
     this.flowOverlay = group;
@@ -11719,6 +12235,7 @@ export class Scene {
     disposeGroup(this.actorRoot);
     this.staticRoot.clear();
     this.actorRoot.clear();
+    this.sky?.texture.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
   }
@@ -11935,18 +12452,45 @@ const ELEVATOR_BASKET_HALF = DUCT_HALF;
 const ELEVATOR_BASKET_SPAN = ELEVATOR_BASKET_HALF * 2;
 /** Clear square in the upper basket floor for the rising crate carrier. */
 const ELEVATOR_OPENING = 0.42;
-const ELEVATOR_BASKET_H = 0.32;
+const ELEVATOR_BOX_TOP_H = 0.035;
+/**
+ * How tall a shaft stands, and the number is the TUNNEL MOUTH's.
+ *
+ * A lift and a mouth are the same machine pointed opposite ways — the note on
+ * `buildPiston` says so about the hardware inside them — and they stand side by
+ * side in the same aisle, so the two housings disagreeing about their own height
+ * reads as one of them being the wrong piece rather than as two heights. The
+ * mouth's is authored (`under`, whose cap ring and drive both top out here) and
+ * the lift's is procedural, so this is where they are made to agree; the lamp
+ * bars that lie on that cap are measured off it too. The lift's walls stand on
+ * the track they are fed by rather than on the ground, so `BELT_TOP` is what
+ * comes off it — the nominal rail height, which is what a shaft with no run
+ * attached yet falls back to as well.
+ *
+ * It also buys the doorway. A crate is a box with the shopping standing proud of
+ * it, and at 0.32 the housing was shorter than the goods going through it: what
+ * you watched was a box clipping the lintel of the machine it was entering.
+ */
+const MACHINE_CAP_TOP = 0.63;
+const ELEVATOR_BASKET_H = MACHINE_CAP_TOP - BELT_TOP - ELEVATOR_BOX_TOP_H;
 const ELEVATOR_OPENING_BORDER = 0.035;
 const ELEVATOR_OPENING_BORDER_H = 0.018;
-const ELEVATOR_PORTAL_H = 0.25;
-const ELEVATOR_BOX_TOP_H = 0.035;
+/**
+ * ...and the doorway is the LID'S HOLE stood on its end.
+ *
+ * The same crate goes through both — in across the track, out up the shaft — so
+ * one number is the whole of what either has to clear, and a door authored
+ * separately is a second answer to a question with one.
+ */
+const ELEVATOR_PORTAL_H = ELEVATOR_OPENING;
 const ELEVATOR_LID_BEZEL = 0.055;
 const ELEVATOR_LID_BEZEL_H = 0.022;
 const ELEVATOR_FACE_TRIM_D = 0.018;
 const ELEVATOR_FACE_TRIM_H = 0.035;
-const ELEVATOR_FACE_INSET_W = 0.44;
-const ELEVATOR_FACE_INSET_H = 0.16;
-const ELEVATOR_FACE_INSET_D = 0.012;
+/** The pane in a closed face, and its height is a FRACTION of the wall — a
+ *  literal left behind by a taller housing is a porthole in a blank slab. */
+const ELEVATOR_WINDOW_W = 0.44;
+const ELEVATOR_WINDOW_H = ELEVATOR_BASKET_H / 2;
 const ELEVATOR_TRACK_W = 0.26;
 const ELEVATOR_TRACK_H = 0.03;
 const ELEVATOR_PISTON_OUTER = 0.13;
@@ -12030,19 +12574,17 @@ const WELL_COLLAR = [
   [(0.5 + WELL_HALF) / 2, 0, 0.5 - WELL_HALF, WELL_HALF * 2],
 ];
 /**
- * The mouth's readout: a bar lying on each of the four sides of its cap, in
- * MODEL space — `+x` is the side facing the rail, the way the art is authored.
+ * The mouth's readout: ONE bar, on the back pillar, in MODEL space — `+x` is the
+ * side facing the rail, the way the art is authored.
  *
- * `[x, z, along x, along z]`. Three lie on the cap ring at 0.63 and the fourth
- * on the drive, which stands a little proud of it; one `y` serves both because
- * a bar sitting 0.013 above a ring bar and 0.001 above the drive reads as the
- * same light, and two heights would be two numbers to keep in step with the
- * art instead of one.
+ * `[x, z, along x, along z]`. It was four, one on each side of the cap, and four
+ * lights saying the same thing is not four times the signal — it is a ring that
+ * lights up whole, which reads as the colour of the piece rather than as a
+ * readout. The pillar is the one side of the cap that is a machine rather than a
+ * rail, so a lamp there is the thing you look at to see whether the tunnel is
+ * running, and the other three sides go back to being the frame.
  */
 const UNDER_LAMP_BARS = [
-  [0.32, 0, 0.055, 0.34],
-  [0.115, -0.32, 0.34, 0.055],
-  [0.115, 0.32, 0.34, 0.055],
   [-0.30, 0, 0.09, 0.34],
 ];
 /** Where a mouth's groove stops: the edge of the well, on the rail side.
@@ -12053,8 +12595,23 @@ const UNDER_LAMP_BARS = [
  *  it. */
 const UNDER_DECK_LIP = WELL_HALF;
 const UNDER_LAMP_H = 0.025;
-const UNDER_LAMP_Y = 0.6405;
-const UNDER_PISTON_HIGH = 0.145;
+const UNDER_LAMP_Y = MACHINE_CAP_TOP + 0.0105;
+/**
+ * Where a mouth's carrier RESTS, and it is the top of the rail beside it.
+ *
+ * It was 0.145, which stood the pad's face 0.09 proud of the track a box
+ * arrives along — so a crate reaching the mouth climbed a step in the middle of
+ * the machine, and then a second one back down on the way out. Flush, it slides
+ * on, which is the whole of what a hand-over between a rail and a carrier is
+ * supposed to look like.
+ *
+ * Said as the TOP and worked back through the pad and half the platform, since
+ * `buildPiston` positions the platform by its centre — a literal here is two
+ * thicknesses away from the number anybody is actually looking at, and it is
+ * those two that quietly stop agreeing with it.
+ */
+const UNDER_PISTON_HIGH = BELT_TOP - ELEVATOR_PISTON_PAD_H
+  - ELEVATOR_PISTON_PLATFORM_H / 2;
 /**
  * How far a loaded carrier sinks, and it is measured off the CRATE.
  *
@@ -12435,6 +12992,18 @@ const FLOW_INK = {
   // it is not part of the run, it is a preference among the ways out.
   warn: new THREE.MeshBasicMaterial({
     color: new THREE.Color('#e8a33d'), transparent: true, opacity: 0.95, depthTest: false, depthWrite: false,
+  }),
+  /**
+   * Everything the thing you picked has nothing to do with — see `flowFocus`.
+   *
+   * Drawn rather than hidden, and that is the whole of what makes a focus
+   * readable: a map with the other runs taken out is a map of a shop you are
+   * not in, so the lit route would have nothing to be shorter than and no
+   * junction to visibly not take. Faint enough that the eye reads one figure
+   * against a ground, dark enough that a grey run is still a run.
+   */
+  mute: new THREE.MeshBasicMaterial({
+    color: new THREE.Color('#8a9aa0'), transparent: true, opacity: 0.2, depthTest: false, depthWrite: false,
   }),
 };
 

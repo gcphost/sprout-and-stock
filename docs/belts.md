@@ -1840,6 +1840,104 @@ So the three journeys are: underground→floor (the control), underground→ceil
 
 ---
 
+## Step 11 — the map, asked about one thing
+
+Built. `Scene.flowFocus` and the `focus` argument to `setFlowOverlay`
+([client/render/scene.js](client/render/scene.js)).
+
+The conveyor map says the network is well formed. That is a different question
+from the one anybody standing in a shop actually has, which is *how does bread
+get to that shelf* — and with eleven runs and four junctions on screen, the map
+answers it by making you follow a cyan line with your eye through every fork and
+remember which one you were on. It is the same failure the map itself was built
+for, one level up: every mark is correct, and the shape you want is not one of
+them.
+
+So the map takes a subject. **Pick a fixture and everything the trace does not
+touch goes grey.** No mode, no second gesture, no new key: the selection is the
+one you already make by tapping a shelf, and the map is a switch in the Menu
+that was already there.
+
+### A ROUTE, not a reachable set — which is the whole step
+
+The obvious build is a flood: light every line a box could get here from.
+`conveyorLines` already hands back `feeds` (who hands to this line) and `ways`
+(who it hands to), so it is a walk over one of those and no new walk of the shop.
+
+It was built that way first and it does not work, for a reason that only shows up
+in a shop worth asking about: **the runs all join up.** Measured on `demo-world`
+— 72 belt cells, 23 loaders, 4 junctions, 23 lines — the upstream set is **15
+lines of 23 whatever you pick**, so every shelf in the building answers with the
+same picture. What that reads as is the map ignoring you, which is exactly the
+report it came back with, worded as "colours don't change".
+
+The union of the **shortest** ways in is 5 or 6 lines, and it is a different 5 or
+6 per aisle. So: hop distance upstream from what you picked (breadth first — they
+are distances, not a visited set), then walk back down from every line a box gets
+ON, meaning one nothing feeds. A ring has none of those, so the far end of the
+walk stands in for one, which draws the loop as the way in that it is.
+
+**Upstream only, whatever was picked.** A unit is an end and has no other
+direction. A belt does, and lighting where its boxes go on as well doubled the
+picture on the same save — 10 or 11 of 23 — for a second claim drawn in the same
+ink as the first. The question people bring to this is where the goods came
+*from*; the one that arrives with it, where does this run go, is the map they
+were already looking at.
+
+Which loaders reach a unit is `armReach` + `covers` — `conveyorMeets`' own pair,
+because a loader fills whatever is beside it rather than the side it is aimed at,
+and a pen is four cells with its record on the min corner.
+
+### A selection of several is several routes, walked one at a time
+
+Shift-picking six shelves is the one gesture that means *these*, so the subject
+is the whole selection and the answer is the union — a route to each. Which is
+**per subject and not one walk seeded with all of them**, and that is a real
+trap rather than a tidiness: distances from a shared seed set are distances to
+the *nearest* of them, so a trunk feeding two picked shelves would draw the way
+to the closer one and nothing at all for the other. A selection of six answering
+with one route is a readout that quietly ignores five of the things you pointed
+at.
+
+It stays legible because routes overlap. On the same save: one shelf is 6 lines
+of 23, a whole aisle of five is the same 6, two aisles is 9, and every served
+shelf in the building at once is 12 — still fewer than the flood lit for a
+single shelf.
+
+### The three decisions that are not obvious
+
+**A subject the network has never heard of returns null rather than an empty
+set.** "Nothing feeds this" and "you are not asking about the belts" are
+different answers, and greying the whole shop because somebody opened a till is a
+readout that looks broken. The map goes back to being a map.
+
+**The mute outranks amber and not red.** A tug is always a mistake and is worth
+seeing wherever it is; a dead end is the ordinary state of a run somebody is half
+way through laying, and in a shop with eleven of those it is most of the picture.
+Grey it, or the trace has nothing quiet to be loud against.
+
+**Muted, never hidden.** A map with the other runs taken out is a map of a shop
+you are not in: the lit route would have nothing to be shorter than, and no
+junction to visibly *not* take.
+
+And it is the shortest way rather than a prediction. What a junction does with
+any given box is `sorterOut`'s answer and it depends on what is in the box —
+nothing here claims otherwise. The lit route is the way in, and where it looks
+wrong is where you go and read the sorter.
+
+### What is not done
+
+- **No sweep.** `flowFocus` is a method on the renderer, and every `verify:*`
+  drives `Game` — so nothing headless can reach it, which is true of the whole
+  overlay and is why the overlay has never had one. The claim worth pinning if it
+  moves into `shared/` is the one the first build failed: that two shelves off
+  different spurs of one trunk light **different** routes. A count passes on the
+  flood; only a comparison of the two sets catches it.
+- **It says nothing about volume.** Which of three lit runs actually delivers the
+  bread is step 5's question, not this one.
+
+---
+
 ## Steps 5–6 — written down, not built
 
 **Step 5 — a throughput overlay.** Factorio players live in the production
@@ -1961,11 +2059,13 @@ that will not send anything down it.
   one call per line on a walk that is already cached, and it turns "goods go
   where I think" from a thing you reason about into a thing you look at.
 
-**2. There is no per-crate trace.** The overlay is a picture of the network, not
-of a decision. A junction's roof marks say which way it sent the *last* box; a
-crate that took a line you did not expect leaves nothing behind to explain it,
-and the explanation is a four-rung ladder over a forward walk of the whole
-downstream shop. "Why did that go left" is currently answered by reading
+**2. There is no per-crate trace.** *Half answered by step 11* — the map now
+takes a subject, so "which runs could get a box to that shelf" is a thing you
+look at rather than reason about. What is still missing is the half about a
+*decision*: a junction's roof marks say which way it sent the **last** box, and a
+crate that took a line you did not expect leaves nothing behind to explain
+itself. The explanation is a four-rung ladder over a forward walk of the whole
+downstream shop, and "why did that one go left" is still answered by reading
 `sorterOut`.
 
 **3. `sortChoice` is never pruned.** It is keyed by crate id and deleted when a

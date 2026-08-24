@@ -51,6 +51,8 @@ import {
   canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX, quadCells,
   GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
   shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces, LIFT_WAYS,
+  SORTER_ROUTES, sorterRoute, FAVOURING,
+  MERGE_ROUTES, mergeRoute, conveyorFeeders, mergeStraight,
   covers, footprintMid, footprint, paddockOf, pennedIn,
 } from '../../shared/build.js';
 import {
@@ -3394,6 +3396,7 @@ export class Game {
       sorters: (this.layout.sorters ?? []).map((s) => ({
         id: s.id,
         auto: s.auto !== false,
+        route: sorterRoute(s),
         // On the WIRE, or the menu describes a junction that has moved — the
         // trap `verify:belts` already pins about `auto`.
         reject: Number.isInteger(s.reject) ? s.reject : null,
@@ -3407,6 +3410,21 @@ export class Game {
         ...(this.sorterMove(s.id) ? { move: this.sorterMove(s.id) } : {}),
         ...shaftWire(s.id),
       })),
+      /**
+       * ...and how a plain belt settles a merge, which is on the wire for the
+       * reason the three above are: the menu is drawn from the snapshot, so a
+       * control whose state lives only in the layout is a row that never ticks.
+       *
+       * SPARSE, which is the one thing this list does differently and the reason
+       * it is its own key rather than a `belts` array. A shop lays belt by the
+       * hundred and every one of them is `default` — sending them all would put
+       * the biggest array in the game on the wire twenty times a second to carry
+       * nothing. `liveFixture` reads a miss as `default`, which is the same
+       * answer and costs nothing to be right about.
+       */
+      merges: (this.layout.belts ?? [])
+        .filter((b) => mergeRoute(b) !== 'default')
+        .map((b) => ({ id: b.id, merge: mergeRoute(b) })),
       // ...and a shaft's own setting, on the WIRE for the reason the two above
       // say: the menu is drawn from the snapshot, so a control whose state lives
       // only in the layout is a row that never ticks — a dead button, which is
@@ -11458,7 +11476,9 @@ export class Game {
     const ways = straight ? [straight, ...branches] : branches;
     // `auto` off is a plain splitter with the thinking switched off, and the
     // reject line takes everything in that state. Ground says the same thing.
-    const keenAny = cell.auto !== false
+    // A named ground reject is the waste route too. Another branch reaching a
+    // skip must not suppress that explicit instruction.
+    const keenAny = cell.auto !== false && !crate.waste
       && ways.some((w) => this.sorterWants(w, crate));
     return keenAny ? null : at;
   }
@@ -11479,6 +11499,32 @@ export class Game {
     // would ignore half of what it was standing in the middle of.
     const ways = straight ? [straight, ...branches] : branches;
     if (ways.length === 1) return ways[0];
+
+    /**
+     * A FAVOURED leg is the player's own routing instruction, and it is one
+     * rule with two answers: `straight` is the line that carries on, `branch`
+     * is the leg the junction is aimed at.
+     *
+     * Which leg that second one means is `conveyorBranches`' answer and not a
+     * second derivation here — that function already sorts the side `rot` names
+     * to the front, and asking it again is the one way the blade drawn across a
+     * branch and the branch a box is sent down could disagree. Aim a junction at
+     * its own straight-on and there is no aimed leg to favour, so the list's
+     * first entry stands in: the same tie-break, said about a press.
+     *
+     * It wins even when another way out is a better catalog match, because that
+     * is the whole of what the setting says. A BLOCKED one does not — the
+     * ordinary chooser below can use a clear alternative, where holding a box
+     * for a leg that is merely busy turns a queue into a deadlock.
+     */
+    const route = sorterRoute(cell);
+    const favoured = route === 'straight' ? straight
+      : route === 'branch' ? branches[0] : null;
+    if (favoured && (!free || free(favoured))) {
+      this.sortChoice ??= new Map();
+      if (crate) this.sortChoice.set(crate.id, { cell: cell.id, to: favoured });
+      return favoured;
+    }
 
     /**
      * The ways out that have room on them THIS TICK.
@@ -11532,6 +11578,23 @@ export class Game {
     // own square. What the alternatives buy is nothing — every one of them ends
     // with the box somewhere it does not belong.
     this.sortChoice ??= new Map();
+    /*
+     * A reject is the waste route when the player has named one. Waste can
+     * always find a skip elsewhere in the network, so treating that as a
+     * "keen" exit used to override the explicit stray direction and make rot
+     * appear to ignore the sorter. A clear, forward reject wins instead;
+     * backpressure still lets the junction use its normal alternatives.
+     */
+    if (crate?.waste && reject) {
+      const on = this.beltAt(reject.x, reject.z, deckOf(reject));
+      const to = on && conveyorNext(this.layout, on);
+      const feeds = to && to.x === cell.x && to.z === cell.z
+        && deckOf(to) === deckOf(cell);
+      if (on && !feeds && (!free || free(reject))) {
+        this.sortChoice.set(crate.id, { cell: cell.id, to: reject });
+        return reject;
+      }
+    }
     if (keen.length === 1) {
       if (crate) this.sortChoice.set(crate.id, { cell: cell.id, to: keen[0] });
       return keen[0];
@@ -11692,23 +11755,81 @@ export class Game {
    * have switched the thinking off on is still a junction.
    */
   setSorterAuto(playerId, id, auto) {
+    return this.setSorterRoute(playerId, id, auto === false ? 'alternate' : 'smart');
+  }
+
+  /**
+   * Set a junction's routing policy. `smart` and `alternate` are the two
+   * historic `auto` states; `straight` and `branch` are the opt-in priority
+   * valves for a T — see `SORTER_ROUTES`.
+   */
+  setSorterRoute(playerId, id, route) {
     const { f, error } = this.buildTarget(playerId, id);
     if (error) return err(error);
     if (f.kind !== 'sorter') return err('that is not a sorter');
     const cell = (this.layout.sorters ?? []).find((s) => s.id === id);
     if (!cell) return err('that is not a sorter');
-    cell.auto = auto !== false;
+    if (!SORTER_ROUTES.includes(route)) return err('that is not a sorter route');
+    cell.route = route;
+    // Keep the legacy field in sync for snapshots and old callers.
+    cell.auto = route !== 'alternate';
     // ...and onto the PLACEMENT, which is what `compose` re-reads. The layout
     // record is rebuilt from scratch on every re-flow, and build mode re-flows
     // on every wall segment of a drag — so a flag written only there is one that
     // switches itself back on behind you while you are still drawing.
     const placement = this.placements.find((p) => p.id === id);
-    if (placement) placement.auto = cell.auto;
+    if (placement) {
+      placement.auto = cell.auto;
+      // Only a FAVOURED route is its own field; the other two ride on `auto`,
+      // which is what keeps a junction built before this existed reading the way
+      // it always did rather than needing a migration.
+      placement.route = FAVOURING(route) ? route : undefined;
+    }
     this.persist();
-    this.pushLog(cell.auto
-      ? 'The crew will choose which way that sorter sends things.'
-      : 'That sorter splits everything evenly now.');
-    return ok({ id, auto: cell.auto });
+    this.pushLog(route === 'straight'
+      ? 'That sorter favours its straight-through line.'
+      : route === 'branch'
+        ? 'That sorter favours the leg it is aimed at.'
+        : cell.auto
+          ? 'The crew will choose which way that sorter sends things.'
+          : 'That sorter splits everything evenly now.');
+    return ok({ id, auto: cell.auto, route });
+  }
+
+  /**
+   * ...and the same question asked of a plain belt, where two lines MEET.
+   *
+   * Its own verb rather than a fourth branch of `setSorterRoute`, because a
+   * split and a merge are opposite questions that happen to be drawn as the same
+   * T: one chooses between ways OUT and needs a piece bought to do it, the other
+   * chooses between ways IN and happens to you the moment you lay a second aisle
+   * into the same dock. Sharing a verb would mean sharing `SORTER_ROUTES`, and
+   * "let the crew sort it" is not a thing a belt can be told.
+   *
+   * No re-flow: this is read by `stepBelts` at the moment a box crosses, the way
+   * `sorter.auto` is — where `lift.way` is read inside `conveyorFlow` and has to
+   * re-cut the shop. It goes on the wire instead, so the menu ticks.
+   */
+  setBeltMerge(playerId, id, merge) {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+    if (f.kind !== 'belt') return err('only a conveyor settles a merge');
+    const cell = (this.layout.belts ?? []).find((b) => b.id === id);
+    if (!cell) return err('that is not a conveyor');
+    if (!MERGE_ROUTES.includes(merge)) return err('that is not a merge rule');
+    cell.merge = merge;
+    // ...and onto the PLACEMENT, which is what `compose` re-reads — see the note
+    // in `setSorterRoute`. `default` is stored as nothing at all, so a belt
+    // nobody has spoken for carries no field and every save in existence stays
+    // byte-identical.
+    const placement = this.placements.find((p) => p.id === id);
+    if (placement) placement.merge = merge === 'default' ? undefined : merge;
+    this.persist();
+    this.pushLog(merge === 'straight' ? 'That junction lets the straight line through first.'
+      : merge === 'leg' ? 'That junction lets the side line in first.'
+        : merge === 'alternate' ? 'That junction takes them in turn.'
+          : 'That junction takes whichever box gets there first.');
+    return ok({ id, merge });
   }
 
   /**
@@ -12225,6 +12346,77 @@ export class Game {
     // note in `barrier`. Null for everything still on one, which is every
     // ordinary ask and the case that has to be unchanged.
     const roomAt = (line, self, mine = null) => barrier(line, self, mine) >= Game.CRATE_PITCH - 1e-9;
+
+    /**
+     * WHO GOES FIRST WHERE TWO LINES MEET — the merge, and the one decision a
+     * plain belt has always had to make with nothing to make it with.
+     *
+     * `barrier` already settles it: the box nearer the seam wins, ties by id.
+     * That is a rule and it is not a CHOICE — it is whichever aisle happens to
+     * be running fuller, so a spur that trickles gets its share of a dock the
+     * main line needed, and the shop's answer changes with the traffic rather
+     * than with anything anybody pressed. `mergeRoute` on the cell being entered
+     * is the player saying it instead, and the cell is a belt because that is
+     * what a merge is built out of — no piece to buy, which is why this had no
+     * controls for as long as there have been belts.
+     *
+     * A HOLD IS THE WHOLE MECHANISM and it is one line: the loser stays at the
+     * end of its own run. It never spills, never merges and never re-routes,
+     * because the cell in front is simply not offered — which is what every
+     * other cell on a run already does with something in its way, so a queue at
+     * a priority merge is the queue backpressure has always drawn.
+     *
+     * The half that matters is when it does NOT hold, and it is what stops a
+     * preference being a deadlock: the favoured line has to be actually
+     * PRESENTING a box — one within a pitch of its own seam, bound for this same
+     * cell. A favoured line that is empty, or backed up somewhere upstream, or
+     * heading elsewhere, yields nothing at all and the leg runs exactly as it
+     * did. Written as "is the main road busy right now" rather than "is there a
+     * main road", or a priority merge is a leg that never moves again the day
+     * anything jams a mile away — every box on it correct, none of them going
+     * anywhere, which reads as belts being broken.
+     */
+    const presenting = (feeder, into) => {
+      const from = net.byCell.get(feeder.id)?.line;
+      if (!from) return false;
+      for (const d of on.get(from.id) ?? []) {
+        const at = pos.get(d.id);
+        // At the seam — the last pitch of its own line, or already crossing.
+        if (!(at > from.len - Game.CRATE_PITCH)) continue;
+        // ...and bound HERE. Two lines can end beside each other without ever
+        // wanting the same cell, and a junction that yielded to one of those
+        // would be holding for traffic that was never coming.
+        const ex = this.beltExit(from, d);
+        if (ex && ex.cell.id === into.id) return true;
+      }
+      return false;
+    };
+
+    const mergeHolds = (into, line, crate) => {
+      const route = mergeRoute(into);
+      if (route === 'default') return false;
+      const mine = line.cells[line.cells.length - 1];
+      const feeders = conveyorFeeders(this.layout, into);
+      // One way in is not a merge, and a cell this line does not actually feed
+      // is somebody else's argument.
+      if (feeders.length < 2 || !feeders.some((f) => f.id === mine.id)) return false;
+      const straight = mergeStraight(this.layout, into);
+      let want = null;
+      if (route === 'straight') want = straight;
+      // The leg is "not the straight one", which is exactly one line at a T and
+      // is the first in `rot` order anywhere else — the same tie-break
+      // `conveyorBranches` settles a split with, said about a join.
+      else if (route === 'leg') want = feeders.find((f) => f.id !== straight?.id) ?? null;
+      // Take turns: whoever did NOT go last is owed this one. Unset on the first
+      // box through, which then falls through to the ordinary rule — a junction
+      // nobody has used yet has no turn to remember.
+      else if (route === 'alternate') {
+        const last = this.mergeTurn?.get(into.id);
+        want = last ? feeders.find((f) => f.id !== last) ?? null : null;
+      }
+      if (!want || want.id === mine.id) return false;
+      return presenting(want, into);
+    };
 
     /**
      * A CALLED PISTON OWNS THE MACHINE UNDER IT.
@@ -12803,8 +12995,28 @@ export class Game {
         const shaftBoardingCap = shaftBoarding
           ? line.len + Math.hypot(ex.cell.x - tail.x, ex.cell.z - tail.z)
           : null;
+        // ...and whether this line is the one that has been told to wait. Only
+        // while the box is still ON its own line: `crossing` is a box that has
+        // already committed to the hand-off, and a crate yanked back over a seam
+        // is the jumping-backwards report this whole pass was rewritten for.
+        const yielding = ex && crossing == null && mergeHolds(ex.cell, line, crate);
         let cap = ahead ? pos.get(ahead.id) - Game.CRATE_PITCH
           : (ex && !shaftGate && roomAt(ex.line, crate, crossing) ? total : shaftQueueCap);
+        /**
+         * ...and a yield is a CLAMP rather than a branch of that ternary, which
+         * is the difference between this working and this doing nothing at all.
+         *
+         * The `ahead` branch never asks about the exit: a box only has to keep
+         * its pitch off the one in front, and the one in front may already be
+         * half way across the seam. `CRATE_PITCH` is less than a cell, so a
+         * follower behind a crossing box is handed a cap PAST the end of its own
+         * line — it crosses without anything having asked, and by the next tick
+         * it is `crossing` and exempt for good. On a saturated line that is every
+         * box after the first, so the rule fired thousands of times a minute and
+         * changed nothing: 147 boxes through and one from the leg, which is what
+         * a merge with no rule at all already looked like.
+         */
+        if (yielding) cap = Math.min(cap, line.len);
         // Spacing behind the owner is not permission to enter its machine.
         // With a dense queue, choosing the `ahead` cap alone let the second
         // crate follow half a cell behind the carrier, straight past the lift's
@@ -12944,6 +13156,29 @@ export class Game {
           : cell;
         const speed = 1 / Math.max(0.01, this.beltSeconds(driveCell));
         const to = Math.min(cap, at + speed * travelDt);
+
+        /**
+         * WHO JUST WENT, which is the only thing take-turns needs remembering
+         * and the only thing about a merge that is not derived.
+         *
+         * Stamped where the box COMMITS — the tick it first steps past the end
+         * of its own line — and not where it lands, which is what it was and is
+         * the whole difference between taking turns and taking turns in pairs.
+         * A hand-off is a whole cell of travel, so a turn stamped on arrival is
+         * a turn that stays wrong for the six ticks the crossing takes, and the
+         * line that just went is still owed one long enough to send a second
+         * box: `LSSLLSSLL` rather than `LSLSLSLS`, which reads as the setting
+         * half working, which is worse than it not working at all.
+         *
+         * In memory beside `sortChoice` and never on the save, for its reason:
+         * it is an answer about the last box rather than a fact about the shop,
+         * and one restored from a file would be a junction owing a turn to a
+         * line that has since been demolished.
+         */
+        if (ex && crossing == null && to > line.len && mergeRoute(ex.cell) !== 'default') {
+          this.mergeTurn ??= new Map();
+          this.mergeTurn.set(ex.cell.id, line.cells[line.cells.length - 1].id);
+        }
 
         // THE ONE PLACE A CRATE ON THE NETWORK IS GIVEN A POSITION.
         //
@@ -13871,9 +14106,38 @@ export class Game {
    * Asked of the same `conveyorMeets` walk `armPull` tests against, or the two
    * halves would be answering the same question with different evidence, which
    * is the drift CLAUDE.md records between the shop's rule and the hand's.
+   *
+   * ...AND A TICK OUTRANKS ALL OF IT, which is the half that was missing and is
+   * the only way a player can ever have a stocked back room.
+   *
+   * The rule above is the shop's own judgement, and as judgement it is right:
+   * goods are worth more in the aisle than in the rack, so the room gets what
+   * the floor will not take. What it cannot survive is a run that LOOPS. A
+   * `conveyorMeets` walk out of a ring reaches every unit on the ring, this
+   * loader's own room included, so "is there a floor unit downstream" is true
+   * for ever and the veto can never lift — a shop wired as a circuit has a
+   * stockroom that is refused every box in the building, and the one thing on
+   * screen you would check (the loader, aimed correctly, lamp lit, boxes going
+   * past) says it is working. A live save had six racks and 23 floor units on
+   * one ring: 30 of the 34 items each rack could hold, vetoed permanently.
+   *
+   * The fix is not a wider dead band — measured, every honest threshold either
+   * left the room empty or starved the aisles, because the floor's nominal
+   * capacity is far larger than anything a shop actually stocks. It is that
+   * `assigned` means here what it means in the other three places that decide
+   * what a unit is for: **you ticked it, so it is yours.** `shelvesFor`,
+   * `restock`'s `buy` and `ferry`'s `takes` all let a reservation beat the
+   * shop's judgement, and this was the one that did not — so the menu offered a
+   * control that the loader then ignored, which reads as ticking not working.
+   *
+   * Opt-in to the cell: a room nobody has ticked is the old rule exactly, so no
+   * save in existence moves. `armPull` carries the same override the other way
+   * round, and it has to — a reserve the machine empties again the moment the
+   * aisle has an inch of room is not a reserve, it is a longer walk.
    */
   roomTakes(arm, unit, itemId) {
     if (unit.boh !== true) return true;
+    if (toList(unit.assigned).includes(itemId)) return true;
     const met = conveyorMeets(this.layout, arm);
     return !met.shelves.some((sh) => sh.boh !== true && sh.id !== unit.id
       && this.shelfAccepts(sh, itemId));
@@ -14431,6 +14695,16 @@ export class Game {
 
   armPull(arm, room, met) {
     const c = content();
+    // A TICKED ROOM IS NOT RAIDED, which is `roomTakes`' override said from the
+    // other end and worthless without it. Filling a rack you reserved and then
+    // emptying it again on the next swing is the same twelve-donuts oscillation
+    // this pair exists to stop, wearing the fix.
+    //
+    // `boh` guards it because step 4a hands this function ordinary shop-floor
+    // shelves too, and there a reservation must NOT refuse: aiming a load-only
+    // loader at a unit is you saying to work it, and the reservation is what
+    // says which goods — two different sentences about the same tick.
+    if (room.boh === true && toList(room.assigned).length) return false;
     // Never back onto the unit it came off. Harmless while this was stockrooms
     // only — a back-of-house unit is never in this list — and a loop the moment
     // an aimed loader can work a shop-floor shelf: the board comes off, rides

@@ -73,7 +73,7 @@ import { Game } from '../server/sim/index.js';
 import { writeContent, refresh, content } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
-import { canPlace, anchorTile, isWalkableTile, edgeAt, runCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, conveyorNext, tunnelExit, TUNNEL_SPAN } from '../shared/build.js';
+import { canPlace, anchorTile, isWalkableTile, edgeAt, runCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, conveyorNext, tunnelExit, TUNNEL_SPAN, conveyorFeeders, mergeStraight, mergeRoute } from '../shared/build.js';
 import { E, canStep, shopperCanCross } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
 import { lotQty, lotTotal, lotStacks } from '../shared/lot.js';
@@ -2155,6 +2155,36 @@ function smooth(g, label, crates, ticks, at = {}) {
       g.setSorterAuto('me', sorter.id, true);
       eq(g.snapshot().sorters?.find((s) => s.id === sorter.id)?.auto, true,
         '...and carries it back the other way');
+      const favoured = g.setSorterRoute('me', sorter.id, 'straight');
+      check(favoured.ok, 'a sorter can favour its straight-through leg', favoured.error ?? '');
+      eq(g.snapshot().sorters?.find((s) => s.id === sorter.id)?.route, 'straight',
+        "the snapshot carries a sorter's straight-through preference");
+      const priorityCrate = crateOn(g, sorter, GOODS, 2);
+      const priorityOut = g.sorterOut(sorter, priorityCrate);
+      eq(g.beltAt(priorityOut?.x, priorityOut?.z)?.id, g.beltAt(straight.x, straight.z)?.id,
+        'the straight-through preference uses the straight leg before an equally eligible branch');
+      g.deliveries = g.deliveries.filter((d) => d.id !== priorityCrate.id);
+
+      /*
+       * ...and the OTHER half of the same setting, which is worthless split in
+       * two. Asked of the same junction with the same box, because either claim
+       * alone is satisfied by a preference that does nothing at all: the chooser
+       * below already has an order of its own, so "favour straight sends it
+       * straight" passes on a junction that was going to send it straight
+       * anyway. The two answers have to DIFFER, and the leg the second one names
+       * is `rot`'s — which is what makes turning a sorter a press with something
+       * on the far side of it.
+       */
+      const aimed = g.setSorterRoute('me', sorter.id, 'branch');
+      check(aimed.ok, 'a sorter can favour the leg it is aimed at', aimed.error ?? '');
+      eq(g.snapshot().sorters?.find((s) => s.id === sorter.id)?.route, 'branch',
+        "the snapshot carries a sorter's aimed-leg preference");
+      const aimedCrate = crateOn(g, sorter, GOODS, 2);
+      const aimedOut = g.sorterOut(sorter, aimedCrate);
+      eq(g.beltAt(aimedOut?.x, aimedOut?.z)?.id, g.beltAt(branch.x, branch.z)?.id,
+        'the aimed-leg preference uses the branch `rot` names, where straight used the straight leg');
+      g.deliveries = g.deliveries.filter((d) => d.id !== aimedCrate.id);
+
       g.setSorterAuto('me', sorter.id, false);
       const went = [];
       for (let i = 0; i < 4; i++) {
@@ -2172,6 +2202,24 @@ function smooth(g, label, crates, ticks, at = {}) {
       const total = units(g);
       run(g, 60);
       eq(units(g), total, 'nothing is created or destroyed going through it');
+
+      /*
+       * ...and the trap `reject`, `auto` and `managed` each sprang, which is the
+       * one a favoured leg is most exposed to: `compose` rebuilds this record
+       * from its PLACEMENT on every re-flow, and build mode re-flows on every
+       * wall segment of a drag. A route written only onto the layout is one that
+       * hands itself back to the crew behind you while you are still drawing —
+       * and what that reads as is the menu's highlight moving on its own.
+       *
+       * Last, because a re-flow re-mints these records and every reference taken
+       * above it is stale afterwards.
+       */
+      g.setSorterRoute('me', sorter.id, 'branch');
+      g.regenerateLayout();
+      const reflowed = g.beltAt(cells[1].x, cells[1].z);
+      eq(reflowed?.route, 'branch', 'a favoured leg survives a re-flow');
+      eq(g.snapshot().sorters?.find((s) => s.id === reflowed?.id)?.route, 'branch',
+        '...and is still on the wire afterwards');
     }
   }
 }
@@ -3728,6 +3776,74 @@ function smooth(g, label, crates, ticks, at = {}) {
     } else {
       check(true, 'no second unit touches this loader — the pair claim is skipped');
     }
+
+    /**
+     * ...AND A TICK OUTRANKS THE PAIR, which is the only way anybody ever gets
+     * a stocked back room.
+     *
+     * The claim above is right about judgement and cannot survive a run that
+     * LOOPS: `conveyorMeets` out of a ring reaches every unit on it, so "a
+     * floor unit still wants this" is true for ever and the veto never lifts.
+     * A shop wired as a circuit therefore has a stockroom that is refused every
+     * box in the building — and it reads as a loader that has stopped working,
+     * except that the loader is aimed correctly and boxes are going past it.
+     *
+     * Both halves or neither, and that is the whole of this section. A tick
+     * that lets goods IN while `armPull` still takes them straight back out is
+     * the twelve-donut oscillation with a reservation on it: the rack fills and
+     * empties for ever, every journey delivering, nothing lost — which is the
+     * failure the pour half was written for, arriving through the fix.
+     *
+     * Its control is what keeps this opt-in: the untouched room above answers
+     * exactly as it always did, so no shop that has never ticked a rack moves.
+     */
+    if (floor) {
+      room.assigned = [GOODS.id];
+      check(g.armTakes(arm, at, crate),
+        'a room you TICKED takes the goods, floor or no floor');
+      // The other half, and the pair is worthless without it. Stocked first, so
+      // the refusal is the rule rather than an empty board.
+      const board = () => [{
+        item_id: GOODS.id, qty: 5, price: GOODS.base_price, stockedDay: g.day,
+      }];
+      room.stacks = board();
+      check(!g.armPull(arm, room, conveyorMeets(g.layout, arm)),
+        '...and the same loader will not empty it again on the next swing');
+
+      // ...where an untouched room holding exactly that board IS emptied, which
+      // is the comparison that stops the claim above passing on a loader that
+      // never pulls anything from anywhere.
+      room.assigned = [];
+      room.stacks = board();
+      check(g.armPull(arm, room, conveyorMeets(g.layout, arm)),
+        'a room you never ticked still gives its board back to the floor');
+
+      // The override is keyed to the ITEM, or ticking one thing onto a rack
+      // reserves the whole rack from the shop's own judgement. Asked of
+      // `roomTakes` directly: a reservation makes `shelfAccepts` refuse
+      // everything else outright, so through `armTakes` this would pass with
+      // the rule under test never having run.
+      room.stacks = [];
+      room.assigned = [COLD.id];
+      check(!g.roomTakes(arm, room, GOODS.id),
+        'a room ticked for something ELSE is judged exactly as an untouched one');
+      check(g.roomTakes(arm, room, COLD.id),
+        '...and the thing it IS ticked for is the thing that gets in');
+
+      // ...and step 4a's aimed loader is untouched by all of it: on a shop-floor
+      // unit the aim says work this one and the tick says which goods, so
+      // reading the tick as a refusal there turns that rung off.
+      room.boh = false;
+      room.assigned = [GOODS.id];
+      room.stacks = board();
+      check(g.armPull(arm, room, conveyorMeets(g.layout, arm)),
+        'a reservation never gates a unit that is not a back room');
+      room.assigned = [];
+      room.stacks = [];
+      floor.boh = false;
+    } else {
+      check(true, 'no second unit touches this loader — the tick claims are skipped');
+    }
   }
 }
 
@@ -3907,6 +4023,23 @@ function smooth(g, label, crates, ticks, at = {}) {
       check(ways.some((w) => w.x === arm.x && w.z === arm.z),
         'the junction offers the skip line as a way out');
       check(ways.length > 1, '...and it is not the only way out');
+
+      // A named stray route is an instruction for rubbish, not merely a
+      // fallback behind any other path that happens to reach a skip.
+      const rejectWay = ways.find((w) => w.x !== arm.x || w.z !== arm.z);
+      const rejectRot = rejectWay && [0, 1, 2, 3].find((r) => {
+        const at = anchorTile(sorter.x, sorter.z, r);
+        return at.x === rejectWay.x && at.z === rejectWay.z;
+      });
+      const setReject = Number.isInteger(rejectRot)
+        && g.setSorterReject('me', sorter.id, rejectRot);
+      check(!!setReject?.ok, 'a non-skip side can be named as the waste route', setReject?.error ?? '');
+      const wasteWay = g.sorterOut(sorter, {
+        id: 'waste-follows-reject', waste: true, stacks: [{ item_id: GOODS.id, qty: 2 }],
+      });
+      check(wasteWay?.x === rejectWay?.x && wasteWay?.z === rejectWay?.z,
+        'waste follows the named stray route even when another exit reaches a skip');
+      if (setReject?.ok) g.setSorterReject('me', sorter.id, null);
 
       // Given up, so nothing anywhere is keen and the split is the branch under
       // test. The live jam was exactly this: one dead item in a mixed box.
@@ -4296,6 +4429,190 @@ const bedAt = (g) => (at) => {
     });
     check(!press.ok, 'a one-cell press on a belt is still refused');
     eq(g.beltAt(cells[0].x, cells[0].z)?.rot, was, '...and turns nothing');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 24. THE MERGE — who goes first where two lines meet.
+//
+// The other half of a T, and the half nobody buys a piece for: two aisles into
+// one dock is what a second aisle IS, so this happens on plain belt with nothing
+// configured. Everything in here is invisible twice over. A box that went first
+// because it was told to and a box that went first because it happened to be
+// nearer are the same box on the same cell, and the shop is the same shop
+// afterwards either way — only the ORDER moved, and order is the one thing a
+// still frame cannot hold.
+//
+// Its control is the assertion that decides whether any of this is opt-in: every
+// belt in every save is `default`, and a control that is wrong there has quietly
+// re-timed every run in existence.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 4);
+  check(!!cells, 'there is room for two lines to meet');
+  if (cells) {
+    // A straight run east, and a leg turning into its third cell.
+    lay(g, cells);
+    const join = g.beltAt(cells[2].x, cells[2].z);
+    let leg = null;
+    for (const dz of [-1, 1]) {
+      const n = { x: cells[2].x, z: cells[2].z + dz };
+      if (g.beltAt(n.x, n.z)) continue;
+      if (!canPlace(g.layout, { kind: 'belt', x: n.x, z: n.z, rot: 0 }).ok) continue;
+      const put = g.placeFixture('me', {
+        kind: 'belt', piece: BELT.id, x: n.x, z: n.z, rot: aim(n, cells[2]),
+      });
+      if (!put.ok) continue;
+      leg = g.beltAt(n.x, n.z);
+      break;
+    }
+    check(!!leg, 'a leg turns into the middle of the run');
+
+    if (leg) {
+      // --- the control ------------------------------------------------------
+      eq(mergeRoute(join), 'default', 'a junction nobody has spoken for takes whoever gets there first');
+      check(!g.placements.find((p) => p.id === join.id)?.merge,
+        '...and carries no merge field at all, so no save in existence moves');
+
+      // The derivation both ends share. Asked here rather than trusted, because
+      // the menu offers its rows off this and the sim applies them off this: two
+      // opinions would be rows offered for a merge the sim does not think is one.
+      const feeders = conveyorFeeders(g.layout, join);
+      eq(feeders.length, 2, 'the junction knows both lines feed it');
+      eq(mergeStraight(g.layout, join)?.id, g.beltAt(cells[1].x, cells[1].z)?.id,
+        'and that the one behind it is the straight-through line — which is what R decides');
+
+      /**
+       * The whole claim, and it is a RACE rather than a value: one box on each
+       * feeder, level, and whichever lands on the junction is the one that was
+       * let through. Run from the same start twice, once each way round.
+       *
+       * A value could not say it. "The straight box arrived" passes on a
+       * junction with no rule at all, because `barrier` had to pick somebody and
+       * ties go by id — so the two settings have to DISAGREE about the same
+       * start, which is the only shape of assertion that can tell a preference
+       * from a coincidence.
+       */
+      const race = (merge) => {
+        const set = g.setBeltMerge('me', join.id, merge);
+        check(set.ok, `a junction can be told: ${merge}`, set.error ?? '');
+        const a = crateOn(g, g.beltAt(cells[1].x, cells[1].z), GOODS, 2);
+        const b = crateOn(g, g.beltAt(leg.x, leg.z), GOODS, 2);
+        let won = null;
+        for (let i = 0; i < 40 && !won; i++) {
+          run(g, 1);
+          if (a.belt === join.id) won = 'straight';
+          else if (b.belt === join.id) won = 'leg';
+        }
+        g.deliveries = g.deliveries.filter((d) => d.id !== a.id && d.id !== b.id);
+        return won;
+      };
+      eq(race('straight'), 'straight', 'told to let the straight line through, it does');
+      eq(race('leg'), 'leg', '...and told to let the leg in, the same start goes the other way');
+
+      /**
+       * ...and the half that keeps a preference from being a deadlock, which is
+       * the one worth the file.
+       *
+       * A leg told to wait for the main road must wait for TRAFFIC and never for
+       * the road. Written as "is there a straight line" rather than "is it busy
+       * right now", a priority merge is a leg that never moves again the day
+       * anything jams a mile upstream — every box on it correct, none of them
+       * going anywhere, which reads as belts being broken rather than as a
+       * setting doing exactly what it was told.
+       */
+      g.setBeltMerge('me', join.id, 'straight');
+      const alone = crateOn(g, g.beltAt(leg.x, leg.z), GOODS, 2);
+      run(g, 40);
+      check(alone.belt !== leg.id, 'a leg is not held by an EMPTY straight line');
+      g.deliveries = g.deliveries.filter((d) => d.id !== alone.id);
+
+      /**
+       * ...AND UNDER LOAD, which is the assertion that earns this section and
+       * the one the race above cannot make.
+       *
+       * A race is two boxes and a clear run, and every one of these settings
+       * passed that while doing nothing whatsoever in a working shop — because a
+       * cap taken off the box IN FRONT never asks about the exit, and `CRATE_PITCH`
+       * is less than a cell, so on a busy line every box after the first is
+       * handed a cap past its own seam and crosses with nothing having asked.
+       * Measured at 147 boxes from the straight line against 1 from the leg with
+       * take-turns switched on, which is what a merge with no rule at all does.
+       *
+       * So it is a STREAM: both lines fed every tick, a sink at the far end, and
+       * the arrivals counted by which line they came off.
+       */
+      const stream = (merge, ticks = 600) => {
+        g.deliveries = [];
+        g.mergeTurn = new Map();
+        g.setBeltMerge('me', join.id, merge);
+        const heads = [[g.beltAt(cells[0].x, cells[0].z), 'S'], [g.beltAt(leg.x, leg.z), 'L']];
+        const end = g.beltAt(cells[3].x, cells[3].z);
+        const from = new Map();
+        const seen = new Set();
+        const seq = [];
+        for (let t = 0; t < ticks; t++) {
+          for (const [src, tag] of heads) {
+            if (!g.beltCellFree(src)) continue;
+            const c = g.dropGoods(GOODS.id, 1, { x: src.x, z: src.z }, { exact: true });
+            if (c) { g.loadBelt(src, c); from.set(c.id, tag); }
+          }
+          run(g, 1);
+          for (const d of g.deliveries) {
+            if (d.belt === end.id && !seen.has(d.id)) { seen.add(d.id); seq.push(from.get(d.id)); }
+          }
+          // The sink. Without it the run backs up after three boxes and every
+          // count below is a measurement of the jam rather than of the rule.
+          g.deliveries = g.deliveries.filter((d) => d.belt !== end.id);
+        }
+        g.deliveries = [];
+        return seq.join('');
+      };
+
+      const fair = stream('alternate');
+      const sN = [...fair].filter((c) => c === 'S').length;
+      const lN = [...fair].filter((c) => c === 'L').length;
+      check(fair.length > 20, 'the stream actually moved boxes', `${fair.length}`);
+      check(Math.abs(sN - lN) <= 2, 'take-turns gives both lines the same share of a busy junction',
+        `S=${sN} L=${lN}`);
+      check(!/SS|LL/.test(fair), '...strictly, box for box, and never two off one line',
+        fair.slice(0, 24));
+
+      // ...and the same stream with a favoured leg is the opposite claim: one
+      // line takes the lot. Both halves or neither — a rule that only ever
+      // shares is not a priority, and one that only ever starves is not a merge.
+      const greedy = stream('leg');
+      check(greedy.length > 20 && !greedy.includes('S'),
+        'a favoured leg takes a busy junction outright', greedy.slice(0, 24));
+
+      // Conservation, because a merge is a place two lots of goods come together
+      // and every one of those in this game has been a hole.
+      g.setBeltMerge('me', join.id, 'straight');
+      const x = crateOn(g, g.beltAt(cells[0].x, cells[0].z), GOODS, 5);
+      const y = crateOn(g, g.beltAt(leg.x, leg.z), GOODS, 3);
+      const total = units(g);
+      run(g, 120);
+      eq(units(g), total, 'nothing is created or destroyed where two lines meet');
+      g.deliveries = g.deliveries.filter((d) => d.id !== x.id && d.id !== y.id);
+
+      /**
+       * The trap `sorter.auto`, `reject` and `managed` each sprang, and a belt is
+       * the most exposed thing in the shop to it: `compose` rebuilds every belt
+       * record from its placement, and build mode re-flows on every wall segment
+       * of a drag. A merge rule written only onto the layout is one that hands
+       * itself back to "whoever gets there first" behind you while you are still
+       * drawing — and both states look like a working conveyor.
+       */
+      g.regenerateLayout();
+      const after = g.beltAt(cells[2].x, cells[2].z);
+      eq(mergeRoute(after), 'straight', 'a merge rule survives a re-flow');
+      eq(g.snapshot().merges?.find((m) => m.id === after?.id)?.merge, 'straight',
+        '...and is on the wire, or the menu is a row that can never tick');
+      // Sparse, or the biggest array in the game goes down the wire to say
+      // nothing twenty times a second.
+      eq(g.snapshot().merges?.length, 1, '...while every other belt in the shop sends nothing');
+    }
   }
 }
 

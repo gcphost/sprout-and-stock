@@ -12,7 +12,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { partsAt, seamStep, skinnedParts, FRONT_LIP } from '../../shared/model.js';
+import { partsAt, seamStep, skinnedParts, modelBounds, FRONT_LIP } from '../../shared/model.js';
 import { FACE_CALM, VEHICLE_LOOK, CRATE_LOOK, WASTE_LOOK } from './palette.js';
 import { signed } from '../money.js';
 
@@ -25,10 +25,28 @@ const GEO = {
   capsule: new THREE.CapsuleGeometry(0.4, 0.6, 3, 10),
 };
 
+/*
+ * Characters deliberately get their own, smooth geometry.  The shop's props
+ * are graphic and faceted; a person is read at a glance from farther away, so
+ * a few clean curves make them feel designed rather than like another stack of
+ * scenery primitives.  Keeping these separate means a low-poly tomato or a
+ * crate does not silently become expensive just because the people did.
+ */
+const CHARACTER_GEO = {
+  body: new THREE.SphereGeometry(0.5, 18, 12),
+  head: new THREE.SphereGeometry(0.5, 18, 12),
+  shoe: new THREE.SphereGeometry(0.5, 14, 9),
+  arm: new THREE.SphereGeometry(0.5, 14, 9),
+  leg: new THREE.SphereGeometry(0.5, 14, 9),
+  cap: new THREE.CylinderGeometry(0.5, 0.5, 1, 18),
+  brim: new THREE.BoxGeometry(1, 1, 1),
+};
+
 /** The five above, by identity — see `paintLit` for the one thing that asks. */
 const SHARED_GEO = new Set(Object.values(GEO));
 
 const materialCache = new Map();
+const characterMaterialCache = new Map();
 
 /**
  * Flat-shaded material, cached by colour so a hundred tomatoes share one.
@@ -49,6 +67,17 @@ export function material(color, alpha = 1, glow = false) {
       ...(glass ? { transparent: true, opacity: alpha, depthWrite: false } : {}),
     });
     materialCache.set(key, m);
+  }
+  return m;
+}
+
+/** A small smooth-material palette reserved for people. */
+function characterMaterial(color) {
+  const key = String(color);
+  let m = characterMaterialCache.get(key);
+  if (!m) {
+    m = new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
+    characterMaterialCache.set(key, m);
   }
   return m;
 }
@@ -303,41 +332,113 @@ export function buildModel(model, {
   return group;
 }
 
+/** A stable number for cosmetic character variation; never touches game RNG. */
+function characterVariant(seed) {
+  let n = 2166136261;
+  for (const ch of String(seed)) {
+    n ^= ch.charCodeAt(0);
+    n = Math.imul(n, 16777619);
+  }
+  return n >>> 0;
+}
+
 /**
- * A character: chunky capsule body, floating round head, no limbs.
- * Reads as friendly at this scale and costs three meshes.
+ * A smooth, toy-like person shared by shoppers and the fallback player.
+ *
+ * A deliberately soft, wide silhouette — a little Wall-E-world shopper rather
+ * than a miniature realistic person.  It stays spare at shop-camera scale, but
+ * its round outfit, tucked head and tiny feet make a crowded shop read as a
+ * crowd of characters rather than coloured pawns. `variant` is visual-only and
+ * gives the same customer the same headwear every time they cross the shop.
  */
-export function buildCharacter(color, { hat = null } = {}) {
+export function buildCharacter(color, { hat = null, variant = '', varied = false } = {}) {
   const g = new THREE.Group();
+  const variation = characterVariant(variant || color);
+  // A taller baseline lets the little legs read at normal game zoom. Customers
+  // then take one of five stable height/weight steps off their id — cosmetic
+  // only, so neither pathing nor the simulation has to know who is larger.
+  const height = varied ? [1.04, 1.11, 1.18, 1.25, 1.32][variation % 5] : 1.2;
+  const weight = varied ? [0.82, 0.94, 1.06, 1.18, 1.3][Math.floor(variation / 5) % 5] : 1;
+  g.scale.set(weight, height, weight);
+  const add = (geo, colour, scale, position, shadow = true) => {
+    const mesh = new THREE.Mesh(geo, characterMaterial(colour));
+    mesh.scale.set(...scale);
+    mesh.position.set(...position);
+    mesh.castShadow = shadow;
+    g.add(mesh);
+    return mesh;
+  };
 
-  const body = new THREE.Mesh(GEO.capsule, material(color));
-  body.scale.set(0.34, 0.34, 0.34);
-  body.position.y = 0.34;
-  body.castShadow = true;
-  g.add(body);
+  // One generous, soft outfit is the silhouette. It is intentionally wider
+  // than it is tall: a shop full of these reads friendly and distinct from the
+  // upright machinery, while still fitting comfortably inside one tile.
+  add(CHARACTER_GEO.body, color, [0.5, 0.38, 0.4], [0, 0.37, 0]);
+  const arm = (x) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, 0.45, 0.01);
+    const hand = new THREE.Mesh(CHARACTER_GEO.arm, characterMaterial(FACE_CALM));
+    hand.scale.set(0.11, 0.17, 0.11);
+    hand.position.set(0, -0.105, 0.01);
+    hand.castShadow = true;
+    pivot.add(hand);
+    g.add(pivot);
+    return pivot;
+  };
+  const leftArm = arm(-0.285);
+  const rightArm = arm(0.285);
+  // Two tiny hip pivots are the whole walk rig. They are built once with the
+  // body, then the renderer only writes two rotations while somebody moves —
+  // no skinned mesh, cloning or scene traversal per frame.
+  const leg = (x) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(x, 0.29, 0.02);
+    const thigh = new THREE.Mesh(CHARACTER_GEO.leg, characterMaterial(FACE_CALM));
+    thigh.scale.set(0.14, 0.22, 0.145);
+    thigh.position.y = -0.12;
+    thigh.castShadow = true;
+    const foot = new THREE.Mesh(CHARACTER_GEO.shoe, characterMaterial('#33404d'));
+    foot.scale.set(0.13, 0.07, 0.15);
+    foot.position.set(x < 0 ? 0.015 : -0.015, -0.225, 0.005);
+    foot.castShadow = true;
+    pivot.add(thigh, foot);
+    g.add(pivot);
+    return pivot;
+  };
+  g.userData.walker = {
+    left: leg(-0.12), right: leg(0.12), leftArm, rightArm,
+  };
 
-  const head = new THREE.Mesh(GEO.sphere, material(FACE_CALM));
-  head.scale.set(0.3, 0.3, 0.3);
-  head.position.y = 0.66;
-  head.castShadow = true;
-  g.add(head);
-  // Named rather than found by index: whether there's a hat moves every child
-  // after the body, so `children[1]` is only the head by luck.
+  // Tucked into the top rather than sat on a neck. That overlap is what stops
+  // the silhouette drifting back into a conventional tiny-human proportion.
+  const head = add(CHARACTER_GEO.head, FACE_CALM, [0.21, 0.205, 0.2], [0, 0.64, 0.025]);
+  // Named rather than found by index: mood animation changes only the skin.
   g.userData.head = head;
 
-  if (hat) {
-    const cap = new THREE.Mesh(GEO.cylinder, material(hat));
-    cap.scale.set(0.32, 0.1, 0.32);
-    cap.position.y = 0.78;
-    cap.castShadow = true;
-    g.add(cap);
-  }
+  // Two tiny dark eyes are enough at this zoom; their front placement also
+  // makes the movement direction legible without the old protruding snout.
+  // Sphere geometry has a radius of 0.5, so the face reaches z = 0.125 here
+  // (not 0.225). Keeping this derived placement close to the head dimensions
+  // avoids eyes floating in front of the character at close zoom.
+  add(CHARACTER_GEO.head, '#35404a', [0.022, 0.026, 0.013], [-0.06, 0.64, 0.132], false);
+  add(CHARACTER_GEO.head, '#35404a', [0.022, 0.026, 0.013], [0.06, 0.64, 0.132], false);
 
-  // A nose-ish nub so you can tell which way someone is facing.
-  const snout = new THREE.Mesh(GEO.box, material('#e8d9c4'));
-  snout.scale.set(0.08, 0.08, 0.1);
-  snout.position.set(0, 0.64, 0.16);
-  g.add(snout);
+  // A player keeps the white cap requested by its caller.  Shoppers otherwise
+  // rotate through three quiet, non-content looks, ready for richer outfits
+  // later without putting a random draw into the simulation.
+  const look = hat ? 0 : variation % 3;
+  const headwear = hat ?? ['#d46f58', '#4f9b90', '#d3a94f'][variation % 3];
+  if (look === 0) {
+    // A fitted, low cap. The old hemisphere was a mushroom silhouette at this
+    // camera, so this is intentionally only a slim band over the crown.
+    add(CHARACTER_GEO.cap, headwear, [0.218, 0.045, 0.213], [0, 0.768, 0.025]);
+    add(CHARACTER_GEO.brim, headwear, [0.16, 0.018, 0.075], [0, 0.748, 0.13]);
+  } else if (look === 1) {
+    add(CHARACTER_GEO.cap, headwear, [0.215, 0.075, 0.21], [0, 0.78, 0.025]);
+  } else {
+    // A hair dome keeps the third option warm and ordinary, rather than making
+    // every customer look like they arrived in a uniform.
+    add(CHARACTER_GEO.cap, '#5c4538', [0.213, 0.06, 0.208], [0, 0.773, 0.025]);
+  }
 
   return g;
 }
@@ -999,15 +1100,62 @@ const BAY_MAX = 4;
 /** Colours of the pads. Green has it, red is short, gold is yours to collect. */
 const BAY_LOOK = { ready: '#7cc46a', short: '#c8553d', outlet: '#ffd66b' };
 
-/** One pad — an ingredient bay or the outlet — with its pile stood on it. */
-function buildBay(model, { solid, ghost, colour }) {
+/**
+ * The pad for a bay with no well under it — the roof fallback, and the round
+ * disc every bay in the game used to be.
+ */
+const BAY_PAD = { span: 0.3, depth: 0.3, shape: 'cylinder' };
+
+/** What the pad leaves clear of its well, so two of them never touch. */
+const BAY_INSET = 0.05;
+
+/**
+ * ...and how big one may get however big the well is. A pad is a readout, and
+ * past about half a tile it stops reading as a place on the machine and starts
+ * reading as the machine having been painted.
+ */
+const BAY_PAD_MAX = 0.46;
+
+/**
+ * One pad — an ingredient bay or the outlet — with its pile stood on it.
+ *
+ * The pad is the WELL, drawn: its size and its shape both, so a box well gets a
+ * rectangular pad and a cylinder well gets a round one. It was a fixed 0.3 disc
+ * for every well on every machine, which is why they clipped — a griddle 0.42
+ * across got the same coaster as a jug, the pile stood on it overhung both
+ * edges, and two bays sharing a long well ran into each other and into whatever
+ * the art had drawn beside them.
+ *
+ * Shape comes off the art rather than being authored beside it, for
+ * `seamStep`'s reason: a pad shape kept in a second place is a pad shape
+ * somebody has to remember to move.
+ */
+function buildBay(model, { solid, ghost, colour, well = BAY_PAD }) {
   const g = new THREE.Group();
 
-  const pad = new THREE.Mesh(GEO.cylinder, material(colour));
-  pad.scale.set(0.3, 0.04, 0.3);
+  const span = Math.min(BAY_PAD_MAX, Math.max(0.1, (well.span ?? 0.3) - BAY_INSET));
+  const depth = Math.min(BAY_PAD_MAX, Math.max(0.1, (well.depth ?? 0.3) - BAY_INSET));
+
+  const pad = new THREE.Mesh(well.shape === 'cylinder' ? GEO.cylinder : GEO.box, material(colour));
+  pad.scale.set(span, 0.04, depth);
   g.add(pad);
 
   if (!model) return g;
+
+  /**
+   * How big the pile stands, clamped to the pad rather than taken as a
+   * constant. `BAY_ITEM` is the ceiling — a readout is never bigger than that,
+   * however roomy the well — and a wide model on a narrow one comes down to
+   * fit instead of hanging over the side.
+   */
+  const b = modelBounds(partsAt(model, 1));
+  const wide = Math.max(1e-3, b.maxX - b.minX);
+  const deep = Math.max(1e-3, b.maxZ - b.minZ);
+  const fit = Math.min(BAY_ITEM, (span * 0.88) / wide, (depth * 0.88) / deep);
+  // The stack closes up with it, or a shrunk pile floats apart into three
+  // things rather than reading as one short stack with a gap over it.
+  const step = BAY_STEP * (fit / BAY_ITEM);
+
   for (let i = 0; i < Math.min(BAY_MAX, solid + ghost); i++) {
     const one = buildModel(model, { castShadow: false });
     // A missing unit fades but keeps its own colours. `buildGhost`'s one white
@@ -1020,12 +1168,12 @@ function buildBay(model, { solid, ghost, colour }) {
         if (o.isMesh) o.material = material(o.material.color.getHex(), 0.35);
       });
     }
-    one.scale.setScalar(BAY_ITEM);
+    one.scale.setScalar(fit);
     // Piled UP rather than spread out, because the bays sit a third of a tile
     // apart on the machine's own top and a row would run into its neighbour.
     // Height is also the reading you can take across the shop: two of three is
     // a short stack with a gap over it.
-    one.position.set(0, 0.06 + i * BAY_STEP, 0);
+    one.position.set(0, 0.06 + i * step, 0);
     g.add(one);
   }
   return g;
@@ -1109,11 +1257,6 @@ export function buildStationBays({
     : 0;
 
   intakes.forEach((s, i) => {
-    const bay = buildBay(s.model, {
-      solid: Math.max(0, Math.min(s.held ?? 0, s.need ?? 1)),
-      ghost: Math.max(0, (s.need ?? 1) - (s.held ?? 0)),
-      colour: (s.held ?? 0) >= (s.need ?? 1) ? BAY_LOOK.ready : BAY_LOOK.short,
-    });
     // One well each where the art drew enough of them; otherwise they share the
     // one well (or the roof), spread along whichever way it is longer.
     const w = hopper.length ? hopper[Math.min(i, hopper.length - 1)] : null;
@@ -1122,6 +1265,14 @@ export function buildStationBays({
     const run = w ? Math.max(w.span, w.depth) : (b.maxZ - b.minZ);
     const pitch = Math.min(0.34, run / Math.max(1, share));
     const off = (n - (share - 1) / 2) * pitch;
+    const bay = buildBay(s.model, {
+      solid: Math.max(0, Math.min(s.held ?? 0, s.need ?? 1)),
+      ghost: Math.max(0, (s.need ?? 1) - (s.held ?? 0)),
+      colour: (s.held ?? 0) >= (s.need ?? 1) ? BAY_LOOK.ready : BAY_LOOK.short,
+      // Sharing a well means sharing its depth: the spread above is along z, so
+      // a pad drawn at the well's full depth would sit under its neighbour.
+      well: w ? { ...w, depth: share > 1 ? Math.min(w.depth, pitch) : w.depth } : undefined,
+    });
     bay.position.set(
       w ? w.x : b.minX + INSET,
       (w ? w.y : b.top) + 0.02,
@@ -1134,6 +1285,7 @@ export function buildStationBays({
     solid: Math.max(0, Math.round(outlet?.qty ?? 0)),
     ghost: 0,
     colour: BAY_LOOK.outlet,
+    well: tray ?? undefined,
   });
   out.position.set(
     tray ? tray.x : b.maxX - INSET,

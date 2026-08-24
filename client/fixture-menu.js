@@ -10,7 +10,7 @@
  * the snapshot and sends messages, not part of the HUD's own state.
  */
 
-import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, anchorTile, holdsGoods, shelfKind, sameFixture } from '../shared/build.js';
+import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, anchorTile, holdsGoods, shelfKind, sameFixture, sorterRoute, mergeRoute, conveyorFeeders } from '../shared/build.js';
 import { pieceFor } from '../shared/pieces.js';
 import { homeKind } from '../shared/tags.js';
 import { LOT_KINDS, lotStacks, lotHas, lotLabel } from '../shared/lot.js';
@@ -1200,22 +1200,38 @@ const HANDS = [
 ];
 
 /**
- * What a sorter does with a box, which is one decision with two answers.
+ * What a sorter does with a box, which is one decision with four answers.
  *
- * On, the crew read what is actually down each of its two lines and send a box
- * the way it can be put away — which is a filter that can never fall behind your
- * catalogue, because there is no filter. Off, it is a plain splitter: alternate
- * ways out, every crate, which is the other job people want from a junction and
- * is what a junction with the thinking switched off should honestly be.
+ * Two of them read the shop. `smart` has the crew look at what is actually down
+ * each line and send a box the way it can be put away — a filter that can never
+ * fall behind your catalogue, because there is no filter. `alternate` is a plain
+ * splitter with the thinking switched off, which is the other job people want
+ * from a junction and is what one should honestly be with `auto` off.
+ *
+ * The other two are a PAIR about the same T, and they are the whole reason a
+ * junction is worth turning: `straight` favours the line that carries on and
+ * `branch` favours the leg it is aimed at, so R stopped being a press with
+ * nothing on the far side of it. Both fall back to the ordinary chooser when the
+ * leg they favour is full — a preference is not a queue you wait in for ever.
  */
 const SORTS = [
   {
-    on: true,
+    route: 'smart',
     name: 'Let the crew sort it',
     sub: 'Sends each box down whichever line can actually shelve it. A mixed box splits.',
   },
   {
-    on: false,
+    route: 'straight',
+    name: 'Favour the straight-through line',
+    sub: 'Sends every box straight ahead while that leg has room; a full leg can still fall back to another exit.',
+  },
+  {
+    route: 'branch',
+    name: 'Favour the leg it is aimed at',
+    sub: 'Sends every box down the side the blade crosses — turn it with R — while that leg has room.',
+  },
+  {
+    route: 'alternate',
     name: 'Just split it evenly',
     sub: 'Alternates, box by box, whatever is in them.',
   },
@@ -1223,7 +1239,7 @@ const SORTS = [
 
 function sortRows(ui, f, live, { lives = [live] } = {}) {
   return SORTS.map((s) => {
-    const at = allSay(lives, (l) => (l?.auto !== false) === s.on);
+    const at = allSay(lives, (l) => sorterRoute(l) === s.route);
     return {
       icon: ICONS.stocker,
       name: s.name,
@@ -1235,7 +1251,64 @@ function sortRows(ui, f, live, { lives = [live] } = {}) {
       // well outside the mode, so the game is asking for a permission it never
       // said it needed and the switch reads as simply not working.
       run: at ? null : () => ui.withBuildMode(
-        () => ui.net.send('sorter-auto', { ids: aimAt(ui, f), on: s.on }),
+        () => ui.net.send('sorter-route', { ids: aimAt(ui, f), route: s.route }),
+      ),
+    };
+  });
+}
+
+/**
+ * Who goes first where two lines MEET, which is the plain belt's own junction.
+ *
+ * A sorter is bought to choose between ways OUT. This is the other T — two runs
+ * feeding one — and it needs no piece at all, which is why it went this long
+ * with no controls: there was nothing to open a menu on but a conveyor, and a
+ * conveyor had nothing to say.
+ *
+ * Which line is "straight" is R. The cell points somewhere, so the run coming in
+ * behind it is the one going straight through and the other is the leg — turn
+ * the junction and you have swapped which is the main road, in the shop, where
+ * you can see it, rather than in a list of compass points.
+ */
+const MERGES = [
+  {
+    merge: 'default',
+    name: 'Whichever gets there first',
+    sub: 'What every junction has always done. Nearest box wins.',
+  },
+  {
+    merge: 'straight',
+    name: 'Let the straight line through',
+    sub: 'The run coming in behind this cell goes first. The leg waits, and moves the moment there is a gap.',
+  },
+  {
+    merge: 'leg',
+    name: 'Let the leg in',
+    sub: 'The run turning in goes first. The straight-through line waits for a gap instead.',
+  },
+  {
+    merge: 'alternate',
+    name: 'One after the other',
+    sub: 'Takes them in turn. A line with nothing on it is skipped rather than waited for.',
+  },
+];
+
+/** Whether more than one line hands on to this cell — see `settingRows`. */
+function isMerge(ui, f) {
+  const L = ui.scene?.storeLayout;
+  return !!L && conveyorFeeders(L, f).length > 1;
+}
+
+function mergeRows(ui, f, live, { lives = [live] } = {}) {
+  return MERGES.map((m) => {
+    const at = allSay(lives, (l) => mergeRoute(l) === m.merge);
+    return {
+      icon: ICONS.stocker,
+      name: m.name,
+      sub: m.sub,
+      picked: at,
+      run: at ? null : () => ui.withBuildMode(
+        () => ui.net.send('belt-merge', { ids: aimAt(ui, f), merge: m.merge }),
       ),
     };
   });
@@ -1463,6 +1536,23 @@ function settingRows(ui, f, live, sel = {}) {
   if (many.every((g) => g.kind === 'arm')) {
     under('What it does', armRows(ui, f, live, sel));
   }
+  /**
+   * ...and a plain belt gets rows only where two lines actually MEET.
+   *
+   * Every other heading here is a fact about the KIND, and this one cannot be: a
+   * shop lays belt by the hundred and all but a handful of those cells have one
+   * way in. Offered on all of them it would be four rows of settings that decide
+   * nothing on a straight run — which is worse than no control, because a row
+   * that does nothing cannot be told from one that is broken.
+   *
+   * Asked of the layout rather than of the snapshot, because who feeds a cell is
+   * derived (`conveyorFeeders`) and the derivation is the same one the sim uses.
+   * A second opinion here would be the green-ghost rule wearing a menu: rows
+   * offered for a merge the sim does not think is one.
+   */
+  if (many.every((g) => g.kind === 'belt' && isMerge(ui, g))) {
+    under('Where two lines meet', mergeRows(ui, f, live, sel));
+  }
   if (many.every((g) => g.kind === 'sorter')) {
     under('Which way it sends things', sortRows(ui, f, live, sel));
     under('What nothing wants', rejectRows(ui, f, live, sel));
@@ -1596,6 +1686,11 @@ export function liveFixture(ui, f) {
   if (f.kind === 'arm') return s.arms?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'lift') return s.lifts?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'under') return s.unders?.find((x) => x.id === f.id) ?? null;
+  // A belt is the one kind with no record on the wire — a shop owns hundreds and
+  // they carry nothing but their merge rule, so `merges` is sparse and a MISS is
+  // the answer rather than an absence: `mergeRoute(null)` is `default`, which is
+  // what every belt nobody has spoken for is. See the snapshot.
+  if (f.kind === 'belt') return s.merges?.find((x) => x.id === f.id) ?? null;
   return null;
 }
 

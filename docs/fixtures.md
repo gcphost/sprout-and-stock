@@ -13,17 +13,6 @@ planters and two shelf designs, but not a new kind — see [building.md](buildin
 
 126 pieces across 25 kinds.
 
-> ⚠️ **Boards you cannot see into.** Goods fill a unit from the TOP board
-> down, because on a 45° camera each board covers the one below it. So a
-> piece with a canopy over its top board puts the first thing you stock in
-> the one place the camera never reaches: the unit holds a full load and
-> draws as empty, which reads as stock that never arrived rather than as art.
-> Raise the lid — and whatever carries it — until the board has the same
-> headroom the others have:
->
-> - `station` · Butcher's Block tier 3 — 1 of 2 boards (**1 under a lid**)
-> - `station` · Candy Kettle tier 3 — 1 of 2 boards (**1 under a lid**)
-
 ## Fixtures
 
 Things you own, that stand in a cell, that the generator has a budget for.
@@ -223,31 +212,27 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 4 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
 
 - ⚙️ **Standard** while running — 3 stages across a batch · 1 moving part
-- ⚙️ **Barista** while running — 3 stages across a batch · steams · 1 moving part · the machine itself shake + bobs
-- ⚙️ **Blender** while running — 3 stages across a batch · 1 moving part · the machine itself pulses
+- ⚙️ **Barista** while running — 3 stages across a batch · steams · 1 moving part
+- ⚙️ **Blender** while running — 3 stages across a batch · 1 moving part
 - ⚙️ **Toaster** while running — 2 stages across a batch · 2 moving parts
-- ⚙️ **Press** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
+- ⚙️ **Press** while running — 3 stages across a batch · 1 moving part
 - ⚙️ **Juicer** while running — 3 stages across a batch · 1 moving part
 - ⚙️ **Soft-Serve** while running — 3 stages across a batch · 1 moving part
-- ⚙️ **Fryer** while running — 3 stages across a batch · steams · the machine itself shakes
+- ⚙️ **Fryer** while running — 3 stages across a batch · steams
 - ⚙️ **Oven** while running — 3 stages across a batch · 1 moving part
-- ⚙️ **Grill** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
-- ⚙️ **Preserver** while running — 3 stages across a batch · steams · the machine itself shakes
-- ⚙️ **Stockpot** while running — 3 stages across a batch · 1 moving part · the machine itself shakes
-- ⚙️ **Mill** while running — one look throughout · steams · 1 moving part · the machine itself spins
-- ⚙️ **Mixer** while running — one look throughout · 1 moving part · the machine itself spins
-- ⚙️ **Churn** while running — one look throughout · 1 moving part · the machine itself spins
-- ⚙️ **Butcher's Block** while running — one look throughout · 1 moving part · the machine itself shakes
-- ⚙️ **Blast Freezer** while running — one look throughout · steams · the machine itself spins
-- ⚙️ **Candy Kettle** while running — one look throughout · steams · 1 moving part · the machine itself pulses
-
-⚠️ Covered — Butcher's Block tier 3: 1 of 2 boards (**1 under a lid**). Goods there cannot be seen, so the renderer stocks the boards you can.
-
-⚠️ Covered — Candy Kettle tier 3: 1 of 2 boards (**1 under a lid**). Goods there cannot be seen, so the renderer stocks the boards you can.
+- ⚙️ **Grill** while running — 3 stages across a batch · 1 moving part
+- ⚙️ **Preserver** while running — 3 stages across a batch · steams
+- ⚙️ **Stockpot** while running — 3 stages across a batch · 1 moving part
+- ⚙️ **Mill** while running — one look throughout · steams · 1 moving part
+- ⚙️ **Mixer** while running — one look throughout · 1 moving part
+- ⚙️ **Churn** while running — one look throughout · 1 moving part
+- ⚙️ **Butcher's Block** while running — one look throughout · 1 moving part
+- ⚙️ **Blast Freezer** while running — one look throughout · steams
+- ⚙️ **Candy Kettle** while running — one look throughout · steams · 1 moving part
 
 Shapes: Standard, Barista, Blender, Toaster, Press, Juicer, Soft-Serve, Fryer, Oven, Grill, Preserver, Stockpot, Mill, Mixer, Churn, Butcher's Block, Blast Freezer, Candy Kettle — looks only, same price and same ladder.
 
-1. **Domestic** — free, as built
+1. **Bench** — free, as built
 2. **Commercial** — $340, speed ×2
 3. **Twin** — $420, speed ×2, makes 2 at a time
 
@@ -366,7 +351,7 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 `arm` · kind `arm` · $90 to build
 
-16 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 2 parts move always
+22 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 2 parts move always
 
 1. **Loader** — free, as built
 2. **Quick loader** — $90, speed ×1.9
@@ -380,7 +365,7 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 `sorter` · kind `sorter` · $140 to build
 
-13 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 3 parts move always
+21 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 3 parts move always
 
 1. **Sorter** — free, as built
 2. **Quick sorter** — $140, speed ×1.9
@@ -394,7 +379,7 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 `under` · kind `under` · $60 to build
 
-19 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
+20 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
 
 1. **Tunnel** — free, as built
 2. **Quick tunnel** — $95, speed ×1.8

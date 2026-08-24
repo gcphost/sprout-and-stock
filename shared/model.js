@@ -156,6 +156,11 @@ export function surfacesAt(model, t = 1) {
       z: p.pos?.[2] ?? 0,
       span: p.scale?.[0] ?? 1,
       depth: p.scale?.[2] ?? 1,
+      // Carried so a readout stood on a well can take the well's own shape —
+      // an appliance's drop pad is the well drawn, not a constant disc laid on
+      // top of it. Read off the art for `seamStep`'s reason: a pad shape
+      // authored beside the parts is one somebody has to remember to move.
+      shape: p.shape ?? 'box',
     }))
     .sort((a, b) => a.y - b.y);
 }

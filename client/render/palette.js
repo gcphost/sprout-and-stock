@@ -142,6 +142,9 @@ export const PALETTE = {
 /** Player colours, cycled by join order. */
 export const PLAYER_COLORS = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
 
+/** Full-height architectural edges, in world units. */
+const WALL_H = 1.4;
+
 /**
  * Tile kind -> how it renders.
  * `h` is height in world units; 0 means "flat, draw on the ground".
@@ -157,7 +160,7 @@ export const TILE_STYLE = {
   // kerb back that `T.ROAD` says in as many words it does not want.
   [T.GRASS]: { color: PALETTE.grass, h: 0.01 },
   [T.FLOOR]: { color: PALETTE.floor, h: 0.06 },
-  [T.WALL]: { color: PALETTE.wall, h: 1.1 },
+  [T.WALL]: { color: PALETTE.wall, h: WALL_H },
   // The plot tile is only the bed. Whether it reads as rough turf or turned
   // earth is per-plot state, so the renderer lays that on top in syncPlots.
   [T.PLOT]: { color: PALETTE.soilRough, h: 0.08 },
@@ -353,6 +356,35 @@ export const CONVEYOR = {
 };
 
 /**
+ * THE TEAL A MACHINE WEARS, AND THE RUNG IT IS WEARING.
+ *
+ * Every machine in the family carries one accent — a loader's hood strip, a
+ * sorter's cap, a mouth's lip — and it is the one part that is not a grey, so
+ * it is what says "this is machinery" from across a shop full of pale plastic.
+ * It also STEPS with the tier, which is the second job: the ladder is otherwise
+ * invisible, because a Quick loader and a Maglev one are the same silhouette.
+ *
+ * These three hexes are already spelled in the authored `arm`, `sorter` and
+ * `under` rows, one per stage. They are repeated here for the reason the rest
+ * of `CONVEYOR` is: the derived half of the family cannot see those rows, and
+ * a lift whose trim came from somewhere else is a machine standing in the run
+ * wearing a colour nothing else in the run owns — which is exactly what it was.
+ * Its frame borrowed the BELT's carrier (`#7f8d9e` and friends), a slate
+ * blue-grey, so the one fixture that is all trim was the one fixture with no
+ * teal on it at all, and it read as a duller, darker version of the accent
+ * every machine beside it wears.
+ *
+ * Indexed by tier, so a shop with a fourth rung takes the last one rather than
+ * going undefined — a mesh handed `undefined` is white.
+ */
+export const CONVEYOR_ACCENT = ['#3f9fb0', '#4fb3c4', '#63cddd'];
+
+/** ...at a tier, clamped to what has been drawn. */
+export const conveyorAccent = (tier) => CONVEYOR_ACCENT[
+  Math.max(0, Math.min(CONVEYOR_ACCENT.length - 1, (tier ?? 1) - 1))
+];
+
+/**
  * ...and the light along it, which is the half that works at night.
  *
  * Three states, and they are a READOUT rather than decoration: a run tells you
@@ -489,7 +521,7 @@ export const WASTE_LOOK = {
 const EDGE_BASE = {
   // A doorway is a gap you can walk through: a header spanning the opening and
   // a threshold underfoot, with nothing in between.
-  door: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, opening: true },
+  door: { color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.17, opening: true },
   gate: { color: PALETTE.fence, h: 0.5, t: 0.14, opening: true },
   // ...and a curtain is the other way up: strips hanging from a rail, with the
   // gap at the BOTTOM rather than in the middle. `drop` is where they stop, and
@@ -503,7 +535,7 @@ const EDGE_BASE = {
   // fringe in it; and the strips carrying their own colour is what keeps a
   // finish off them, which is right — nobody paints PVC.
   curtain: {
-    color: PALETTE.wall, top: PALETTE.curtainRail, h: 1.1, t: 0.1, curtain: true,
+    color: PALETTE.wall, top: PALETTE.curtainRail, h: WALL_H, t: 0.1, curtain: true,
   },
   // ...and a roller door is a doorway with the machinery drawn: the same header
   // and the same threshold, plus the coil that is the whole reason you can tell
@@ -513,19 +545,19 @@ const EDGE_BASE = {
   // steel. Thicker than a plain wall (a shutter box stands proud of the
   // brickwork) and the tracks ride that thickness for free.
   shutter: {
-    color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.2, shutter: true,
+    color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.2, shutter: true,
   },
   // ...and a window is a wall with a hole in the middle of it. `sill` and `head`
   // are where the glass starts and stops, and they are the WHOLE difference
   // between the four glazings — see `GLAZING` in shared/edges.js. Anything that
   // wanted a fifth look should be two numbers here and nothing else.
-  glass: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17, glass: true },
+  glass: { color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.17, glass: true },
   // An arch is a doorway with the door left out and the span built in, so it is
   // the doorway's own base with one flag changed. Thicker, because the courses
   // that close the head in are a pier's worth of masonry rather than a frame's —
   // and the thickness is what makes the corbels read at 45°, since what you see
   // of a step is its top face.
-  arch: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.22, arch: true },
+  arch: { color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.22, arch: true },
   // A boundary. One base for all four looks, because every fact the sim has about
   // them is shared — see `FENCING`, shared/edges.js. Each look overrides only
   // what it is made of.
@@ -540,7 +572,7 @@ const EDGE_BASE = {
  * the two tiles of shop floor per side came back from.
  */
 export const EDGE_STYLE = {
-  [E.WALL]: { color: PALETTE.wall, top: PALETTE.wallTop, h: 1.1, t: 0.17 },
+  [E.WALL]: { color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.17 },
   [E.WINDOW]: EDGE_BASE.glass,
   [E.DOOR]: EDGE_BASE.door,
   [E.GATE]: EDGE_BASE.gate,
@@ -548,15 +580,15 @@ export const EDGE_STYLE = {
   // the *wall*: glass casts none by default, which is right for a bottle and a
   // freezer door and wrong for a shopfront — a building whose south face stops
   // laying a shadow on its own forecourt reads as the wall having gone.
-  [E.WINDOW_FULL]: { ...EDGE_BASE.glass, sill: 0.05, head: 1.02, shadow: true },
+  [E.WINDOW_FULL]: { ...EDGE_BASE.glass, sill: 0.05, head: 1.32, shadow: true },
   // Standard glazing, pushed out over a sill. `out` is the one thing here that is
   // geometry rather than a pair of heights, and the renderer decides WHICH WAY out
   // is off the enclosure — a bay projects into the street, not into the aisle.
-  [E.WINDOW_BAY]: { ...EDGE_BASE.glass, sill: 0.34, head: 0.95, out: 0.2 },
+  [E.WINDOW_BAY]: { ...EDGE_BASE.glass, sill: 0.34, head: 1.25, out: 0.2 },
   // A strip up under the lintel. Light without a view, which is what you want on
   // a stockroom and on anything a passer-by should not be able to see the till
   // through.
-  [E.WINDOW_HIGH]: { ...EDGE_BASE.glass, sill: 0.72, head: 1.02 },
+  [E.WINDOW_HIGH]: { ...EDGE_BASE.glass, sill: 0.72, head: 1.32 },
   [E.FENCE]: EDGE_BASE.fence,
   // Three more boundaries, and they are LOOKS rather than kinds — one price, one
   // set of rules, free to swap between (`FENCING`, shared/edges.js). Only a
@@ -916,7 +948,7 @@ export function edgeBands(style) {
     // line as far as the renderer is. Clamped rather than re-authored, so the
     // number in `EDGE_STYLE` goes on saying what it means.
     const sill = Math.max(GROUND_LINE, style.sill ?? 0.34);
-    const head = style.head ?? 0.9;
+    const head = style.head ?? 1.2;
     const out = style.out ?? 0;
     return [
       { y0: 0, y1: sill },
@@ -943,8 +975,8 @@ export function edgeBands(style) {
  * restyling a wall taller takes the ceiling with it.
  *
  * `LIFT` is the half that was missing, and it only became visible once a
- * hanging prop could be put where you actually want one. A wall is 1.1 and a
- * head tops out at 0.96, so the "ceiling" was barely above standing height:
+ * hanging prop could be put where you actually want one. A wall is 1.4 and a
+ * head tops out at 1.32, so the "ceiling" was barely above standing height:
  * anything that hangs DOWN from it — a string of lights, a pendant on a flex —
  * arrived resting on top of the shelving it was bought to light. What that
  * reads as is the fitting being the wrong size, and it is the room being too

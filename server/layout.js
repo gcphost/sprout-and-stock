@@ -27,7 +27,7 @@ import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
   FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS, FIXTURES,
-  footprint, sizeOf, deckOf, CEILING, LIFT_WAYS, rot4,
+  footprint, sizeOf, deckOf, CEILING, LIFT_WAYS, rot4, sorterRoute, mergeRoute,
 } from '../shared/build.js';
 
 export { T };
@@ -917,6 +917,13 @@ function compose(req, storeW, storeH, allowDrops = true) {
       belt.variant = p.variant ?? '';
       belt.piece = p.piece ?? null;
       belt.deck = deckOf(p);
+      // ...and how it settles a MERGE, which is the one thing a plain belt has
+      // ever had to decide. Carried across from the placement with the same trap
+      // `sorter.auto` and `reject` name: this record is rebuilt from scratch on
+      // every re-flow, and build mode re-flows on every wall segment of a drag,
+      // so a setting left out here is one that clears itself behind you while
+      // you are still drawing.
+      belt.merge = mergeRoute(p);
       beltsOut.push(belt);
       // Nothing reserved. A belt has no working spot, so there is no tile the
       // generator has to keep clear for it.
@@ -995,6 +1002,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // a shelf's `managed`, or every wall segment you drag turns the shop's
       // sorters back on behind you.
       sorter.auto = p.auto !== false;
+      // A junction can favour a leg — the straight-through one, or the one it is
+      // aimed at — without giving up the item-aware routing that `auto` means.
+      // Older saves have no `route` at all, so `sorterRoute` reads the pair
+      // together and their two existing answers stay smart and alternate.
+      sorter.route = sorterRoute(p);
       // ...and the side rejects go down, for the same reason and with the same
       // trap: a re-flow rebuilds this record from the placement, so a field left
       // out here is one that clears itself on the next wall you draw.

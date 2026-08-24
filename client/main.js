@@ -7153,7 +7153,21 @@ function loop() {
   // the overlay is keyed on the layout underneath, so the frame that has to
   // rebuild it is a frame somebody built something on, not the frame the switch
   // was pressed. It no-ops on that key when neither has moved.
-  scene.setFlowOverlay(debugOn('flow'));
+  // ...and WHAT IT IS ABOUT, which is the ordinary selection rather than a mode
+  // or a second gesture of its own: you pick a shelf to look at it, and the map
+  // answers about that shelf.
+  //
+  // The WHOLE selection, because shift-picking six shelves is the one gesture
+  // that means "these" — the map answers with a route to each, and a set of one
+  // is the ordinary tap unchanged.
+  //
+  // The refs and not `pickedFixtures()`, which is the same list resolved the
+  // safe way and resolves it by walking `fixturesIn` once per member — a fresh
+  // copy of every fixture in the shop, forty times a second, for an answer that
+  // only moves when somebody presses something. `flowFocus` matches by id and
+  // falls back to tile and storey, so the one thing that lookup buys — an id
+  // gone stale under a rotate — is bought here for nothing.
+  scene.setFlowOverlay(debugOn('flow'), ui.fixtureRef ? [ui.fixtureRef, ...ui.picked] : null);
   // Every frame while the key is down, because the camera rides the player: a
   // card pinned once slides off the unit it names the moment anybody walks.
   if (peekOn) ui.setPeek(peekCards());

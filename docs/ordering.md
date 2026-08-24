@@ -1,14 +1,15 @@
 # Ordering — what the shop buys, and who decided
 
-Status: **steps 1–9 built.** The restocker counts what the shop can already
+Status: **steps 1–10 built.** The restocker counts what the shop can already
 supply itself before it spends money, the three decisions it used to make
 silently are switches in the supplier, every item can carry a standing order,
 a shelf's own menu will now tell you what is on the van and order more,
 deciding what a board is *for* has a shortlist and a stock count of its own,
 the shop keeps a thing in one place, a unit marked for the back is stocked
 for the appliances beside it rather than for the shop front, seven tabs became
-three verbs, and an item has a menu of its own — where what you charge for it is
-a fact about the shop rather than about each board it stands on.
+three verbs, an item has a menu of its own — where what you charge for it is
+a fact about the shop rather than about each board it stands on — and an order
+is a thing you can place twice, at whatever size you meant.
 
 ⚠️ Both built steps measure as **balance-neutral at their defaults**, and that
 is deliberate rather than lucky. Step 1 came out at +2.7% mean profit over ten
@@ -614,6 +615,76 @@ Balance-neutral by construction rather than by measurement: with no price set,
 exactly that — the item's value, the board that opens at it, and an empty rule
 map. A price somebody actually sets should be expected to move every number in
 the game, which is the point of it.
+
+---
+
+## Step 10 — six was a press, not a quantity ✅
+
+### What was wrong
+
+You could order six of a thing, once, and then not again until the van had been.
+
+Two controls said it, and each was right about its own half. The supplier's row
+has one button slot, and Cancel took it the moment anything was on its way — the
+argument being that ordering and un-ordering are one decision seen from either
+side. The item menu's foot did the same. Both are true of the *decision* and
+false about the *press*: `×6` is a press, so the second press is how you say
+twelve, and the panel answered it by turning into the undo button.
+
+So the shop would sell you six loaves and then refuse to discuss bread until
+tomorrow morning, with the only visible sign being a button that had changed its
+word — and there was nowhere in the game to say a number at all. What that reads
+as, from a chair, is *"I can only order one bunch of something"*, which is how it
+was reported.
+
+Note what it is **not**: `Game.buyStock` has never had an opinion about either.
+It takes any quantity and refuses by name against the bay, the floor and the till
+(step 1's own note says there is deliberately no fourth ceiling), and it has
+never cared how many orders of a thing are already pending. Every part of this
+was a client that had decided one order was all anybody meant.
+
+### What it does now
+
+**The row orders. Every time.** One slot still, and it is the buying press —
+`Stock` is the one thing that takes it outright, because buying six of something
+your crew are carrying back out to the yard is the press that cannot work. The
+`+6` beside the count is the receipt, and it climbs.
+
+**Un-ordering moved one press in**, to the item menu's foot, where it sits
+*beside* the buy verb rather than in front of it — a five-square strip has room
+for both, and ordering more of something already coming is the commonest press
+there is: it is how you notice the van is bringing six and the shelf wants
+twenty. What is already loaded is still not offered, because `cancelOrder`
+refuses it and a control the shop will refuse is the green-ghost bug wearing a
+price.
+
+**And the amount is a stepper**, in the menu where every other number about an
+item already lives, next to price and the two standing-order figures. It moves
+in sixes so the two controls agree about what a case is — `×6` on the row and
+`×6` here are one press, and this one says how many cases. Its caption is the
+**cost**, not the count: `×30` means nothing beside a till holding $48 until it
+says $43.20.
+
+Three things about the amount are worth knowing before touching it:
+
+- **It lives on the menu, not on the shop.** No `item-rule` field, no save. It
+  is a fact about the panel you have open, the way `_fxTab` is — the standing
+  order is what "how much of this do I want, always" already means, and a second
+  persistent number beside `min` would be two answers to one question.
+- **It survives the redraw.** `tickItem` re-opens this menu on every van, price
+  and board that moves, so the reset is on the way *in* to a different item. Reset
+  unconditionally, the number goes back to six under your finger a second after
+  you set it to thirty — and the tick that does it is the one your own order
+  fired.
+- **The press redraws from the handler.** Nothing is sent, so no snapshot is
+  coming to say it changed; `itemSignature` deliberately does not mention it.
+
+### On measuring it
+
+Nothing to measure. `simulate` never opens a panel — the balance bot orders
+through `buyStock` directly and always could — so this is a client change with no
+sim half at all, which is also why there is no sweep: every claim in it is about
+which button is drawn.
 
 ---
 

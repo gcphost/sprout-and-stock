@@ -2378,6 +2378,43 @@ const stepFrom = (c, r) => ({ ...anchorTile(c.x, c.z, r), deck: deckOf(c) });
  */
 export const LIFT_WAYS = ['up', 'down'];
 
+/**
+ * What a junction does with a box — one setting with four answers.
+ *
+ * Two of them read the shop: `smart` sends each box down a line that can
+ * actually put it away, and `alternate` is that with the thinking switched off.
+ * The other two are the player's own routing instruction, and they are a pair
+ * about the same T: `straight` favours the line that carries on, `branch`
+ * favours the leg the junction is AIMED at. That second one is what gives R a
+ * meaning on this piece — until it existed `rot` only ever broke a tie, so
+ * turning a sorter was a press with nothing on the far side of it.
+ *
+ * A closed set for `LIFT_WAYS`' reason: four readers have to agree — the
+ * chooser, the snapshot, `compose` and the menu — and a typo would be a junction
+ * that silently went back to sorting, which is the answer three of the four
+ * already fall back to.
+ */
+export const SORTER_ROUTES = ['smart', 'straight', 'branch', 'alternate'];
+
+/**
+ * ...read off a cell or a placement, which is the ONE spelling of the default.
+ *
+ * `route` is absent on every junction built before it existed and `auto` is what
+ * the two answers those junctions have were called, so the pair has to be read
+ * together — separately, a live save's splitters quietly start sorting again on
+ * the next wall you draw.
+ */
+export const sorterRoute = (c) => (SORTER_ROUTES.includes(c?.route) ? c.route
+  : c?.auto === false ? 'alternate' : 'smart');
+
+/**
+ * ...and whether that answer is one the player NAMED a leg with.
+ *
+ * `smart` and `alternate` are stored as `auto` and nothing else, so only these
+ * two ride on the placement as a `route` — see `setSorterRoute`.
+ */
+export const FAVOURING = (route) => route === 'straight' || route === 'branch';
+
 export const acrossFrom = (c) => ({
   x: c.x, z: c.z, deck: deckOf(c) === CEILING ? 0 : CEILING,
 });
@@ -3261,6 +3298,78 @@ export function conveyorBranches(L, cell) {
     + (b.x === named.x && b.z === named.z ? 1 : 0));
   return out;
 }
+
+/**
+ * WHO HANDS ON TO THIS CELL — the merge, which is the other half of a junction
+ * and the half that happens to you without buying anything.
+ *
+ * `conveyorBranches` is the split: one line in, several ways out, and a sorter
+ * bought to choose between them. This is the same T read the other way round —
+ * two lines in, one way out — and it is the shape a run actually grows into
+ * first, because two aisles feeding one dock is what a second aisle IS. It
+ * happens on plain belt, with nothing bought and nothing configured, which is
+ * exactly why it had no controls: there is no piece to hang them on.
+ *
+ * Derived rather than stored, for the reason branches are: who feeds a cell is a
+ * fact about the RUN, and a list kept beside it is wrong the first time somebody
+ * turns a belt.
+ *
+ * The four sides AND the square above or below, which is `conveyorBranches`'
+ * enumeration and for its reason — a duct handing down into a floor run is a
+ * feeder every bit as much as the belt beside it, and one left out here is a
+ * line that can never be given priority. A tunnel arrives through its own far
+ * mouth, which is one of the four.
+ */
+export function conveyorFeeders(L, cell) {
+  if (!cell) return [];
+  const out = [];
+  const deck = deckOf(cell);
+  for (const n of [stepFrom(cell, 0), stepFrom(cell, 1), stepFrom(cell, 2), stepFrom(cell, 3),
+    acrossFrom(cell)]) {
+    const other = conveyorAt(L, n.x, n.z, n.deck);
+    if (!other || other.id === cell.id) continue;
+    const to = conveyorNext(L, other);
+    if (to && to.x === cell.x && to.z === cell.z && (to.deck ?? 0) === deck) out.push(other);
+  }
+  return out;
+}
+
+/**
+ * ...and which of them is the one carrying STRAIGHT ON through the cell.
+ *
+ * A belt's `rot` is where it points, so the feeder directly behind it is the
+ * line that does not turn — and that is what makes R the control here rather
+ * than a compass list in a menu. Turn the junction cell and you have said which
+ * of the two lines meeting on it is the main road; the other one is the leg.
+ *
+ * Null when nothing feeds it from behind, which is a merge with no straight line
+ * through it — two legs and no main road. `mergeFavoured` falls back rather than
+ * refusing, or a Y-shaped join would offer a setting that silently did nothing.
+ */
+export function mergeStraight(L, cell) {
+  if (!cell) return null;
+  const back = stepFrom(cell, rot4((cell.rot ?? 0) + 2));
+  return conveyorFeeders(L, cell)
+    .find((f) => f.x === back.x && f.z === back.z && deckOf(f) === back.deck) ?? null;
+}
+
+/**
+ * How a plain belt settles a MERGE, which is one setting with four answers.
+ *
+ * `default` is every junction ever built and is what the network already did:
+ * whichever box is nearer the seam goes, and two arriving level are settled by
+ * id. The other three are the player saying it out loud — `straight` for the
+ * line that carries on through, `leg` for the one that turns in, `alternate`
+ * for take-turns whatever else is happening.
+ *
+ * A closed set for `SORTER_ROUTES`' reason, and NOT that set: a split chooses
+ * between ways out and a merge chooses between ways in, so the two are different
+ * questions with confusingly similar words. Sharing one list would put "let the
+ * crew sort it" on a piece that never looks in a box.
+ */
+export const MERGE_ROUTES = ['default', 'straight', 'leg', 'alternate'];
+
+export const mergeRoute = (c) => (MERGE_ROUTES.includes(c?.merge) ? c.merge : 'default');
 
 /**
  * Every cell a crate put on this one would visit, in order, ending wherever the

@@ -1747,13 +1747,23 @@ function itemRows(ui) {
        */
       run: () => showItem(ui, it.id),
       /**
-       * The one button slot.
+       * The one button slot, and it ORDERS. Every time.
        *
-       * Ordering and un-ordering share it, because they are one decision seen
-       * from either side and a row with both would be two buttons of which one
-       * is always wrong. What is already loaded is not offered — `cancelOrder`
-       * refuses it, and a control the shop will refuse is the green-ghost bug
-       * wearing a price.
+       * Cancel used to take it the moment anything was on its way, on the
+       * argument that ordering and un-ordering are one decision seen from
+       * either side. That is true of the decision and it was false about the
+       * press: an order is not a thing you make once. Six is a *press*, not a
+       * quantity, so the second press is how you say twelve — and the row
+       * answered it by turning into the undo button, which is the panel
+       * withholding the one press it exists for. What it reads as is a shop
+       * that will only sell you six of anything until the van has been, and
+       * that is how it was reported.
+       *
+       * So the row buys, repeatedly, and the `+6` beside the count is the
+       * receipt. **Un-ordering moved one press in** (`item-menu.js`), which is
+       * where the amount lives too — the row is a sentence you scan with one
+       * press on the end of it, and everything you might *decide* about an
+       * item has been in the drill-down since it existed.
        *
        * **`Stock` is not one of the buying controls.** It takes the slot
        * outright while the mark is up, because buying six of something your
@@ -1770,22 +1780,15 @@ function itemRows(ui) {
        */
       button: dropped
         ? { label: 'Stock', run: () => ui.net.send('stock-again', { itemId: it.id }) }
-        : (inbound > 0 && !(due?.legs ?? []).every((l) => l.onVan))
-          ? {
-            label: 'Cancel',
-            danger: true,
-            run: () => ui.net.send('cancel-order', { itemId: it.id }),
-          }
-          // Tagged because the tour points at it — see `data-btn-tag` in
-          // ui.js. Only the ordering press carries one: Cancel and Stock are
-          // the same slot saying something else, and a mark that landed on
-          // either would be teaching a press that is not the one being asked
-          // for.
-          : {
-            label: '×6',
-            tag: 'buy',
-            run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }),
-          },
+        // Tagged because the tour points at it — see `data-btn-tag` in ui.js.
+        // Only the ordering press carries one: `Stock` is the same slot saying
+        // something else, and a mark that landed on it would be teaching a
+        // press that is not the one being asked for.
+        : {
+          label: '×6',
+          tag: 'buy',
+          run: () => ui.net.send('buy-stock', { itemId: it.id, qty: 6 }),
+        },
     };
   // `todo` leads, because the first tab is a queue of four kinds of job and the
   // kinds used to be tabs — every key after it is what orders one rank within

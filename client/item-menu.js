@@ -60,6 +60,18 @@ export function priceStep(now) {
 const round2 = (n) => Math.round(n * 100) / 100;
 
 /**
+ * How many one press of `+` adds to an order — and what one order starts at.
+ *
+ * Six, because that is the number the supplier's row has said since there was a
+ * row: `×6` there and `×6` here are one press, so stepping this by anything else
+ * would make the two controls disagree about what a case of something is. The
+ * ceiling is the shop's, not a number in here — the bay, the floor and the till
+ * each refuse by name in `Game.buyStock`, which is why there is no fourth one
+ * clipping the stepper silently.
+ */
+const ORDER_STEP = 6;
+
+/**
  * What a board of this is charging right now, or null if none is.
  *
  * The shop in front of you rather than a second opinion about what it *ought*
@@ -101,6 +113,13 @@ export function showItem(ui, itemId) {
   if (!it) { ui.closePanel(); return; }
 
   ui.openPanel = 'item';
+  // How many one press of the buy verb orders, and it lives here rather than on
+  // the server for the reason `_fxTab` does: it is a thing about the menu you
+  // have open, not about the shop. Reset on the way IN to a different item —
+  // `tickItem` re-opens this same menu on every van, price and shelf that
+  // moves, so a reset written unconditionally would put the number back to six
+  // under your finger a second after you had set it to thirty.
+  if (ui._imRef !== itemId) ui._imQty = ORDER_STEP;
   ui._imRef = itemId;
   // Neither a fixture nor a hire, so nothing in the world is marked — but the
   // rail stays lit on the supplier, because that is where this menu is: you are
@@ -126,6 +145,7 @@ export function showItem(ui, itemId) {
   const shelf = onTheShelf(ui, it.id);
   const price = rule.price ?? shelf ?? null;
   const dropped = (ui.state?.orders?.notStocking ?? []).find((d) => d.itemId === it.id) ?? null;
+  const qty = ui._imQty ?? ORDER_STEP;
 
   // Three regions, like a hire's: what this thing IS stays at the top, what you
   // can do to it stays at the bottom, and the decisions scroll between them.
@@ -160,6 +180,36 @@ export function showItem(ui, itemId) {
     // nothing, drawn next to the number it would not have changed.
     clear: rule.price != null ? { act: 'price0', label: 'Auto' } : null,
   }));
+
+  /**
+   * ...AND HOW MANY YOU WANT, which is the number the panel never had.
+   *
+   * `×6` is one press and was also the whole of what a press could say, so the
+   * only way to order thirty was five presses — and until the row learned to
+   * keep buying (see `sections.js`) it was not even that, because the second
+   * press turned into Cancel. "I can only order one bunch of something" is how
+   * that reads from a chair.
+   *
+   * It is a stepper rather than a typed number for the reason the rest of this
+   * menu is: 34px squares are a target you can hit with a thumb. And it is the
+   * same six the row buys, so the two controls agree about what a case is —
+   * this one just says how many cases.
+   *
+   * The cost is the caption rather than a second figure, because it is the
+   * number you are actually deciding on: `×30` means nothing next to a till
+   * with $48 in it until it says $43.20.
+   *
+   * Not offered on a dropped item — its verb is Stock, and an amount beside a
+   * button that does not take one is a control that moves no number.
+   */
+  if (!dropped) {
+    mid.push(setRow({
+      act: 'qty',
+      label: 'Order',
+      sub: `${money((it.base_cost ?? 0) * qty)} on the next van, onto the bay`,
+      value: qty,
+    }));
+  }
 
   // Nothing orders a made-here item and nothing chooses it for a bare board
   // (`pickItem` excludes every recipe output), so a minimum, a maximum and a
@@ -218,17 +268,25 @@ export function showItem(ui, itemId) {
     // `crafted` test is the block above: a minimum, a maximum and a
     // may-they-order are still three controls that would move no number,
     // because the crew go on leaving these to the kitchen.
+    //
+    // **BOTH, not one or the other.** Cancel took the slot outright while
+    // anything was on its way, which is what the supplier's row did and is the
+    // same bug: ordering more of a thing already coming is the commonest press
+    // there is — it is how you notice a van is bringing six and the shelf wants
+    // twenty — and it was the one press neither control offered. This is a
+    // five-square verb strip, so there is room for the undo to sit beside the
+    // verb rather than in front of it. What is already loaded is still not
+    // offered, because `cancelOrder` refuses it and a control the shop will
+    // refuse is the green-ghost bug wearing a price.
     const inbound = due?.qty ?? 0;
-    const cancellable = inbound > 0 && !(due?.legs ?? []).every((l) => l.onVan);
-    if (cancellable) {
+    if (inbound > 0 && !(due?.legs ?? []).every((l) => l.onVan)) {
       foot.push(actIcon('cancel', ICONS.close, 'Cancel the order',
         'It has not left the depot yet, so the money comes back.', 'Cancel', { danger: true }));
-    } else {
-      const cost = (it.base_cost ?? 0) * 6;
-      foot.push(actIcon('buy', ICONS.crate, 'Order six',
-        'Six on the next van, onto the delivery bay.', '×6',
-        { off: (ui.state?.cash ?? 0) < cost, right: money(cost) }));
     }
+    const cost = (it.base_cost ?? 0) * qty;
+    foot.push(actIcon('buy', ICONS.crate, `Order ${qty}`,
+      `${qty} on the next van, onto the delivery bay.`, `×${qty}`,
+      { off: (ui.state?.cash ?? 0) < cost, right: money(cost) }));
   }
 
   parts.push(`<div class="pnl-foot"><div class="fx-verbs">${foot.join('')}</div></div>`);
@@ -239,7 +297,7 @@ export function showItem(ui, itemId) {
   // supplier's rows put them in, so the pill means the same thing in the title
   // bar that it means in the list you pressed to get here.
   ui.showPanel(`${esc(it.name)}${ui.heatPill(it)}`, parts.join(''), `item:${it.id}`);
-  wireItemMenu(ui, it, { price });
+  wireItemMenu(ui, it, { price, qty });
 }
 
 /**
@@ -314,7 +372,7 @@ function facts(ui, it, { held, due, shelf, price, crafted }) {
  * from `base_price`, which on a shop mid-heatwave is a step backwards before
  * the step you asked for.
  */
-function wireItemMenu(ui, it, { price }) {
+function wireItemMenu(ui, it, { price, qty }) {
   const send = (patch) => ui.net.send('item-rule', { itemId: it.id, ...patch });
   const stack = it.stack ?? 12;
   const rule = ui.state?.orders?.items?.[it.id] ?? {};
@@ -342,7 +400,18 @@ function wireItemMenu(ui, it, { price }) {
       // looking at the list again, which is the one thing the supplier's freeze
       // exists to prevent.
       if (a === 'back') { ui.showSection('stock', { keep: true }); return; }
-      if (a === 'buy') { ui.net.send('buy-stock', { itemId: it.id, qty: 6 }); return; }
+      if (a === 'buy') { ui.net.send('buy-stock', { itemId: it.id, qty }); return; }
+      // The amount is the menu's own, so nothing is sent and nothing waits for
+      // a snapshot: redraw from here, the way `showItem` redraws itself on a
+      // tick. Down off the step clears back to one case rather than to nothing
+      // — there is no unset amount, because the verb beside it always orders
+      // something.
+      if (a === 'qty+') { ui._imQty = qty + ORDER_STEP; showItem(ui, it.id); return; }
+      if (a === 'qty-') {
+        ui._imQty = Math.max(ORDER_STEP, qty - ORDER_STEP);
+        showItem(ui, it.id);
+        return;
+      }
       if (a === 'cancel') { ui.net.send('cancel-order', { itemId: it.id }); return; }
       if (a === 'again') { ui.net.send('stock-again', { itemId: it.id }); return; }
       if (a === 'price+') { acts.price(1); return; }
@@ -389,7 +458,10 @@ function itemSignature(ui, it) {
     (o.notStocking ?? []).find((d) => d.itemId === it.id)?.left ?? null,
     van, boards, ui.heatFor(it),
     // The buy verb is priced against the till and greys out when you cannot
-    // afford six. Rounded, or every sale in the shop redraws this panel.
+    // afford what it is set to. Rounded, or every sale in the shop redraws this
+    // panel. The amount itself is not in here on purpose: it is the menu's own
+    // number, so the press that moves it redraws from the handler — a snapshot
+    // is never what tells you it changed.
     Math.floor(ui.state?.cash ?? 0),
     ui.catalog.version,
   ]);
