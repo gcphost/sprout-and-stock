@@ -945,6 +945,9 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // re-flow with the rest, or every wall segment you drag puts the shop's
       // tunnels back on the floor behind you.
       under.riser = p.riser === true;
+      // ...and who goes first where two lines meet on it, carried for the reason
+      // the line above is carried — see the belt branch.
+      under.merge = mergeRoute(p);
       undersOut.push(under);
     } else if (p.kind === 'lift') {
       // The one piece on both storeys, so it stamps and occupies the floor cell
@@ -955,6 +958,9 @@ function compose(req, storeW, storeH, allowDrops = true) {
       lift.tier = p.tier ?? 1;
       lift.variant = p.variant ?? '';
       lift.piece = p.piece ?? null;
+      // ...and its merge — two runs arriving on one square is the ordinary way
+      // two storeys of a loop rejoin. Same trap as `way` above.
+      lift.merge = mergeRoute(p);
       liftsOut.push(lift);
     } else if (p.kind === 'arm') {
       // A loader is a belt cell by its STAMP and not by its footprint, and those
@@ -983,6 +989,9 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // `auto`, or every wall segment you drag hands the shop's loaders back
       // their pickup behind you.
       arm.mode = p.mode === 'load' || p.mode === 'unload' ? p.mode : 'both';
+      // ...and its merge, on the same terms and for the same reason: a loader
+      // stands IN a run, so it is a square two lines can arrive at.
+      arm.merge = mergeRoute(p);
       armsOut.push(arm);
       // Nothing occupied and nothing reserved — see `makeArm`.
     } else if (p.kind === 'sorter') {
@@ -1011,6 +1020,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // trap: a re-flow rebuilds this record from the placement, so a field left
       // out here is one that clears itself on the next wall you draw.
       sorter.reject = Number.isInteger(p.reject) ? p.reject : null;
+      // ...and who goes first where two lines meet ON it, which is the other
+      // half of a T. Carried with the same trap as the three above, and it
+      // matters most here: a sorter is what people build where lines meet, so
+      // this is the junction the setting is usually made on.
+      sorter.merge = mergeRoute(p);
       sortersOut.push(sorter);
     } else if (p.kind === 'checkout') {
       occupy(p.x, p.z);

@@ -4656,6 +4656,200 @@ const bedAt = (g) => (at) => {
       // Sparse, or the biggest array in the game goes down the wire to say
       // nothing twenty times a second.
       eq(g.snapshot().merges?.length, 1, '...while every other belt in the shop sends nothing');
+
+      /**
+       * ...and the same trap through the OTHER door, which is the press.
+       *
+       * `repositionFixture` builds a fresh placement and names every field it
+       * keeps, so a setting left out is not merely not copied — it is reset by
+       * the re-flow at the bottom of that function. And R is exactly the gesture
+       * a merge is designed around: which line counts as "straight" is read off
+       * `rot`, so turning the junction is how you swap which one is the main
+       * road. A rule cleared by that turn is the control undoing itself on its
+       * own control, and both states draw as a working conveyor.
+       */
+      const spun = g.rotateFixture('me', after.id, 1);
+      check(spun.ok, 'the junction can be turned', spun.error ?? '');
+      eq(mergeRoute(g.beltAt(cells[2].x, cells[2].z)), 'straight',
+        '...and turning it does not forget which line it favours');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 24b. THE SAME MERGE, ON A SORTER — because that is the square it happens on.
+//
+// A merge belongs to the cell two runs arrive at, and which piece is standing on
+// that cell is a decision made for entirely other reasons. In a real shop it is
+// the sorter, because a sorter is what people build where lines meet — so the
+// control shipped named against `belt` and was missing from precisely the
+// junction that backs up. Nothing anywhere said so: a sorter with two feeders
+// and no merge rule is a sorter, and its menu simply had one heading fewer than
+// the belt beside it.
+//
+// Its control is the pair that decides whether any of this is opt-in: every
+// sorter in every save is `default` and carries no field at all.
+//
+// And the half that is NOT the belt's: `straight` and `leg` are read off `rot`,
+// which on this piece is the branch it favours on the way OUT. The feeder
+// opposite that branch is very often the LEG, so answering the question anyway
+// would let the leg through under a row that says "let the straight line
+// through" — a setting obeyed to the tick, doing the opposite of what it reads.
+// So the two rows that need a main road are refused here, and the two that do
+// not are the whole of what this piece gains.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 4);
+  check(!!cells, 'there is room for two lines to meet on a junction');
+  if (cells) {
+    const east = aim(cells[0], cells[1]);
+    for (const c of [cells[0], cells[1], cells[3]]) {
+      const res = g.placeFixture('me', { kind: 'belt', piece: BELT.id, x: c.x, z: c.z, rot: east });
+      check(res.ok, `a belt goes down at ${c.x},${c.z}`, res.error ?? '');
+    }
+    const put = g.placeFixture('me', {
+      kind: 'sorter', piece: JUNCTION.id, x: cells[2].x, z: cells[2].z, rot: east,
+    });
+    check(put.ok, 'a junction stands where the two lines meet', put.error ?? '');
+    const join = g.beltAt(cells[2].x, cells[2].z);
+    eq(join?.kind, 'sorter', 'the cell the lines meet on is the junction');
+
+    let leg = null;
+    for (const dz of [-1, 1]) {
+      const n = { x: cells[2].x, z: cells[2].z + dz };
+      if (g.beltAt(n.x, n.z)) continue;
+      if (!canPlace(g.layout, { kind: 'belt', x: n.x, z: n.z, rot: 0 }).ok) continue;
+      const res = g.placeFixture('me', {
+        kind: 'belt', piece: BELT.id, x: n.x, z: n.z, rot: aim(n, cells[2]),
+      });
+      if (!res.ok) continue;
+      leg = g.beltAt(n.x, n.z);
+      break;
+    }
+    check(!!leg, 'a leg turns into the junction');
+
+    if (join && leg) {
+      // Split evenly rather than by what is in the box, so every count below is
+      // a measurement of the MERGE. Left smart, a junction that decides a crate
+      // has nowhere to go is a junction that stopped, and the stream would be a
+      // reading of `sorterOut` with the merge underneath it.
+      g.setSorterAuto('me', join.id, false);
+
+      // --- the control ------------------------------------------------------
+      eq(mergeRoute(join), 'default', 'a junction nobody has spoken for takes whoever gets there first');
+      check(!g.placements.find((p) => p.id === join.id)?.merge,
+        '...and carries no merge field at all, so no save in existence moves');
+      const feeders = conveyorFeeders(g.layout, join);
+      eq(feeders.length, 2, 'the junction knows both lines feed it');
+
+      /**
+       * ...and the refusal, which is the claim that keeps the two rows a belt
+       * has from being offered on a piece that cannot answer them.
+       *
+       * A dead row cannot be told from a broken one, and this one would be
+       * worse than dead: it would favour whichever feeder `conveyorFeeders`
+       * happened to list first — a preference decided by compass order, honoured
+       * to the tick, and indistinguishable from one somebody chose.
+       */
+      eq(mergeStraight(g.layout, join), null,
+        'a sorter has no main road, because its rotation is spoken for');
+      for (const road of ['straight', 'leg']) {
+        const no = g.setBeltMerge('me', join.id, road);
+        check(!no.ok, `a junction refuses "${road}" rather than obeying it wrongly`);
+      }
+      eq(mergeRoute(g.beltAt(cells[2].x, cells[2].z)), 'default', '...and nothing moved');
+
+      /**
+       * The centrepiece, and the one he asked for: TAKE TURNS, under load.
+       *
+       * Nothing here can be looked at. A box that went first because it was told
+       * to and one that went first because it happened to be nearer are the same
+       * box on the same cell, and the shop is the same shop afterwards either
+       * way — only the order moved, and order is the one thing a still frame
+       * cannot hold. So it is a stream: both lines fed every tick, a sink at the
+       * far end, and the arrivals counted by which line they came off.
+       */
+      const stream = (merge, ticks = 600) => {
+        g.deliveries = [];
+        g.mergeTurn = new Map();
+        const set = g.setBeltMerge('me', join.id, merge);
+        check(set.ok, `a junction can be told: ${merge}`, set.error ?? '');
+        const heads = [[g.beltAt(cells[0].x, cells[0].z), 'S'], [g.beltAt(leg.x, leg.z), 'L']];
+        const end = g.beltAt(cells[3].x, cells[3].z);
+        const from = new Map();
+        const seen = new Set();
+        const seq = [];
+        for (let t = 0; t < ticks; t++) {
+          for (const [src, tag] of heads) {
+            if (!g.beltCellFree(src)) continue;
+            const c = g.dropGoods(GOODS.id, 1, { x: src.x, z: src.z }, { exact: true });
+            if (c) { g.loadBelt(src, c); from.set(c.id, tag); }
+          }
+          run(g, 1);
+          for (const d of g.deliveries) {
+            if (d.belt === end.id && !seen.has(d.id)) { seen.add(d.id); seq.push(from.get(d.id)); }
+          }
+          g.deliveries = g.deliveries.filter((d) => d.belt !== end.id);
+        }
+        g.deliveries = [];
+        return seq.join('');
+      };
+
+      const fair = stream('alternate');
+      const sN = [...fair].filter((c) => c === 'S').length;
+      const lN = [...fair].filter((c) => c === 'L').length;
+      check(fair.length > 20, 'the stream actually moved boxes through the junction', `${fair.length}`);
+      check(Math.abs(sN - lN) <= 2, 'take-turns gives both lines the same share of a busy junction',
+        `S=${sN} L=${lN}`);
+      check(!/SS|LL/.test(fair), '...strictly, box for box, and never two off one line',
+        fair.slice(0, 24));
+
+      /**
+       * ...and its PAIR, which is what stops the above passing on a junction
+       * that was already fair. `default` is `barrier` — nearest box wins, ties
+       * by id — and on a saturated junction that is one line taking long runs at
+       * a time. Both halves or neither: a claim that take-turns alternates says
+       * nothing until the thing it replaced provably did not.
+       */
+      const raw = stream('default');
+      check(raw.length > 20, 'the same stream moves boxes with no rule set', `${raw.length}`);
+      check(/SS|LL/.test(raw), '...and takes them in runs rather than in turn, which is the whole point',
+        raw.slice(0, 24));
+
+      // Conservation, because a merge is a place two lots of goods come together
+      // and every one of those in this game has been a hole.
+      g.setBeltMerge('me', join.id, 'alternate');
+      const x = crateOn(g, g.beltAt(cells[0].x, cells[0].z), GOODS, 5);
+      const y = crateOn(g, g.beltAt(leg.x, leg.z), GOODS, 3);
+      const total = units(g);
+      run(g, 120);
+      eq(units(g), total, 'nothing is created or destroyed where two lines meet on a junction');
+      g.deliveries = g.deliveries.filter((d) => d.id !== x.id && d.id !== y.id);
+
+      // ...and both ways the setting can be cleared behind you: `compose`
+      // rebuilds this record from its placement on every wall segment of a drag,
+      // and `repositionFixture` names every field it keeps. R is the press this
+      // piece gets most of all — it is how you aim the branch — so a merge that
+      // did not survive a turn would be gone the first time anybody used it.
+      g.regenerateLayout();
+      const after = g.beltAt(cells[2].x, cells[2].z);
+      eq(mergeRoute(after), 'alternate', 'a junction keeps its merge rule through a re-flow');
+      eq(g.snapshot().sorters?.find((s) => s.id === after?.id)?.merge, 'alternate',
+        '...and it is on the wire, or the menu is a row that can never tick');
+      const spun = g.rotateFixture('me', after.id, 1);
+      check(spun.ok, 'the junction can be turned', spun.error ?? '');
+      const turned = g.beltAt(cells[2].x, cells[2].z);
+      eq(mergeRoute(turned), 'alternate', '...and turning it does not forget it either');
+      eq(turned?.auto, false, '...nor the setting it already kept, which is the pair that proves it');
+
+      // Back to what every junction in every save is, and the field goes with it.
+      const off = g.setBeltMerge('me', turned.id, 'default');
+      check(off.ok, 'a junction can be handed back to whoever gets there first', off.error ?? '');
+      check(!g.placements.find((p) => p.id === turned.id)?.merge,
+        '...and stores nothing at all when it is');
+      check(!g.snapshot().sorters?.find((s) => s.id === turned.id)?.merge,
+        '...and says nothing on the wire, the way the belts do');
     }
   }
 }

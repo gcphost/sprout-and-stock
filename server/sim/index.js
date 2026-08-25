@@ -52,7 +52,7 @@ import {
   GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
   shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces, LIFT_WAYS,
   SORTER_ROUTES, sorterRoute, FAVOURING,
-  MERGE_ROUTES, mergeRoute, conveyorFeeders, mergeStraight,
+  MERGE_ROUTES, mergeRoute, conveyorFeeders, mergeStraight, CONVEYOR_KINDS,
   covers, footprintMid, footprint, paddockOf, pennedIn,
 } from '../../shared/build.js';
 import {
@@ -3391,6 +3391,11 @@ export class Game {
         // the lamp says — see `armMove`. `{d, out, n}`: the side, the direction
         // across it, and a counter the client watches for the edge.
         ...(this.armMove(a.id) ? { move: this.armMove(a.id) } : {}),
+        // ...and how it settles a merge, since a loader is a square two runs can
+        // arrive at like any other. Sparse for `merges`' reason — every one of
+        // these in every shop is `default`, and `mergeRoute` reads a miss as
+        // exactly that.
+        ...(mergeRoute(a) !== 'default' ? { merge: mergeRoute(a) } : {}),
         ...shaftWire(a.id),
       })),
       sorters: (this.layout.sorters ?? []).map((s) => ({
@@ -3437,6 +3442,10 @@ export class Game {
         // ...and which way it last sent one, which is what the roof marks draw.
         // Same shape and same terms as a loader's `move` — see `sorterSent`.
         ...(this.sorterMove(s.id) ? { move: this.sorterMove(s.id) } : {}),
+        // ...and who goes first where two lines meet ON it, which is the other
+        // half of a T and the half this piece went without. Sparse, like the
+        // fields above and for `merges`' reason.
+        ...(mergeRoute(s) !== 'default' ? { merge: mergeRoute(s) } : {}),
         ...shaftWire(s.id),
       })),
       /**
@@ -3461,6 +3470,10 @@ export class Game {
       lifts: (this.layout.lifts ?? []).map((l) => ({
         id: l.id,
         way: LIFT_WAYS.includes(l.way) ? l.way : null,
+        // ...and its merge, since two runs rejoining on one square is the
+        // ordinary way two storeys of a loop come back together — the case
+        // `setLiftWay` already names. Sparse, like the belts' own list.
+        ...(mergeRoute(l) !== 'default' ? { merge: mergeRoute(l) } : {}),
         ...shaftWire(l.id),
       })),
       // ...and a mouth's own, for the reason directly above: the menu is drawn
@@ -3471,6 +3484,8 @@ export class Game {
       unders: (this.layout.unders ?? []).map((u) => ({
         id: u.id,
         riser: u.riser === true,
+        // ...and its merge, on the same terms as the three above.
+        ...(mergeRoute(u) !== 'default' ? { merge: mergeRoute(u) } : {}),
       })),
       cashDrops: this.cashDrops.map((d) => ({
         id: d.id, x: r2(d.x), z: r2(d.z), amount: d.amount,
@@ -11826,7 +11841,7 @@ export class Game {
   }
 
   /**
-   * ...and the same question asked of a plain belt, where two lines MEET.
+   * ...and the same question asked of the cell two lines MEET on.
    *
    * Its own verb rather than a fourth branch of `setSorterRoute`, because a
    * split and a merge are opposite questions that happen to be drawn as the same
@@ -11835,6 +11850,14 @@ export class Game {
    * into the same dock. Sharing a verb would mean sharing `SORTER_ROUTES`, and
    * "let the crew sort it" is not a thing a belt can be told.
    *
+   * EVERY CONVEYOR KIND, and it shipped as belt-only for a step. A merge belongs
+   * to the square the runs arrive at, and which piece is standing on that square
+   * is a decision made for other reasons entirely — in a real shop it is usually
+   * the sorter, because a sorter is what you build where lines meet. Named
+   * against `belt` alone, the control was missing from exactly the junction that
+   * backs up, and there was nothing to say so: a sorter with two feeders and no
+   * merge rule is a sorter, and its menu simply had one heading fewer.
+   *
    * No re-flow: this is read by `stepBelts` at the moment a box crosses, the way
    * `sorter.auto` is — where `lift.way` is read inside `conveyorFlow` and has to
    * re-cut the shop. It goes on the wire instead, so the menu ticks.
@@ -11842,10 +11865,19 @@ export class Game {
   setBeltMerge(playerId, id, merge) {
     const { f, error } = this.buildTarget(playerId, id);
     if (error) return err(error);
-    if (f.kind !== 'belt') return err('only a conveyor settles a merge');
-    const cell = (this.layout.belts ?? []).find((b) => b.id === id);
+    if (!CONVEYOR_KINDS.includes(f.kind)) return err('only a conveyor settles a merge');
+    const cell = conveyorsOf(this.layout).find((c) => c.id === id);
     if (!cell) return err('that is not a conveyor');
     if (!MERGE_ROUTES.includes(merge)) return err('that is not a merge rule');
+    // A refusal rather than a rule that quietly does nothing. `mergeAims` says
+    // whether this cell's own rotation names a main road, and on a sorter, a
+    // loader or a shaft it does not — so there is no straight line to favour and
+    // no leg to tell apart from one. Accepted anyway it would be a setting that
+    // ticks in the menu and moves no box, which cannot be told from one that is
+    // broken. Take-turns needs none of that and is offered everywhere.
+    if ((merge === 'straight' || merge === 'leg') && !mergeStraight(this.layout, cell)) {
+      return err('nothing runs straight through here, so there is no main road to favour');
+    }
     cell.merge = merge;
     // ...and onto the PLACEMENT, which is what `compose` re-reads — see the note
     // in `setSorterRoute`. `default` is stored as nothing at all, so a belt
@@ -12431,11 +12463,22 @@ export class Game {
       if (feeders.length < 2 || !feeders.some((f) => f.id === mine.id)) return false;
       const straight = mergeStraight(this.layout, into);
       let want = null;
-      if (route === 'straight') want = straight;
-      // The leg is "not the straight one", which is exactly one line at a T and
-      // is the first in `rot` order anywhere else — the same tie-break
-      // `conveyorBranches` settles a split with, said about a join.
-      else if (route === 'leg') want = feeders.find((f) => f.id !== straight?.id) ?? null;
+      // NO MAIN ROAD, NO PREFERENCE. `mergeStraight` is null on a Y-shaped join
+      // and on every cell whose rotation is spoken for (`mergeAims` — a sorter's
+      // `rot` is its branch, a loader's is its shelf, a shaft's is its landing
+      // side), and both settings are then a question the shop cannot answer.
+      // Answered anyway, `leg` would favour whichever feeder came first out of
+      // `conveyorFeeders` — a preference decided by compass order, honoured to
+      // the tick, and indistinguishable from one somebody chose. The setter
+      // refuses these two on such a cell; this is the same rule said to a save
+      // that already carries one.
+      if (route === 'straight' || route === 'leg') {
+        if (!straight) return false;
+        // The leg is "not the straight one", which is exactly one line at a T
+        // and is the first in `rot` order anywhere else — the same tie-break
+        // `conveyorBranches` settles a split with, said about a join.
+        want = route === 'straight' ? straight : feeders.find((f) => f.id !== straight.id) ?? null;
+      }
       // Take turns: whoever did NOT go last is owed this one. Unset on the first
       // box through, which then falls through to the ordinary rule — a junction
       // nobody has used yet has no turn to remember.
@@ -17230,6 +17273,13 @@ export class Game {
       // the day something can, it is a side somebody named on purpose.
       reject: from.reject === (from.rot ?? 0) ? rot4(Number(spec.rot) || 0) : from.reject,
       riser: from.riser,
+      // ...and who goes first where two lines meet on it. It rides along rather
+      // than re-aiming the way `reject` does, because it names a RULE and not a
+      // side — but R is very much the press here too: which of two lines is
+      // "straight" is read off `rot`, so turning a junction is exactly how you
+      // swap which one is the main road, and a merge cleared by that turn is the
+      // control undoing itself on the one gesture it was designed around.
+      merge: from.merge,
       // ...and a shaft's direction, which is the one setting on this list whose
       // whole reason for not being `rot` is that R would clear it. Left out
       // here, R clears it anyway through the back door.

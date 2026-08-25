@@ -10,7 +10,7 @@
  * the snapshot and sends messages, not part of the HUD's own state.
  */
 
-import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, anchorTile, holdsGoods, shelfKind, sameFixture, sorterRoute, mergeRoute, conveyorFeeders } from '../shared/build.js';
+import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, anchorTile, holdsGoods, shelfKind, sameFixture, sorterRoute, mergeRoute, conveyorFeeders, mergeStraight, CONVEYOR_KINDS } from '../shared/build.js';
 import { pieceFor } from '../shared/pieces.js';
 import { homeKind } from '../shared/tags.js';
 import { LOT_KINDS, lotStacks, lotHas, lotLabel } from '../shared/lot.js';
@@ -1299,8 +1299,25 @@ function isMerge(ui, f) {
   return !!L && conveyorFeeders(L, f).length > 1;
 }
 
-function mergeRows(ui, f, live, { lives = [live] } = {}) {
-  return MERGES.map((m) => {
+function mergeRows(ui, f, live, { lives = [live], many = [f] } = {}) {
+  const L = ui.scene?.storeLayout;
+  /**
+   * ...and two of the four rows are only offered where there IS a main road.
+   *
+   * `straight` and `leg` are read off `rot`, which only names a direction of
+   * travel on a belt and a tunnel mouth — a sorter's is the branch it favours, a
+   * loader's is the shelf it stocks, a shaft's is the side it lands on. Offered
+   * on those, the rows would tick and move no box: the server refuses them
+   * (`mergeStraight` is null), so leaving them up would be a highlight
+   * advertising a press the shop turns down, which is the green-ghost rule
+   * wearing a menu. It also drops them on a Y-shaped join of plain belt, which
+   * is the same claim about a shape rather than a piece.
+   *
+   * Take-turns needs no road at all, which is why the heading is worth having on
+   * a sorter: that is the one everybody wants at the junction that backs up.
+   */
+  const road = !!L && many.every((g) => mergeStraight(L, g));
+  return MERGES.filter((m) => road || (m.merge !== 'straight' && m.merge !== 'leg')).map((m) => {
     const at = allSay(lives, (l) => mergeRoute(l) === m.merge);
     return {
       icon: ICONS.stocker,
@@ -1537,7 +1554,7 @@ function settingRows(ui, f, live, sel = {}) {
     under('What it does', armRows(ui, f, live, sel));
   }
   /**
-   * ...and a plain belt gets rows only where two lines actually MEET.
+   * ...and a conveyor gets rows only where two lines actually MEET.
    *
    * Every other heading here is a fact about the KIND, and this one cannot be: a
    * shop lays belt by the hundred and all but a handful of those cells have one
@@ -1545,12 +1562,20 @@ function settingRows(ui, f, live, sel = {}) {
    * nothing on a straight run — which is worse than no control, because a row
    * that does nothing cannot be told from one that is broken.
    *
+   * ...and it is a fact about the CELL rather than about the piece, which is why
+   * this reads `CONVEYOR_KINDS` and not `belt`. It shipped as belt-only, on the
+   * true observation that a merge needs no piece bought — and the square two
+   * runs actually arrive at is usually the sorter, because a sorter is what you
+   * build where lines meet. So the setting was missing from precisely the
+   * junction that backs up, and nothing said so: a sorter's menu simply had one
+   * heading fewer than the belt beside it.
+   *
    * Asked of the layout rather than of the snapshot, because who feeds a cell is
    * derived (`conveyorFeeders`) and the derivation is the same one the sim uses.
    * A second opinion here would be the green-ghost rule wearing a menu: rows
    * offered for a merge the sim does not think is one.
    */
-  if (many.every((g) => g.kind === 'belt' && isMerge(ui, g))) {
+  if (many.every((g) => CONVEYOR_KINDS.includes(g.kind) && isMerge(ui, g))) {
     under('Where two lines meet', mergeRows(ui, f, live, sel));
   }
   if (many.every((g) => g.kind === 'sorter')) {

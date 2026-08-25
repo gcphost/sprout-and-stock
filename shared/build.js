@@ -3335,32 +3335,56 @@ export function conveyorFeeders(L, cell) {
 }
 
 /**
- * ...and which of them is the one carrying STRAIGHT ON through the cell.
+ * WHETHER THIS CELL'S OWN ROTATION NAMES A MAIN ROAD, which is the one thing
+ * `straight` and `leg` rest on and is not true of every conveyor.
  *
- * A belt's `rot` is where it points, so the feeder directly behind it is the
- * line that does not turn — and that is what makes R the control here rather
- * than a compass list in a menu. Turn the junction cell and you have said which
- * of the two lines meeting on it is the main road; the other one is the leg.
+ * A belt's `rot` is where it points and a mouth's is where its span runs, so on
+ * those two the feeder directly behind is the line that does not turn. On a
+ * sorter `rot` is the branch it favours on the way OUT, on a loader it is the
+ * shelf it stocks, and on a shaft it is the side it lands on — three pieces
+ * whose rotation is spoken for, and asking them which feeder is "behind" gives a
+ * confident answer to a question they were never told. At a sorter it is worse
+ * than useless: the feeder opposite the branch is very often the LEG, so
+ * "let the straight line through" would let the leg through, and the shop would
+ * look exactly like a junction obeying its setting.
+ */
+export const mergeAims = (cell) => !!cell && !derivedFlow(cell.kind) && cell.kind !== 'lift';
+
+/**
+ * ...and which of the feeders is the one carrying STRAIGHT ON through the cell.
  *
- * Null when nothing feeds it from behind, which is a merge with no straight line
- * through it — two legs and no main road. `mergeFavoured` falls back rather than
- * refusing, or a Y-shaped join would offer a setting that silently did nothing.
+ * That is what makes R the control here rather than a compass list in a menu:
+ * turn the junction cell and you have said which of the two lines meeting on it
+ * is the main road; the other one is the leg.
+ *
+ * Null when nothing feeds it from behind — a merge with two legs and no main
+ * road — and null on every piece `mergeAims` refuses. `mergeHolds` treats both
+ * the same way and yields to nobody, which is what stops a setting that cannot
+ * be answered from favouring a line picked by list order.
  */
 export function mergeStraight(L, cell) {
-  if (!cell) return null;
+  if (!mergeAims(cell)) return null;
   const back = stepFrom(cell, rot4((cell.rot ?? 0) + 2));
   return conveyorFeeders(L, cell)
     .find((f) => f.x === back.x && f.z === back.z && deckOf(f) === back.deck) ?? null;
 }
 
 /**
- * How a plain belt settles a MERGE, which is one setting with four answers.
+ * How a conveyor cell settles a MERGE, which is one setting with four answers.
  *
  * `default` is every junction ever built and is what the network already did:
  * whichever box is nearer the seam goes, and two arriving level are settled by
  * id. The other three are the player saying it out loud — `straight` for the
  * line that carries on through, `leg` for the one that turns in, `alternate`
  * for take-turns whatever else is happening.
+ *
+ * It belongs to the cell being ENTERED whatever that cell is, which is why the
+ * field rides on every conveyor kind rather than on belt alone. A merge is not a
+ * fact about a piece you bought — it is what happens to the square two runs
+ * happen to arrive at, and in a real shop that square is most often the sorter,
+ * because a sorter is what people stand where lines meet. `straight` and `leg`
+ * are the two that need `mergeAims`; `default` and `alternate` can be answered
+ * by anything.
  *
  * A closed set for `SORTER_ROUTES`' reason, and NOT that set: a split chooses
  * between ways out and a merge chooses between ways in, so the two are different

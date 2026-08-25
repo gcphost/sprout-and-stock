@@ -1,9 +1,10 @@
 # Belts — the trip nobody walks
 
-Status: **steps 1, 2, 2b, 3, 3b, 4, 4b, 7 and 8 built.** Steps 5–6 proposed.
+Status: **steps 1, 2, 2b, 3, 3b, 4, 4b and 7–11 built.** Steps 5–6 and 12
+proposed.
 
-Steps 1–3 are the build. Steps 5–6 are written down so the shape is argued now
-rather than discovered later, and should not be started.
+Steps 1–3 are the build. Steps 5–6 and 12 are written down so the shape is
+argued now rather than discovered later, and should not be started.
 
 What shipped: the `belt`, `arm` and `sorter` kinds, the tile they stamp, the
 downstream-first tick with backpressure, the catalog rows, a `scroll` motion kind
@@ -214,6 +215,47 @@ decides per crate:
 
 Backpressure is asked **after** keenness, never before. A jam on the only line
 that wants the goods must not take that line out of the running.
+
+### 3b. Who goes first where two lines MEET? (`mergeHolds`)
+
+The split above is a junction read one way. This is the same T read the other —
+two runs into one cell — and it is the half that happens to you without buying
+anything, because two aisles feeding one dock is what a second aisle *is*.
+
+Unset (`default`, and every junction ever built) it is `barrier`: whichever box
+is nearer the seam goes, ties by id. That is a rule and it is not a *choice* —
+it is whichever aisle happens to be running fuller, so the shop's answer changes
+with the traffic rather than with anything anybody pressed. `MERGE_ROUTES` is
+the player saying it instead: `straight`, `leg`, or `alternate`.
+
+A hold is the whole mechanism and it is one line — the loser stays at the end of
+its own run, which is what every cell already does with something in its way. The
+half that matters is when it does **not** hold: the favoured line has to be
+actually presenting a box bound for this same cell (`presenting`), or a priority
+merge is a leg that never moves again the day anything jams a mile upstream.
+
+**It is a fact about the CELL, not about the belt.** The field rides on every
+conveyor kind, and it shipped on `belt` alone for a step — a true observation
+(a merge needs no piece bought) that was wrong about where merges actually
+happen. Which piece stands on the square two runs arrive at is a decision made
+for entirely other reasons, and in a real shop that piece is the **sorter**,
+because a sorter is what people build where lines meet. So the control was
+missing from precisely the junction that backs up, and nothing said so: a sorter
+with two feeders and no merge rule is a sorter, and its menu simply had one
+heading fewer than the belt beside it.
+
+Two of the four rows are not offered everywhere, and that is `mergeAims`.
+`straight` and `leg` are read off `rot` — the feeder directly behind the cell is
+the line that does not turn, which is what makes **R** the control here rather
+than a compass list in a menu. That only works where `rot` *is* the direction of
+travel: on a belt and on a tunnel mouth. A sorter's `rot` is the branch it
+favours on the way out, a loader's is the shelf it stocks, a shaft's is the side
+it lands on. Answered anyway, the feeder "behind" a sorter is very often the
+**leg**, so "let the straight line through" would let the leg through — obeyed to
+the tick, doing the opposite of what it reads. So `mergeStraight` is null on
+those three, the menu drops the two rows, the setter refuses them, and
+`mergeHolds` yields to nobody if a save carries one. Take-turns needs no main
+road at all, and it is the one everybody wants at the junction that backs up.
 
 ### 4. And where does it leave the network?
 
@@ -1935,6 +1977,164 @@ wrong is where you go and read the sorter.
   flood; only a comparison of the two sets catches it.
 - **It says nothing about volume.** Which of three lit runs actually delivers the
   bread is step 5's question, not this one.
+
+---
+
+## Step 12 — the packer, which is a crate that stands still
+
+**Proposed. Nothing in this section is built.**
+
+### The hole
+
+A van backs onto the dock and sets down what it brought: four eggs in one box,
+four bread in another, four lettuce in a third. Nothing downstream of that
+moment can make one trip out of it.
+
+A **hire** cannot: `wholeCrate` refuses a box that is not worth more than an
+armful, `fit` scores each of those at four, and `fillHands` tops up only a kind
+already in the arms — so they leave with four units and walk the shop three
+times, looking busy the whole way. That is the case `packs` exists for, and it
+is a *rung*: you buy it on one worker, it works where they are standing, and a
+shop with no crew on the bay has nothing.
+
+A **belt** cannot either, and this is the half nobody has written down. A run
+off the dock carries whatever it is handed, and every loader down it is asked
+one question — *does the unit beside me want anything in this box* — so three
+part-crates make three journeys down the same line to three different aisles.
+The conveyor did not fix the trip; it made the same three trips without a
+person. Every box arrives correctly, which is what makes it invisible.
+
+### The shape
+
+A fixture on a run that **holds one crate and fills it from the crates going
+past.** A box arrives, it takes what it wants, the remainder carries on, and
+when the held box is worth a journey it is released onto the line.
+
+Dock → packer → run. What comes off the van is consolidated once, at the one
+place in the shop where everything is guaranteed to pass, and every trip after
+that is a full box.
+
+It is the **sorter read backwards**, and that is the argument for it being a
+piece at all. A sorter is one line in and several out, deciding by where the
+goods can go. This is several boxes in and one out, deciding by the same
+evidence. The shop already owns half of that sentence.
+
+### It holds a CRATE, not an inventory
+
+This is the whole of what makes it affordable, and getting it wrong is the
+seventh place goods can live — the thing [the argument at the top of this
+file](#the-decision-that-makes-this-affordable-a-belt-carries-crates) spends
+four paragraphs refusing.
+
+What it holds is an ordinary `deliveries` entry filed on its own cell, exactly
+as `armHolds` already describes a box sitting on a loader. So spoilage ages it,
+`binOrphans` sweeps it, `stockCrates` counts it as supply the shop owns,
+`homeSupply` stops the buyer ordering against it, the renderer draws it with the
+model it already has, and a save that predates the piece is unchanged. **No new
+container, no new reader, no new way for stock to go missing.** A packer holding
+six loaves is a crate holding six loaves that happens to be parked.
+
+Which also settles the pickup question by inheritance: `floorCrates()` is "a box
+anybody may walk up to and lift", and a box on a packer is not one, for the same
+reason a box riding a belt is not — `unload` scores a stray at `stray * 1e6`, so
+a crate that answered it would have every stocker in the shop abandon the bay
+and queue up at the machine the packer exists to make unnecessary.
+
+### What it is filling the box FOR
+
+Not an authored list. The shop already computes what it wants in four places and
+a fifth copy is the one that drifts.
+
+`fillCrate` is the existing sentence and it should be the same one here:
+biggest pile first, bounded by `roomAcross` less what is already in this box
+heading there. That last subtraction is not a nicety — a packer that filled
+itself with what the shop has no room for is a full crate walked to one board
+and carried home again, which is `verify:pack`'s own centrepiece said about a
+machine.
+
+`assigned` is the override, and it has to be, for `roomTakes`' reason exactly:
+**you ticked it, so it is yours.** A packer ticked for eggs and milk builds that
+box and lets everything else past. A packer nobody has ticked reads the shop —
+which is the opt-in, and means no press is needed for the thing to be useful.
+
+### The three ways it can go wrong, in the order they will happen
+
+**1. `LOT_KINDS` is 3, and a shopping list is not.** A crate holds three kinds.
+So "wait until the order is complete" can express *at most three*, and a packer
+ticked for six is a box that can never be finished — a permanent stock sink,
+holding goods nothing can reach, with a lamp saying it is working. This is the
+given-up-board bug with a roof on it and it is the single most likely way this
+feature ships broken.
+
+Two honest answers and they are not the same feature. Either the tick list is
+**capped at three at the menu**, where the refusal is a sentence you can read;
+or a full box is released and a **second** one started, which makes the piece a
+consolidator rather than an order-assembler and quietly gives up the half the
+pitch was about. Raising `LOT_KINDS` is not an answer — it is a number four
+subsystems read, and moving it for one fixture re-prices every armful, every
+van and every board in the game.
+
+**2. It must never hold for ever.** A box that is waiting for a kind the shop
+has stopped buying waits for the rest of the save. The release rule has to be a
+disjunction, not a completion test: **full** (`CRATE_UNITS`), or **satisfied**
+(every ticked kind present), or **stale** — nothing has been added for N
+seconds and what is in there goes now. The third clause is the one that does
+the work and the one that will feel wrong to write.
+
+And it needs the lamp. `LAMP_DUD` is the precedent from the last commit: a
+machine doing nothing that draws identically to a machine working is a fault
+the shop should report, and this piece has *two* such states — waiting for a
+kind, and holding a box the line will not take.
+
+**3. It must not fight the packer with legs.** `packs` works out of the yard
+only, deliberately (`onAPad`, which is what makes it terminate). A packer
+fixture standing on the pad, plucking from crates a hire is packing, is the
+larder trap — `armPull` and the loader undoing each other with both of them
+correct, which docs/workers.md already names and step 4b already paid for once.
+The rule is the same one: **a machine and a hire may not both be the answer to
+one box.** Cheapest form is that a crate the packer is drawing from is
+`claimed`, the way a hire's target already is.
+
+### Backpressure, which is the one thing it must not break
+
+A box that arrives is **tipped, not stopped**: the packer takes the piles it
+wants and the remainder rides on. That is `armTip`'s shape exactly — it tips
+pile by pile and the crate carries on if anything live is left in it — and it is
+what stops a packer being a plug in the middle of a run.
+
+An emptied box **goes away** rather than riding on as a nothing, which the tip
+path already does for a skip.
+
+And the release is an ordinary hand-off onto the line in front of it, so
+`stepBelts`' backpressure is untouched: if the run is full, the packer holds,
+which is the correct behaviour and needs no code.
+
+### Where it sits
+
+Its own kind in `BUILD_KINDS`, not a loader `mode`. A loader moves goods between
+a run and a *unit*; this moves goods between a crate and a crate, and the four
+verbs it needs (`armTakes` to probe, a tip, a fill, a send) are a different
+ladder from `armSwing`'s. A third mode on a piece whose whole job is a different
+sentence is how a kind dies quietly — see the four fallback branches step 1
+lists.
+
+**Name it the packer**, not the merger. `MERGE_ROUTES` shipped in step 11 and
+means the dumb thing — which of two lines feeding one cell goes first — and a
+second meaning for that word is a menu nobody can read. `packCrate`, `packs`,
+`fillCrate` and `verify:pack` are the vocabulary already in the game for exactly
+this operation.
+
+### What would have to be measured
+
+Nothing, by sweep. `simulate` never lays a belt, so the open question at the
+foot of this file applies unchanged: the balance bot is blind to it, and "no
+change" would be the instrument rather than the feature. What it is worth is
+**trips saved per delivery**, which is a thing you watch rather than a number a
+run reports.
+
+The sweep it does need is `verify:pack`'s claims pointed at a machine, and the
+one that decides whether this is opt-in: **a shop with no packer is the old game
+to the crate.**
 
 ---
 
