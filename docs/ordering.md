@@ -1,6 +1,6 @@
 # Ordering — what the shop buys, and who decided
 
-Status: **steps 1–10 built.** The restocker counts what the shop can already
+Status: **steps 1–11 built.** The restocker counts what the shop can already
 supply itself before it spends money, the three decisions it used to make
 silently are switches in the supplier, every item can carry a standing order,
 a shelf's own menu will now tell you what is on the van and order more,
@@ -9,7 +9,8 @@ the shop keeps a thing in one place, a unit marked for the back is stocked
 for the appliances beside it rather than for the shop front, seven tabs became
 three verbs, an item has a menu of its own — where what you charge for it is
 a fact about the shop rather than about each board it stands on — and an order
-is a thing you can place twice, at whatever size you meant.
+is a thing you can place twice, at whatever size you meant, and an order the
+yard cannot take is made smaller rather than skipped for ever.
 
 ⚠️ Both built steps measure as **balance-neutral at their defaults**, and that
 is deliberate rather than lucky. Step 1 came out at +2.7% mean profit over ten
@@ -688,8 +689,102 @@ which button is drawn.
 
 ---
 
+## Step 11 — the crew could not read the refusal ✅
+
+### What was wrong
+
+A shop with a big stockroom stayed empty, and the bigger you built it the emptier
+it got.
+
+`buyStock` refuses an order larger than `bayRoom` or `looseRoom` **by name**
+rather than shrinking it. Step 10's note calls that out approvingly and it is
+right — about a press. "Only room for 60 more at the bay" is a sentence that
+tells you to go and paint some bay, and an order silently becoming a smaller
+order is the complaint of step 10 said backwards.
+
+There are two other callers and neither has anybody to say it to. `restock` and
+`larderOrder` both choose the quantity themselves, both spell the failure
+`if (!game.buyStock(...).ok) continue;`, and `buyStock` writes its log line only
+for `!p.staff`. So the refusal was a permanent silence: the board is skipped,
+and skipped again on the next tick, and every tick after, because nothing about
+it has changed.
+
+What that inverts is the shape of the whole shop. The order is the board's room
+less what the shop already owns, so **the emptiest board asks for the most, and
+the bigger a unit is the more certain it is never to be bought for.** Measured on
+`demo-world` at day 322:
+
+| | |
+|---|---|
+| Shelving | 36 units, 6 of them stockroom |
+| Stockroom holdings | four units bare, one with 3 milk /140, one with 0 tomato /216 |
+| Bay room | 60 |
+| Spent on stock that day | $628, against $1,032,362 in the till |
+| Orders in flight | 0 |
+
+Every board whose room came out over 60 — which is every big unit and the whole
+stockroom — had been computing an order and being turned down since the day it
+was built. Every small old shelf beside them had stock on it. What that reads as
+from a chair is the ordering having broken *on the good shelves*, and the two
+things a player would try — buy more shelving, paint a bigger stockroom — both
+make it strictly worse. The only move that helps is a bigger delivery bay, and
+nothing anywhere says so.
+
+It is invisible twice over: no refusal reaches the feed, and a buyer that was
+turned down and a buyer with nothing to buy are the same still frame. It arrives
+days later as shelves that will not fill, which points at the staff.
+
+### What it does now
+
+The yard is a third ceiling in `restock`, beside the two money ones:
+
+```js
+const yard = Math.min(game.bayRoom(), game.looseRoom());
+if (yard <= 0) return false;
+…
+const qty = Math.min(buy(item.id), Math.floor(budget / Math.max(unit, 0.01)), yard);
+```
+
+`buyStock` is untouched — a job that *chooses* a number owes it to ask for a
+possible one, and softening the guard would take the message away from the press
+that needs it. `larderOrder` takes the same `yard`, where it bites far less
+often (a hopper's room is small) and fails identically when it does.
+
+Three things about it:
+
+- **It is a rate, not a ceiling.** `homeSupply` counts a pending order, so a
+  216-unit board takes a van of 60 today and asks for 156 tomorrow. Clamping one
+  order does not cap what the shop may eventually hold — which is the half that
+  makes a stockroom worth painting.
+- **It is hoisted out of the queue loop.** Both halves sweep every crate in the
+  shop, and neither can move before the one order this job places.
+- **The floor at zero is not tidiness.** Without it `Math.min` hands `buyStock`
+  a negative, which is refused by name — back to a board skipped every tick,
+  wearing the fix.
+
+### On measuring it
+
+`verify:order`, and it ships with the change rather than after it, because every
+claim in it is invisible in a still frame by construction. It fails on the
+commit before this one with *"a board too big for the yard is ordered for AT ALL
+— this was zero for ever"*, and its control — that an order which already fits
+is untouched to the unit — passes on both, which is what says this is a bug fix
+rather than a rebalance of every save in existence.
+
+Deliberately **not** measured with `simulate`. The balance bot calls `buyStock`
+directly and sizes its own orders, so it never took this path and a before/after
+would report no change — the instrument is blind to it, which is not the same as
+the change being free. What it is worth has to be played.
+
+---
+
 ## Gotchas this cost
 
+- **A guard written for a player is a guard with an audience.** The same guard
+  reached from a job loop is a silent skip. `buyStock` refusing by name is
+  correct and is worth nothing to a caller whose failure branch is `continue`
+  and whose log line is gated on `!p.staff`. Worth asking of every
+  `if (!x.ok) continue` in `staff.js`: who reads the refusal?
 - **A supply check and a scheduling check look identical.** The pallet guard at
   the top of `restock` reads like "don't buy what you have" and means "there is
   something better to do this tick". One of those bounds the order quantity and

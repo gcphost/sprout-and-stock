@@ -2000,6 +2000,20 @@ function restock(game, s) {
   );
   if (budget <= 0) return false;
 
+  // ...and the third ceiling, which is not money at all: how much the yard will
+  // physically take. `buyStock` refuses an order bigger than `bayRoom` or
+  // `looseRoom` by name, and both of the callers below read a refusal as
+  // "skip this one" — so an order that is too big is not a smaller order, it is
+  // a board that is never bought for again. See the note at the `qty` below for
+  // what that inverts.
+  //
+  // Walked once for the whole pass rather than per board: both of them sweep
+  // every crate in the shop, and neither can move before the one order this job
+  // places. `looseRoom` answers Infinity in a shop with no pads, where
+  // `buyStock`'s own bay guard is the one that should speak.
+  const yard = Math.min(game.bayRoom(), game.looseRoom());
+  if (yard <= 0) return false;
+
   // ...and a machine that cannot run at all, before any of the shelves.
   //
   // Nothing in the game has ever ordered an INGREDIENT. `restockQueue` is built
@@ -2013,7 +2027,7 @@ function restock(game, s) {
   // that is genuinely stopped — see `larderOrder`. A pass gated on "the kitchen
   // is short" behind the shelf loop would never run in a shop with twenty boards
   // on it, which is exactly the shop that owns an appliance.
-  if (larderOrder(game, s, c, budget)) return true;
+  if (larderOrder(game, s, c, budget, yard)) return true;
 
   // The order the shop asks for. `restockQueue` is the sim's rule, not this
   // job's: it is what the player set in the shelf menu, and a second copy of it
@@ -2143,7 +2157,31 @@ function restock(game, s) {
     // item, which under-orders slightly when one crate could serve two shelves.
     // That is the safe direction: the next pass re-reads it once the crate has
     // landed, and the other way round is the bug this replaced.
-    const qty = Math.min(buy(item.id), Math.floor(budget / Math.max(unit, 0.01)));
+    //
+    // ...AND BY WHAT THE YARD WILL TAKE, WHICH IS THE HALF THAT WAS MISSING.
+    //
+    // `buyStock` refuses an order bigger than `bayRoom` or `looseRoom` **by
+    // name** rather than shrinking it, and that is right — it is a press you
+    // made, and a number silently becoming a smaller number is the complaint
+    // said the other way round. It is exactly wrong for the crew, because this
+    // job CHOOSES the number: a refusal here is `continue`, so the board is
+    // skipped, and it will be skipped again on the next tick and every tick
+    // after, because nothing about it has changed.
+    //
+    // What that means is an inversion nobody could ever see: the emptiest board
+    // asks for the most, so **the bigger a unit is, the more certain it is to be
+    // refused**. A live shop had a 216-unit stockroom board at zero and a bay
+    // with 60 free, so the buyer computed 216, was turned down, and moved on —
+    // for ever. Every small old shelf in that shop had stock on it and every big
+    // new one was bare, which reads as the ordering having stopped working on
+    // the good shelves. Buying more shelving made it worse; painting a bigger
+    // stockroom made it worse; the only thing that would have helped is a bigger
+    // delivery bay, and nothing anywhere said so.
+    //
+    // Clamping is not a cap on depth, because `homeSupply` counts a pending
+    // order: a 216 board takes a van of 60 today, asks for 156 tomorrow, and
+    // fills over successive runs. The yard is the rate, not the ceiling.
+    const qty = Math.min(buy(item.id), Math.floor(budget / Math.max(unit, 0.01)), yard);
     if (qty <= 0) continue;
 
     if (!game.buyStock(s.id, item.id, qty).ok) continue;
@@ -3781,7 +3819,7 @@ export function shelfFor(game, itemId, c, spoken = null) {
  *   unstick the machine, and the second batch is an ordinary restock decision
  *   made once there is a board of the stuff.
  */
-function larderOrder(game, s, c, budget) {
+function larderOrder(game, s, c, budget, yard = Infinity) {
   const spoken = inbound(game, s);
   // Every head of every machine. A second head is a second thing the shop has
   // been told to make, and a loop that stopped at the first would buy for the
@@ -3824,7 +3862,12 @@ function larderOrder(game, s, c, budget) {
         let qty = Math.min(Math.max(input.qty, 0) * 2, room);
         if (rule.max > 0) qty = Math.min(qty, rule.max - game.itemHeld(id) - game.homeSupply(id));
         const unit = wholesalePrice(item, game.folded(), game.season);
-        qty = Math.min(qty, Math.floor(budget / Math.max(unit, 0.01)));
+        // ...and what the yard will take, for `restock`'s reason. It bites far
+        // less often here — a hopper's room is small, so these orders are small
+        // — but the failure is identical and silent: a refusal is `continue`,
+        // so a full yard would stop the kitchen being fed rather than feeding
+        // it late, and a machine that never runs is what that reads as.
+        qty = Math.min(qty, Math.floor(budget / Math.max(unit, 0.01)), yard);
         if (qty <= 0) continue;
         if (!game.buyStock(s.id, id, qty).ok) continue;
         s.cooldown = paceOf(s);
@@ -3835,7 +3878,22 @@ function larderOrder(game, s, c, budget) {
   return false;
 }
 
-function hasHome(game, itemId, c, spoken = null) {
+/**
+ * Somewhere for a batch to GO, which is the only brake the kitchen has.
+ *
+ * Exported for `Game.armTake`, the way `givenUp` is exported for the shop's own
+ * buying — a predicate about the shop that two callers have to answer
+ * identically or one of them is a rule the other quietly ignores.
+ *
+ * That is exactly what happened. `nextBatch` starts a batch on ingredients and
+ * tray room alone; the *stall* is what stops a machine, and only a chef clearing
+ * the tray un-stalls it — so this was the gate on production, applied by the
+ * person doing the clearing. Bolt a loader to the same machine and it empties
+ * the tray on its own, `nextBatch` fires again, and the brake is gone: a
+ * live shop reached **200 units of toast** in the yard against 16 on a shelf,
+ * with every conveyor working perfectly and every hire visibly busy.
+ */
+export function hasHome(game, itemId, c, spoken = null) {
   if (!itemId) return false;
   if (game.stockCrates().some((d) => lotQty(d, itemId) > 0)) return false;
   return !!shelfFor(game, itemId, c, spoken);

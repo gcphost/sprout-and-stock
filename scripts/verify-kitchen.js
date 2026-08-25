@@ -514,6 +514,121 @@ const run = (g, seconds) => { for (let i = 0; i < seconds * 10; i++) g.step(0.1)
 }
 
 // ---------------------------------------------------------------------------
+// 3b. A LOADER OBEYS THE CHEF'S GATE, BECAUSE THE STALL *IS* THE BRAKE.
+//
+// Section 3 above proves a full tray stops the machine. That stall is the ONLY
+// thing bounding a kitchen: `nextBatch` asks for ingredients and tray room and
+// has never asked whether the shop wants the output, so what actually decides
+// how much a shop produces is the person who clears the tray — and a chef asks
+// `hasHome` before doing it.
+//
+// Bolt a loader to the same machine and that person is gone. `armFeed` refills
+// the hopper, `armTake` empties the tray, `nextBatch` fires again, forever. A
+// live shop reached 200 units of toast in the yard against 16 on a shelf, which
+// then filled the yard, took `bayRoom` to zero and stopped the shop being able
+// to ORDER anything — three symptoms, none of them near the toaster, every
+// conveyor working perfectly the whole time.
+//
+// Invisible by construction, twice: a machine stalled on a full tray and one
+// between batches are the same still frame, and a loader that declined to swing
+// and one with nothing to lift are the same idle arm.
+//
+// Both halves or neither. "It refuses" is satisfied by a loader that never
+// lifts anything, which turns the feature off; "it lifts" is satisfied by the
+// bug. So the control comes first and they are the same shop, one crate apart.
+// ---------------------------------------------------------------------------
+
+/**
+ * A loader standing anywhere legal. It is handed to `armTake` directly rather
+ * than driven through a run, because the claim is about the GATE and not about
+ * the belt — `loadBelt` answers false harmlessly with no run under it, and the
+ * tray is emptied or it is not either way. `verify:belts` owns the carrying.
+ */
+function loader(g) {
+  // Scanned through `canPlace` rather than `spotFor`, which gates on WALKABLE
+  // first and so skips every cell a loader is actually allowed on — it answered
+  // null, the placement went out with `x: undefined`, and what that looked like
+  // was `armTake` crashing on a null arm.
+  // Build mode again: placing the urn COMMITS it, so by the time this runs the
+  // mode `fresh` armed is off and the placement comes back "not in build mode"
+  // — which arrives as `armTake` crashing on a null arm two lines later.
+  g.players.me.build = { on: true, tool: 'arm' };
+  const L = g.layout;
+  let at = null;
+  for (let z = 1; z < L.h - 1 && !at; z++) {
+    for (let x = 1; x < L.w - 1 && !at; x++) {
+      for (const rot of [0, 1, 2, 3]) {
+        if (canPlace(L, { kind: 'arm', x, z, rot }).ok) { at = { x, z, rot }; break; }
+      }
+    }
+  }
+  check(!!at, 'there is somewhere to stand a loader');
+  if (!at) return null;
+  const res = g.placeFixture('me', { kind: 'arm', ...at });
+  check(res.ok, 'the loader goes down', res.error ?? '');
+  const arm = (g.layout.arms ?? []).find((a) => a.id === res.placed) ?? null;
+  check(!!arm, 'and it is standing there as a loader');
+  return arm;
+}
+
+/** An urn with a full tray, which is section 3's setup as a helper. */
+function fullTray(g) {
+  const st = urn(g);
+  hold(g, 'zz-kit-bean', BEAN_PER_BATCH * BATCHES);
+  check(g.loadStation('me', st.id).ok, 'the hopper takes four batches');
+  run(g, 60);
+  g.players.me.carry = null;
+  eq(head(g, st).output?.qty, BREW_PER_BATCH * BATCHES, 'PRECONDITION: the tray is full');
+  return st;
+}
+
+// 3b-i. THE CONTROL. With somewhere for the brew to go, the loader lifts it.
+{
+  const g = fresh();
+  const st = fullTray(g);
+  const arm = loader(g);
+  const before = brewMade(g, st);
+
+  check(g.armTake(arm, st), 'a loader empties a tray the shop has room for');
+  eq(head(g, st).output, null, '...and the tray is clear');
+  eq(brewMade(g, st), before, '...with nothing created or destroyed on the way');
+}
+
+// 3b-ii. THE CENTREPIECE. A crate of it already waiting is `hasHome`'s first
+// clause, and the loader must decline exactly as the chef would.
+{
+  const g = fresh();
+  const st = fullTray(g);
+  const arm = loader(g);
+  // One case of brew standing in the shop. This is the same fact that stops a
+  // CHEF starting another batch, so a loader that ignored it is the two halves
+  // of one kitchen disagreeing about how much to make.
+  const put = g.dropGoods('zz-kit-brew', 1, { x: arm.x, z: arm.z }, { exact: true });
+  check(!!put, 'a case of the output is standing in the shop');
+  const before = brewMade(g, st);
+
+  check(!g.armTake(arm, st), 'a loader REFUSES a tray the shop has nowhere for');
+  eq(head(g, st).output?.qty, BREW_PER_BATCH * BATCHES, '...so the tray stays full');
+  run(g, 120);
+  eq(head(g, st).output?.qty, BREW_PER_BATCH * BATCHES,
+    '...and the machine stays stopped rather than making more');
+  eq(brewMade(g, st), before, '...and nothing was created while it waited');
+}
+
+// 3b-iii. ...and it picks straight back up once the shop has room again, or the
+// gate is a machine you can switch off once and never restart.
+{
+  const g = fresh();
+  const st = fullTray(g);
+  const arm = loader(g);
+  const put = g.dropGoods('zz-kit-brew', 1, { x: arm.x, z: arm.z }, { exact: true });
+  check(!g.armTake(arm, st), 'refused while a case is waiting');
+
+  g.deliveries = g.deliveries.filter((d) => d.id !== put.id);
+  check(g.armTake(arm, st), 'and lifts it the moment that case is gone');
+}
+
+// ---------------------------------------------------------------------------
 // 4. A machine that knows two recipes makes the ONE it is set to.
 //
 // It used to run whichever recipe its hopper happened to satisfy, which is a

@@ -40,7 +40,7 @@ import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { difficultyOf } from '../../shared/difficulty.js';
 import { cleanName } from '../../shared/names.js';
 import { makeNamer } from './names.js';
-import { stepStaff, syncStaff, breakProgress, carryOf, givenUp } from './staff.js';
+import { stepStaff, syncStaff, breakProgress, carryOf, givenUp, hasHome } from './staff.js';
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
 import { undoStep, recordUndo, undoLast, redoLast, specOf } from './undo.js';
 import {
@@ -3404,6 +3404,35 @@ export class Game {
         // On the wire for the reason `auto` is: a control whose state never
         // reaches the menu is a row that cannot tick.
         riser: s.riser === true,
+        /**
+         * A JUNCTION WITH NOTHING TO CHOOSE BETWEEN, which is a sorter that is
+         * an expensive belt.
+         *
+         * Counted as the straight-on PLUS the branches, which is the one thing
+         * about this that is easy to get wrong: `conveyorBranches` deliberately
+         * excludes the straight leg, so testing it alone flags every ordinary
+         * two-way junction in the game — the control in `verify:belts` is what
+         * caught that, and a marker that lights on a working sorter is exactly
+         * the shop-reporting-a-fault-it-has-not-got that `LAMP_PASS` argues
+         * against. Fewer than two ways out means there is no decision on this
+         * cell: what arrives carries on, and the piece does nothing it was
+         * bought for. It
+         * happens by ordinary building — you lay the junction, mean to run the
+         * spur off it, and never do — and there is nothing to see afterwards,
+         * because a sorter draws its blades FROM the branches, so one with none
+         * is a hub with a smooth roof. A live shop had **five of six** like
+         * that and every box in it arrived correctly the whole time.
+         *
+         * On the wire rather than derived on the client for `sortReject`'s
+         * reason exactly: this changes when the run around it changes, not when
+         * this cell does, so a flag baked in at build time would be right until
+         * somebody laid the next belt and then stay wrong.
+         *
+         * Sparse — the field is only sent when it is TRUE, so a shop whose
+         * junctions all work adds nothing to the frame.
+         */
+        ...([conveyorNext(this.layout, s), ...conveyorBranches(this.layout, s)]
+          .filter(Boolean).length < 2 ? { straight: true } : {}),
         rot: s.rot ?? 0,
         // ...and which way it last sent one, which is what the roof marks draw.
         // Same shape and same terms as a loader's `move` — see `sorterSent`.
@@ -11341,7 +11370,7 @@ export class Game {
   /**
    * The cells a crate is standing on or already moving into.
    *
-   * One crate per cell is a consequence of `CRATE_PITCH` rather than a rule
+   * At 0.5 a cell can hold two, which is a consequence of `CRATE_PITCH` rather than a rule
    * anybody enforces, so this is a reading of where the boxes are rather than a
    * ledger beside them: a crate occupies the cell it is filed on, and the next
    * one along as well while it is crossing the gap.
@@ -14559,12 +14588,40 @@ export class Game {
    * first appliance and waited for a person. Which reads as the kitchen not
    * being automatable, when it was three quarters of the way there.
    *
-   * No destination test, unlike `armPull`. A tray is not storage: `lotRoom` is
-   * zero while something is sitting in it, so the machine cannot start the next
-   * batch until it is cleared — emptying it is the point, and a box nothing
-   * downstream wants is what the off-ramp is for. `armPull` needs its test for
-   * the opposite reason: a stockroom is perfectly happy holding stock, so
-   * moving it without a taker is a machine shuffling boxes around your shop.
+   * IT ASKS `hasHome`, WHICH IS THE CHEF'S OWN GATE, AND IT DID NOT FOR TWO
+   * STEPS.
+   *
+   * This used to have no destination test at all, on the argument that a tray is
+   * not storage: `lotRoom` is zero while something is sitting in it, so the
+   * machine cannot start the next batch until it is cleared — emptying it is the
+   * point, and a box nothing downstream wants is what the off-ramp is for.
+   *
+   * Every clause of that is true and the conclusion is wrong, because the STALL
+   * IS THE BRAKE. `nextBatch` starts a batch on ingredients and tray room alone
+   * — it has never asked whether the shop wants the output — so the only thing
+   * that has ever stopped a kitchen running flat out is a full tray waiting for
+   * somebody to clear it, and the somebody asked `hasHome` first. Automate the
+   * clearing and production becomes unbounded: `armFeed` refills the hopper,
+   * this empties the tray, `nextBatch` fires again, forever. A live shop reached
+   * **200 units of toast** in the yard against 16 on a shelf, which then filled
+   * the yard, took `bayRoom` to zero and stopped the shop being able to ORDER
+   * anything — three symptoms, none of them anywhere near the toaster, and every
+   * conveyor working perfectly the whole time.
+   *
+   * So the loader's rule and the chef's rule are one rule, which is the same
+   * sentence `shelfAccepts`, `holds` and `givenUp` each had to be told. A shop
+   * with a person on the kitchen and a shop with a loader on it now produce the
+   * same amount, and how much that is, is how much shelving you built.
+   *
+   * The cost is honest: a machine can now sit stalled with a full tray and a
+   * loader beside it doing nothing. That is what a chef would have done, and it
+   * is one press from fixed (a board for the output). `armPull` keeps its own
+   * separate test for the opposite reason — a stockroom is perfectly happy
+   * holding stock, so moving it without a taker is a machine shuffling boxes.
+   *
+   * Skipped per SLOT rather than refused outright, or a twin machine whose first
+   * head made something the shop is full of would strand the second head's tray
+   * behind it — one brake stopping two batches.
    *
    * One slot per swing, which is what a twin machine's two trays are for: two
    * heads finish at their own times and each is a separate lift.
@@ -14575,6 +14632,7 @@ export class Game {
       const out = slot.output;
       if (!out || !(out.qty > 0)) continue;
       if (!c.byId.items[out.item_id]) continue;     // deleted out from under us
+      if (!hasHome(this, out.item_id, c)) continue;
       const take = Math.min(out.qty, this.crateLot().cap);
       const del = {
         id: `del-${this.nextDeliveryId++}`,

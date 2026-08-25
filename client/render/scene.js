@@ -4206,6 +4206,20 @@ export class Scene {
      */
     this.sortReject = new Map((state.sorters ?? [])
       .filter((s) => Number.isInteger(s.reject)).map((s) => [s.id, s.reject]));
+    /**
+     * ...and which junctions have nothing to choose between — see `straight` on
+     * the wire.
+     *
+     * A SETTING like `sortReject` rather than an event, and read the same way:
+     * the resting colour of the lamp rather than a flash. It is the one state on
+     * a conveyor that is invisible by construction — a sorter draws its blades
+     * from `conveyorBranches`, so one with no branch has a smooth roof, and a
+     * smooth roof reads as art that has not turned yet rather than as a machine
+     * doing nothing. Every box that reaches it goes straight on and arrives
+     * perfectly correctly, which is what makes it survive a whole save.
+     */
+    this.sortStraight = new Set((state.sorters ?? [])
+      .filter((s) => s.straight).map((s) => s.id));
     // The server owns only the lift's gameplay state. The page owns the visual
     // stroke: when phase/owner changes it starts one local transition and then
     // ignores repeated 10Hz snapshots of that same state. Streaming a rounded
@@ -11746,8 +11760,18 @@ export class Scene {
       // being unaddressable — the same reason `mouthSink` matches on where the
       // box physically is.
       const holding = this.beltBusy?.has(id) || this.mouthSink?.has(id);
-      const hue = body.mouth ? (holding ? LAMP_ON : LAMP_IDLE)
-        : said === 'load' ? LAMP_ON : said === 'pass' ? LAMP_PASS : LAMP_IDLE;
+      // A junction with one way out wears its own colour and keeps it, which is
+      // the only lamp state here that is a SETTING rather than a report — see
+      // `sortStraight`. It is asked FIRST and outranks everything below,
+      // inverting the order the reject bar uses, and the difference is what the
+      // two readouts are for: a reject side is a live junction's preference, so
+      // a box that just went somewhere is the more specific answer, while this
+      // says the machine cannot make a decision at all — and "what it last did"
+      // about a machine that does nothing is exactly the reassuring green that
+      // hid this for a whole save.
+      const hue = this.sortStraight?.has(id) ? LAMP_DUD
+        : body.mouth ? (holding ? LAMP_ON : LAMP_IDLE)
+          : said === 'load' ? LAMP_ON : said === 'pass' ? LAMP_PASS : LAMP_IDLE;
       // Set only when it changes, because a `Color.set` per lamp per frame is
       // the cost this whole gating exists to avoid — and `material` here is the
       // lamp's own, never the shared cache.
@@ -12329,6 +12353,30 @@ const LAMP_PASS = '#d99b1f';
  * lights reporting nothing but its own configuration.
  */
 const LAMP_REJECT = '#8f7ad6';
+
+/**
+ * ...and the fifth, which is the only one that reports a MISTAKE.
+ *
+ * A junction with fewer than two ways out has nothing to choose between: what
+ * arrives carries straight on, and the piece is an expensive belt. It happens by
+ * ordinary building — you lay the hub, mean to run the spur off it, and never do
+ * — and there is nothing to see afterwards, because a sorter draws its blades
+ * from `conveyorBranches` and one with none has a smooth roof. A live shop had
+ * five of six like that, every box arriving correctly the whole time.
+ *
+ * RED, and it is the only red on a conveyor, which is exactly the argument
+ * `LAMP_PASS` makes for not being one. A box carrying on down the line is the
+ * ordinary way a run works and must not read as a fault; a junction that cannot
+ * junction is a fault, it is the shop reporting something you got wrong, and it
+ * is one press from fixed. The distinction those two colours draw is the whole
+ * point of having both.
+ *
+ * It is also the one lamp state that is not a report of anything that happened,
+ * so like `LAMP_REJECT` it sits there rather than flashing — but unlike it, it
+ * OUTRANKS the live states instead of losing to them. "What it last did" about a
+ * machine that does nothing is the reassuring green that hid this for a save.
+ */
+const LAMP_DUD = '#d4574a';
 
 /**
  * The mark on a join, and its well.

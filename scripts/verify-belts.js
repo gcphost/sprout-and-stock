@@ -2220,6 +2220,50 @@ function smooth(g, label, crates, ticks, at = {}) {
       eq(reflowed?.route, 'branch', 'a favoured leg survives a re-flow');
       eq(g.snapshot().sorters?.find((s) => s.id === reflowed?.id)?.route, 'branch',
         '...and is still on the wire afterwards');
+
+      /*
+       * ...AND WHETHER IT HAS ANYTHING TO CHOOSE BETWEEN AT ALL, which is the
+       * one state on a conveyor that is invisible by construction.
+       *
+       * A sorter draws its blades from `conveyorBranches`, so one with no
+       * branch has a smooth roof — and a smooth roof reads as art that has not
+       * turned yet, not as a machine doing nothing. Every box that reaches it
+       * carries straight on and arrives correctly, so nothing says a word. A
+       * live shop had FIVE OF SIX like that: junctions laid meaning to run the
+       * spur off them, and the spur never built.
+       *
+       * The control is first and it is the assertion that decides whether the
+       * marker is a signal or noise. It also caught the bug on its first run:
+       * `conveyorBranches` EXCLUDES the straight leg, so the obvious test —
+       * fewer than two branches — flags every ordinary two-way junction in the
+       * game. A lamp that lights on a working sorter is the shop reporting a
+       * fault it has not got, which is `LAMP_PASS`'s own argument for not being
+       * red. Ways out are the straight-on PLUS the branches.
+       *
+       * Its centrepiece is that the flag tracks the RUN rather than the cell:
+       * nothing about this sorter changes when the belt beside it is torn out,
+       * which is why the answer is computed on the wire rather than baked in
+       * when the piece is placed — the trap `sortReject` names one field up.
+       *
+       * Last in the block, for the reason the re-flow assertions above it are:
+       * `removeFixture` re-mints every record and each one taken earlier is
+       * stale afterwards.
+       */
+      const live = () => g.snapshot().sorters?.find((x) => x.id === reflowed?.id);
+      check(!live()?.straight, 'a junction with somewhere to send things is NOT flagged');
+      const spur = g.beltAt(branch.x, branch.z);
+      const tornOut = spur && g.removeFixture('me', spur.id);
+      check(!!tornOut?.ok, 'the branch line comes out', tornOut?.error ?? '');
+      // By ID off the re-flowed LAYOUT, never by tile off the snapshot: a
+      // sorter on the wire carries its settings and no coordinates at all, so a
+      // lookup by x/z there silently answers undefined and the assertion below
+      // fails as "not flagged" — which is the bug it is testing for, wearing a
+      // typo.
+      const now = g.beltAt(cells[1].x, cells[1].z);
+      const after = g.snapshot().sorters?.find((x) => x.id === now?.id);
+      check(after?.straight === true,
+        '...and the moment its only branch is gone, the junction says so',
+        'a sorter with one way out is an expensive belt');
     }
   }
 }

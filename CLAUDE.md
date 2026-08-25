@@ -762,6 +762,39 @@ Thirty sweeps, about a minute:
   press and the release; and that every refusal comes before anything moves. It
   authors nothing.
 
+- `verify:order` guards the difference between a refusal YOU get and a refusal
+  the CREW get, which is one line of `restock` and was the whole reason a big
+  shop read as understocked. `buyStock` turns down an order bigger than
+  `bayRoom` or `looseRoom` **by name** rather than shrinking it — right about a
+  press you made, since a number silently becoming a smaller number is the
+  complaint said backwards, and the message tells you to paint more bay. It is
+  exactly wrong for a job that CHOOSES the number, because both buying paths
+  read a refusal as `continue`: the board is skipped, and skipped again next
+  tick, and every tick after, since nothing about it has changed. What that
+  inverts is the sharp bit — the emptiest board asks for the most, so **the
+  bigger a unit is, the more certain it is never to be bought for**. A live shop
+  on day 322 had a 216-unit stockroom board at zero against a bay with 60 free:
+  the buyer computed 216, was turned down, and moved on for ever, while every
+  small old shelf beside it had stock on it. Buying more shelving made it worse;
+  painting a bigger stockroom made it worse; the one thing that would have
+  helped is a bigger bay, and nothing anywhere said so. It is invisible twice
+  over — no refusal reaches the feed, because `buyStock` only logs for
+  `!p.staff`, and a buyer who was refused and a buyer with nothing to buy are
+  the same still frame — so it arrives days later as shelves that will not fill,
+  pointing at the staff. Its control is that an order which already fits is
+  untouched to the unit, which is the assertion deciding whether this is a bug
+  fix or a silent rebalance of every save in existence. Its centrepiece is a
+  pair worthless split in half: a too-big board is ordered for **at all** (the
+  number was zero, not wrong), and no single van exceeds the bay (satisfied by
+  ordering nothing, which is the bug). Then the one that makes reserve depth
+  real — that the clamp is a **rate and not a ceiling**: land the van, ask
+  again, and the board fills to its own capacity over successive runs, because
+  `homeSupply` counts a pending order. Plus a yard with no room ordering nothing
+  and spending nothing, and the money being what was ordered rather than what
+  was wanted — a clamp applied to the quantity and not to the charge is a shop
+  that is quietly poorer, with crates that arrive looking perfectly correct. It
+  authors one worker row and removes it on exit.
+
 - `verify:store` guards the claim that `server/db.js` became a *contract* rather
   than a file: that a shop kept in SQLite and a shop kept in a browser are the
   same shop. Every assertion in it is a comparison run against both stores in one
@@ -1070,7 +1103,7 @@ what the next step was meant to be.
 | [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg, the tunnel that stopped being its own ecosystem — a span that DIPS to a storey below, so a mouth is a lift pointed down and the piston is the crate's own `deck` rather than two clocks beside it, plus the toggle that brings a span up onto the ceiling instead of the floor, and **Where a crate goes, in order** — the whole routing ladder in one place, with the audit's gap list at the foot, and the map that takes a SUBJECT — pick a shelf and everything but the shortest ways a box reaches it goes grey, because the reachable set is 15 runs of 23 whatever you pick | steps 1–4, 2b, 3b, 4b, 7–11 built; 5–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
-| [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board, and the order you can place twice, at whatever size you meant | steps 1–10 built |
+| [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board, the order you can place twice, at whatever size you meant, and the refusal only the player could read — a van too big for the bay was turned down rather than trimmed, so the biggest units in the shop were the ones certain never to be stocked | steps 1–11 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
 | [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | step 1 built (no rung authored yet); 2–4 proposed |
 | [docs/appliances.md](docs/appliances.md) | what a row of machines has to share to look like a kitchen — three generations of art in one catalog, the counter line the shop already had at 0.745 that no appliance stands on, why every shelf in the game is taller than every appliance, shared *lines* rather than a shared chassis, three height classes against one locked footprint, where goods go in and come out on a cabinet with no worktop, and the accent colour that says what a machine does | all proposed |
@@ -1923,6 +1956,32 @@ what the next step was meant to be.
   in isolation, because the check itself was right and sat next to the code it
   guarded. `verify:yard` caught it on the assertion that nothing was charged, not
   on the one that the order was refused. Put a new guard with the other guards.
+- **…and a refusal is only a message if somebody is reading it.** The same
+  guards, one caller along. `buyStock` refuses an order bigger than `bayRoom` or
+  `looseRoom` **by name** rather than quietly shrinking it, and its own note
+  defends that — a number silently becoming a smaller number is the complaint
+  said backwards, and "only room for 60 more at the bay" tells you to go and
+  paint some. That is a sentence for a *press*. `restock` and `larderOrder` are
+  the other callers and neither has anybody to say it to: `buyStock` logs only
+  for `!p.staff`, and both read `.ok === false` as `continue`. So the board is
+  skipped, and skipped again next tick, and every tick after, because nothing
+  about it has changed — a refusal became a permanent silence. What that
+  inverts is the whole shape of the shop: the emptiest board asks for the most,
+  so **the bigger a unit is, the more certain it is never to be bought for**. A
+  live shop on day 322 had a 216-unit stockroom board standing at zero against a
+  bay with 60 free — computed 216, turned down, moved on, for ever — while every
+  small old shelf in the same aisle had stock on it, which reads as the ordering
+  having broken on the good shelves. Buying more shelving made it worse.
+  Painting a bigger stockroom made it worse. The fix is not to soften
+  `buyStock`: a job that CHOOSES a number owes it to ask for a possible one, so
+  the yard is a third ceiling beside the two money ones, hoisted out of the
+  queue loop because both halves of it sweep every crate in the shop. It clamps
+  nothing away — `homeSupply` counts a pending order, so a 216 board takes a van
+  of 60 today and asks for 156 tomorrow. **The yard is the rate, not the
+  ceiling.** The general shape, and it is this file's third refusal trap: *a
+  guard written for a player is a guard with an audience, and the same guard
+  reached from a job loop is a silent skip.* Worth asking of every `if (!x.ok)
+  continue` in `staff.js`.
 - **A fixture can earn now, and its clock must not be saved.** `yields` on a
   piece pays into `dropCash`'s pile — the till's entity, renderer and pickup
   path, never a second kind of money on the floor. The trap is the timer: stamps
@@ -2758,9 +2817,16 @@ what the next step was meant to be.
   itself, so a box part way round the join sees its own committed hand-off as
   something in its way and waits for itself for ever — the one place the obvious
   code is silently a deadlock, and it draws as a conveyor that works until you
-  close the loop. `CRATE_PITCH` is a whole cell rather than a box-width for the
-  same reason: the clamp is now the only thing bounding what a run carries, so a
-  tighter pitch would silently double it.
+  close the loop. `CRATE_PITCH` was a whole cell for the same reason — the clamp
+  is the only thing bounding what a run carries, so a tighter pitch silently
+  doubles it. It is **0.5 now, and the doubling is paid for rather than
+  silent**: `CRATES_PER_CELL` is `floor(1 / pitch)`, and `looseRoom` credits a
+  conveyor cell that many boxes, so the pitch and the yard allowance move
+  together. Change one and you have changed what the shop may order. The number
+  itself is set by the CORNERS and not by the straights — round a right angle
+  two crates either side of the vertex sit `pitch / sqrt(2)` apart, so 0.4 gives
+  0.283 against a box 0.318 wide and they clip through each other, which reads
+  as bad art rather than as arithmetic.
 - **…and TWO boxes can be crossing into one line at once, which is a deadlock
   rather than a jam.** A crate that has left its own line and not yet arrived is
   counted against the line it is heading for, so a second feeder holds back —
