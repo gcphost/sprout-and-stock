@@ -74,6 +74,20 @@ const WANTED = {
   // the argument every other tab's glyph makes is "a thing that is actually in
   // there", and a tree is the one of the three you could plausibly stand on it.
   outdoors: 'ph:tree-fill',
+  /**
+   * The other two surrounds (`shared/surrounds.js`). Countryside borrows
+   * `outdoors` above, which is the same tree drawn for the same reason and is
+   * a reuse that is true of both jobs rather than of one.
+   *
+   * A house and a block of flats, and the pair is chosen as a PAIR: what
+   * separates a suburb from a city on this list is density, so the two glyphs
+   * have to differ in the same way the two backdrops do. `house` against
+   * `buildings` reads as one against several at 15px, where `house` against
+   * `bank` or `factory` would read as two unrelated buildings and leave the
+   * reader working out which one is bigger.
+   */
+  house: 'ph:house-fill',
+  city: 'ph:buildings-fill',
   // The Furniture tab, and the last of `town`'s three jobs — a crowd of people
   // standing for a bench, a bistro set and a bike rack. Same fix, found the same
   // way: one glyph doing three jobs is right for at most one of them.

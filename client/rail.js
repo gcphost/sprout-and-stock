@@ -37,12 +37,24 @@ const blurbOf = (s) => s.title ?? s.blurb ?? '';
  * live there.
  *
  * Drawn from the top centre and clockwise, because that is where a clock face
- * starts and this is a clock. The path is inset 1.5px so the stroke sits ON the
- * edge rather than half outside it, and the radius is inset with it (12 − 1.5)
- * or the corners bulge away from the ones underneath.
+ * starts and this is a clock.
+ *
+ * The inset is 3.5 and NOT 1.5, and the difference is the button's contour. At
+ * 1.5 the ring sat ON the edge, which was the whole idea while that edge was
+ * nothing — a 2.5 stroke centred there spans 0.25 to 2.75 from the border, and
+ * the ink outline now occupies 0 to 1.5 of exactly that. What you get is a
+ * countdown that thickens the outline it is drawn on rather than a ring, which
+ * is a wait you cannot see is happening. At 3.5 the stroke starts at 2.25 and
+ * the two are separate marks again.
+ *
+ * IT HAS NO CORNERS, and that is the button's radius rather than a taste: the
+ * corner here is the button's minus the inset, and the card is 2px now, so the
+ * arc went to nothing. Rounding it anyway is the mistake to avoid — a ring with
+ * a softer corner than the edge it traces reads as a ring stuck on rather than
+ * as the button counting down, which is the whole reason it is the border shape
+ * and not a circle. If the card ever rounds again this has to round with it.
  */
-const RING_PATH = 'M20 1.5 H28 A10.5 10.5 0 0 1 38.5 12 V28 A10.5 10.5 0 0 1 28 38.5'
-  + ' H12 A10.5 10.5 0 0 1 1.5 28 V12 A10.5 10.5 0 0 1 12 1.5 Z';
+const RING_PATH = 'M20 3.5 H36.5 V36.5 H3.5 V3.5 Z';
 
 export class Rail {
   constructor(ui, el) {

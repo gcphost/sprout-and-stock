@@ -139,6 +139,153 @@ export const PALETTE = {
   fillDusk: '#8fa6c8',
 };
 
+/**
+ * THE LAND PAST THE LAST TILE — one palette per surround.
+ *
+ * Here rather than in `surround.js` beside the shapes, because this file is
+ * where "changing the mood of the whole game is a one-file edit" is true and a
+ * ring of buildings the size of the horizon is a large part of that mood. The
+ * builder reads these and owns no colour of its own.
+ *
+ * EVERY COLOUR IN HERE IS DELIBERATELY DESATURATED against its equivalent
+ * inside the lot, and that is distance rather than taste. There is no fog in
+ * this scene — nothing pulls a far object back — so a backdrop mixed at the
+ * same saturation as the shop competes with it, and what that reads as is the
+ * horizon being closer than it is. Pulling the chroma out is the only depth cue
+ * available, which is why the city greys are grey and the far trees are bluer
+ * than `PALETTE.grass` rather than greener.
+ *
+ * `glowDay` / `glowNight` are the one pair that MOVES. They are the windows,
+ * and `Scene.syncState` lerps between them on `daylight` — dark glass at noon,
+ * lit at dusk. See `surroundGlow` there for why that material is owned rather
+ * than taken from the shared `material()` cache.
+ */
+export const SURROUND_COLORS = {
+  country: {
+    /**
+     * THE RIDGE, which is doing most of the work in every one of the three.
+     *
+     * The apron runs 320 tiles and the camera can only ever see about 19 of
+     * them, so the lawn does not read as "a field" — it reads as a plane that
+     * goes on for ever, which is the whole of "it looks alone". A raised band
+     * ten tiles out is a STOP: the eye lands on it instead of running off, and
+     * everything between it and the shop becomes ground rather than void.
+     *
+     * Two tones, and they are lighter than the lawn rather than darker. A ridge
+     * darker than the grass in front of it reads as a shadow on flat ground; a
+     * lighter, bluer one reads as being further away, which is the same trick
+     * `blockFar` plays in the city and the only one available with no fog.
+     */
+    hill: '#7fb567',
+    hillAlt: '#76a862',
+    /**
+     * ...and the FAR band, 38–130 tiles out, which is what you see when the
+     * camera tilts down. Bluer and duller than the ridge for the reason the
+     * ridge is bluer than the lawn — with an orthographic camera a distant
+     * mountain is drawn exactly the size it would be up close, so colour is
+     * doing all of the work that perspective normally does.
+     */
+    far: '#6f9c72',
+    farAlt: '#668f6b',
+    trunk: '#6b5540',
+    // Two crowns rather than one. A ring of a single green is 48 copies of one
+    // object however much the scatter varies their size, and the eye reads a
+    // repeated colour faster than it reads a repeated silhouette.
+    crown: '#5c8a52',
+    crownAlt: '#4a7549',
+    /** Hedgerow: lower, denser, and darker than anything standing on its own. */
+    hedge: '#476b41',
+  },
+  suburb: {
+    // Greener than the city's and greyer than the countryside's — a suburb is
+    // the one of the three where the ridge is half built on.
+    hill: '#84b46d',
+    hillAlt: '#7aa76a',
+    // The far band: distant hills with the town spilling over them, so greyer
+    // than the countryside's and still green underneath.
+    far: '#75986f',
+    farAlt: '#6d8c69',
+    // Four house colours, because a street of one is a housing estate rendered
+    // in a single mesh and looks like one. They are close together on purpose —
+    // a suburb is a repeated house, and the variation is meant to be noticed
+    // only after the shape is.
+    wall: '#cbbda8',
+    wallAlt: '#bda893',
+    wallWarm: '#c9a98f',
+    wallCool: '#b6b3ad',
+    /** Pitched roofs, which is the whole silhouette of a suburb. */
+    roof: '#8d6a5c',
+    roofAlt: '#7a5f57',
+    trunk: '#6b5540',
+    crown: '#5c8a52',
+    /**
+     * ...and the same house, standing ON the ridge — the town climbing the hill.
+     *
+     * Its own pair rather than the four above, and cooler and paler than any of
+     * them, for the reason `hill` is lighter than the lawn: the ridge starts at
+     * ten tiles and the haze does not begin until twenty-six, so nothing else
+     * out there is going to say "further away" on this layer's behalf. Reusing
+     * `wall` would stand a house on the hilltop in exactly the paint of one four
+     * tiles from the fence, and the two bands would read as one distance.
+     */
+    ridgeWall: '#c2b6a6',
+    ridgeWallAlt: '#b0a596',
+    ridgeRoof: '#836961',
+    /**
+     * ...and one rooftop colour for the far band, which is the town seen from
+     * far enough away that it is a colour rather than a house. Warm against the
+     * green of the peaks and duller than either ridge tone, since this is the
+     * one of the three that IS inside the haze ramp.
+     */
+    farRoof: '#84796f',
+  },
+  city: {
+    // The ridge a city stands on is the city — these are the ground the blocks
+    // are bedded into, so they are grey-green rather than green, or the towers
+    // look like they were dropped on a golf course.
+    hill: '#8a9a80',
+    hillAlt: '#7f8f78',
+    // The far band is the city PROPER — the towers you never get to. Grey-blue
+    // and deliberately the coldest colour in this file, since it is the one
+    // thing meant to read as genuinely distant.
+    far: '#7a8899',
+    farAlt: '#6f7d8e',
+    // Three greys climbing toward the blue of the sky, so a tall block reads as
+    // further away than a short one without anything having to be further away.
+    //
+    // THESE ARE THE RIDGE NOW, not the near band. A city's built-up area is what
+    // rises behind the shop, so the blocks moved out to stand on the hills and
+    // the ground a stride from the fence became street furniture — the colours
+    // did not have to move with them, because what they were always for was a
+    // block seen against sky rather than a block seen against grass.
+    block: '#8f96a3',
+    blockAlt: '#7d8593',
+    blockFar: '#98a2b0',
+    /** The lip along the top of a block — the only detail at this distance. */
+    parapet: '#6d7480',
+    /**
+     * ...and the near band, which is the one you stand next to.
+     *
+     * The only place in the three surrounds where a colour is read at arm's
+     * length rather than across a field, so these are the only ones NOT pulled
+     * toward the sky — a bollard hazed to look distant while it is four tiles
+     * from the fence is just a grey bollard. Their job is the opposite one: to
+     * hold their own against the shop's paint so the pavement reads as belonging
+     * to the same street the building is on.
+     */
+    post: '#4f5661',
+    bench: '#6d5a46',
+    bin: '#4b5a53',
+    kerb: '#9ba2a9',
+    // Two, and only two: a row of parked cars in one colour is one car copied,
+    // and the eye catches that before it catches anything else in the band.
+    car: '#8d5f5a',
+    carAlt: '#4f6b86',
+    glowDay: '#5c6472',
+    glowNight: '#ffd591',
+  },
+};
+
 /** Player colours, cycled by join order. */
 export const PLAYER_COLORS = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
 

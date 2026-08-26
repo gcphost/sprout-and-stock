@@ -26,7 +26,7 @@ const css = `
 .coop-veil{position:fixed;inset:0;background:rgba(58,49,40,.34);backdrop-filter:blur(3px);
   display:grid;place-items:center;z-index:9000;padding:20px;
   font:14px/1.5 ui-rounded,system-ui,sans-serif;color:var(--ink,#3a3128)}
-.coop{background:var(--panel-solid,#fffcf5);border-radius:18px;padding:20px 22px 18px;
+.coop{background:var(--panel-solid,#fffcf5);border-radius: var(--r, 2px);padding:20px 22px 18px;
   width:min(460px,94vw);max-height:88vh;overflow:auto;
   box-shadow:0 18px 50px rgba(58,49,40,.28)}
 .coop h2{margin:0 0 3px;font-size:16px;font-weight:800}
@@ -41,7 +41,7 @@ const css = `
    is output and sits flat, the one you paste is a field and looks like one. */
 .coop-code{width:100%;height:62px;resize:none;box-sizing:border-box;
   font:10.5px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;
-  border:0;border-radius:11px;padding:9px 11px;color:var(--ink,#3a3128);outline:0}
+  border:0;border-radius: var(--r, 2px);padding:9px 11px;color:var(--ink,#3a3128);outline:0}
 .coop-code.out{background:rgba(58,49,40,.06);opacity:.75}
 .coop-code.in{background:var(--panel,rgba(255,252,245,.94));
   box-shadow:inset 0 0 0 2px rgba(58,49,40,.14)}
@@ -49,7 +49,7 @@ const css = `
 
 .coop-row{display:flex;gap:8px;margin-top:11px;align-items:center}
 .coop button{font:inherit;font-size:13px;font-weight:800;padding:9px 15px;border:0;
-  border-radius:11px;cursor:pointer;color:var(--ink,#3a3128);
+  border-radius: var(--r, 2px);cursor:pointer;color:var(--ink,#3a3128);
   background:rgba(58,49,40,.08);box-shadow:0 3px 0 rgba(58,49,40,.14);
   transition:filter .12s ease}
 .coop button:hover{filter:brightness(1.04)}
@@ -58,7 +58,7 @@ const css = `
 .coop button:disabled{opacity:.45;cursor:default;filter:none}
 
 .coop-note{margin-top:11px;font-size:12px;opacity:.62;min-height:1.3em}
-.coop-note.bad{background:#ffd66b;opacity:1;border-radius:10px;padding:8px 11px;
+.coop-note.bad{background:#ffd66b;opacity:1;border-radius: var(--r, 2px);padding:8px 11px;
   font-weight:600;line-height:1.4}
 
 /* The room code.
@@ -73,7 +73,7 @@ const css = `
 .coop-tiles{display:flex;gap:7px;justify-content:center}
 .coop-tile{font:800 30px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
   color:var(--ink,#3a3128);background:var(--panel,rgba(255,252,245,.94));
-  border-radius:11px;padding:13px 4px;min-width:38px;text-align:center;
+  border-radius: var(--r, 2px);padding:13px 4px;min-width:38px;text-align:center;
   box-shadow:inset 0 0 0 2px rgba(58,49,40,.12),0 3px 0 rgba(58,49,40,.13);
   transition:transform .12s ease}
 .coop-codebox:hover .coop-tile{transform:translateY(-2px)}
@@ -86,19 +86,19 @@ const css = `
    broken mid-word. */
 .coop-link{display:flex;align-items:center;gap:8px;width:100%;margin-top:16px;
   padding:8px 8px 8px 13px;border:0;cursor:pointer;text-align:left;
-  background:rgba(58,49,40,.06);border-radius:12px;box-shadow:none;
+  background:rgba(58,49,40,.06);border-radius: var(--r, 2px);box-shadow:none;
   transition:background .12s ease}
 .coop-link:hover{background:rgba(58,49,40,.1)}
 .coop-link:active{transform:none;box-shadow:none}
 .coop-linktext{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;font:700 12.5px/1.6 ui-monospace,Menlo,monospace;opacity:.7}
-.coop-link .coop-copyhint{margin:0;flex:0 0 auto;padding:6px 11px;border-radius:9px;
+.coop-link .coop-copyhint{margin:0;flex:0 0 auto;padding:6px 11px;border-radius: var(--r, 2px);
   background:var(--panel-solid,#fffcf5);box-shadow:0 2px 0 rgba(58,49,40,.14);
   opacity:.75;font-size:10.5px}
 .coop-sub{text-align:center;font-size:12px;opacity:.55;margin-top:16px}
 .coop-row{display:flex;gap:8px;margin-top:11px;align-items:center}
 .coop button{font:inherit;font-size:13px;font-weight:800;padding:9px 15px;border:0;
-  border-radius:11px;cursor:pointer;color:var(--ink,#3a3128);
+  border-radius: var(--r, 2px);cursor:pointer;color:var(--ink,#3a3128);
   background:rgba(58,49,40,.08);box-shadow:0 3px 0 rgba(58,49,40,.14);
   transition:filter .12s ease}
 .coop button:hover{filter:brightness(1.04)}
@@ -107,7 +107,7 @@ const css = `
 .coop button:disabled{opacity:.45;cursor:default;filter:none}
 
 .coop-note{margin-top:11px;font-size:12px;opacity:.62;min-height:1.3em}
-.coop-note.bad{background:#ffd66b;opacity:1;border-radius:10px;padding:8px 11px;
+.coop-note.bad{background:#ffd66b;opacity:1;border-radius: var(--r, 2px);padding:8px 11px;
   font-weight:600;line-height:1.4}
 
 /* The room code, when there is a broker.
@@ -117,14 +117,14 @@ const css = `
    anybody wants to do with it is copy it, so there is no reason to make them
    select it first. */
 .coop-codebox{display:block;width:100%;padding:14px 8px 12px;border:0;cursor:pointer;
-  background:rgba(58,49,40,.05);border-radius:16px;box-shadow:none;
+  background:rgba(58,49,40,.05);border-radius: var(--r, 2px);box-shadow:none;
   transition:background .12s ease}
 .coop-codebox:hover{background:rgba(58,49,40,.09)}
 .coop-codebox:active{transform:none;box-shadow:none}
 .coop-tiles{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
 .coop-tile{font:800 30px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
   color:var(--ink,#3a3128);background:var(--panel-solid,#fffcf5);
-  border-radius:10px;padding:12px 4px;min-width:34px;text-align:center;
+  border-radius: var(--r, 2px);padding:12px 4px;min-width:34px;text-align:center;
   box-shadow:0 3px 0 rgba(58,49,40,.16);transition:transform .12s ease}
 .coop-codebox:hover .coop-tile{transform:translateY(-1px)}
 .coop-copyhint{margin-top:10px;font-size:11px;font-weight:800;letter-spacing:.05em;
@@ -134,7 +134,7 @@ const css = `
   color:var(--ink,#3a3128);text-align:center;word-break:break-all;padding:0 6px}
 .coop-sub{text-align:center;font-size:12px;opacity:.55;margin-top:12px}
 .coop-sub.waiting::after{content:'';display:inline-block;width:6px;height:6px;
-  margin-left:7px;border-radius:50%;background:var(--good,#5aa356);
+  margin-left:7px;border-radius: var(--r, 2px);background:var(--good,#5aa356);
   vertical-align:middle;animation:coop-pulse 1.3s ease-in-out infinite}
 @keyframes coop-pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 
@@ -145,7 +145,7 @@ const css = `
 .coop-wait{display:flex;flex-direction:column;align-items:center;gap:14px;
   padding:6px 0 2px;text-align:center}
 .coop-dots{display:flex;gap:9px}
-.coop-dots i{width:11px;height:11px;border-radius:50%;background:var(--good,#5aa356);
+.coop-dots i{width:11px;height:11px;border-radius: var(--r, 2px);background:var(--good,#5aa356);
   animation:coop-bounce 1.15s ease-in-out infinite}
 .coop-dots i:nth-child(2){animation-delay:.16s}
 .coop-dots i:nth-child(3){animation-delay:.32s}

@@ -724,6 +724,20 @@ export const ShopRoom = (Base) => class extends Base {
       client.send('action-result', this.game.setOpen(!!m?.open, by));
     });
 
+    /**
+     * Where the shop stands. No layout to send and nothing to re-flow: the
+     * surround is drawn from a group of its own outside the building (see
+     * `Scene.setSurround`), and the id reaches every client on the next
+     * ordinary state update.
+     *
+     * Named like the shutters are, and for the same reason: in a shop two
+     * people share, the other person's entire horizon just changed.
+     */
+    this.onMessage('set-surround', (client, m) => {
+      const by = this.game.players[client.sessionId]?.name;
+      client.send('action-result', this.game.setSurround(m?.surround, by));
+    });
+
     // `quiet` is a hold rather than a press — the client's Menu stopping the
     // world while it is open. Same switch, same stamp, no line in the feed.
     this.onMessage('pause', (client, m) => {

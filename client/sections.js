@@ -33,6 +33,7 @@ import { reportHtml } from './report.js';
 import { CORNERS, isOff, setOff } from './corner.js';
 import { DEBUGS, debugOn, setDebug } from './debug.js';
 import { cinemaOn, setCinema } from './cinema.js';
+import { SURROUNDS, S, DEFAULT_SURROUND } from '../shared/surrounds.js';
 import { coopStatus, openCoop, coopSignature } from './coop.js';
 import { tutorOff, setTutorOff, replayTutor } from './tutor.js';
 import { haveStats, statsOn, setStats } from './analytics.js';
@@ -2574,7 +2575,12 @@ export const SECTIONS = [
       + `|${DEBUGS.map((d) => (debugOn(d.id) ? '+' : '-')).join('')}`
       // Footfall is client state too: there is no snapshot field whose change
       // could otherwise keep this switch in step with the overlay.
-      + `|${ui.scene?.heat?.on === true ? '+' : '-'}`,
+      + `|${ui.scene?.heat?.on === true ? '+' : '-'}`
+      // ...and where the shop stands. Unlike everything above it this IS a
+      // snapshot field, so it is here for the other half of what `live` does:
+      // the tick marks move on the OTHER person's screen when they press it,
+      // and nothing else in this signature would have changed to say so.
+      + `|${ui.state?.surround ?? '-'}`,
     // Every line here is clamped to one line in a 214px panel, so the copy has
     // to be short enough to survive it — an ellipsis mid-word is worse than a
     // blunter phrase. The long version lives in `sub`, which is also the hover.
@@ -2598,6 +2604,11 @@ export const SECTIONS = [
       { sep: 'Game', icon: ICONS.settings },
       { name: ui.net?.world?.name ?? 'This shop', sub: 'the save you are playing', plain: true },
       ...switchGrid(ui),
+      // Grouped with the switches rather than down by Credits: it is something
+      // you DO to this shop, which is what the top of this tab is for. It rides
+      // in the save, unlike every tile in the grid above it — see
+      // shared/surrounds.js for why that is the right side of the line.
+      ...surroundRows(ui),
       // Letting somebody in. A row here rather than the floating pill it was,
       // and the argument is docs/ui-shell.md's own: anything offering an action
       // belongs in `#panel`. What settled it is a phone — the pill was pinned
@@ -2762,6 +2773,38 @@ function volRow(ui, bus, icon, name, sub) {
  * and a press that quietly changed what happens tomorrow is the same dead press
  * as a switch with nothing behind it.
  */
+/**
+ * Where the shop stands — one row per surround, the picked one marked.
+ *
+ * ROWS RATHER THAN A GRID TILE, and the two are not interchangeable: a tile is
+ * a switch and answers on/off, where this is three alternatives and exactly one
+ * of them is true. Put on the grid it would be three switches you can turn all
+ * of off, which is a state the shop does not have.
+ *
+ * A plain `sep` with no icon, which is what keeps this a heading INSIDE the
+ * Game tab rather than a fourth tab of its own — the same call `Credits` makes
+ * further down. It is three rows about the view; it is not a subject.
+ *
+ * `picked` rather than a disabled row for the one you are on: pressing the
+ * surround you already have is idempotent all the way down to `setSurround` on
+ * the server, so there is nothing to protect anybody from, and a greyed row is
+ * a promise that something would happen if you were somewhere else.
+ */
+function surroundRows(ui) {
+  const now = ui.state?.surround ?? DEFAULT_SURROUND;
+  const ART = { [S.COUNTRY]: ICONS.outdoors, [S.SUBURB]: ICONS.house, [S.CITY]: ICONS.city };
+  return [
+    { sep: 'Surroundings' },
+    ...SURROUNDS.map((s) => ({
+      icon: icon(ART[s.id], ICONS.outdoors),
+      name: s.name,
+      sub: s.sub,
+      picked: now === s.id,
+      run: () => ui.setSurround(s.id),
+    })),
+  ];
+}
+
 function switchGrid(ui) {
   const tutOff = tutorOff();
   const soundOff = mix.muted;

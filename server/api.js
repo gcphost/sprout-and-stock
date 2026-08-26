@@ -310,11 +310,23 @@ export function createApi() {
     const g = await gameFor(req);
     if (req.body?.open !== undefined) g.setOpen(!!req.body.open, 'An agent');
     if (req.body?.paused !== undefined) g.setPaused(!!req.body.paused, 'An agent');
+    /**
+     * ...and where the shop stands, which is here rather than on a route of its
+     * own because it is the same question a screenshot asks: what am I about to
+     * be looking at. `setSurround` refuses an id it does not know, so a typo is
+     * reported rather than quietly resolving to countryside — which is the one
+     * failure a caller taking a picture could not see.
+     */
+    if (req.body?.surround !== undefined) {
+      const r = g.setSurround(String(req.body.surround), 'An agent');
+      if (!r.ok) return res.status(400).json(r);
+    }
     // `open` is the shutters and `serving` is what that adds up to with the
     // hour — a caller that raised the shutters at 03:00 has to be able to see
     // that the shop still is not trading, or the answer looks like a refusal.
-    res.json({
+    return res.json({
       ok: true, world: g.worldId, open: g.open, paused: g.paused,
+      surround: g.surround,
       hour: Math.round(g.time * 24 * 10) / 10,
       tradingHours: g.trading(), serving: g.isOpen(),
     });

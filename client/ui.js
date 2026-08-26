@@ -3912,6 +3912,20 @@ export class UI {
   }
 
   /**
+   * Move the shop to a different sort of place.
+   *
+   * Sent rather than applied locally, even though the only thing that changes
+   * is a group in the renderer: it rides in the save, so the person who is not
+   * pressing the button has to see it too. The scene picks it up off the next
+   * snapshot like everything else (`Scene.setSurround`), which is what keeps
+   * one answer to "where is this shop" rather than two that agree until they
+   * do not.
+   */
+  setSurround(id) {
+    this.net.send('set-surround', { surround: id });
+  }
+
+  /**
    * The hour, and the two states that are now worn by things already on screen.
    *
    * Both switches used to be pips beside the clock. They are the clock itself

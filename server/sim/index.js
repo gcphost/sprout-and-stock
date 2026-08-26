@@ -36,6 +36,7 @@ import { makeRng } from '../../shared/rng.js';
 import { hash01 } from '../../shared/hash.js';
 import { hourLabel, seasonFor } from '../../shared/clock.js';
 import { R, netRep } from '../../shared/reputation.js';
+import { SURROUNDS, isSurround, surroundOf } from '../../shared/surrounds.js';
 import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { difficultyOf } from '../../shared/difficulty.js';
 import { cleanName } from '../../shared/names.js';
@@ -1631,6 +1632,22 @@ export class Game {
      */
     this.tradedToday = state.tradedToday ?? true;
     /**
+     * WHERE THE SHOP IS — countryside, suburb or city.
+     *
+     * Purely a look: nothing in the sim reads it, no rule anywhere is phrased
+     * against it, and it can never move a number. It is on the save rather than
+     * in the player's `localStorage` because it is a fact about the *building*
+     * and not about the person looking at it — two people in one co-op shop
+     * have to be standing in the same town. See shared/surrounds.js for the
+     * test that distinguishes the two.
+     *
+     * `surroundOf` narrows anything it does not recognise back to the default
+     * rather than answering null, which is what makes a save written by a newer
+     * build survivable here — and the default is countryside, because that is
+     * the ring of trees every shop in existence was already drawn with.
+     */
+    this.surround = surroundOf(state.surround);
+    /**
      * HOW HARD THE TOWN IS ON THIS SHOP — the difficulty preset, resolved once.
      *
      * `this.difficulty` is the id and rides in the save (`Object.assign` above
@@ -2150,6 +2167,13 @@ export class Game {
       // written `false` by `createWorld`, which is where "a new shop starts
       // shut" actually lives.
       open: w.open,
+      // Which sort of place the shop stands in. Named here like everything else
+      // on this payload and NOT spread, which is the trap this whole object
+      // exists to make visible: the constructor's `??` would answer the default
+      // for a world that had chosen a city, the next `persist()` would write
+      // that default back over it, and the save would look correct in between.
+      // `paint` shipped exactly that way for five steps.
+      surround: w.surround,
       // ...and when somebody stopped the clock, which is honoured only if it was
       // recent enough to have been a restart rather than a night off. A save
       // from before this field reads as not paused, which is what every shop in
@@ -2300,6 +2324,7 @@ export class Game {
       reputation: this.reputation,
       open: this.open,
       tradedToday: this.tradedToday,
+      surround: this.surround,
       lastDirectorDay: this.lastDirectorDay ?? null,
       ownedUpgrades: this.ownedUpgrades,
       ledger: this.ledger,
@@ -2423,6 +2448,7 @@ export class Game {
       // one goes stale and the first never does.
       open: this.open,
       tradedToday: this.tradedToday,
+      surround: this.surround,
       pausedAt: this.paused ? this.pausedAt : null,
       lastDirectorDay: this.lastDirectorDay ?? null,
       // The banked town. Written at the day rollover immediately before this
@@ -3041,6 +3067,11 @@ export class Game {
       shutters: this.open,
       trading: this.trading(),
       paused: this.paused,
+      // Where the shop is. On the ordinary state update rather than a message
+      // of its own, because it is one string and the renderer has to ask about
+      // it every snapshot anyway — see `Scene.setSurround`, which returns
+      // immediately for every snapshot but the one after a press.
+      surround: this.surround,
       layoutVersion: this.layoutVersion,
       // Everything today, and the reputation tally rounded on the way past.
       // Not tidiness: `repMoves.crowd` accrues a few ten-thousandths every tick
@@ -3810,6 +3841,40 @@ export class Game {
     // eventually and a *paused* one never does.
     this.persist();
     return ok({ open: this.open });
+  }
+
+  /**
+   * Move the shop somewhere else — countryside, suburb, city.
+   *
+   * The whole verb is a string on the save. Nothing in the sim reads it, so
+   * there is no re-flow, no layout to send and nothing to charge: it cannot
+   * move a number, which is the reason it is a press you can make freely and
+   * the reason `simulate` is not worth running over it.
+   *
+   * IT REFUSES AN ID IT DOES NOT KNOW rather than narrowing it the way
+   * `surroundOf` does, and the split is this file's usual one: a READ has to
+   * answer something, because the alternative is a world that draws nothing,
+   * while a PRESS has somebody in front of it who can be told. Silently
+   * accepting a typo from the API would be a row that reports success and
+   * changes the view to countryside.
+   *
+   * Idempotent and silent when nothing changes, like the shutters and for the
+   * same reason: two people share this shop and a line per press would be a
+   * feed that says the town changed twice.
+   */
+  setSurround(id, by = null) {
+    if (!isSurround(id)) return err(`No such surround: ${id}`);
+    if (id === this.surround) return ok({ surround: this.surround });
+    this.surround = id;
+    const name = SURROUNDS.find((s) => s.id === id)?.name ?? id;
+    // Worth a line, unlike most cosmetics: in a co-op shop the other person's
+    // entire horizon just changed, and nothing else on their screen says why.
+    this.pushLog(`${by ? `${by} ` : ''}moved the shop to the ${name.toLowerCase()}.`);
+    // Straight to the save, exactly as `setOpen` does: this is a press somebody
+    // makes and walks away from, and `persist` otherwise only runs at the day
+    // rollover — which a paused shop never reaches at all.
+    this.persist();
+    return ok({ surround: this.surround });
   }
 
   /**
@@ -12642,11 +12707,33 @@ export class Game {
     // `deck` is fractional, not by the lift id itself. Resolve that outbound
     // hand-off back to the physical shaft or neither the owner nor the gate can
     // see a crate that is visibly inside it.
-    const physicalShaft = (loc, cell) => shaftMouths.get(cell.id)
-      ?? (machineIds.has(cell.id) ? cell.id : null)
-      ?? (loc?.line.outs ?? []).find((out) => machineIds.has(out.id)
+    //
+    // ...AND THE SHAFT IS USUALLY THE NEXT CELL, NOT THE LINE'S `out`.
+    //
+    // `conveyorLines` overlaps its seams — a line's path runs to the first cell
+    // of the line AFTER it — so a lift fed by a ceiling run is that run's last
+    // cell, and `outs` is one line further on again, naming the belt the lift
+    // lands onto. Asked of `outs` alone a descending crate therefore resolves to
+    // no shaft at all, and BOTH halves of that are invisible: `stillInside` is
+    // false for the whole ride, so the carry latch is dropped every time
+    // `shaftCarryUntil` lapses and re-granted the tick after — the wire flips
+    // carry → pickup → carry, and each flip is a fresh discrete state on the
+    // client, so the piston snaps back to the top and starts its stroke again,
+    // several times per trip. And `driveCell` falls through to the feeder, so
+    // the box rides down at the FEEDER's rung while the piston animates at the
+    // lift's, which is the same journey drawn twice at two speeds. It is a
+    // descent-only bug and reads as intermittent: a crate rising is filed
+    // against the lift's own cell, which clause one already answers.
+    const physicalShaft = (loc, cell) => {
+      const direct = shaftMouths.get(cell.id)
+        ?? (machineIds.has(cell.id) ? cell.id : null);
+      if (direct) return direct;
+      const next = loc?.line.cells[loc.i + 1] ?? null;
+      if (next && machineIds.has(next.id) && deckOf(next) !== deckOf(cell)) return next.id;
+      return (loc?.line.outs ?? []).find((out) => machineIds.has(out.id)
         && deckOf(out) !== deckOf(cell))?.id
-      ?? null;
+        ?? null;
+    };
     if (shaftMouths.size) {
       for (const crate of this.deliveries) {
         if (!crate.belt) continue;

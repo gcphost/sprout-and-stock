@@ -17,6 +17,35 @@
   <style>
     :root {
       --ink: #3a3128;
+      /* The CONTOUR, and it is not `--ink`. That one is the brown you read text
+         in; this is `INK.COLOR` from client/render/look.js — the line the post
+         pass lays over the shop to say where a thing stops. The chrome borrows
+         it so a button and a shelf are outlined in the same colour, and the two
+         must not be unified: text in the contour is too cold and a contour in
+         the text brown is a border rather than a line. */
+      --ink-line: #171219;
+      /* The SAME line, a third as strong — `INK.CREASE_INK` is 0.39. A contour
+         is where an object stops; a crease is where two faces of ONE object
+         meet, and every hairline inside a card is the second thing. Full
+         strength in there reads as two cards butted together, which is what a
+         divider exists to say it is not. */
+      --crease: rgba(23, 18, 25, .39);
+      /* ONE CORNER FOR THE WHOLE UI, and the reason it is a token rather than a
+         number typed in 136 places is what it replaced: fifteen different radii
+         between 3 and 20px, plus 23 capsules and 8 circles, none of which was
+         ever chosen against the others — each was picked for the thing it was
+         on, on the day that thing was written.
+         2px because the shop is boxes with hard edges: shelving, crates,
+         appliances, the building itself. A 12px corner on a 40px card is a third
+         of the way to a circle and reads as somebody else's app sat on top of
+         the game, which is the same complaint the blurred drop shadows were.
+         The contour is what says "this is a hard object" now, so the radius has
+         very little left to do — it is there to stop the ink meeting itself at a
+         point, and 2px is the smallest number that does that.
+         A `0` corner in a directional radius stays 0: those are cards welded to
+         an edge of the screen, and which corners they round is a fact about
+         where they are rather than about how round anything is. */
+      --r: 2px;
       --panel: rgba(255, 252, 245, 0.94);
       /* The same colour at full alpha. Anything that pins itself over scrolling
          content needs this rather than --panel: 94% over 94% is still see-
@@ -28,6 +57,13 @@
          blur is a panel you read a shelf through, and the text on it stops being
          readable the moment somebody paints a dark floor under the bar. */
       --panel-glass: rgba(255, 252, 245, 0.76);
+      /* The same paper, standing back. For the two corner widgets that are
+         faded until you point at them: they used to drop the whole element's
+         `opacity`, which was right while a card was a fill and a blur and is
+         wrong now that it has a CONTOUR — #171219 at 45% is a soft grey line,
+         which is the one thing an ink pass is not. So the fill recedes and the
+         line does not, and the card goes on being a drawing. */
+      --panel-dim: rgba(255, 252, 245, 0.55);
       --line: rgba(58, 49, 40, 0.14);
       --accent: #e2564a;
       --good: #5aa356;
@@ -265,12 +301,12 @@
        reassuring. A shuttle across a track instead — it says "still going"
        without claiming to say how far. */
     .boot-bar {
-      margin-top: 14px; width: 150px; height: 6px; border-radius: 99px;
+      margin-top: 14px; width: 150px; height: 6px; border-radius: var(--r);
       overflow: hidden; background: rgba(58,49,40,.14);
       box-shadow: inset 0 1px 2px rgba(58,49,40,.12), 0 1px 0 rgba(255,255,255,.5);
     }
     .boot-bar i {
-      display: block; width: 42%; height: 100%; border-radius: 99px;
+      display: block; width: 42%; height: 100%; border-radius: var(--r);
       background: linear-gradient(90deg, rgba(255,255,255,0), var(--accent), rgba(255,255,255,0));
       animation: boot-run 1.5s cubic-bezier(.6,0,.4,1) infinite;
     }
@@ -351,7 +387,7 @@
     .menu-mute {
       position: fixed; bottom: 16px; right: 16px; width: 38px; height: 38px;
       display: grid; place-items: center; font-size: 16px; line-height: 1;
-      border: 1px solid var(--line); border-radius: 12px; cursor: pointer;
+      border: 1px solid var(--line); border-radius: var(--r); cursor: pointer;
       background: var(--panel-solid); opacity: .85; z-index: 1;
       box-shadow: 0 3px 0 rgba(58,49,40,.14);
     }
@@ -378,7 +414,7 @@
 
     .menu-field {
       display: flex; align-items: center; gap: 10px; background: var(--panel);
-      border-radius: 12px; padding: 7px 12px; margin-bottom: 10px;
+      border-radius: var(--r); padding: 7px 12px; margin-bottom: 10px;
       box-shadow: 0 3px 12px rgba(58,49,40,.1);
     }
     .menu-field span { font-size: 11px; font-weight: 800; opacity: .5; text-transform: uppercase; letter-spacing: .04em; }
@@ -412,7 +448,7 @@
     .tier {
       flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;
       border: 0; font: inherit; cursor: pointer; color: var(--ink); text-align: left;
-      border-radius: 11px; padding: 8px 9px; background: rgba(58,49,40,.06);
+      border-radius: var(--r); padding: 8px 9px; background: rgba(58,49,40,.06);
       box-shadow: inset 0 0 0 2px transparent;
     }
     .tier b { font-size: 12px; font-weight: 800; line-height: 1.2; }
@@ -449,7 +485,7 @@
        same one: these are pictures of things you will be buying more of an hour
        from now, off a bar that frames them exactly like this. */
     .kart {
-      width: 100%; height: 42px; border-radius: 9px; padding: 3px;
+      width: 100%; height: 42px; border-radius: var(--r); padding: 3px;
       display: grid; place-items: center;
       background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.9), rgba(58,49,40,.055));
       box-shadow: inset 0 0 0 1px rgba(58,49,40,.06);
@@ -500,7 +536,7 @@
       font-size: 12px; opacity: .55; text-align: center; padding: 14px 4px; line-height: 1.45;
     }
     .menu-err {
-      background: var(--accent); color: #fff; border-radius: 10px;
+      background: var(--accent); color: #fff; border-radius: var(--r);
       padding: 7px 12px; font-size: 12.5px; font-weight: 700; margin-bottom: 6px;
     }
     /* "The shop in your link is gone" is news, not a failure — you are already
@@ -512,7 +548,7 @@
        with a side to it rather than a rectangle with a glow under it. Hover
        lifts it and shortens the base, the way picking something up does. */
     .wcard {
-      background: var(--panel-solid); border-radius: 16px; padding: 12px 14px 11px;
+      background: var(--panel-solid); border-radius: var(--r); padding: 12px 14px 11px;
       box-shadow: 0 4px 0 rgba(58,49,40,.11), 0 8px 20px rgba(58,49,40,.16);
       transition: transform .12s ease, box-shadow .12s ease;
     }
@@ -529,7 +565,7 @@
     .wname { font-size: 16px; font-weight: 800; flex: 1; min-width: 0;
              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .wlive {
-      flex: none; background: #d8f0d2; color: #3f7a3c; border-radius: 99px;
+      flex: none; background: #d8f0d2; color: #3f7a3c; border-radius: var(--r);
       padding: 1px 8px; font-size: 10px; font-weight: 800;
     }
     .wstats { display: flex; gap: 9px; align-items: baseline; margin-top: 2px; font-size: 13px; }
@@ -574,7 +610,7 @@
        it. No transition on the press: a squash that eases is a lag. */
     .wacts { display: flex; gap: 7px; margin-top: 10px; }
     .wacts button {
-      border: 0; font: inherit; cursor: pointer; border-radius: 10px;
+      border: 0; font: inherit; cursor: pointer; border-radius: var(--r);
       padding: 8px 14px; font-size: 13px; font-weight: 800;
       box-shadow: 0 3px 0 rgba(58,49,40,.18);
       transition: filter .12s ease;
@@ -593,7 +629,7 @@
     .wdel.on { background: var(--accent); color: #fff; }
 
     .menu-add {
-      width: 100%; border: 0; font: inherit; cursor: pointer; border-radius: 13px;
+      width: 100%; border: 0; font: inherit; cursor: pointer; border-radius: var(--r);
       padding: 11px; font-size: 13.5px; font-weight: 800; color: var(--ink);
       box-shadow: 0 3px 0 rgba(58,49,40,.14);
       background: rgba(255,252,245,.6); box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
@@ -612,7 +648,7 @@
     .menu-adds.menu-alt { margin-top: 8px; }
     .menu-adds.menu-alt .menu-add { font-size: 12.5px; padding: 9px; opacity: .8; }
     html.can-hover .menu-adds.menu-alt .menu-add:hover { opacity: 1; }
-    .menu-new { background: var(--panel); border-radius: 15px; padding: 11px 13px;
+    .menu-new { background: var(--panel); border-radius: var(--r); padding: 11px 13px;
                 box-shadow: 0 4px 16px rgba(58,49,40,.13); }
     .menu-new .menu-field { background: rgba(58,49,40,.06); box-shadow: none; }
     .menu-foot { text-align: center; font-size: 11px; opacity: .5; margin: 12px 0 0; }
@@ -640,7 +676,7 @@
     .menu-support {
       position: fixed; left: 16px; bottom: 16px; z-index: 1;
       display: inline-flex; align-items: center; gap: 7px;
-      border-radius: 11px; padding: 8px 14px;
+      border-radius: var(--r); padding: 8px 14px;
       font-size: 12.5px; font-weight: 800; color: var(--ink);
       text-decoration: none; cursor: pointer;
       background: rgba(255,252,245,.6);
@@ -739,8 +775,16 @@
        each happened to carry, which is what put a hole between the balance and
        the clock. */
     #stats {
-      background: var(--panel); border-radius: 11px;
-      padding: 5px 10px; box-shadow: 0 3px 11px rgba(58,49,40,.14);
+      position: relative;
+      background: var(--panel); border-radius: var(--r);
+      padding: 5px 10px;
+      /* The contour, same pair as `.rail-btn`: 1.5px of `INK.SIL_WIDTH` and a
+         hard offset instead of a blur. See the note there for why an ink pass
+         and a soft drop shadow cannot both be on screen.
+         Only the offset is here — `#sign` runs full bleed down the left edge
+         and would paint the inset line out along its whole height, so the line
+         is an overlay for the reason `#panel::after` gives at length. */
+      box-shadow: 2px 3px 0 var(--ink-line);
       display: flex; gap: 10px; align-items: center;
       /* THE CARD CLIPS ITS OWN CORNERS, which is what lets the sign be an EDGE
          of it rather than an object sitting inside it. `#sign` cancels the
@@ -778,6 +822,11 @@
          it can afford to, because every figure in it is scaled up about a tenth,
          which puts its rows well clear of the word on their own. */
       min-height: 46px;
+    }
+    #stats::after {
+      content: ''; position: absolute; inset: 0; z-index: 2;
+      border-radius: inherit; pointer-events: none;
+      box-shadow: inset 0 0 0 1.5px var(--ink-line);
     }
     /* NOTHING IN HERE SHRINKS. The card is a fixed readout in a corner, not a
        column of a page, and flex's default is to shrink an item that does not
@@ -914,7 +963,11 @@
        after the first", because the door is not a group — it is the sign for
        the whole card, standing down the left of both rows the way it used to
        stand down the edge of the panel. */
-    #town, .gauges { border-left: 1px solid var(--line); padding-left: 12px; }
+    /* CREASE WEIGHT, NOT THE CONTOUR. Both of these are rules INSIDE one card,
+       and `INK.CREASE_INK` is 0.39 of the outer line for exactly this reason:
+       a full-strength line inside a contoured card reads as two cards butted
+       together, which is the one thing a divider is there to say it is not. */
+    #town, .gauges { border-left: 1px solid var(--crease); padding-left: 12px; }
     /* ...and the sign stands down the left of BOTH rows, which is what it is:
        one fact about the whole shop rather than a field in either line. It was
        a 5px stripe in exactly this position — quiet, which was the point, and a
@@ -950,6 +1003,11 @@
          than a column of it. */
       flex: 0 0 34px; width: 34px;
       color: #fff; background: var(--good);
+      /* The strip is an EDGE of the card rather than an object on it, so the
+         line where it meets the readouts is a crease and not a second contour —
+         the same call `#town`'s divider makes, and the reason the card's own
+         outline only ever runs round the outside. */
+      box-shadow: inset -1px 0 0 var(--crease);
       transition: background .15s, filter .12s;
     }
     /* Presses in rather than down, the same as the clock beside it — but on the
@@ -1144,7 +1202,7 @@
       border: 0; padding: 1px 3px; background: none; cursor: pointer; margin: 0 -3px;
       color: inherit; font: inherit;
       font-variant-numeric: tabular-nums; font-weight: 700; font-size: 11px;
-      border-radius: 5px; transition: background .12s;
+      border-radius: var(--r); transition: background .12s;
       display: inline-flex; align-items: center; gap: 3px;
     }
     /* ...and the glyph, which the note above argued this button did not need.
@@ -1321,7 +1379,19 @@
       font-size: 6.5px; font-weight: 800; letter-spacing: .04em;
       text-transform: uppercase; opacity: .5; text-align: right;
     }
-    .repwrap { width: 42px; height: 4px; background: var(--line); border-radius: 99px; overflow: hidden; }
+    /* 5px AND A 1px LINE, and the two numbers are one decision. Inked at the
+       card's own 1.5px there is a single pixel of fill left in a 4px bar, which
+       stops being a gauge and becomes a dash — so the track grew a pixel and
+       the line came down one. That is `INK.FADE` said about a small object: the
+       pass draws a distant thing with a thinner stroke, and a 42x5 gauge is the
+       smallest thing on this panel. The track's own fill goes with it — an
+       outlined box does not also need a grey wash inside it. */
+    /* 2px, the same as `.mtr-bar` under it — the two are the only bars in this
+       column and a capsule beside a rectangle reads as two different readouts.
+       A 99px radius on a 5px track is a capsule, which is the one shape in here
+       that could not survive the corner coming off everything else. */
+    .repwrap { width: 42px; height: 5px; background: transparent; border-radius: var(--r); overflow: hidden;
+      box-shadow: inset 0 0 0 1px rgba(23, 18, 25, .5); }
     .repwrap > div { height: 100%; background: var(--good); transition: width .4s, background .4s; }
     /* Past the line the shop is refusing people, which is not a shade of busy —
        it is a different thing happening, so it stops being a bar and pulses. */
@@ -1363,20 +1433,25 @@
     #rci {
       position: relative;
       width: var(--corner-w);
-      background: var(--panel); border-radius: 13px; padding: 7px 10px;
-      box-shadow: 0 4px 14px rgba(58,49,40,.14);
-      opacity: .45; transition: opacity .12s ease;
+      background: var(--panel-dim); border-radius: var(--r); padding: 7px 10px;
+      box-shadow: inset 0 0 0 1.5px var(--ink-line), 2px 3px 0 var(--ink-line);
+      transition: background .12s ease;
       cursor: grab; touch-action: none;
     }
     /* The rows are a child rather than the panel's own children, because the
        close button is a child too and `ui.update` rewrites the meter from
        `innerHTML` ten times a second — anything sharing that element with the
-       bars lives about a tenth of a second. See client/corner.js. */
-    #rci-rows { display: flex; flex-direction: column; gap: 2px; }
+       bars lives about a tenth of a second. See client/corner.js.
+
+       It is also what carries the fade now (see `--panel-dim`): the widget's
+       own `opacity` was the whole of it and could not be, since that took the
+       contour with it. */
+    #rci-rows { display: flex; flex-direction: column; gap: 2px; opacity: .62; transition: opacity .12s ease; }
     /* `:active` as well as `:hover`, because a drag captures the pointer and can
        take it outside the element — without it the meter fades out from under
        you halfway through moving it, which reads as having dropped it. */
-    html.can-hover #rci:hover, html.can-hover #rci:active { opacity: 1; }
+    html.can-hover #rci:hover, html.can-hover #rci:active { background: var(--panel); }
+    html.can-hover #rci:hover #rci-rows, html.can-hover #rci:active #rci-rows { opacity: 1; }
 
     /* ---- putting a corner readout away ------------------------------------
        Both of these are always on screen and neither is urgent, so both can be
@@ -1395,7 +1470,7 @@
        control for a thing you are already looking at. */
     .corner-x {
       position: absolute; top: -6px; right: -6px;
-      width: 17px; height: 17px; padding: 0; border: 0; border-radius: 50%;
+      width: 17px; height: 17px; padding: 0; border: 0; border-radius: var(--r);
       display: grid; place-items: center;
       background: var(--panel); color: var(--ink);
       box-shadow: 0 2px 6px rgba(58,49,40,.22);
@@ -1421,18 +1496,30 @@
     #radio {
       position: relative;
       width: var(--corner-w);
-      background: var(--panel); border-radius: 13px; padding: 7px 8px 6px;
-      box-shadow: 0 4px 14px rgba(58,49,40,.14);
-      opacity: .45; transition: opacity .12s ease;
+      background: var(--panel-dim); border-radius: var(--r); padding: 7px 8px 6px;
+      box-shadow: inset 0 0 0 1.5px var(--ink-line), 2px 3px 0 var(--ink-line);
+      transition: background .12s ease;
       cursor: grab; touch-action: none;
     }
-    html.can-hover #radio:hover, html.can-hover #radio:active { opacity: 1; }
+    /* The same split #rci makes: the fill stands back, the contour does not.
+       Both children rather than the element, because the element is what the
+       line is drawn on. */
+    #lcd, #lcdbtns { opacity: .62; transition: opacity .12s ease; }
+    html.can-hover #radio:hover, html.can-hover #radio:active { background: var(--panel); }
+    html.can-hover #radio:hover #lcd, html.can-hover #radio:active #lcd,
+    html.can-hover #radio:hover #lcdbtns, html.can-hover #radio:active #lcdbtns { opacity: 1; }
     #radio:active { cursor: grabbing; }
     /* The screen. Dark, inset and slightly green — a little LCD, which is the
        one place in this HUD allowed to look like hardware rather than paper. */
     #lcd {
-      background: #24301f; border-radius: 5px; overflow: hidden;
-      box-shadow: inset 0 1px 3px rgba(0,0,0,.5);
+      background: #24301f; border-radius: var(--r); overflow: hidden;
+      /* The well STAYS, and it is the one soft edge left in this HUD. It is a
+         recess rather than a drop shadow — the thing it says is that the screen
+         is set into the case, which is a fact about the object and not a way of
+         lifting it off the paper. The contour goes on top of it, because a dark
+         rectangle on a cream card needs the line more than anything else up
+         here does. */
+      box-shadow: inset 0 1px 3px rgba(0,0,0,.5), inset 0 0 0 1.5px var(--ink-line);
       padding: 3px 0; margin-bottom: 4px;
     }
     #lcdtrack {
@@ -1458,7 +1545,7 @@
 
     #lcdbtns { display: flex; gap: 4px; }
     #lcdbtns button {
-      flex: 1; border: 0; border-radius: 5px; padding: 2px 0;
+      flex: 1; border: 0; border-radius: var(--r); padding: 2px 0;
       background: rgba(58,49,40,.09); color: var(--ink);
       font-size: 8.5px; letter-spacing: .04em; cursor: pointer;
       transition: background .1s ease;
@@ -1489,9 +1576,10 @@
     .mtr-plot { position: relative; height: 7px; }
     .mtr-plot::after {
       content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px;
-      width: 1px; background: rgba(58,49,40,.16);
+      width: 1px; background: var(--crease);
     }
-    .mtr-bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+    .mtr-bar { position: absolute; top: 0; bottom: 0; border-radius: var(--r);
+      box-shadow: inset 0 0 0 1px rgba(23, 18, 25, .45); }
     .mtr.up .mtr-bar { left: 50%; background: var(--good); }
     .mtr.down .mtr-bar { right: 50%; background: var(--accent); }
 
@@ -1504,7 +1592,7 @@
        shop draws an empty card with a ✕ on it before the first snapshot. */
     #todo:empty, #rci:has(> #rci-rows:empty) { display: none; }
     .todo {
-      background: var(--panel); border-radius: 99px; padding: 2px 9px 2px 7px;
+      background: var(--panel); border-radius: var(--r); padding: 2px 9px 2px 7px;
       font-size: 11.5px; font-weight: 600; color: var(--ink);
       box-shadow: 0 2px 7px rgba(58,49,40,.11);
       display: inline-flex; align-items: center; gap: 5px;
@@ -1544,13 +1632,33 @@
       display: flex; gap: 6px; max-width: calc(100vw - 16px); flex-wrap: wrap;
       justify-content: center;
     }
+    /* The contour and the hard offset are one decision, not two.
+
+       An ink pass is COVERAGE rather than light (see `lay` in render/post.js),
+       so nothing behind this button has a soft edge any more — a blurred drop
+       shadow under a drawn shop is the one gesture that says "different piece
+       of software". The stroke is 1.5px because `INK.SIL_WIDTH` is 1.4 screen
+       texels and a 40px card at this scale is the same line read at the same
+       distance; the shadow is an offset SOLID for the same reason the stroke
+       exists.
+
+       Both are `box-shadow` rather than a border, so the button's box is
+       untouched and `--nav-h` and the whole bottom stack above it stay where
+       they are. */
     .rail-btn {
       position: relative; width: 40px; height: 40px; border: 0; cursor: pointer;
-      background: var(--panel); border-radius: 12px; color: var(--ink);
-      box-shadow: 0 4px 14px rgba(58,49,40,.15); display: grid; place-items: center;
-      font: inherit; transition: background .12s, transform .12s;
+      background: var(--panel); border-radius: var(--r); color: var(--ink);
+      box-shadow: inset 0 0 0 1.5px var(--ink-line), 2px 3px 0 var(--ink-line);
+      display: grid; place-items: center;
+      font: inherit; transition: background .12s, transform .12s, box-shadow .12s;
     }
-    html.can-hover .rail-btn:hover { transform: translateY(-2px); }
+    /* Lifting AND lengthening the shadow, or the button slides out from under a
+       mark that stayed put and the hover reads as a misprint rather than a
+       press. */
+    html.can-hover .rail-btn:hover {
+      transform: translate(-1px, -2px);
+      box-shadow: inset 0 0 0 1.5px var(--ink-line), 3px 5px 0 var(--ink-line);
+    }
     /* A click focuses the button, and the browser's own focus ring is a heavy
        blue box in somebody else's colours — on a row of buttons whose whole job
        is to show you which one is lit, a second, louder "this one" that follows
@@ -1561,9 +1669,15 @@
        still shows you where you are. Drawn in `--ink` rather than in the lit
        yellow, and OUTSIDE the button (`outline-offset`) where the open state is
        a fill and the palette's is an inset ring — three marks that cannot be
-       mistaken for one another. */
+       mistaken for one another.
+
+       Offset 3 rather than 2 since the contour arrived: at 2 the ring lands on
+       the button's own outline and the two read as one thick edge, which is the
+       mark saying nothing. It still crosses the hard shadow on two sides, which
+       is fine — it is a full ring in a different colour, and the shadow is on
+       two. */
     .rail-btn:focus { outline: none; }
-    .rail-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    .rail-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     /* Lit means "this menu is open" — except on Build, which is a mode rather
        than a menu, where it means the world is in it.
 
@@ -1573,16 +1687,29 @@
        says you are in it — and a mode you cannot see you are in is the complaint
        the lit state exists for. */
     .rail-btn.on { background: #ffd66b; }
+    /* The palette's pressed-in ring is the contour DOUBLED rather than a second
+       mark beside it — 1.5px of edge becoming 3px is the same line drawn
+       harder, which is what a nib does, and it cannot be mistaken for the
+       focus ring the way an inset brown one could. */
     .rail-btn.on.open {
-      box-shadow: inset 0 0 0 2px var(--ink), 0 4px 14px rgba(58,49,40,.15);
+      box-shadow: inset 0 0 0 3px var(--ink-line), 2px 3px 0 var(--ink-line);
+    }
+    html.can-hover .rail-btn.on.open:hover {
+      box-shadow: inset 0 0 0 3px var(--ink-line), 3px 5px 0 var(--ink-line);
     }
     .rail-btn .ico { font-size: 18px; line-height: 1; }
     .rail-btn .kb { position: absolute; bottom: 2px; right: 5px; font-size: 8px; font-weight: 800; opacity: .35; }
     .rail-btn .badge {
       position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px;
-      border-radius: 99px; background: var(--accent); color: #fff;
+      border-radius: var(--r); background: var(--accent); color: #fff;
       font-size: 10px; font-weight: 800; display: grid; place-items: center;
-      box-shadow: 0 2px 6px rgba(58,49,40,.25);
+      /* Its own contour, or a red pill on a paper card is the one thing in the
+         row with no line round it — and it is drawn OVER the button's edge, so
+         without one the two colours meet with nothing between them. Thinner
+         than the button's, because the ink pass draws a small object with a
+         thinner line (`INK.FADE`), and 1.5px on a 16px pill is the 40px card's
+         stroke at the 40px card's scale. */
+      box-shadow: inset 0 0 0 1.5px var(--ink-line), 1px 2px 0 var(--ink-line);
     }
     .rail-btn .badge[hidden] { display: none; }
 
@@ -1603,7 +1730,10 @@
       pointer-events: none; overflow: visible;
     }
     .rail-btn .ring path { fill: none; stroke-width: 2.5; opacity: 0; transition: opacity .25s; }
-    .rail-btn .ring .trk { stroke: var(--line); }
+    /* The track is the contour's colour at low alpha rather than `--line`'s
+       brown, so an empty ring reads as the button's own outline showing through
+       rather than as a second, warmer circle drawn inside it. */
+    .rail-btn .ring .trk { stroke: rgba(23, 18, 25, .18); }
     .rail-btn .ring .arc {
       stroke: var(--warn); stroke-linecap: round;
       /* Long and linear, because the arc is written about once a minute (see
@@ -1624,9 +1754,9 @@
        read as one readout — the number is what the ring is counting down. */
     .rail-btn .cargo {
       position: absolute; bottom: -4px; left: -4px; min-width: 16px; height: 16px; padding: 0 4px;
-      border-radius: 99px; background: var(--warn); color: #fff;
+      border-radius: var(--r); background: var(--warn); color: #fff;
       font-size: 10px; font-weight: 800; display: grid; place-items: center;
-      box-shadow: 0 2px 6px rgba(58,49,40,.25);
+      box-shadow: inset 0 0 0 1.5px var(--ink-line), 1px 2px 0 var(--ink-line);
       transition: background .3s;
     }
     .rail-btn .cargo[hidden] { display: none; }
@@ -1653,7 +1783,7 @@
       position: fixed; z-index: 40; pointer-events: none;
       max-width: 240px; padding: 7px 10px 8px;
       background: var(--panel-solid); color: var(--ink);
-      border-radius: 11px; box-shadow: 0 8px 22px rgba(58,49,40,.22);
+      border-radius: var(--r); box-shadow: 0 8px 22px rgba(58,49,40,.22);
       font-size: 12px; line-height: 1.3;
       opacity: 0; transform: translateY(5px) scale(.93);
       /* Out fast and flat, in slower with an overshoot past 1: a tip that
@@ -1685,7 +1815,7 @@
     /* The hotkey as a key cap, which is the same thing `.kb` says on the button
        itself — said properly, because here there is room for it. */
     #tip .key {
-      margin-left: auto; padding: 1px 5px; border-radius: 5px;
+      margin-left: auto; padding: 1px 5px; border-radius: var(--r);
       background: rgba(58,49,40,.09); box-shadow: inset 0 -1px 0 rgba(58,49,40,.14);
       font-size: 9.5px; font-weight: 800; opacity: .6;
     }
@@ -1707,7 +1837,7 @@
        off the screen edge must still point at its button. */
     #tip .arrow {
       position: absolute; bottom: -3px; width: 10px; height: 10px;
-      margin-left: -5px; border-radius: 2px;
+      margin-left: -5px; border-radius: var(--r);
       background: var(--panel-solid); transform: rotate(45deg);
       /* The box's own shadow stops at the box, so without this the caret is a
          flat tab hanging off a lifted card. Offset down-and-right in the
@@ -1750,7 +1880,7 @@
        `hoverLog` for why that is hit-tested rather than `:hover`. */
     #log div {
       display: flex; align-items: center; gap: 6px;
-      background: var(--panel); border-radius: 9px; padding: 4px 10px;
+      background: var(--panel); border-radius: var(--r); padding: 4px 10px;
       font-size: 11.5px; line-height: 1.35; box-shadow: 0 2px 7px rgba(58,49,40,.09);
       opacity: .74; transition: opacity .18s, transform .3s;
     }
@@ -1766,7 +1896,7 @@
        pinning to its first line. */
     #log .lg-who {
       flex: none; width: 21px; height: 21px;
-      margin-left: -3px; border-radius: 99px; padding: 2px;
+      margin-left: -3px; border-radius: var(--r); padding: 2px;
       background: rgba(58,49,40,.07);
     }
     #log .lg-who > svg { width: 100%; height: 100%; display: block; }
@@ -1783,7 +1913,7 @@
     #log .lg-good > svg {
       width: 17px; height: 17px; display: inline-block; vertical-align: middle;
       margin-left: 2px;
-      padding: 1px; border-radius: 5px; background: rgba(58,49,40,.05);
+      padding: 1px; border-radius: var(--r); background: rgba(58,49,40,.05);
     }
     /* bottom-right: what is in your hands, a row per pile.
        It was one long sentence, which at three kinds ran the width of the
@@ -1798,13 +1928,13 @@
        are running after and a corner is somewhere you are not looking. */
     #stam {
       left: 50%; transform: translateX(-50%); bottom: 76px;
-      width: 132px; height: 6px; border-radius: 3px;
+      width: 132px; height: 6px; border-radius: var(--r);
       background: rgba(58,49,40,.22); overflow: hidden;
       pointer-events: none; opacity: 0; transition: opacity .18s;
     }
     #stam.show { opacity: 1; }
     #stam i {
-      display: block; height: 100%; width: 100%; border-radius: 3px;
+      display: block; height: 100%; width: 100%; border-radius: var(--r);
       background: var(--good); transform-origin: left center;
       transition: transform .08s linear;
     }
@@ -1814,7 +1944,7 @@
     #stam.spent i { background: var(--accent); }
     #carry {
       right: 12px; background: var(--panel); font-size: 11.5px;
-      border-radius: 11px; padding: 6px 9px 7px;
+      border-radius: var(--r); padding: 6px 9px 7px;
       box-shadow: 0 2px 7px rgba(58,49,40,.09);
       display: flex; flex-direction: column; gap: 3px; max-width: 220px;
     }
@@ -1828,7 +1958,7 @@
     #carry .cy-n { font-weight: 800; min-width: 24px; text-align: right; flex: none; }
     #carry .cy-row > svg {
       width: 19px; height: 19px; flex: none; display: block;
-      padding: 1px; border-radius: 5px; background: rgba(58,49,40,.05);
+      padding: 1px; border-radius: var(--r); background: rgba(58,49,40,.05);
     }
     #carry .cy-name {
       font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1841,7 +1971,7 @@
     #prompt {
       left: 50%; transform: translate(-50%, 8px); opacity: 0;
       background: rgba(58,49,40,.86); color: #fff; padding: 7px 16px;
-      border-radius: 99px; font-size: 14px; font-weight: 600;
+      border-radius: var(--r); font-size: 14px; font-weight: 600;
       pointer-events: none; transition: opacity .14s, transform .14s;
       white-space: nowrap;
     }
@@ -1926,7 +2056,7 @@
        on the sentence rather than as the thing you press. It does NOT nudge: the
        animation on the mouse says which button, and there is only one R. */
     #prompt .pr-key {
-      flex: none; min-width: 15px; padding: 2px 4px; border-radius: 5px;
+      flex: none; min-width: 15px; padding: 2px 4px; border-radius: var(--r);
       background: rgba(255,255,255,.13);
       box-shadow: inset 0 -1px 0 rgba(0,0,0,.28);
       font: inherit; font-size: 10px; font-weight: 800; line-height: 1;
@@ -1978,7 +2108,7 @@
          pointer being on the canvas is exactly the case this is for. */
       pointer-events: none; z-index: 11;
       background: rgba(58,49,40,.9); color: #fff;
-      border-radius: 11px; padding: 6px 11px 7px 7px;
+      border-radius: var(--r); padding: 6px 11px 7px 7px;
       box-shadow: 0 6px 18px rgba(58,49,40,.28);
       white-space: nowrap; line-height: 1.25;
       display: flex; align-items: center; gap: 8px;
@@ -1994,7 +2124,7 @@
        for, whatever colour somebody authors next. */
     #boardtip .bt-ico {
       flex: none; width: 30px; height: 30px; padding: 3px;
-      border-radius: 8px; background: rgba(255,252,245,.16);
+      border-radius: var(--r); background: rgba(255,252,245,.16);
     }
     #boardtip .bt-ico > svg { width: 100%; height: 100%; display: block; }
     #boardtip .bt-ico:empty { display: none; }
@@ -2064,7 +2194,7 @@
       position: fixed; left: 0; top: 0; will-change: transform;
       transform: translate(-50%, -100%);
       background: rgba(58,49,40,.9); color: #fff;
-      border-radius: 8px; padding: 3px 6px;
+      border-radius: var(--r); padding: 3px 6px;
       box-shadow: 0 5px 14px rgba(58,49,40,.26);
       white-space: nowrap; line-height: 1.2;
       display: flex; align-items: center; gap: 6px;
@@ -2079,7 +2209,7 @@
     }
     #peek .bt-ico {
       flex: none; width: 17px; height: 17px; padding: 2px;
-      border-radius: 5px; background: rgba(255,252,245,.16);
+      border-radius: var(--r); background: rgba(255,252,245,.16);
     }
     #peek .bt-ico > svg { width: 100%; height: 100%; display: block; }
     /* An item with no art keeps its SLOT and loses its plaque, so the boards
@@ -2100,7 +2230,7 @@
     /* Just below #hq's single strip. */
     #toast {
       top: 66px; left: 50%; transform: translate(-50%, -12px); opacity: 0;
-      background: var(--ink); color: #fff; padding: 6px 14px; border-radius: 99px;
+      background: var(--ink); color: #fff; padding: 6px 14px; border-radius: var(--r);
       font-size: 12.5px; font-weight: 700; pointer-events: none; transition: .25s;
     }
     #toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -2127,7 +2257,7 @@
     #rail-note {
       position: fixed; z-index: 12; left: 50%; pointer-events: none;
       width: max-content; max-width: calc(100vw - 24px);
-      background: rgba(58,49,40,.82); color: #fff; border-radius: 99px;
+      background: rgba(58,49,40,.82); color: #fff; border-radius: var(--r);
       padding: 4px 12px; font-size: 12px; font-weight: 600;
       opacity: 0; transform: translate(-50%, 7px);
       transition: opacity .15s, transform .18s;
@@ -2151,8 +2281,38 @@
       width: min(430px, calc(100vw - 24px));
       max-height: min(72vh, calc(100vh - var(--nav-top) - var(--build-h) - 20px));
       background: var(--panel);
-      border-radius: 18px; box-shadow: 0 10px 34px rgba(58,49,40,.22);
+      border-radius: var(--r);
+      /* One contour, because the panel is ONE object however many boxes are
+         drawn on it — and a deeper offset than the rail's, since the shadow is
+         read against the size of the thing casting it: 2px under a 430px card
+         is a printing slip rather than a card standing off the shop.
+
+         EVERY HAIRLINE INSIDE IT IS A CREASE, and this is where that is said —
+         once, for the whole subtree. `--line` is redefined rather than the
+         eighteen `var(--line)` rules being rewritten, so every menu that
+         renders into this panel (the roster, a fixture, the report, the
+         supplier) picks it up with no rule of its own, and `--line` goes on
+         meaning what it always meant outside. */
+      --line: var(--crease);
+      box-shadow: 4px 5px 0 var(--ink-line);
       display: none; flex-direction: column; overflow: hidden;
+    }
+    /* THE CONTOUR IS DRAWN OVER THE CONTENTS, not on the box.
+       `.tabs`, `.dwrap` and `.heads` are deliberately full bleed — a negative
+       `margin-inline` of the body's own padding, so a sticky bar covers the
+       whole width rather than leaving a gutter the list scrolls through. That
+       was free while the panel was a fill and a blur; as an inset shadow the
+       line is UNDER them, so three opaque bars paint it out and the shop shows
+       a card whose outline stops for 90px and starts again. It reads as the
+       header poking out through the wall, which is exactly what it is.
+       So the line goes on an overlay above every sticky bar. `inset: 0` and the
+       radius inherited, or it is a second rectangle very slightly disagreeing
+       with the one it is drawn on; `pointer-events: none` because it covers
+       every control in the panel. */
+    #panel::after {
+      content: ''; position: absolute; inset: 0; z-index: 5;
+      border-radius: inherit; pointer-events: none;
+      box-shadow: inset 0 0 0 1.5px var(--ink-line);
     }
     #panel.show { display: flex; }
     /* The header is also the grab handle: drag to move the panel, double-click
@@ -2183,7 +2343,7 @@
        it is a long section name at .6. */
     .pnl-note .clock {
       font-size: 10.5px; font-variant-numeric: tabular-nums; letter-spacing: .02em;
-      padding: 2px 6px; border-radius: 999px; white-space: nowrap;
+      padding: 2px 6px; border-radius: var(--r); white-space: nowrap;
       background: rgba(58,49,40,.09); color: var(--ink); opacity: .85;
     }
     /* Pulling in. The one state worth colouring: it is the difference between a
@@ -2195,7 +2355,7 @@
     .pnl-note .pnl-btn {
       pointer-events: auto; border: 0; background: none; padding: 2px; margin: -2px;
       color: var(--ink); opacity: .45; cursor: pointer; font-size: 12px; line-height: 0;
-      border-radius: 6px;
+      border-radius: var(--r);
     }
     html.can-hover .pnl-note .pnl-btn:hover { opacity: 1; background: rgba(58,49,40,.08); }
     #panel-close {
@@ -2289,9 +2449,13 @@
     #panel-filter[hidden] { display: none; }
     #panel-searchwrap {
       display: flex; align-items: center; gap: 7px; padding: 0 9px;
-      background: rgba(58,49,40,.06); border-radius: 9px;
+      background: rgba(58,49,40,.06); border-radius: var(--r);
+      box-shadow: inset 0 0 0 1px var(--crease);
     }
-    #panel-searchwrap:focus-within { outline: 2px solid #ffd66b; }
+    /* Focus is the box's own line DOUBLED, the same thing `.rail-btn.on.open`
+       does — an amber outline drawn outside a contoured card is two marks in
+       two vocabularies arguing about one edge, and the outer one is soft. */
+    #panel-searchwrap:focus-within { outline: 0; box-shadow: inset 0 0 0 1.5px var(--ink-line); }
     #panel-searchwrap .ico { font-size: 13px; opacity: .4; }
     #panel-search {
       flex: 1; border: 0; background: none; color: var(--ink); outline: 0;
@@ -2340,12 +2504,17 @@
     }
     .tab {
       flex: 1; display: grid; place-items: center; padding: 5px 0;
-      border: 0; border-radius: 8px; background: transparent;
+      border: 0; border-radius: var(--r); background: transparent;
       color: var(--ink); opacity: .4; font-size: 13px; cursor: pointer;
       transition: opacity .1s, background .1s;
+      /* A box even when it is off, which is the `.dtab` row's rule said one row
+         up: everything you can press carries a line. Without it the lit tab is
+         a heavy inked panel and the other three are floating words — one
+         control and three captions, when they are four of the same thing. */
+      box-shadow: inset 0 0 0 1px var(--crease);
     }
     html.can-hover .tab:hover { opacity: .8; background: rgba(58,49,40,.06); }
-    .tab.on { opacity: 1; background: #ffd66b; }
+    .tab.on { opacity: 1; background: #ffd66b; box-shadow: inset 0 0 0 1.5px var(--ink-line); }
     .tab svg { display: block; }
     /* A section's tab says its own name — see `paintSection`, which is also
        where the argument for it is. A row of glyphs beside a word rather than
@@ -2466,6 +2635,20 @@
       background: var(--panel-solid);
       border-bottom: 1px solid var(--line);
     }
+    /* ONE RULE UNDER THE WHOLE STACK, not one per bar.
+       `.tabs`, `.dwrap` and `.heads` each drew their own, which was invisible
+       while `--line` was brown at .14 and is three parallel strokes in 110px
+       now that it is the crease — the header reads as ruled paper and the
+       panel looks like it has come apart. They are one stacked header rather
+       than three areas: what the line was ever saying is "the controls stop
+       here and the list starts", which happens once, under whichever of them
+       is last. Which one that is varies by section — some have tabs only —
+       so it is asked rather than assigned.
+       TRANSPARENT AND NOT REMOVED: `paintSection` measures where each bar ends
+       to stick the next one under it, so the 1px has to stay in the box. */
+    .tabs:has(+ .dwrap), .tabs:has(+ .heads), .dwrap:has(+ .heads) {
+      border-bottom-color: transparent;
+    }
     .heads .hcell {
       flex: none; font-size: 8px; font-weight: 800; letter-spacing: .04em;
       text-transform: uppercase; opacity: .42; white-space: nowrap; overflow: hidden;
@@ -2507,18 +2690,19 @@
        shape the rest of this panel already uses for a small fact on a row. */
     .dtab {
       flex: 0 0 auto; text-align: center;
-      border: 0; border-radius: 99px;
+      border: 0; border-radius: var(--r);
       padding: 2px 7px; color: var(--ink);
       background: rgba(58,49,40,.07);
       font-size: 8px; font-weight: 800; letter-spacing: .04em;
       text-transform: uppercase; line-height: 1.5;
       opacity: .5; cursor: pointer; transition: opacity .1s, background .1s;
+      box-shadow: inset 0 0 0 1px var(--crease);
     }
     html.can-hover .dtab:hover { opacity: .9; background: rgba(58,49,40,.14); }
     /* The same yellow the icon tab uses for "you are here", because it is the
        same fact one row down — two colours for one state would read as two
        different kinds of selection. */
-    .dtab.on { opacity: 1; background: #ffd66b; }
+    .dtab.on { opacity: 1; background: #ffd66b; box-shadow: inset 0 0 0 1.5px var(--ink-line); }
 
     .tab { position: relative; }
     .tab .tcount {
@@ -2542,7 +2726,7 @@
     .tab.none .tcount { opacity: .5; }
     .tab.none.on { opacity: 1; }
 
-    .row { display: flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: 9px; }
+    .row { display: flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: var(--r); }
     html.can-hover .row:hover { background: rgba(58,49,40,.05); }
     .row.owned { opacity: .5; }
     /* "There is already one of these somewhere" — a nudge, not a refusal, so it
@@ -2591,7 +2775,7 @@
     }
     .row .mark.warn { color: var(--accent); opacity: .75; }
     .row .heat {
-      flex: none; padding: 0 5px; border-radius: 99px;
+      flex: none; padding: 0 5px; border-radius: var(--r);
       font-size: 9.5px; font-weight: 800; letter-spacing: .01em;
       font-variant-numeric: tabular-nums;
     }
@@ -2603,9 +2787,16 @@
       font-weight: 700; font-variant-numeric: tabular-nums;
       flex: none; white-space: nowrap; font-size: 11px; opacity: .85;
     }
+    /* THE ONE THING IN THE LIST THAT GETS A LINE, and the rule is the whole of
+       why the rows do not: a button is an OBJECT standing on the panel, where a
+       row is a line of type printed on it — it has a hover fill and no edges.
+       Ink every box in here and eight rows carry twenty-four more strokes in
+       300px, at which point you read the grid instead of the names, which is
+       the one job this list has. */
     .row button {
-      border: 0; background: var(--good); color: #fff; border-radius: 8px;
+      border: 0; background: var(--good); color: #fff; border-radius: var(--r);
       padding: 3px 9px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; flex: none;
+      box-shadow: inset 0 0 0 1.5px var(--ink-line), 1px 2px 0 var(--ink-line);
     }
     /* Un-ordering, in the slot ordering lives in. `.row button.danger` rather
        than `.danger` alone for the reason the steppers below spell out: a bare
@@ -2629,11 +2820,11 @@
        menu that wanted it first, because "this thing has a target and you are
        part of the way to it" is not a fact about milestones. */
     .row .rbar {
-      height: 4px; margin-top: 4px; border-radius: 99px;
+      height: 4px; margin-top: 4px; border-radius: var(--r);
       background: rgba(58,49,40,.12); overflow: hidden;
     }
     .row .rbar > i {
-      display: block; height: 100%; border-radius: 99px; background: var(--good);
+      display: block; height: 100%; border-radius: var(--r); background: var(--good);
       transition: width .25s ease;
     }
 
@@ -2656,7 +2847,7 @@
        your finger — hence a fixed width and tabular figures. */
     .row .stp {
       display: flex; align-items: center; gap: 0;
-      background: rgba(58,49,40,.06); border-radius: 7px; padding: 1px;
+      background: rgba(58,49,40,.06); border-radius: var(--r); padding: 1px;
     }
     .row .stp i {
       font-style: normal; font-size: 8px; font-weight: 800; letter-spacing: .03em;
@@ -2671,7 +2862,7 @@
     .row .stp b.none { opacity: .28; font-weight: 700; }
     .row .rbtn {
       border: 0; background: transparent; color: var(--ink);
-      border-radius: 5px; padding: 0; width: 15px; height: 16px; line-height: 1;
+      border-radius: var(--r); padding: 0; width: 15px; height: 16px; line-height: 1;
       font: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
       display: grid; place-items: center; flex: none; opacity: .5;
     }
@@ -2681,7 +2872,7 @@
        be wide enough to read and sit up like something you press. */
     .row .rbtn.wide {
       width: auto; height: 20px; padding: 0 9px; font-size: 11px; opacity: .6;
-      background: rgba(58,49,40,.08); border-radius: 7px;
+      background: rgba(58,49,40,.08); border-radius: var(--r);
     }
     /* The one that is a state rather than a nudge. Off is the loud one, because
        "never order this" is the exception and the default has nothing to say. */
@@ -2747,7 +2938,7 @@
        shape card in, at row size: art with no ground under it reads as a
        floating drawing, and the two lists are picking between the same shapes. */
     .sec-row .bico.art {
-      width: 26px; height: 22px; padding: 2px; border-radius: 6px;
+      width: 26px; height: 22px; padding: 2px; border-radius: var(--r);
       background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.9), rgba(58,49,40,.055));
       box-shadow: inset 0 0 0 1px rgba(58,49,40,.06);
     }
@@ -2762,7 +2953,7 @@
     .midrow {
       display: block; width: 100%; border: 0; cursor: pointer; font: inherit;
       color: var(--ink); background: rgba(58,49,40,.06);
-      border-radius: 9px; padding: 6px 8px 7px; margin-top: 3px; text-align: center;
+      border-radius: var(--r); padding: 6px 8px 7px; margin-top: 3px; text-align: center;
       transition: background .1s;
     }
     html.can-hover .midrow:hover { background: rgba(58,49,40,.13); }
@@ -2804,7 +2995,7 @@
     .gcell { position: relative; }
     .gtile {
       width: 100%; border: 0; font: inherit; color: var(--ink); cursor: pointer;
-      background: rgba(58,49,40,.06); border-radius: 9px; padding: 7px 5px 5px;
+      background: rgba(58,49,40,.06); border-radius: var(--r); padding: 7px 5px 5px;
       display: grid; justify-items: center; gap: 2px; text-align: center;
       opacity: .5; transition: opacity .1s, background .1s;
     }
@@ -2825,7 +3016,7 @@
        when you meant the switch, so it sits clear of the glyph and the words. */
     .gsub {
       position: absolute; top: 3px; right: 3px; width: 16px; height: 16px;
-      border: 0; padding: 0; border-radius: 6px; cursor: pointer;
+      border: 0; padding: 0; border-radius: var(--r); cursor: pointer;
       background: rgba(58,49,40,.10); color: var(--ink);
       display: grid; place-items: center; font-size: 9px; opacity: .45;
     }
@@ -2933,13 +3124,13 @@
        ink that isn't data, and at this height it would be most of the mark. */
     .rp-split { margin-top: 10px; }
     .rp-track {
-      display: flex; gap: 2px; height: 10px; border-radius: 5px;
+      display: flex; gap: 2px; height: 10px; border-radius: var(--r);
       background: rgba(58,49,40,.08);
     }
     .rp-seg { display: block; height: 100%; }
-    .rp-seg:first-child { border-radius: 5px 0 0 5px; }
-    .rp-seg:last-child { border-radius: 0 5px 5px 0; }
-    .rp-seg:only-child { border-radius: 5px; }
+    .rp-seg:first-child { border-radius: var(--r) 0 0 var(--r); }
+    .rp-seg:last-child { border-radius: 0 var(--r) var(--r) 0; }
+    .rp-seg:only-child { border-radius: var(--r); }
     .rp-seg.base { background: rgba(58,49,40,.3); }
     .rp-seg.kept { background: var(--good); }
     .rp-seg.short { background: var(--accent); }
@@ -2973,8 +3164,8 @@
     .rp-up { align-items: flex-end; }
     .rp-dn { align-items: flex-start; }
     .rp-up > i, .rp-dn > i { display: block; width: 18px; max-width: 100%; }
-    .rp-up > i { background: var(--good); border-radius: 4px 4px 0 0; }
-    .rp-dn > i { background: var(--accent); border-radius: 0 0 4px 4px; }
+    .rp-up > i { background: var(--good); border-radius: var(--r) var(--r) 0 0; }
+    .rp-dn > i { background: var(--accent); border-radius: 0 0 var(--r) var(--r); }
     /* The day number, under the plot. `tabular-nums` here and NOT on the hero,
        because these are a row of figures that have to line up with each other. */
     .rp-col > b {
@@ -3028,8 +3219,8 @@
     .rp-rup { align-items: flex-end; }
     .rp-rdn { align-items: flex-start; }
     .rp-rup > i, .rp-rdn > i { display: block; width: 12px; max-width: 100%; }
-    .rp-rup > i { background: var(--good); border-radius: 3px 3px 0 0; }
-    .rp-rdn > i { background: var(--accent); border-radius: 0 0 3px 3px; }
+    .rp-rup > i { background: var(--good); border-radius: var(--r) var(--r) 0 0; }
+    .rp-rdn > i { background: var(--accent); border-radius: 0 0 var(--r) var(--r); }
     .rp-raxis {
       position: absolute; left: 0; right: 0; height: 0;
       border-top: 1px solid rgba(58,49,40,.22); pointer-events: none;
@@ -3039,7 +3230,7 @@
     .rp-tiles { display: flex; gap: 6px; }
     .rp-tile {
       flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 1px;
-      padding: 6px 7px; border-radius: 10px; background: rgba(58,49,40,.05);
+      padding: 6px 7px; border-radius: var(--r); background: rgba(58,49,40,.05);
     }
     /* Status colour only where there is something to say. A tile at zero stays
        in the panel's own ink, so the eye finds the lit ones without reading. */
@@ -3090,7 +3281,7 @@
     .rp-cval.up { color: #3f7a3c; }
     .rp-cval.down { color: #a8442f; }
     .rp-ctrack {
-      grid-column: 1 / -1; position: relative; height: 6px; border-radius: 99px;
+      grid-column: 1 / -1; position: relative; height: 6px; border-radius: var(--r);
       background: rgba(58,49,40,.06);
     }
     /* The centre. A hairline rather than a gap, because with one row on each
@@ -3101,8 +3292,8 @@
       width: 1px; background: rgba(58,49,40,.2);
     }
     .rp-ctrack > i { position: absolute; top: 0; bottom: 0; display: block; }
-    .rp-ctrack > i.up { background: var(--good); border-radius: 0 99px 99px 0; }
-    .rp-ctrack > i.dn { background: var(--accent); border-radius: 99px 0 0 99px; }
+    .rp-ctrack > i.up { background: var(--good); border-radius: 0 var(--r) var(--r) 0; }
+    .rp-ctrack > i.dn { background: var(--accent); border-radius: var(--r) 0 0 var(--r); }
 
     /* The one row in the panel that is advice rather than measurement, and it
        has to look like it: a tinted card, the way the `Going wrong` tiles are,
@@ -3115,7 +3306,7 @@
        sentence runs to three lines at this width, and a bolded phrase at the
        head of a paragraph is read as part of it. */
     .rp-fix {
-      margin: 9px 0 0; padding: 7px 8px; border-radius: 10px;
+      margin: 9px 0 0; padding: 7px 8px; border-radius: var(--r);
       background: rgba(58,49,40,.05);
     }
     .rp-fix > b {
@@ -3133,11 +3324,11 @@
     /* The empty part of the track is a lighter step of the fill rather than
        neutral grey, so how full it is reads across the whole bar. */
     .rp-mtrack {
-      grid-column: 1 / -1; height: 5px; border-radius: 99px;
+      grid-column: 1 / -1; height: 5px; border-radius: var(--r);
       background: rgba(90,163,86,.18); overflow: hidden;
     }
     .rp-mtrack > i {
-      display: block; height: 100%; border-radius: 99px;
+      display: block; height: 100%; border-radius: var(--r);
       background: var(--good); transition: width .25s ease;
     }
     .rp-clear { margin: 0; font-size: 11px; opacity: .55; line-height: 1.4; }
@@ -3174,7 +3365,7 @@
          row overflows the panel instead of five equal columns ellipsising. */
       flex: 1; min-width: 0; position: relative;
       display: flex; flex-direction: column; align-items: center; gap: 1px;
-      padding: 5px 2px 4px; border: 0; border-radius: 8px; background: transparent;
+      padding: 5px 2px 4px; border: 0; border-radius: var(--r); background: transparent;
       color: var(--ink); opacity: .55; font: inherit; font-size: 13px; cursor: pointer;
       transition: opacity .1s, background .1s;
     }
@@ -3264,7 +3455,7 @@
     .im-head { display: flex; align-items: flex-start; gap: 9px; }
     .im-figures { flex: 1; min-width: 0; }
     .im-art {
-      flex: none; width: 46px; height: 40px; padding: 3px; border-radius: 8px;
+      flex: none; width: 46px; height: 40px; padding: 3px; border-radius: var(--r);
       background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.9), rgba(58,49,40,.055));
       box-shadow: inset 0 0 0 1px rgba(58,49,40,.06);
     }
@@ -3282,7 +3473,7 @@
        restyling a 430px row was going to find the room. */
     .im-set {
       display: flex; align-items: center; gap: 8px;
-      padding: 7px 6px; border-radius: 10px;
+      padding: 7px 6px; border-radius: var(--r);
     }
     html.can-hover .im-set:hover { background: rgba(58,49,40,.04); }
     /* The elastic column, and the only one that may shrink — a caption that
@@ -3295,7 +3486,7 @@
     }
     .im-step {
       flex: none; display: flex; align-items: center; gap: 3px;
-      background: rgba(58,49,40,.06); border-radius: 10px; padding: 3px;
+      background: rgba(58,49,40,.06); border-radius: var(--r); padding: 3px;
     }
     /* Fixed and tabular, or every press shuffles the buttons under your thumb
        as the number gets wider — the same rule the row's `.stp b` made at a
@@ -3310,7 +3501,7 @@
     .im-step b.none { opacity: .3; }
     .im-step button {
       width: 32px; height: 32px; flex: none;
-      border: 0; border-radius: 8px; background: rgba(58,49,40,.07);
+      border: 0; border-radius: var(--r); background: rgba(58,49,40,.07);
       color: var(--ink); font: inherit; font-size: 17px; font-weight: 800;
       line-height: 1; cursor: pointer; display: grid; place-items: center;
     }
@@ -3320,7 +3511,7 @@
        and "step this" are the two presses on the row and a third square would
        read as a third step. */
     .im-clear {
-      flex: none; border: 0; border-radius: 8px; padding: 0 9px; height: 26px;
+      flex: none; border: 0; border-radius: var(--r); padding: 0 9px; height: 26px;
       background: rgba(58,49,40,.08); color: var(--ink); font: inherit;
       font-size: 11px; font-weight: 800; opacity: .6; cursor: pointer;
     }
@@ -3330,7 +3521,7 @@
        exception, and the default has nothing to say for itself. */
     .im-tog {
       flex: none; display: flex; align-items: center; gap: 5px;
-      border: 0; border-radius: 10px; padding: 0 11px; height: 38px;
+      border: 0; border-radius: var(--r); padding: 0 11px; height: 38px;
       background: rgba(58,49,40,.07); color: var(--ink); font: inherit;
       font-size: 14px; cursor: pointer;
     }
@@ -3354,7 +3545,7 @@
        item, so the one thing the world thinks about it belongs up there with
        the name. Same shape and colours `.row .heat` uses. */
     #panel-title .heat {
-      flex: none; padding: 0 5px; border-radius: 99px;
+      flex: none; padding: 0 5px; border-radius: var(--r);
       font-size: 9.5px; font-weight: 800; font-variant-numeric: tabular-nums;
     }
     #panel-title .heat.up { background: #d8f0d2; color: #3f7a3c; }
@@ -3433,7 +3624,7 @@
        finger, so the hand that offered to take it has taken it. */
     .fx-board.moving, .fx-board.moving * { cursor: grabbing; }
     .fx-board.moving {
-      background: rgba(217,155,31,.16); border-radius: 8px;
+      background: rgba(217,155,31,.16); border-radius: var(--r);
       box-shadow: 0 3px 10px rgba(58,49,40,.18);
       position: relative; z-index: 1;
     }
@@ -3493,7 +3684,7 @@
     .fx-board .fx-price { margin-left: 3px; }
     .fx-price b { font-weight: 800; min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; }
     .fx-price button {
-      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 7px;
+      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: var(--r);
       width: 22px; height: 22px; font: inherit; font-weight: 800; line-height: 1; cursor: pointer;
     }
     html.can-hover .fx-price button:hover { background: rgba(58,49,40,.18); }
@@ -3503,7 +3694,7 @@
     .fx-price button:disabled { opacity: .25; cursor: default; background: transparent; }
     html.can-hover .fx-price button:disabled:hover { background: transparent; }
     .fx-take {
-      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: 7px;
+      border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: var(--r);
       width: 30px; height: 22px; font-size: 12px; cursor: pointer; flex: none;
       display: flex; align-items: center; justify-content: center;
     }
@@ -3547,7 +3738,7 @@
        it is the window the filmstrip below slides past. */
     .wk-face {
       flex: none; position: relative; width: 78px; height: 86px;
-      border: 0; padding: 0; border-radius: 12px; overflow: hidden;
+      border: 0; padding: 0; border-radius: var(--r); overflow: hidden;
       background: radial-gradient(120% 100% at 50% 16%, rgba(255,255,255,.95), rgba(58,49,40,.075));
       box-shadow: inset 0 0 0 1px rgba(58,49,40,.07);
       color: var(--ink); font: inherit;
@@ -3623,7 +3814,7 @@
       position: absolute; z-index: 5; left: 8px; top: calc(100% - 6px);
       display: flex; flex-direction: column; gap: 2px;
       width: 188px; max-width: calc(100% - 16px); max-height: 232px; overflow-y: auto;
-      background: var(--panel-glass); border-radius: 12px; padding: 5px;
+      background: var(--panel-glass); border-radius: var(--r); padding: 5px;
       backdrop-filter: blur(14px) saturate(1.15);
       -webkit-backdrop-filter: blur(14px) saturate(1.15);
       box-shadow: 0 10px 24px rgba(58,49,40,.28), inset 0 0 0 1px rgba(58,49,40,.09);
@@ -3674,7 +3865,7 @@
        would push the label onto its own line. */
     .wk-energy {
        position: relative; display: inline-block; padding: 1px 7px;
-       border-radius: 99px; overflow: hidden; font-size: 11px;
+       border-radius: var(--r); overflow: hidden; font-size: 11px;
     }
     .wk-energy i {
       position: absolute; inset: 0 auto 0 0; background: rgba(90,163,86,.28);
@@ -3708,14 +3899,28 @@
        to. */
     #build-bar {
       display: flex; flex-direction: column; gap: 5px;
-      background: var(--panel-glass); border-radius: 16px; padding: 6px;
-      backdrop-filter: blur(14px) saturate(1.15);
-      -webkit-backdrop-filter: blur(14px) saturate(1.15);
-      box-shadow: 0 8px 26px rgba(58,49,40,.24);
+      /* PAPER, NOT GLASS, AND THAT IS A LOSS TAKEN ON PURPOSE. The blur was the
+         thing that let a 760px bar sit across the bottom of the shop without
+         being a wall, and it is the only place in the UI that SAMPLED the world
+         — which is what makes it impossible to keep here. An ink pass is
+         coverage: a tile that casts a solid black offset onto frosted glass is
+         two lighting models in one strip, and the eye reads the disagreement
+         long before it can name it.
+         The contour is an overlay for the reason `#panel::after` gives —
+         `#build-strip` bleeds to the wall with a negative margin and would
+         paint an inset line out along the bottom of the bar. */
+      background: var(--panel-solid); border-radius: var(--r); padding: 6px;
+      --line: var(--crease);
+      box-shadow: 4px 5px 0 var(--ink-line);
       width: min(760px, calc(100vw - 28px));
       /* What the shape card is positioned against. It hangs off the top of this,
          over the world, rather than being a row inside it — see `#build-shapes`. */
       position: relative;
+    }
+    #build-bar::after {
+      content: ''; position: absolute; inset: 0; z-index: 4;
+      border-radius: inherit; pointer-events: none;
+      box-shadow: inset 0 0 0 1.5px var(--ink-line);
     }
 
     /* TIER ONE AND TWO SHARE A ROW. They were two stacked rows, at two different
@@ -3765,7 +3970,7 @@
     #build-close {
       margin-left: auto; border: 0; background: none; color: inherit;
       font: inherit; font-size: 14px; line-height: 1; cursor: pointer;
-      opacity: .5; padding: 5px 7px; border-radius: 7px;
+      opacity: .5; padding: 5px 7px; border-radius: var(--r);
       transition: background .12s, opacity .12s;
     }
     html.can-hover #build-close:hover { opacity: 1; background: rgba(58,49,40,.11); }
@@ -3783,12 +3988,12 @@
        whose left half moves. */
     #build-deck {
       display: flex; gap: 2px; flex: none; margin-left: 8px;
-      padding: 2px; border-radius: 10px; background: rgba(58,49,40,.07);
+      padding: 2px; border-radius: var(--r); background: rgba(58,49,40,.07);
     }
     #build-deck[hidden] { display: none; }
     #build-deck button {
       display: flex; align-items: center; gap: 5px;
-      border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+      border: 0; border-radius: var(--r); background: transparent; cursor: pointer;
       font: inherit; font-size: 10.5px; font-weight: 800; color: var(--ink);
       opacity: .45; padding: 3px 9px; white-space: nowrap;
       transition: opacity .1s, background .1s, box-shadow .1s;
@@ -3816,7 +4021,7 @@
        wide as the words on it, and the space left over is space. */
     .cat {
       flex: none; display: flex; align-items: center; justify-content: center; gap: 5px;
-      border: 0; border-radius: 10px; background: transparent; cursor: pointer;
+      border: 0; border-radius: var(--r); background: transparent; cursor: pointer;
       font: inherit; color: var(--ink); opacity: .5; padding: 5px 8px;
       white-space: nowrap; transition: opacity .1s, background .1s, box-shadow .1s;
     }
@@ -3848,7 +4053,7 @@
     #build-subs[hidden] { display: none; }
         .subcat {
       display: flex; align-items: center; gap: 4px;
-      border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+      border: 0; border-radius: var(--r); background: transparent; cursor: pointer;
       font: inherit; font-size: 10.5px; font-weight: 700; color: var(--ink);
       opacity: .45; padding: 3px 10px; white-space: nowrap; transition: opacity .1s, background .1s;
     }
@@ -3886,7 +4091,7 @@
        the panel — its top edge is in the middle of it. */
     #build-strip {
       position: relative; margin: 0 -6px -6px;
-      border-radius: 0 0 16px 16px; overflow: hidden;
+      border-radius: 0 0 var(--r) var(--r); overflow: hidden;
     }
     /* THE 3px ALONG THE TOP IS WHERE A LIFTED TILE GOES. This row scrolls
        sideways, so it is `overflow-y: hidden` — and it opened with no top
@@ -3919,10 +4124,10 @@
       pointer-events: none; z-index: 2; opacity: 0; transition: opacity .12s;
     }
     #build-strip::before {
-      left: 0; background: linear-gradient(90deg, var(--panel-glass) 22%, rgba(255,252,245,0));
+      left: 0; background: linear-gradient(90deg, var(--panel-solid) 22%, rgba(255,252,245,0));
     }
     #build-strip::after {
-      right: 0; background: linear-gradient(270deg, var(--panel-glass) 22%, rgba(255,252,245,0));
+      right: 0; background: linear-gradient(270deg, var(--panel-solid) 22%, rgba(255,252,245,0));
     }
     #build-strip.more-back::before, #build-strip.more-on::after { opacity: 1; }
     /* …and the arrow in it. A round chip rather than a bare glyph: it is a
@@ -3932,9 +4137,9 @@
       position: absolute; top: 50%; transform: translateY(calc(-50% - 3px));
       z-index: 3; width: 22px; height: 22px; padding: 0;
       display: grid; place-items: center; cursor: pointer;
-      border: 0; border-radius: 99px; font: inherit; font-size: 14px; line-height: 1;
+      border: 0; border-radius: var(--r); font: inherit; font-size: 14px; line-height: 1;
       color: var(--ink); background: linear-gradient(#fffdf8, #f1e8d6);
-      box-shadow: 0 2px 6px rgba(58,49,40,.24), inset 0 0 0 1px rgba(58,49,40,.11);
+      box-shadow: inset 0 0 0 1.5px var(--ink-line), 1px 2px 0 var(--ink-line);
       opacity: .92; transition: opacity .1s, transform .1s;
     }
     html.can-hover .nudge:hover { opacity: 1; transform: translateY(calc(-50% - 3px)) scale(1.08); }
@@ -3994,7 +4199,7 @@
        to leave room for — and `.tool .ico`'s fixed 38px comes from that same
        higher-specificity block, so this has to be written the same way. */
     #build:not(.browse) #build-raze .ico {
-      flex: 1; width: 100%; height: auto; border-radius: 9px;
+      flex: 1; width: 100%; height: auto; border-radius: var(--r);
       font-size: 17px; color: var(--accent);
     }
     #build-raze[hidden] { display: none; }
@@ -4020,17 +4225,26 @@
        ellipsise instead. */
     .tool {
       position: relative; border: 0; cursor: pointer; flex: none;
-      font: inherit; color: var(--ink); border-radius: 13px; padding: 6px 8px 5px;
+      font: inherit; color: var(--ink); border-radius: var(--r); padding: 6px 8px 5px;
       display: flex; flex-direction: column; align-items: center; gap: 2px;
       min-width: 74px; max-width: 132px;
-      /* Slightly see-through, so the glass under the strip reads as glass rather
-         than as a frame around a row of solid cards. The armed one below stays
-         opaque on purpose — it is the one thing here that is not scenery. */
-      background: linear-gradient(rgba(255,253,248,.84), rgba(246,239,224,.76));
-      box-shadow: inset 0 0 0 1px rgba(58,49,40,.09), 0 1px 0 rgba(58,49,40,.07);
+      /* A DRAWN CARD. It was slightly see-through so the glass under the strip
+         read as glass; the bar is paper now (see `#build-bar`) and there is
+         nothing to see through to, so the tile is opaque and carries its own
+         contour like everything else you can press.
+         The line is a variable because EIGHT states rewrite this shadow —
+         hover, on, armed, poor, off and the three pairs of those — and a
+         contour spelled eight times is a contour that will be seven places
+         after the next change. Each state composes `--sil` with its own lift
+         rather than restating it. */
+      --sil: inset 0 0 0 1.5px var(--ink-line);
+      --sil2: inset 0 0 0 3px var(--ink-line);
+      --lift: 2px 3px 0 var(--ink-line);
+      background: #fffcf5;
+      box-shadow: var(--sil), var(--lift);
       transition: transform .09s, box-shadow .09s, background .09s;
     }
-    html.can-hover .tool:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1px rgba(58,49,40,.14), 0 4px 10px rgba(58,49,40,.16); }
+    html.can-hover .tool:hover { transform: translateY(-2px); box-shadow: var(--sil), 3px 5px 0 var(--ink-line); }
     .tool:active { transform: translateY(0); }
     /* A HOLD, filling up. One tile asks for one (`bar.js`): the shape card on
        anything that comes in several shapes. Drawn rather than merely allowed,
@@ -4053,9 +4267,16 @@
     /* Armed. A ring rather than a fill under the art, so the thing you are about
        to build stays the brightest object in its own button — a solid amber
        block behind a wooden shelf turns both to mud. */
+    /* THE RING IS THE TILE'S OWN LINE DOUBLED, and the colour moved into the
+       fill. An amber ring was the state for as long as the edge was free to
+       carry it; with a contour on every tile a coloured ring is a second mark
+       arguing with the first about one edge, and it is the softer of the two.
+       Doubling says "this one" in the same vocabulary as everything else, and
+       leaves amber to mean what it means — see `.tool.armed`, which is the
+       whole reason the colours have to stay told apart. */
     .tool.on {
       background: linear-gradient(#ffe6a8, #ffd66b);
-      box-shadow: inset 0 0 0 1.5px #d99b1f, 0 4px 12px rgba(217,155,31,.34);
+      box-shadow: var(--sil2), var(--lift);
       transform: translateY(-2px);
     }
     /* ASKING TWICE, AND THE ONLY STATE ON THIS STRIP THAT RUNS OUT.
@@ -4083,21 +4304,26 @@
        only going round the outside of it.
 
        TWO GREENS, and the split is the one CLAUDE.md's contrast note draws: a
-       ring and a 2px rule are MARKS, which `--good` clears against this ground
-       at 3.4:1, and the two lines of type are FIGURES at 10 and 11px, which it
-       does not — `--good` on the tint is 2.7:1. `#3d7238` is that same green
-       stepped down until it clears 4.5, and the trap is the later tidy-up that
-       "unifies" the two back onto the variable. */
+       2px rule is a MARK, which `--good` clears against this ground at 3.4:1,
+       and the two lines of type are FIGURES at 10 and 11px, which it does not —
+       `--good` on the tint is 2.7:1. `#3d7238` is that same green stepped down
+       until it clears 4.5, and the trap is the later tidy-up that "unifies" the
+       two back onto the variable.
+       THE RING IS NO LONGER ONE OF THE GREENS. It is the tile's own contour
+       doubled, the same as `.tool.on` — with a line on every tile a coloured
+       ring is a second mark arguing about one edge. So the tint and the type
+       carry the whole of what green means here, which is why the tint is lit
+       rather than left alone. */
     .tool.armed {
       background: linear-gradient(#f4faf1, #ddefd8);
-      box-shadow: inset 0 0 0 1.5px var(--good), 0 4px 12px rgba(90,163,86,.3);
+      box-shadow: var(--sil2), var(--lift);
       transform: translateY(-2px);
     }
     /* Hover would otherwise take the ring off — `html.can-hover .tool:hover` is
        the more specific selector, which is why `.tool.on.poor` has a twin of
        this rule two blocks down and for exactly this reason. */
     html.can-hover .tool.armed:hover {
-      box-shadow: inset 0 0 0 1.5px var(--good), 0 4px 12px rgba(90,163,86,.3);
+      box-shadow: var(--sil2), var(--lift);
       transform: translateY(-2px);
     }
     .tool.armed .ico { background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.94), rgba(90,163,86,.16)); }
@@ -4120,7 +4346,7 @@
        window. */
     .tool.armed::after {
       content: ''; position: absolute; left: 5px; right: 5px; bottom: 3px; height: 2px;
-      border-radius: 99px; background: #4a8c45;
+      border-radius: var(--r); background: #4a8c45;
       transform-origin: right center; animation: toolarm var(--arm, 4000ms) linear forwards;
       pointer-events: none;
     }
@@ -4129,8 +4355,8 @@
     .tool .key {
       position: absolute; top: 3px; left: 4px; z-index: 1;
       font-size: 8.5px; font-weight: 800; line-height: 12px; min-width: 12px; height: 12px;
-      border-radius: 4px; color: rgba(58,49,40,.55);
-      background: rgba(58,49,40,.07); box-shadow: inset 0 0 0 1px rgba(58,49,40,.09);
+      border-radius: var(--r); color: rgba(58,49,40,.55);
+      background: rgba(58,49,40,.07); box-shadow: inset 0 0 0 1px var(--ink-line);
     }
     .tool.on .key { color: rgba(58,49,40,.72); background: rgba(255,255,255,.5); }
     /* How many are already standing in the shop. Opposite corner to the key,
@@ -4138,7 +4364,8 @@
     .tool .have {
       position: absolute; top: 3px; right: 4px; z-index: 1;
       font-size: 8.5px; font-weight: 800; line-height: 13px; min-width: 13px; height: 13px;
-      border-radius: 99px; color: #fffcf5; background: rgba(58,49,40,.58);
+      border-radius: var(--r); color: #fffcf5; background: rgba(58,49,40,.58);
+      box-shadow: inset 0 0 0 1px var(--ink-line);
       font-variant-numeric: tabular-nums;
     }
     /* The well the thing stands in. It is what makes a row of art read as a row
@@ -4146,9 +4373,9 @@
        the strip has no grid to it. */
     .tool .ico {
       font-size: 19px; line-height: 1; display: grid; place-items: center;
-      width: 100%; height: 38px; border-radius: 9px;
-      background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.9), rgba(58,49,40,.055));
-      box-shadow: inset 0 0 0 1px rgba(58,49,40,.06);
+      width: 100%; height: 38px; border-radius: var(--r);
+      background: #f4ecdc;
+      box-shadow: inset 0 0 0 1.5px var(--ink-line);
     }
     .tool.on .ico { background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.92), rgba(160,110,20,.14)); }
     /* Art gets the well; a glyph is a category rather than a thing, so it stays
@@ -4179,7 +4406,7 @@
        is wrong with a shelf on the ceiling, and shouting it would say the one
        thing that is not true. The whole tile fades instead, price included. */
     .tool.poor, .tool.off { cursor: not-allowed; }
-    html.can-hover .tool.poor:hover, html.can-hover .tool.off:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(58,49,40,.09), 0 1px 0 rgba(58,49,40,.07); }
+    html.can-hover .tool.poor:hover, html.can-hover .tool.off:hover { transform: none; box-shadow: var(--sil), var(--lift); }
     .tool.poor .ico, .tool.off .ico { opacity: .34; filter: grayscale(1); }
     .tool.poor .nm, .tool.off .nm { opacity: .45; }
     .tool.off .cost, .tool.off .have { opacity: .4; }
@@ -4187,7 +4414,7 @@
     /* Armed and unaffordable keeps its ring — see above — so the well under the
        art must not be greyed back to nothing against it. */
     html.can-hover .tool.on.poor:hover, html.can-hover .tool.on.poor {
-      box-shadow: inset 0 0 0 1.5px #d99b1f, 0 4px 12px rgba(217,155,31,.34);
+      box-shadow: var(--sil2), var(--lift);
       transform: translateY(-2px);
     }
     /* ...and the same for a hire you armed and then could not afford, which is a
@@ -4195,7 +4422,7 @@
        The ring stays for the four seconds it has left — the question is still
        open, and the answer to it is now no. */
     html.can-hover .tool.armed.poor:hover, html.can-hover .tool.armed.poor {
-      box-shadow: inset 0 0 0 1.5px var(--good), 0 4px 12px rgba(90,163,86,.3);
+      box-shadow: var(--sil2), var(--lift);
       transform: translateY(-2px);
     }
 
@@ -4246,7 +4473,7 @@
        glanced at. */
     #build:not(.browse) .tool {
       width: 66px; min-width: 66px; max-width: 66px;
-      padding: 4px; border-radius: 12px; gap: 1px;
+      padding: 4px; border-radius: var(--r); gap: 1px;
     }
     /* ONE line, always. Two was the generous answer and it is the one thing a
        strip of tabs may not do: the caption box is what sets the height of the
@@ -4280,15 +4507,15 @@
        ground to stay legible against a dark shelf. */
     #build:not(.browse) .tool .more {
       position: absolute; top: 30px; right: 4px; z-index: 1;
-      height: 10px; padding: 0 2px; border-radius: 4px;
+      height: 10px; padding: 0 2px; border-radius: var(--r);
       font-size: 9px; font-weight: 800; line-height: 10px;
       color: rgba(58,49,40,.62); background: rgba(255,253,248,.8);
-      box-shadow: inset 0 0 0 1px rgba(58,49,40,.11);
+      box-shadow: inset 0 0 0 1px var(--ink-line);
     }
     html.can-hover #build:not(.browse) .tool:hover .more, html.can-hover #build:not(.browse) .tool.on .more {
       color: rgba(58,49,40,.85); background: rgba(255,255,255,.95);
     }
-    #build:not(.browse) .tool .ico { height: 38px; border-radius: 8px; }
+    #build:not(.browse) .tool .ico { height: 38px; border-radius: var(--r); }
     /* In the bottom-left of the WELL, which is `.more`'s rule mirrored — same
        top, same height, same chip — so a tile carrying both reads as a pair
        rather than as two unrelated marks. Its own ground because it sits over
@@ -4300,10 +4527,10 @@
        two-line caption without a second number to keep in step. */
     #build:not(.browse) .tool .cost {
       position: absolute; top: 30px; left: 4px; z-index: 1;
-      height: 10px; padding: 0 2px; border-radius: 4px;
+      height: 10px; padding: 0 2px; border-radius: var(--r);
       font-size: 8.5px; font-weight: 800; line-height: 10px; opacity: 1;
       color: rgba(58,49,40,.62); background: rgba(255,253,248,.8);
-      box-shadow: inset 0 0 0 1px rgba(58,49,40,.11);
+      box-shadow: inset 0 0 0 1px var(--ink-line);
     }
     #build:not(.browse) .tool.warn .cost { color: var(--accent); }
     #build:not(.browse) .tool.poor .cost { color: var(--accent); opacity: 1; }
@@ -4338,7 +4565,7 @@
        down the left of the whole bar rather than between anything. */
     #build-tools .run {
       flex: none; display: flex; align-items: center; justify-content: center;
-      width: 15px; padding-left: 5px; border-left: 1px solid rgba(58,49,40,.13);
+      width: 15px; padding-left: 5px; border-left: 1px solid var(--ink-line);
     }
     #build-tools .run:first-child { border-left: 0; padding-left: 0; }
     #build-tools .run i {
@@ -4395,17 +4622,19 @@
       position: absolute; bottom: calc(100% + 8px); left: 0;
       display: flex; flex-direction: column; align-items: stretch; gap: 2px;
       width: 186px; max-width: calc(100vw - 40px);
-      background: var(--panel-glass); border-radius: 12px; padding: 5px;
-      backdrop-filter: blur(14px) saturate(1.15);
-      -webkit-backdrop-filter: blur(14px) saturate(1.15);
-      box-shadow: 0 10px 24px rgba(58,49,40,.28), inset 0 0 0 1px rgba(58,49,40,.09);
+      /* Paper, because the bar it hangs off is (see `#build-bar`) and because
+         it is MADE of `.tool`s — a column of inked plates standing on frosted
+         glass is the disagreement the bar just stopped having, two inches
+         higher up the screen. */
+      background: var(--panel-solid); border-radius: var(--r); padding: 5px;
+      box-shadow: inset 0 0 0 1.5px var(--ink-line), 4px 5px 0 var(--ink-line);
     }
     #build-shapes[hidden] { display: none; }
     /* One row per shape: its picture on the left, its name beside it, both hard
        against the same two edges on every row so the list reads down. */
     .shape {
       display: flex; align-items: center; gap: 7px; text-align: left;
-      border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+      border: 0; border-radius: var(--r); background: transparent; cursor: pointer;
       font: inherit; font-size: 11.5px; font-weight: 700; color: var(--ink);
       padding: 2px 8px 2px 3px; opacity: .8;
     }
@@ -4415,7 +4644,7 @@
        this is that button stood up, not a chip with a picture on it, and a
        column of art with no ground under it is a column of floating drawings. */
     .shape .ico.art {
-      flex: none; width: 30px; height: 26px; padding: 2px; border-radius: 7px;
+      flex: none; width: 30px; height: 26px; padding: 2px; border-radius: var(--r);
       background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.9), rgba(58,49,40,.055));
       box-shadow: inset 0 0 0 1px rgba(58,49,40,.06);
     }
@@ -4434,7 +4663,7 @@
        and pushed everything else up for a line that was usually restating the
        lit button. */
     #build-hint {
-      background: rgba(58,49,40,.82); color: #fff; border-radius: 99px;
+      background: rgba(58,49,40,.82); color: #fff; border-radius: var(--r);
       padding: 4px 12px; font-size: 12px; font-weight: 600;
       /* It grows out of the bar and sinks back into it. Appearing and vanishing
          between two frames is what made this harsh — a line of text arriving at
@@ -4526,11 +4755,11 @@
        following your finger — a comfortable reach to the rail. So `#closebtn`
        is `#rotbtn` mirrored: same size, same height, the left edge, pinned to
        nothing that can change size. One shared rule and two `left`/`right`
-       lines, because two round buttons at the same height that did not match
+       lines, because two buttons of the same size at the same height that did not match
        would read as two different kinds of thing. */
     #rotbtn, #closebtn {
       top: 50%; transform: translateY(-50%);
-      width: 46px; height: 46px; border-radius: 50%; border: 0;
+      width: 46px; height: 46px; border-radius: var(--r); border: 0;
       background: var(--panel-solid); color: var(--ink);
       box-shadow: 0 4px 14px rgba(58,49,40,.3);
       display: none; align-items: center; justify-content: center;
@@ -4563,7 +4792,7 @@
        it in the order you reach for them.
 
        Smaller than the two above (38 against 46) because they are secondary and
-       because three round buttons of the same size down one edge reads as a
+       because three buttons of the same size down one edge reads as a
        toolbar rather than as a mode's controls. No `translateY`: the offsets are
        measured off the centre line the other two are pinned to, so the `:active`
        press is a plain scale and cannot drop the button half its height down the
@@ -4592,11 +4821,11 @@
        screen and the way back from it is under the same thumb.
 
        Same 38px and the same 46px pitch as undo/redo, continuing the one
-       column rather than starting a second — four round buttons down an edge is
+       column rather than starting a second — four buttons of the same size down an edge is
        already a toolbar, and a fifth in a new place would read as a different
        kind of thing. */
     #undobtn, #redobtn, #pickbtn, #delbtn {
-      width: 38px; height: 38px; border-radius: 50%; border: 0;
+      width: 38px; height: 38px; border-radius: var(--r); border: 0;
       background: var(--panel-solid); color: var(--ink);
       box-shadow: 0 4px 14px rgba(58,49,40,.3);
       display: none; align-items: center; justify-content: center;
@@ -4642,7 +4871,7 @@
        deliberate — a button that slid up the screen when you left build mode
        would be the moving control `#rotbtn`'s own comment is written against. */
     #viewbtn, #homebtn {
-      width: 38px; height: 38px; border-radius: 50%; border: 0;
+      width: 38px; height: 38px; border-radius: var(--r); border: 0;
       background: var(--panel-solid); color: var(--ink);
       box-shadow: 0 4px 14px rgba(58,49,40,.3);
       display: none; align-items: center; justify-content: center;
@@ -4665,7 +4894,7 @@
       display: none; position: fixed; pointer-events: none;
       border: 1.5px dashed rgba(58,49,40,.75);
       background: rgba(217,155,31,.16);
-      border-radius: 3px;
+      border-radius: var(--r);
     }
     #marquee.show { display: block; }
 
@@ -4737,13 +4966,13 @@
       animation: ttpulse 1.9s ease-in-out infinite;
     }
     .tt-mark[hidden] { display: none; }
-    .tt-ring { border-radius: 14px; }
+    .tt-ring { border-radius: var(--r); }
     /* ...and the same mark at button size, for a press INSIDE the hole. A hole
        the width of a panel says "work in here" and cannot say which of forty
        identical buttons is the one that finishes the step. It cuts nothing and
        blocks nothing — the veil is the hole's business, and the whole panel
        stays live — so this is a picture and only a picture. */
-    .tt-pulse { border-radius: 9px; }
+    .tt-pulse { border-radius: var(--r); }
     @keyframes ttpulse {
       0%, 100% { box-shadow: 0 0 0 3px var(--good), 0 0 0 8px rgba(90, 163, 86, .28); }
       50% { box-shadow: 0 0 0 3px var(--good), 0 0 0 15px rgba(90, 163, 86, 0); }
@@ -4766,6 +4995,9 @@
       filter: drop-shadow(0 1px 3px rgba(28, 24, 20, .55));
     }
     .tt-aim[hidden] { display: none; }
+    /* Circles, and they stay circles: this is drawn over the WORLD rather than
+       over the page — a reticle pointing at a shelf — so it takes the shop's
+       vocabulary and not the chrome's. See `.award-medal` for the line. */
     .tt-aim b, .tt-aim i {
       position: absolute; left: 50%; top: 50%; border-radius: 50%;
     }
@@ -4795,7 +5027,7 @@
       display: grid; grid-template-columns: 62px 1fr; gap: 12px;
       align-items: start; pointer-events: auto;
       background: var(--panel-solid); color: var(--ink);
-      border-radius: 18px; padding: 14px 16px 12px;
+      border-radius: var(--r); padding: 14px 16px 12px;
       box-shadow: 0 14px 34px rgba(58, 49, 40, .34);
       animation: ttpop .22s cubic-bezier(.2, 1.4, .4, 1);
     }
@@ -4848,13 +5080,13 @@
        left, which is not the question the card wants asked. */
     .tt-dots { display: flex; gap: 3px; flex: 1; flex-wrap: wrap; }
     .tt-dots i {
-      width: 5px; height: 5px; border-radius: 50%;
+      width: 5px; height: 5px; border-radius: var(--r);
       background: rgba(58, 49, 40, .18);
     }
     .tt-dots i.was { background: rgba(58, 49, 40, .38); }
     .tt-dots i.at { background: var(--good); transform: scale(1.5); }
     .tt-next, .tt-skip {
-      font: inherit; cursor: pointer; border-radius: 9px; padding: 5px 11px;
+      font: inherit; cursor: pointer; border-radius: var(--r); padding: 5px 11px;
       border: 1px solid var(--line); background: transparent; color: rgba(58, 49, 40, .6);
       font-size: 11px;
     }
@@ -4896,7 +5128,7 @@
       background:
         linear-gradient(#ffd66b, #f6b73c) 0 0 / 100% 66px no-repeat,
         var(--panel-solid);
-      border-radius: 20px; padding: 44px 18px 16px; text-align: center;
+      border-radius: var(--r); padding: 44px 18px 16px; text-align: center;
       box-shadow: 0 18px 44px rgba(58, 49, 40, .34), inset 0 0 0 2px rgba(255,255,255,.5);
       /* Clipped, so the rays behind the medal stay inside the plaque — but the
          medal itself is drawn OUTSIDE this box (see below), so the overflow has
@@ -4922,7 +5154,12 @@
     /* The medal: a disc pushed up out of the card, which is the whole shape of
        the thing. `top` is negative against the card, so it breaks the plaque's
        top edge rather than sitting inside a padded box like every other icon in
-       the HUD. */
+       the HUD.
+       ONE OF THREE THINGS THAT KEPT ITS CIRCLE when the UI squared off, and the
+       line is what the thing IS: this is an object being depicted, not a surface
+       being drawn. A medal is round the way the sun is round and the tutorial's
+       reticle is round. Everything that is a panel, a button or a chip takes
+       `--r`. */
     .award-medal {
       position: absolute; top: -34px; left: 50%; transform: translateX(-50%);
       width: 68px; height: 68px; border-radius: 50%;
@@ -4956,7 +5193,7 @@
                  display: flex; flex-direction: column; gap: 6px; }
     .award-got li {
       display: flex; align-items: center; gap: 9px; text-align: left;
-      background: rgba(58,49,40,.06); border-radius: 12px; padding: 7px 11px;
+      background: rgba(58,49,40,.06); border-radius: var(--r); padding: 7px 11px;
     }
     .award-got .aico { font-size: 17px; line-height: 1; }
     .award-got .atext { display: flex; flex-direction: column; min-width: 0; }
@@ -4975,7 +5212,7 @@
     .award-go {
       width: 100%; border: 0; font: inherit; cursor: pointer;
       background: var(--good); color: #fff; font-weight: 800; font-size: 14px;
-      border-radius: 12px; padding: 9px; box-shadow: 0 3px 0 rgba(0,0,0,.15);
+      border-radius: var(--r); padding: 9px; box-shadow: 0 3px 0 rgba(0,0,0,.15);
     }
     .award-go:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,.15); }
     .award-more { font-size: 11px; opacity: .5; margin-top: 7px; }
@@ -4996,7 +5233,7 @@
        is ever offered are recognisably the same offer. */
     .award-tip a {
       display: inline-flex; align-items: center; gap: 7px;
-      border-radius: 11px; padding: 7px 13px;
+      border-radius: var(--r); padding: 7px 13px;
       font-size: 12.5px; font-weight: 800; color: var(--ink);
       text-decoration: none; cursor: pointer;
       background: rgba(58,49,40,.06);
@@ -5069,7 +5306,13 @@
          the screen has no top corners to round, and rounding them anyway draws
          two slivers of sky above a panel that is supposed to be the edge. */
       #stats {
-        width: 100%; border-radius: 0 0 13px 13px;
+        width: 100%; border-radius: 0 0 var(--r) var(--r);
+        /* No offset here. The card is full bleed and welded to the top of the
+           screen, so a shadow cast down-and-right hangs off the right edge and
+           the three sides it would lift the card off are not on screen. The
+           contour is unaffected — it is on `::after` and the bottom edge of it
+           is the one that does any work on a phone. */
+        box-shadow: none;
         padding: 5px 8px; gap: 8px;
         /* The corner card's floor is there to keep four upright letters whole
            at 8px type — see the note beside it, and the one below about what
@@ -5163,7 +5406,7 @@
       #toast {
         top: calc(var(--hud-h, 46px) + 58px);
         width: max-content; max-width: calc(100vw - 32px);
-        border-radius: 14px; padding: 8px 14px;
+        border-radius: var(--r); padding: 8px 14px;
         text-align: center; line-height: 1.35;
       }
 
@@ -5196,7 +5439,7 @@
          go with them or the reveal drags the whole card half a screen left. */
       #prompt {
         left: 8px; right: 8px; transform: translateY(8px);
-        max-width: none; border-radius: 14px; padding: 9px 10px;
+        max-width: none; border-radius: var(--r); padding: 9px 10px;
         white-space: nowrap; font-size: 15px;
         /* TWO COLUMNS, AND THE COLUMN IS THE BUTTON. Left is what you take out,
            right is what you put in — which is the one thing the mouse glyph was
@@ -5315,7 +5558,7 @@
          still go to the shop. */
       #prompt { pointer-events: none; }
       #prompt .pr-say {
-        background: rgba(58,49,40,.09); border-radius: 9px; padding: 6px 9px;
+        background: rgba(58,49,40,.09); border-radius: var(--r); padding: 6px 9px;
         pointer-events: auto; cursor: pointer; text-align: left;
         /* A held press is the gesture here, and a browser reads a held press on
            a control as a request for its own menu, its own callout and a text
@@ -5397,7 +5640,7 @@
         left: 0 !important; right: 0; width: 100%; transform: none !important;
         top: calc(var(--hud-h, 46px) + 6px) !important;
         bottom: calc(var(--nav-top) + var(--build-h) + 8px) !important;
-        max-height: none; border-radius: 16px;
+        max-height: none; border-radius: var(--r);
       }
       /* The header is the one row of a panel you aim at rather than read, and
          both halves of it were sized for a pointer: a 15px ✕ is about 15px of
@@ -5456,7 +5699,6 @@
       .rail-btn {
         flex: 1 1 0; width: auto; height: auto;
         aspect-ratio: 1; min-width: 26px; max-width: var(--nav-h);
-        border-radius: 12px;
       }
       .rail-btn .ico { font-size: 22px; }
       .rail-btn .kb { display: none; }

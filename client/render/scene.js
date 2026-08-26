@@ -8,7 +8,9 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, PAD_MARK, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, conveyorAccent, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
+import { PALETTE, TILE_STYLE, PAD_MARK, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, SURROUND_COLORS, conveyorAccent, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
+import { buildSurround, apronMaterial, HAZE } from './surround.js';
+import { surroundOf, DEFAULT_SURROUND } from '../../shared/surrounds.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
   buildBubble, buildCashDrop, buildVehicle,
@@ -37,7 +39,7 @@ import { hash01 } from '../../shared/hash.js';
 // of — see `setFaceGhost`. Everything else in here reads edge kinds as the raw
 // numbers the layout carries, through `EDGE_STYLE`.
 import { E, SOLID, edgeBetween, wayBase } from '../../shared/edges.js';
-import { Lights, emittersIn, BAKED_LAYER } from './lights.js';
+import { Lights, emittersIn, BAKED_LAYER, SURROUND_LAYER } from './lights.js';
 import { Ink } from './post.js';
 import {
   lookOn, setLookOn,
@@ -1325,66 +1327,21 @@ function paintSkyGradient(sky, top, horizon) {
   texture.needsUpdate = true;
 }
 
+/** Windows at noon and at midnight — see `SURROUND_COLORS` and `syncState`. */
+const GLOW_DAY = new THREE.Color(SURROUND_COLORS.city.glowDay);
+const GLOW_NIGHT = new THREE.Color(SURROUND_COLORS.city.glowNight);
 /**
- * A small forest rather than a texture sheet. The two meshes each hold every
- * tree in the ring, so sixty-ish landmarks cost two draw calls, not sixty-ish.
- * They sit beyond the buildable lot and exist only to break up the empty lawn.
+ * The pitches between which the backdrop gets out of the camera's way.
+ *
+ * Untouched at and above 32° — the home pose is 40°, so ordinary play never
+ * gives up a single tree, and the near band goes on framing the bottom of the
+ * shot. Fully dissolved by 14°, which is where a hill stops being scenery
+ * behind the shop and starts being a wall in front of it. See `aimSurround`.
  */
-function buildVistaForest(w, h) {
-  const count = 48;
-  const trunks = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(0.10, 0.15, 0.72, 5),
-    new THREE.MeshBasicMaterial({ color: '#6f563b' }),
-    count,
-  );
-  const crowns = new THREE.InstancedMesh(
-    new THREE.ConeGeometry(0.60, 2.15, 5),
-    new THREE.MeshBasicMaterial({ color: '#4f7344', flatShading: true }),
-    count,
-  );
-  const dummy = new THREE.Object3D();
-  const put = (mesh, x, y, z, scale, turn) => {
-    dummy.position.set(x, y, z);
-    dummy.scale.setScalar(scale);
-    dummy.rotation.set(0, turn, 0);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(n, dummy.matrix);
-  };
-  let n = 0;
-  for (; n < count; n++) {
-    const side = n % 4;
-    const along = hash01(`vista:${n}:along`);
-    const out = 16 + hash01(`vista:${n}:out`) * 28;
-    const spread = hash01(`vista:${n}:spread`) - 0.5;
-    let x;
-    let z;
-    if (side === 0 || side === 2) {
-      x = -10 + along * (w + 20);
-      z = side === 0 ? -out : h + out;
-    } else {
-      x = side === 1 ? w + out : -out;
-      z = -10 + along * (h + 20);
-    }
-    // A nudge stops four perfectly even ranks from reading as a fence.
-    if (side === 0 || side === 2) x += spread * 3;
-    else z += spread * 3;
-    const scale = 0.60 + hash01(`vista:${n}:size`) * 0.42;
-    const turn = hash01(`vista:${n}:turn`) * Math.PI * 2;
-    put(trunks, x, 0.36 * scale, z, scale, turn);
-    put(crowns, x, (0.72 + 1.075) * scale, z, scale, turn);
-  }
-  trunks.instanceMatrix.needsUpdate = true;
-  crowns.instanceMatrix.needsUpdate = true;
-  for (const mesh of [trunks, crowns]) {
-    mesh.castShadow = false;
-    mesh.receiveShadow = false;
-    mesh.raycast = () => {};
-    mesh.userData.backdrop = true;
-  }
-  const forest = new THREE.Group();
-  forest.add(trunks, crowns);
-  return forest;
-}
+const HIDE_PITCH_OFF = 32 * (Math.PI / 180);
+const HIDE_PITCH_FULL = 14 * (Math.PI / 180);
+/** Above this, the far band cannot be on screen — see `aimSurround`. */
+const FAR_SHOW_PITCH = 30 * (Math.PI / 180);
 
 export class Scene {
   constructor(canvas) {
@@ -1658,6 +1615,18 @@ export class Scene {
     this.actionRings = new Map();
     this.catalog = { items: {}, crops: {} };
     this.layoutVersion = -1;
+    /**
+     * Where the shop is, and the three things `setSurround` needs to exist.
+     *
+     * The id starts at the default rather than at null, so the first
+     * `buildWorld` — which can and does land before the first snapshot — draws
+     * the horizon every existing save already had rather than nothing at all.
+     * `setSurround` then no-ops for every shop that never picked anything.
+     */
+    this.surroundId = DEFAULT_SURROUND;
+    this.surroundGroup = null;
+    this.surroundGlow = null;
+    this.surroundFar = null;
     // The conveyor map — see `setFlowOverlay`, and the `flow` switch in
     // client/debug.js. Keyed on the layout, because a re-flow is what
     // invalidates it and build mode re-flows on every wall segment of a drag.
@@ -1730,6 +1699,11 @@ export class Scene {
     // filter on EVERY light, so leaving these three out drops the floor to
     // black. The camera needs it too, or it simply stops drawing the shop.
     for (const l of [this.ambient, sun, bounce]) l.layers.enable(BAKED_LAYER);
+    // ...and the far backdrop, which is off on a layer of its own purely so the
+    // ink pass can skip it (see `SURROUND_LAYER`). It is ordinary lit geometry
+    // in every other respect, so the sky has to be let back in by hand exactly
+    // as it is for the baked ground one line up.
+    for (const l of [this.ambient, sun, bounce]) l.layers.enable(SURROUND_LAYER);
     // BOTH cameras, and never `this.camera` — which is whichever one is live
     // and is the ortho every time this runs. A camera is born seeing layer 0
     // only, so a second one added without this line draws the shop with its
@@ -1739,7 +1713,9 @@ export class Scene {
     // errors, and it reads as first person being unfinished rather than as one
     // bit not being set. See `FPV_FOV`.
     this.ortho.layers.enable(BAKED_LAYER);
+    this.ortho.layers.enable(SURROUND_LAYER);
     this.persp.layers.enable(BAKED_LAYER);
+    this.persp.layers.enable(SURROUND_LAYER);
 
     // Whatever the player has wired up. Everything above is the sky; this is the
     // only light in the scene that anybody had to buy.
@@ -1753,6 +1729,26 @@ export class Scene {
     this.skyHorizon.copy(SKY_HORIZON_DUSK)
       .lerp(noon ? SKY_HORIZON_HIGH_LOOK : SKY_HORIZON_HIGH, daylight);
     paintSkyGradient(this.sky, this.skyTop, this.skyHorizon);
+    /**
+     * ...and the backdrop's haze, which is the sky — including the GROUND's.
+     *
+     * This was aimed at the lawn for a step, on the reasoning that nothing out
+     * there was ever seen against sky. That was true, and it was a description
+     * of the bug rather than a constraint: the apron filled the frame because
+     * nothing ever faded it. Now that it does (see `apronMaterial`), the far end
+     * of the ground, the skyline standing on it and the real background are all
+     * the same colour by construction — which is what a horizon is.
+     *
+     * Written from here rather than from `syncState` so those three cannot
+     * drift: a haze a shade off the sky is a visible band along the top of the
+     * world, and separated they are two lerps against the same `daylight` that
+     * somebody has to remember to keep in step.
+     *
+     * Pulled a little toward the top of the sky rather than taken raw, because
+     * `skyHorizon` is the colour at the very BOTTOM of the gradient while the
+     * horizon itself sits some way up the screen from there.
+     */
+    HAZE.color.value.copy(this.skyHorizon).lerp(this.skyTop, 0.30);
   }
 
   resize() {
@@ -3170,7 +3166,29 @@ export class Scene {
     // below it exactly as the box it replaces did.
     const groundGeo = new THREE.ExtrudeGeometry(apron, { depth: GROUND_DEEP, bevelEnabled: false });
     groundGeo.rotateX(Math.PI / 2);
-    const ground = new THREE.Mesh(groundGeo, material(PALETTE.grass));
+    /**
+     * ...and it DISSOLVES INTO THE SKY at its far end, which is the only reason
+     * this game has a horizon at all.
+     *
+     * The apron is 320 tiles across so the world can never visibly end (see
+     * `GROUND_MARGIN`), and the price of that was that it never visibly ended:
+     * green filled the frame at every pitch and `paintSkyGradient` was drawing a
+     * background nobody had ever seen. Shrinking it is not the fix — a plane
+     * stopping in mid-air at one angle on one monitor is the exact failure that
+     * constant is sized to prevent.
+     *
+     * So it keeps its size and takes the same haze every backdrop object
+     * carries, run all the way to sky: past `HAZE_OUT` the ground IS the sky
+     * colour, the seam against the real background cannot be found, and what you
+     * are looking at is a horizon.
+     *
+     * Its material is owned rather than shared — `material()` is a cache, and a
+     * shader hung on the cached grass would put a horizon on every green thing
+     * in the shop — so it is disposed at the top of the next `buildWorld`.
+     */
+    this.apronMat?.dispose();
+    this.apronMat = apronMaterial(PALETTE.grass);
+    const ground = new THREE.Mesh(groundGeo, this.apronMat);
     ground.receiveShadow = true;
     // Onto the baked layer with every other bit of ground. It is not baked —
     // there is nothing per-cell about one box the size of the world — but it has
@@ -3182,14 +3200,14 @@ export class Scene {
     ground.layers.set(BAKED_LAYER);
     this.staticRoot.add(ground);
 
-    // The playable lot is still surrounded by the cheap grass apron above;
-    // this forest gives that empty space a destination. It is well outside
-    // every walkable/buyable cell and stays vastly smaller than one tufted lawn.
-    const vista = new THREE.Group();
-    vista.name = 'vista';
-    vista.add(buildVistaForest(L.w, L.h));
-    vista.traverse((o) => o.layers?.set(BAKED_LAYER));
-    this.staticRoot.add(vista);
+    // The playable lot is still surrounded by the cheap grass apron above; the
+    // surround gives that empty space a destination. It is well outside every
+    // walkable/buyable cell and stays vastly smaller than one tufted lawn.
+    //
+    // Its own group with its own builder, because it is the one thing in
+    // `staticRoot` that can change without anything having MOVED — see
+    // `setSurround`, which is `setPaint`'s argument said about the horizon.
+    this.addSurround(L.w, L.h);
 
     // Everything raised gets an instanced box per tile kind — and, for floor,
     // per DESIGN of floor. Which design a cell is painted lives in its own
@@ -4012,6 +4030,145 @@ export class Scene {
     this.addEdges(this.storeLayout);
   }
 
+  /**
+   * Move the shop to a different sort of place, without rebuilding the shop.
+   *
+   * Exactly `setPaint`'s argument one ring further out: `buildWorld` disposes
+   * every wall, floor, fixture and prop in the building and makes them again,
+   * which is the right answer when something has moved and an absurd one for
+   * the horizon. So the surround owns a group of its own, the way the edges do,
+   * and this is the only thing that touches it.
+   *
+   * Idempotent, and that is not tidiness: `syncState` calls it on every
+   * snapshot — ten times a second — so a version that rebuilt unconditionally
+   * would be re-scattering five hundred instances and rebuilding a material at
+   * 10Hz for as long as the game is open.
+   */
+  setSurround(id) {
+    const want = surroundOf(id);
+    if (want === this.surroundId) return;
+    this.surroundId = want;
+    if (this.storeLayout) this.addSurround(this.storeLayout.w, this.storeLayout.h);
+  }
+
+  /**
+   * Build (or rebuild) the land round the lot.
+   *
+   * THE MATERIAL IS DISPOSED BY HAND, and it is the one thing in here that
+   * `disposeGroup` cannot do for us. That function frees geometry and instance
+   * buffers and deliberately leaves materials alone, because every other
+   * material in the renderer comes out of the shared `material()` cache and
+   * disposing one would take it away from everything else drawn in that colour.
+   * Every material in a surround is either a clone (so the haze shader can be
+   * hung on it without putting itself on every object in the game that happens
+   * to share a colour) or a one-off (the window glow, which has to be lerped).
+   * So `surround.js` hands back a `dispose` for the lot, and this is the only
+   * place that calls it. Miss it and a build drag leaks a handful of materials
+   * per wall segment.
+   */
+  addSurround(w, h) {
+    if (this.surroundGroup) {
+      this.staticRoot.remove(this.surroundGroup);
+      disposeGroup(this.surroundGroup);
+      this.surroundFree?.();
+    }
+    const { group, glow, dispose } = buildSurround(this.surroundId ?? DEFAULT_SURROUND, w, h);
+    this.surroundGroup = group;
+    this.surroundGlow = glow;
+    this.surroundFree = dispose;
+    // Off layer 0 with every other bit of ground. Layer 0 is what `roomFill`
+    // lifts at night — that is the shop's own ceiling, and a horizon that
+    // brightened when the lamps came on inside the building would be the one
+    // seam in this scene an eye reliably catches.
+    group.traverse((o) => o.layers?.set(BAKED_LAYER));
+    // ...except the far band, which needs its own so `Ink` can leave it out of
+    // the normals draw. After the traverse, or the sweep above would put it
+    // straight back on the baked layer with everything else.
+    // Held rather than looked up: `aimSurround` switches it on and off every
+    // frame, and `getObjectByName` recurses the whole subtree to answer.
+    this.surroundFar = group.getObjectByName('surround-far') ?? null;
+    this.surroundFar?.layers.set(SURROUND_LAYER);
+    this.staticRoot.add(group);
+    // The windows are built at their daytime colour, so a surround switched on
+    // after dark would draw one frame of noon before the next snapshot. One
+    // frame is a flash of a lit city going dark and back, which reads as a
+    // rendering fault rather than as a load.
+    this.lightSurround(this._daylight ?? 1);
+  }
+
+  /**
+   * The windows, on the same clock as the sky.
+   *
+   * A ramp rather than a switch, and it runs OUT ahead of the sun (`daylight`
+   * cubed): a city whose lights came up linearly with the light going down is
+   * lit at four in the afternoon. Cubing keeps them out through the whole of a
+   * bright day and brings them on over the last of the dusk, which is roughly
+   * what a real one does and, more to the point, is when the shop's own lamps
+   * come on — the two reading as one moment is the entire effect.
+   */
+  lightSurround(daylight) {
+    if (!this.surroundGlow) return;
+    this.surroundGlow.color.copy(GLOW_NIGHT).lerp(GLOW_DAY, daylight ** 3);
+  }
+
+  /**
+   * Tell the backdrop where the camera is, so the quarter of the ring standing
+   * in front of the shop can get out of the way.
+   *
+   * Per frame rather than on a camera event, because there is no such event: the
+   * yaw eases through a quarter turn and the pitch is dragged continuously, so
+   * anything hung on "the camera moved" would either miss frames or need a
+   * second copy of the easing. It is three floats and a `sin`/`cos`.
+   *
+   * `HIDE_PITCH_*` is the whole of what keeps this from firing when nobody asked.
+   * At the home pose the near band sits along the bottom of the frame and gives
+   * the shot a foreground, so it is left completely alone; the strength only
+   * comes up as the view is flattened toward the angle where a hill genuinely
+   * covers the building. Between the two it eases, or dropping the camera would
+   * make a hillside vanish on one frame.
+   */
+  aimSurround() {
+    /**
+     * Which way the camera lies, read off `camOffset` rather than rebuilt from
+     * an angle — the same call `panBy` and the edge arrows make two hundred
+     * lines up, and for a sharper reason than tidiness. `aimCamera` builds that
+     * vector from `camAngle`, which is the EASED heading; `camYaw` is the one
+     * the keys and the drag write, and the two differ for the whole of every
+     * quarter turn. Deriving from the wrong one would slide the hole out of the
+     * ring and back as the view swung, which reads as the far side flickering.
+     */
+    const hx = this.camOffset.x;
+    const hz = this.camOffset.z;
+    const flat = Math.hypot(hx, hz) || 1;
+    HAZE.near.value.set(
+      hx / flat,
+      hz / flat,
+      // 0 above HIDE_PITCH_OFF, 1 below HIDE_PITCH_FULL.
+      1 - clamp((this.camPitch - HIDE_PITCH_FULL) / (HIDE_PITCH_OFF - HIDE_PITCH_FULL), 0, 1),
+    );
+
+    /**
+     * ...and switch the far band off entirely at pitches that cannot see it.
+     *
+     * This is the one thing in the backdrop with a real cost, and the cost is
+     * OVERDRAW rather than draw calls: it is a couple of hundred objects twenty
+     * to forty tiles wide, stacked ten deep from a low camera, and instances
+     * inside one `InstancedMesh` are not sorted against each other — so three's
+     * usual front-to-back ordering buys nothing and every one of them shades
+     * every pixel it covers. Roughly nothing else in this scene has that shape.
+     *
+     * At the home pitch the whole layer is well off screen (see the table in
+     * `surround.js` — the camera reaches nine tiles at 40°, and this band starts
+     * at eighteen), so ordinary play should not be paying for it at all. A flag
+     * per frame is the entire fix.
+     *
+     * `FAR_SHOW_PITCH` is deliberately looser than `HIDE_PITCH_OFF`: the band
+     * has to be up BEFORE it could be seen, or flattening the camera pops a
+     * mountain range into existence.
+     */
+    if (this.surroundFar) this.surroundFar.visible = this.camPitch < FAR_SHOW_PITCH;
+  }
+
   addEdges(L) {
     // Rebuilt on every quarter turn, so it owns a group of its own rather than
     // living loose in staticRoot — turning the camera must not rebuild the shop.
@@ -4731,6 +4888,16 @@ export class Scene {
     // the sun and both go warm, so the total swings 2.5 -> 1.0 *and* changes hue.
     const t = state.time ?? 0.5;
     const daylight = Math.sin(Math.PI * Math.min(Math.max((t - 0.25) / 0.6, 0), 1));
+    // Kept so `addSurround` can light a freshly built horizon at the hour it is
+    // actually being built at — see the note there on the one-frame flash.
+    this._daylight = daylight;
+
+    // Where the shop is, which rides in the save. Asked every snapshot rather
+    // than pushed on its own message, because it is one string on a state
+    // update that is already arriving — and `setSurround` returns immediately
+    // when nothing has changed, which is every snapshot but the one after
+    // somebody presses a row.
+    this.setSurround(state.surround);
 
     // The look moves the NOON end of all three and leaves dusk where it was —
     // see `AMBIENT_NOON` in look.js, which is the same shape `SKY_TOP` uses one
@@ -4797,6 +4964,8 @@ export class Scene {
     // most of the read. The two-pixel gradient is re-painted at state cadence,
     // never in the draw loop.
     this.updateSky(daylight);
+    // ...and the windows on the horizon, which come on with the shop's lamps.
+    this.lightSurround(daylight);
   }
 
   /**
@@ -12716,6 +12885,11 @@ export class Scene {
     this.animateCash(now);
     this.animatePlots(now);
     this.animateMoods(now);
+    // Where the camera is, for the quarter of the backdrop that would otherwise
+    // be standing in front of the shop. Here rather than on a camera event
+    // because the yaw eases and the pitch is dragged — there is no one moment
+    // the camera "moved" — and it is three floats.
+    this.aimSurround();
     // The wind, for as long as time is running. Accumulated off `dt` rather than
     // read off `now`, which is the only way stopping it can mean anything: the
     // sine of a clock that kept counting resumes wherever it would have got to,

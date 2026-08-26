@@ -126,6 +126,26 @@ const INDOOR_LIFT = 0.55;
 export const BAKED_LAYER = 2;
 
 /**
+ * ...and the layer the far backdrop stands on, which exists for ONE reason:
+ * the ink pass must not draw it.
+ *
+ * `Ink.render` takes the normals by setting `scene.overrideMaterial`, which
+ * replaces every material in the world — so the contour pass never sees the
+ * haze `surround.js` fades that band out with, and it never sees the sink that
+ * gets it out of the camera's way either. What that draws is a full-strength
+ * black outline round a mountain that is ninety percent dissolved into the sky,
+ * and an outline round hills that have been lowered out of the shot. Both read
+ * as the drawing being wrong rather than as a pass being blind.
+ *
+ * A layer is the whole fix, because three tests `camera.layers` per object:
+ * `Ink` turns this one off for the normals draw and back on afterwards, so the
+ * far band is lit, drawn and hazed exactly as before and simply contributes no
+ * lines. The NEAR ridge deliberately keeps its ink — it is solid, it is close,
+ * and it is part of the scene rather than part of the distance.
+ */
+export const SURROUND_LAYER = 3;
+
+/**
  * How bright a baked lamp pool is at its centre, before falloff.
  *
  * The baked half and the real half are two different approximations of one

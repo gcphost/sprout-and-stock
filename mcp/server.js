@@ -764,14 +764,17 @@ server.registerTool('set_time', {
 }, async (args) => text(await call('POST', '/time', args)));
 
 server.registerTool('set_shop', {
-  title: 'Open, shut or pause the shop',
+  title: 'Open, shut, pause or rehouse the shop',
   description:
-    'Raise or drop the shutters, and stop or start time. Business hours are still 08:00-20:00 — the shutters can only shut you EARLIER, never later, so a shop with its shutters up serves nobody at 03:00. '
+    'Raise or drop the shutters, stop or start time, and choose what the land around the shop looks like. Business hours are still 08:00-20:00 — the shutters can only shut you EARLIER, never later, so a shop with its shutters up serves nobody at 03:00. '
     + 'A brand-new world starts shut, so if you spawn customers into one or screenshot it and nothing is happening, this is why. '
-    + 'Pausing freezes the whole world (nobody moves, nothing grows, no van arrives) and is not saved.',
+    + 'Pausing freezes the whole world (nobody moves, nothing grows, no van arrives) and is not saved. '
+    + 'The surround is purely a look — nothing in the simulation reads it and it can never move a number — but it changes most of what a screenshot shows, so set it before taking one.',
   inputSchema: {
     open: z.boolean().optional().describe('true raises the shutters, false drops them. Shoppers already in the queue are served; everyone else settles up and leaves.'),
     paused: z.boolean().optional().describe('true stops time dead, false starts it again.'),
+    surround: z.enum(['country', 'suburb', 'city']).optional()
+      .describe('What stands past the last buyable tile. "country" is woodland and hedgerow (the default, and what every shop was drawn with before this existed), "suburb" is low houses and gardens, "city" is blocks and towers whose windows light up after dark. Saved on the world, so both people in a co-op shop see the same place.'),
   },
 }, async (args) => text(await call('POST', '/shop', args)));
 

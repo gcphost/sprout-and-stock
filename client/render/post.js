@@ -40,6 +40,7 @@
 
 import * as THREE from 'three';
 import { INK, GRADE, INK_NORMAL_SCALE, SCENE_SAMPLES } from './look.js';
+import { SURROUND_LAYER } from './lights.js';
 
 /** Where a fullscreen pass lives. One quad, one camera, shared. */
 const QUAD_GEO = new THREE.PlaneGeometry(2, 2);
@@ -338,6 +339,22 @@ export class Ink {
       scene.background = null;
       scene.fog = null;
       scene.overrideMaterial = this.normalMat;
+      /**
+       * ...and the far backdrop comes OUT, because this pass cannot see what
+       * that band actually looks like.
+       *
+       * `overrideMaterial` replaces every material in the world, so neither the
+       * haze that dissolves those mountains into the sky nor the sink that
+       * lowers the near ones out of the shot exists here — the normals buffer
+       * gets the raw geometry at full height. Left in, the contour draws a hard
+       * black line round a peak that is ninety percent sky and round hills that
+       * are not on screen at all, which reads as the drawing being broken.
+       *
+       * One layer off for one draw. See `SURROUND_LAYER` in lights.js, and note
+       * the NEAR ridge is deliberately not on it: that one is solid, close, and
+       * wants its lines like everything else in the shop.
+       */
+      camera.layers.disable(SURROUND_LAYER);
       // Nothing in a normals buffer is lit, so the shadow pass would be a THIRD
       // full draw of the shop for a map nothing samples. It is off for the
       // duration rather than left to the cadence, because `needsUpdate` has
@@ -349,6 +366,7 @@ export class Ink {
       r.setRenderTarget(this.rtNormal);
       r.clear();
       r.render(scene, camera);
+      camera.layers.enable(SURROUND_LAYER);
       scene.overrideMaterial = null;
       scene.background = bg;
       scene.fog = fog;
