@@ -4799,6 +4799,17 @@ export class Scene {
     this.updateSky(daylight);
   }
 
+  /**
+   * Every map `syncActors` fills — the three kinds of body in the shop.
+   *
+   * One spelling, because anything hung on a body by `syncActors` is hung on all
+   * three of them and a sweep that names one of the maps is a sweep that works
+   * on hires and silently skips the shoppers. `fadeBubbles` was exactly that.
+   */
+  actorMaps() {
+    return [this.players, this.customers, this.animals];
+  }
+
   syncActors(list, map, factory, keyOf = null, onBuild = null) {
     const seen = new Set();
     for (const a of list) {
@@ -4826,6 +4837,8 @@ export class Scene {
         const obj = factory(a);
         rec = {
           obj, key, bubble: null, bubbleKey: null, carry: null, carryKey: null,
+          // The `xN` welded into the armful, when there is one — see `syncCarry`.
+          carryTag: null,
           haul: null, haulKey: null, kit: null, kitKey: null,
           // How big the body actually is, which is what `pickPerson` aims at.
           //
@@ -11467,6 +11480,11 @@ export class Scene {
       disposeGroup(rec.carry);
       rec.carry = null;
     }
+    // Cleared with the armful it belongs to, and cleared whether or not the new
+    // one has a count on it: an armful that drops from six units to one is a
+    // label freed by `disposeGroup` above, and a reference kept past that is a
+    // dead sprite being handed an opacity every frame for the rest of the save.
+    rec.carryTag = null;
     if (!key) return;
 
     // Deal one of each kind, then go round again, until the pile is full or
@@ -11510,6 +11528,11 @@ export class Scene {
       const label = buildTextSprite(`x${total}`, { fill: '#fff3cf', scale: 0.62 });
       label.position.set(0.28, 0.16 + Math.floor((n - 1) / 2) * 0.13, 0);
       held.add(label);
+      // Kept, because it is a CAPTION on a body and every other caption in the
+      // game fades — see `fadeCrateLabels`. Stashed here rather than looked up
+      // later: `weld` re-hangs the sprite somewhere inside the armful, so the
+      // only moment it is a thing anybody holds a reference to is now.
+      rec.carryTag = label;
     }
     // Welded, like stock and crops: an armful is up to `CARRY_SHOWN` little
     // models nailed to one another, and everybody in the shop is carrying one.
@@ -12408,7 +12431,15 @@ export class Scene {
   }
 
   /**
-   * Only the boxes you are looking at say what is in them.
+   * Only the things you are looking at say what is in them.
+   *
+   * Three kinds of caption, one band pair, because a caption is a caption: the
+   * `x12` on a box in the yard, the same number on a box somebody has on their
+   * shoulder, and the `x3` over an armful. The last two are the ones that had
+   * nothing — `fadeCrateLabels` walked `deliveryProps`, which is boxes standing
+   * on the ground, and a crate that got picked up therefore stopped fading in
+   * the one place a shop has a dozen of them at once. What that reads as is the
+   * fade working on the yard and giving up on the shop floor.
    *
    * See `LABEL_NEAR` for why. Three things about the shape of it.
    *
@@ -12434,13 +12465,22 @@ export class Scene {
     // multiplied in rather than recomputed per box. Either half at zero is
     // gone: they are two reasons not to draw a caption, not two votes.
     const zoom = this.legible(LABEL_VIEW_FULL, LABEL_VIEW_GONE);
-    for (const obj of this.deliveryProps.values()) {
-      const tag = obj.userData.label;
-      // A box on a belt or inside a packer never had one — see `buildPallet`.
-      if (!tag) continue;
-      const lit = zoom && this.nearness(obj.position.x, obj.position.z, LABEL_NEAR, LABEL_FAR) * zoom;
+    const fade = (tag, at) => {
+      if (!tag) return;
+      const lit = zoom && this.nearness(at.position.x, at.position.z, LABEL_NEAR, LABEL_FAR) * zoom;
       tag.visible = lit > 0.02;
       if (tag.visible) tag.material.opacity = lit;
+    };
+    // A box on a belt or inside a packer never had one — see `buildPallet`.
+    for (const obj of this.deliveryProps.values()) fade(obj.userData.label, obj);
+    // ...and the two a BODY wears, measured off the body rather than off the
+    // sprite: both are children of the person, so their own `position` is an
+    // offset from a shoulder and says nothing about where in the shop they are.
+    for (const map of this.actorMaps()) {
+      for (const rec of map.values()) {
+        fade(rec.carryTag, rec.obj);
+        fade(rec.haul?.userData.label, rec.obj);
+      }
     }
   }
 
@@ -12615,14 +12655,23 @@ export class Scene {
    * The thought bubbles, faded the same way — see `BUBBLE_NEAR` for why it is a
    * scale rather than an opacity, and why it may not touch `visible`.
    *
-   * EVERY bubble in the game, which is four maps and one readout. A shopper's
-   * hangs on the body, a bare board's stands in `actorRoot` at the unit's own
-   * tile, and a ripe bed's and a full pen's ride an `overlay` group at theirs —
-   * so the only thing that differs between them is where the distance is
-   * measured from. Fading some and not others is worse than fading none: a room
-   * where the shelves have gone quiet and the beds are still shouting reads as
-   * the fade being broken rather than as a decision, and the four are the same
-   * sentence about four subjects.
+   * EVERY bubble in the game, which is six maps and one readout. A body's hangs
+   * on the body, a bare board's stands in `actorRoot` at the unit's own tile,
+   * and a ripe bed's and a full pen's ride an `overlay` group at theirs — so the
+   * only thing that differs between them is where the distance is measured from.
+   * Fading some and not others is worse than fading none: a room where the
+   * shelves have gone quiet and the beds are still shouting reads as the fade
+   * being broken rather than as a decision, and the six are the same sentence
+   * about six subjects.
+   *
+   * The body maps are `ACTOR_MAPS` rather than `this.players`, and that is the
+   * whole of what this got wrong for as long as it existed: `syncActors` hangs a
+   * bubble on anything it draws, and the SHOPPER — the one body this feature is
+   * actually about, the person stood in an aisle thinking about bread — is in
+   * `this.customers`. So the fade worked perfectly on the hires, the shelves,
+   * the beds and the pens, and the thing you zoomed out to get away from went on
+   * shouting. Which reads as the fade not being implemented, because for the
+   * only bubbles anybody was looking at it wasn't.
    *
    * `animatePlots` bobs a plot's bubble on the same frame, on `position` — the
    * two do not collide, and that is why this is a scale and not a hop.
@@ -12634,8 +12683,10 @@ export class Scene {
       obj.scale.setScalar(zoom && this.nearness(p.x, p.z, BUBBLE_NEAR, BUBBLE_FAR) * zoom);
     };
     for (const rec of this.wantBubbles?.values() ?? []) near(rec.obj, rec.obj);
-    for (const rec of this.players.values()) {
-      if (rec.bubble) near(rec.bubble, rec.obj);
+    for (const map of this.actorMaps()) {
+      for (const rec of map.values()) {
+        if (rec.bubble) near(rec.bubble, rec.obj);
+      }
     }
     for (const rec of this.plotProps.values()) {
       if (rec.bubble) near(rec.bubble, rec.overlay);
@@ -13306,16 +13357,20 @@ const LABEL_FAR = 7.5;
  * from is a screenshot at roughly that — so a caption has to be most of the way
  * gone there and back at a glance the moment you lean in. 8 and 12.
  *
- * A bubble gets its own, wider pair for `BUBBLE_NEAR`'s reason exactly: it is a
- * picture rather than a word, it survives being small, and finding the one bare
- * shelf in a room is a thing you do from across the room. At the opening zoom a
- * bubble is still fully there and a caption is not, which is the difference
- * said out loud.
+ * A bubble had its own, WIDER pair on the argument that it is a picture rather
+ * than a word, it survives being small, and finding the one bare shelf in a room
+ * is a thing you do from across the room. It is tighter than a caption's now,
+ * and the reason is that the argument was about ONE bubble: a shop has one or
+ * two bare boards and a dozen shoppers, each thinking about something, so a band
+ * generous enough to find a shelf from the door draws the whole crowd's shopping
+ * list over the aisles at the zoom the game opens at. Below `BUBBLE_VIEW_GONE`
+ * the opening zoom (~11.7 tiles) shows none of it and one notch in shows all of
+ * it, which is the "lean in and ask" the fade is for.
  */
 const LABEL_VIEW_FULL = 8;
 const LABEL_VIEW_GONE = 12;
-const BUBBLE_VIEW_FULL = 12;
-const BUBBLE_VIEW_GONE = 18;
+const BUBBLE_VIEW_FULL = 8;
+const BUBBLE_VIEW_GONE = 11;
 
 /**
  * How much shop has to be on screen before the near walls stop being scenery and
