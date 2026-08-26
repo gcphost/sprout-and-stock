@@ -26,6 +26,33 @@ import { desireFor, DEPARTMENTS } from '../../shared/tags.js';
  */
 const PRICE_BAND = [0.35, 2.5];
 const DEMAND_BAND = [0.1, 4];
+/**
+ * ...and the same ceiling said about people, which is tighter at the top than
+ * demand's on purpose. A tag's spawn multiplier is a share of every arrival,
+ * and a `3` on one archetype in a town of twenty is already most of the queue;
+ * past that an event stops reading as a takeover and starts reading as the
+ * other nineteen kinds of shopper having been deleted. The floor is 0 rather
+ * than 0.1 because "nobody like that comes in today" is a story an event is
+ * allowed to tell, where a demand of zero is a shop nothing can sell out of.
+ */
+const SPAWN_BAND = [0, 3];
+
+/**
+ * Whichever of two rows pulls a tag further from 1 on one field.
+ *
+ * The `?? 1` matters on `spawn_mult` and is harmless on the two older fields,
+ * which is why it is written once rather than three times: `spawn_mult` is a
+ * column added to a table that already had rows in it, so a modifier really can
+ * arrive without one — from a web store's vault, which keeps its rows as
+ * objects rather than behind a column with a DEFAULT. Read bare it is
+ * `undefined`, `undefined - 1` is NaN, and NaN loses every comparison, so the
+ * strongest pull would silently become whichever row happened to come first.
+ */
+const strongerPull = (a, b, field) => (
+  Math.abs((a[field] ?? 1) - 1) > Math.abs((b[field] ?? 1) - 1)
+    ? (a[field] ?? 1)
+    : (b[field] ?? 1)
+);
 
 /**
  * One row per event-and-tag: within one event take its strongest pull on a tag
@@ -43,8 +70,9 @@ function dedupeModifiers(modifiers) {
     if (!prev) { perEvent.set(key, m); continue; }
     perEvent.set(key, {
       ...m,
-      demand_mult: Math.abs(m.demand_mult - 1) > Math.abs(prev.demand_mult - 1) ? m.demand_mult : prev.demand_mult,
-      price_mult: Math.abs(m.price_mult - 1) > Math.abs(prev.price_mult - 1) ? m.price_mult : prev.price_mult,
+      demand_mult: strongerPull(m, prev, 'demand_mult'),
+      price_mult: strongerPull(m, prev, 'price_mult'),
+      spawn_mult: strongerPull(m, prev, 'spawn_mult'),
     });
   }
   return [...perEvent.values()];
@@ -53,13 +81,25 @@ function dedupeModifiers(modifiers) {
 export function foldModifiers(modifiers) {
   const demand = {};
   const price = {};
+  // Who walks in, keyed by an ARCHETYPE's tag rather than an item's — the same
+  // table, read by `spawnCustomer` instead of by pricing. The two vocabularies
+  // are allowed to overlap and nothing here cares: a tag no archetype carries
+  // is an entry nobody ever looks up, which is exactly what `demand` already
+  // does with a tag nothing stocks.
+  const spawn = {};
   for (const m of dedupeModifiers(modifiers)) {
     demand[m.tag] = (demand[m.tag] ?? 1) * m.demand_mult;
     price[m.tag] = (price[m.tag] ?? 1) * m.price_mult;
+    spawn[m.tag] = (spawn[m.tag] ?? 1) * (m.spawn_mult ?? 1);
   }
   for (const t of Object.keys(demand)) demand[t] = clamp(demand[t], DEMAND_BAND[0], DEMAND_BAND[1]);
   for (const t of Object.keys(price)) price[t] = clamp(price[t], PRICE_BAND[0], PRICE_BAND[1]);
-  return { demand, price };
+  for (const t of Object.keys(spawn)) spawn[t] = clamp(spawn[t], SPAWN_BAND[0], SPAWN_BAND[1]);
+  // An all-1 table is deleted rather than carried, and that is not tidiness —
+  // `spawnCustomer` short-circuits on an empty one to leave its draw exactly
+  // as it found it, and every modifier in every save today folds to all-1.
+  for (const t of Object.keys(spawn)) if (spawn[t] === 1) delete spawn[t];
+  return { demand, price, spawn };
 }
 
 /**

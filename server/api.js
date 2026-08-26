@@ -355,12 +355,18 @@ export function createApi() {
 
   api.post('/modifier', wrapAsync(async (req, res) => {
     const g = await gameFor(req);
-    const { tag, demand_mult = 1, price_mult = 1, days = 2, label = 'manual' } = req.body ?? {};
+    const {
+      tag, demand_mult = 1, price_mult = 1, spawn_mult = 1, days = 2, label = 'manual',
+    } = req.body ?? {};
     if (!tag) throw new HttpError(400, 'tag is required');
     addModifier({
       worldId: g.worldId,
       source: 'manual', label, tag,
       demand_mult: Number(demand_mult), price_mult: Number(price_mult),
+      // An item tag for the first two and an archetype's for this one, on one
+      // row — see `foldModifiers`, which keeps three tables off the same list
+      // and lets each reader look up only the vocabulary it knows.
+      spawn_mult: Number(spawn_mult),
       expires_day: g.day + Number(days),
     });
     g.invalidateModifiers();

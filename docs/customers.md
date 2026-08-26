@@ -357,6 +357,60 @@ trap said about an event table. Anything here that reached for a second draw
 would move every basket, crop and spawn roll after it, and two `simulate` runs
 either side of authoring an *event* would diverge with nothing to say why.
 
+### ...and a craze can bring the crowd with it
+
+`demand_mult` and `price_mult` are both facts about **goods**, so for the whole
+life of the game an event could move what the town wanted and never move the
+town. A school holiday and a goth night were the same sentence — everyone wants
+sweets — said at the same twenty kinds of shopper in the same proportions, and
+the one thing an event could not be was *about somebody*.
+
+`spawn_mult` is the third number on an effect and the first that is about
+people. It is matched against [`ArchetypeSchema.tags`](../shared/schemas.js) and
+**never against an archetype id**, which is the whole reason that column was
+added: a row that wants to say "the tight-fisted ones" naming `budget-parent`
+is `if (item.id === 'tomato')` wearing a customer. So one effect scales every
+kind of shopper carrying the tag, and an archetype authored next month with
+`emo` on it joins the takeover without the event being touched.
+
+The two axes are deliberately independent, and the pair is the design. Wanting
+more of something and having more of the people who want it are different
+stories — a heat wave is the first, a school holiday the second — and an event
+is free to be both. *The Band Is In Town* is: `emo` ×3 on the crowd, plus
+beverage, nostalgic and candy on the shelves.
+
+Three things hold it together.
+
+**One draw, whatever is happening.** The multiplier is folded into the weights
+and `spawnCustomer` takes the single `rng.weighted` call it always took —
+`weighted` asks `rng.next()` once whatever list it is handed. This is the
+section above's third rule said about arrivals rather than about baskets, and
+it is worth more here: rolling the crowd and then rolling the shopper would be
+two draws where there was one, and every balance figure ever recorded in this
+repo would stop being comparable. `foldModifiers` deletes an all-1 spawn table
+precisely so `drawArchetype` can short-circuit on an empty one and hand the
+caller's own array straight to the old call.
+
+**The floor is a real zero.** `SPAWN_BAND` is `[0, 3]` where demand's is
+`[0.1, 4]`, and both ends differ on purpose. "Nobody like that comes in today"
+is a story an event may tell, where a demand of zero is a shop nothing can sell
+out of. And the ceiling is tighter because a spawn multiplier is a share of
+*every* arrival: past 3 an event stops reading as a takeover and starts reading
+as the other nineteen archetypes having been deleted.
+
+**A tag nothing carries is inert**, which is what lets one `effects` array hold
+two vocabularies at once. `demand` already does exactly this with a tag nothing
+stocks — the entry is written and nobody ever looks it up — so the item tags and
+the archetype tags can overlap, or not, and neither reader has to care.
+
+⚠️ The one thing it cannot yet do is **say so**. `modifierMeter` draws one pill
+per tag from the folded demand and price tables and drops any row that moves
+neither, so a pure `spawn_mult` effect is invisible in the HUD. That is honest
+as far as it goes — the meter is what the town is asking of each *department*,
+and a crowd is not a department — and the event's own log line still fires. But
+an event whose only tell is "the shop looks different today" is the thing this
+doc's step 2 exists to complain about, and it is where the next step goes.
+
 ### `MAX_UNITS_PER_SHELF` retires
 
 With a list, "how many do I take from this shelf" is `qty - got` — the errand

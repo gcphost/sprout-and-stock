@@ -9,7 +9,7 @@
 import { variantsOf } from '../shared/model.js';
 import { fixtureLabel, pieceFor, kindOf, openOf } from '../shared/pieces.js';
 import {
-  spotsOf, deckOf, sameFixture, FIXTURES, CEILING, goesOverhead,
+  spotsOf, deckOf, sameFixture, FIXTURES, CEILING, goesOverhead, overheadKinds,
 } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import { clockLabel, weekdayLabel } from '../shared/clock.js';
@@ -744,7 +744,11 @@ export class UI {
     // about" was the instruction for the version where any press moved anything,
     // and left on it, it is a note over a button promising a press the shop
     // answers by panning — which reads as the mode not having come on.
-    if (on) this.rail.note('Tap a thing, then drag it — click again for the menu');
+    // ...and it names TWO subjects: a gesture out in the shop, and this button.
+    // "Tap a thing, then drag it" read as one gesture with a comma in it, which
+    // is nothing anybody does — what is meant is that a tap selects and a drag
+    // moves.
+    if (on) this.rail.note('Click to select · Drag to move · Build again for the palette');
     else this.rail.clearNote();
   }
 
@@ -1598,7 +1602,7 @@ export class UI {
     const at = this.toggleDeck(to);
     // Named rather than "only a conveyor", which is a sentence a Lift disproves
     // while you are holding one — see `deckable`.
-    if (at === null) return this.toast('Only a belt, loader or sorter goes overhead', true);
+    if (at === null) return this.toast(`Only ${overheadKinds()} go overhead`, true);
     return this.toast(at ? 'Building overhead' : 'Building on the floor');
   }
 
@@ -2265,10 +2269,11 @@ export class UI {
       // Shift is invisible until something reacts to it, and what reacts to it is
       // the red frame you only see once you are already holding the key — so the
       // only place it can be learned is a line you read before pressing anything.
-      return {
-        text: 'Nothing armed — pick something below to build it · hold Ctrl to demolish, Shift to select',
-        linger: true,
-      };
+      //
+      // The KEYS and nothing else — the unlit bar below already says nothing is
+      // armed. Key first, then the verb, because that is the order you read a
+      // shortcut in: you are looking for the key.
+      return { text: 'Ctrl-click to delete · Shift-click to pick several', linger: true };
     }
     const v = this.buildVerdict;
     // A red ghost is a refusal, and the reason is the only thing that turns it

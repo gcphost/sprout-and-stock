@@ -654,6 +654,31 @@ Thirty sweeps, about a minute:
   the branch is what R is for, and `merge` was missing from
   `repositionFixture`'s named fields from the day it shipped.
 
+- `verify:packer` guards the box that stands still, and it is the only piece on
+  a run that changes what is IN one rather than where one is. Every claim is
+  invisible twice over: a crate that was packed and a crate that arrived that
+  way are the same box on the same shelf, and only the number of journeys moved.
+  Its control is a shop that never built one — empty list, no pass, no field on
+  any crate. Its centrepiece is a PAIR that is worthless split in half: what the
+  machine wants comes out of a box going past, and **the remainder rides on**,
+  because a packer that held the arrival until it was empty is a plug that stops
+  a run dead the first time you send it something it was never asked for. Then
+  the three ways it lets go — full, satisfied, and STALE, which is the one that
+  will feel wrong to write and is the only thing standing between this and the
+  given-up-board bug with a roof on it. Plus the spoilage stamp riding across
+  with the OLDER one winning (`verify:pack`'s centrepiece said about a machine,
+  and the same two dodges in one line of `lotAdd`); rubbish never folded in
+  either way round; conservation over the whole circuit; and that the CREW do
+  not empty it, which is the `inACar` trap in its third form — `floorCrates` was
+  a complete description of "a box anybody may lift" until a machine could hold
+  one still, and `unload` scores a stray at 1e6. Three of its claims found real
+  bugs on the first run, all three of them rules this file already names
+  arriving through a new door: `clearRails` lifting the held box (the
+  no-resting-on-the-rails sweep turned against its own premise — a packer that
+  emits what it was fed, one pile at a time, looking correct throughout),
+  `repositionFixture` clearing the tick list on R, and `floorCrates` above. It
+  authors two items, two fixture rows and a worker, and removes them on exit.
+
 - `verify:ceiling` guards the SECOND STOREY, and everything in it is invisible
   twice over — a crate that rode a duct and one a hire carried are the same box
   on the same shelf, and a duct four metres up is drawn against a floor the
@@ -876,6 +901,42 @@ Thirty sweeps, about a minute:
   as such in docs/browser.md. It authors one world row and removes it, its save
   and its modifiers on exit.
 
+- `verify:spawn` guards the first thing an event can move that is not goods.
+  `demand_mult` and `price_mult` are both facts about the shelves, so no event
+  could ever change WHO walks in — a school holiday and a goth night were the
+  same sentence said at the same twenty archetypes in the same proportions.
+  Everything in it is invisible twice over: a shopper who came in because of an
+  event and one who came in anyway are the same person in the same doorway, and
+  a crowd is only a crowd in aggregate, so no still frame of a shop tells a
+  takeover from a run of luck. Its control is doubled and is the assertion that
+  decides whether this is a feature or a silent rebalance of every save in
+  existence — and it is not "the same shopper comes out", it is **the stream is
+  in the same place afterwards**: `rng.weighted` asks `next()` once whatever
+  list it is handed, so the multiplier is folded into the WEIGHTS and the draw
+  stays one, where rolling the crowd and then rolling the shopper would be two
+  and every balance figure in this repo would stop being comparable. Doubled
+  because no modifiers at all and an ORDINARY demand/price event are different
+  paths through `foldModifiers`, and the second is the one every existing save
+  is actually on. Then the pair that is worthless split in half: an effect
+  naming a `tags` entry moves that shopper and an effect naming an archetype by
+  **id** moves nobody — either half alone is satisfied by nothing happening at
+  all — plus the untagged archetype, which is every row written before `tags`
+  existed and may only ever be diluted, never selected. Plus that a tag nothing
+  carries is inert, which is what lets one `effects` array hold two vocabularies
+  (`demand` already does it with a tag nothing stocks); the product over several
+  tags; that **zero is a real answer** and yet zeroing the whole town still
+  hands back a shopper, since `spawnCustomer` is the only door into
+  `this.customers`; and the fold — one event's duplicate rows are its strongest
+  pull rather than 2×2×2 (a restart or a double `run_director` is exactly how a
+  pile of identical rows happens), different events do compound, the band holds
+  however many pile on, and a row written before the column existed reads as 1
+  while the fold still takes the strongest pull on demand. The band is restated
+  rather than imported, or every assertion passes whatever the constant becomes.
+  It authors three archetypes and removes them on exit. Five deliberate
+  mutations were run against it before it was believed — an extra rng draw,
+  matching on the id, summing the tags instead of multiplying, stacking the
+  duplicates, and deleting the band — and each was caught on the assertion that
+  names it.
 - `verify:grace` guards the first five days, and its control is the assertion
   that decides whether the whole thing is opt-in: a shop past the ramp is the old
   game **to the digit**, on every cause, in both directions — every save in
@@ -1124,9 +1185,9 @@ what the next step was meant to be.
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, and the fence that stopped being the only thing a boundary could be made of | steps 1–9, 11, 13–27, 29 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
-| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the same T read the other way — who goes first where two runs MEET, which is a fact about the cell rather than about the belt, so it is asked of whatever piece is standing where the lines arrive, and the piece that usually is is the sorter, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg, the tunnel that stopped being its own ecosystem — a span that DIPS to a storey below, so a mouth is a lift pointed down and the piston is the crate's own `deck` rather than two clocks beside it, plus the toggle that brings a span up onto the ceiling instead of the floor, and **Where a crate goes, in order** — the whole routing ladder in one place, with the audit's gap list at the foot, and the map that takes a SUBJECT — pick a shelf and everything but the shortest ways a box reaches it goes grey, because the reachable set is 15 runs of 23 whatever you pick, and the packer that stands still — a crate parked on a run that fills itself from the boxes going past, so a dock of part-crates is one trip instead of three | steps 1–4, 2b, 3b, 4b, 7–11 built; 5–6 and 12 proposed |
+| [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the same T read the other way — who goes first where two runs MEET, which is a fact about the cell rather than about the belt, so it is asked of whatever piece is standing where the lines arrive, and the piece that usually is is the sorter, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg, the tunnel that stopped being its own ecosystem — a span that DIPS to a storey below, so a mouth is a lift pointed down and the piston is the crate's own `deck` rather than two clocks beside it, plus the toggle that brings a span up onto the ceiling instead of the floor, and **Where a crate goes, in order** — the whole routing ladder in one place, with the audit's gap list at the foot, and the map that takes a SUBJECT — pick a shelf and everything but the shortest ways a box reaches it goes grey, because the reachable set is 15 runs of 23 whatever you pick, and the packer that stands still — a crate parked on a run that fills itself from the boxes going past, so a dock of part-crates is one trip instead of three | steps 1–4, 2b, 3b, 4b, 7–12 built; 5–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
-| [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, and the regulars who come back — a name with a memory, kept on the save rather than in the content database | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
+| [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, the regulars who come back — a name with a memory, kept on the save rather than in the content database — and the event that moves the CROWD rather than the shelves, matched on an archetype's tags because naming one by id is `if (item.id === 'tomato')` wearing a customer | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
 | [docs/ordering.md](docs/ordering.md) | what the shop buys without asking — counting crates and the farm before spending, the shop-wide switches, the per-item standing order, a supplier tabbed by what to do rather than by where a thing lives, the shelf menu that says what is on the van, orders more of a board, counts what the shop already has and shortlists what to keep it for, the item's own menu — where the standing order went to get a thumb-sized control, and where what you charge stopped being a fact about each board, the order you can place twice, at whatever size you meant, and the refusal only the player could read — a van too big for the bay was turned down rather than trimmed, so the biggest units in the shop were the ones certain never to be stocked | steps 1–11 built |
 | [docs/deliveries.md](docs/deliveries.md) | why an order should be a promise rather than a teleport — runs and cutoffs, the van as authored content, the lane it drives down, and the car park that is the same idea pointed at customers, the lane a shopper's car drives in and out on, and the road and pavement brushes that decide which way in that is on wheels and on foot | steps 1–7 built |
 | [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | step 1 built (no rung authored yet); 2–4 proposed |

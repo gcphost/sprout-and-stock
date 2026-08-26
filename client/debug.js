@@ -61,7 +61,7 @@ export const DEBUGS = [
     // the gear, which says nothing.
     icon: 'move',
     name: 'Conveyor map',
-    sub: 'every run as one line — junctions, merges, dead ends, and amber for a line that reaches nothing. Pick a shelf or a belt and the rest goes quiet',
+    sub: 'every run as one line, amber where it reaches nothing — pick a shelf or a belt to mute the rest',
   },
 ];
 

@@ -12,6 +12,12 @@
 
 import { z } from 'zod';
 import { ALL_TAGS } from './tags.js';
+// The two closed lists an authored `look` is checked against. Taken from source
+// rather than restated, or a hairstyle the renderer has never heard of
+// validates perfectly and draws a bald person — see `shared/looks.js`.
+import {
+  CHARACTER_BUILDS, CHARACTER_HAIRS, CHARACTER_BEARDS, CHARACTER_FACES,
+} from './looks.js';
 // One spelling of the kind that is ground. `shared/build.js` reaches only
 // tiles.js and edges.js, so there is no cycle to pay for taking it from source.
 import { isSurface } from './build.js';
@@ -410,6 +416,32 @@ export const ArchetypeSchema = z.object({
   /** Relative likelihood of spawning vs other archetypes. */
   spawn_weight: z.number().min(0).max(100).default(1),
   color: hexColor.default('#d98cb3'),
+  /**
+   * What this kind of shopper LOOKS like, beyond their colour.
+   *
+   * `color` on its own was the whole of a shopper's identity, which is why a
+   * crowd read as pawns: a Foodie and a Bulk Shopper were the same body in two
+   * shades, and the only other variation anybody got was hashed off their id,
+   * so no archetype could ever be a *character*. A build and a hairstyle are
+   * what make one — see `shared/looks.js` for why the vocabulary is closed
+   * rather than a `model` the way a worker's art is.
+   *
+   * **`null` is every archetype ever authored**, and it is not "no look": it
+   * falls back to the hashed pick, so a database with nothing set still has a
+   * varied crowd and no existing save changes. That is what keeps this opt-in.
+   *
+   * There is deliberately no skin tone here. `animateMoods` overwrites the
+   * head's material from `FACE_RAMP` on every shopper with a patience number —
+   * which is all of them — so an authored one would be stomped on the first
+   * frame and read as a field that does nothing.
+   */
+  look: z.object({
+    build: z.enum(CHARACTER_BUILDS).default('regular'),
+    hair: z.enum(CHARACTER_HAIRS).default('crop'),
+    hair_color: hexColor.default('#3a2e28'),
+    beard: z.enum(CHARACTER_BEARDS).default('none'),
+    face: z.enum(CHARACTER_FACES).default('none'),
+  }).nullable().default(null),
 }).refine((v) => v.budget_max >= v.budget_min, {
   message: 'budget_max must be >= budget_min', path: ['budget_max'],
 }).refine((v) => v.basket_max >= v.basket_min, {
@@ -431,6 +463,28 @@ export const EventSchema = z.object({
     tag: z.string().min(1),
     demand_mult: z.number().min(0).max(10).default(1),
     price_mult: z.number().min(0).max(10).default(1),
+    /**
+     * ...and WHO walks in, which is the third thing an event can move and the
+     * first that is about people rather than goods.
+     *
+     * The tag is matched against `ArchetypeSchema.tags` — never against an
+     * archetype id, for the reason that column exists — so one row scales the
+     * spawn weight of every kind of shopper carrying it. An event naming a tag
+     * no archetype has moves nobody, exactly as one naming a tag nothing
+     * stocks moves no demand.
+     *
+     * **1 is every event ever authored**, and it has to be: `spawnCustomer`
+     * takes exactly one weighted draw, so a table of all-1 multipliers leaves
+     * the weights it was already using and the same shopper comes out of the
+     * same random number. That is what keeps every balance figure in this repo
+     * valid — see the note on the fold in `spawnCustomer`.
+     *
+     * Note the two axes are independent on purpose. Wanting more of something
+     * (`demand_mult`) and more of the people who want it (`spawn_mult`) are
+     * different stories: a heat wave is the first, a school holiday is the
+     * second, and an event is free to be both.
+     */
+    spawn_mult: z.number().min(0).max(10).default(1),
   })).min(1).max(8),
   duration_days: z.number().int().min(1).max(30).default(2),
   weight: z.number().min(0).max(100).default(1),

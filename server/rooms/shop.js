@@ -608,6 +608,23 @@ export const ShopRoom = (Base) => class extends Base {
       ));
     });
 
+    // What a packer is building. Build mode only, like every other verb that
+    // changes what a conveyor does.
+    //
+    // Bulk like the rest, and it is the one of these where a batch is the
+    // ordinary press rather than a convenience: a line of packers is what you
+    // build to fold a whole delivery, and ticking eggs onto six of them one at a
+    // time is the four-input shelf menu this game already deleted once.
+    this.onMessage('packer-items', (client, m) => {
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setPackerItems(client.sessionId, id, m?.items),
+        (n) => ((m?.items ?? []).length
+          ? `${n} packers updated.`
+          : `${n} packers build whatever the run wants again.`),
+      ));
+    });
+
     // ...and who goes first where two lines meet, which is the same question
     // asked of a plain belt. Build mode only, like the rest of them.
     this.onMessage('belt-merge', (client, m) => {

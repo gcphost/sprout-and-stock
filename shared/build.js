@@ -324,6 +324,55 @@ export const FIXTURES = {
     works: true,
   },
   /**
+   * The packer — a crate that stands still.
+   *
+   * Everything else on a run moves a box from where it is to where it should be.
+   * This one is the only piece that changes what is IN one, and the trip it
+   * exists for is the trip nothing downstream of a delivery can make. Four eggs
+   * in one box, four bread in another, four lettuce in a third is three journeys
+   * down the same line to three different aisles — a hire cannot fold them
+   * (`wholeCrate` refuses a box not worth more than an armful, `fit` scores each
+   * at four) and a belt could not either, because every loader down the run is
+   * asked one question and it is about the box in front of it. The conveyor did
+   * not fix the trip; it made the same three trips without a person, and every
+   * box arrived correctly the whole time.
+   *
+   * So: it HOLDS one box and fills it from the boxes going past. What arrives is
+   * tipped rather than stopped — the piles it wants come out and the remainder
+   * rides on, which is `armTip`'s shape and is what keeps it from being a plug —
+   * and when the held box is worth a journey it is released onto the line.
+   *
+   * IT IS THE SORTER READ BACKWARDS, which is the argument for it being a piece
+   * at all rather than a rung on something else. A junction is one line in and
+   * several out, deciding by where the goods can go; this is several boxes in
+   * and one out, deciding on the same evidence (`conveyorServes`, `shelfAccepts`
+   * — the shop's own rules, so it is right about an item authored this
+   * afternoon). Half that sentence was already in the game.
+   *
+   * Structurally a belt again, and it wears the loader's housing for the loader's
+   * reason: it swallows a crate, so it is waist-high and it costs you the square.
+   *
+   * `rot` IS ITS DIRECTION, which is the one place it parts company with the two
+   * machines beside it. `derivedFlow` covers a loader and a sorter because their
+   * `rot` is spoken for — aimed at a shelf, aimed down a branch — and a packer
+   * has no side to aim at, so the key is free to mean what it means on a belt.
+   * That is deliberate rather than incidental: the alternative is a rotatable
+   * piece whose R key does nothing, which this file names as a trap three times
+   * over.
+   */
+  packer: {
+    label: 'Packer', blocks: true, ground: T.BELT, where: 'any', rotates: true, anchor: null,
+    flow: { out: 0 },
+    overhead: true,
+    // NO `works`, which is the one flag it does not take off the loader. That
+    // warning asks whether there is a unit beside the cell to work, and a packer
+    // works the box rather than the shop — so it would fire on every correctly
+    // placed one, and a warning that goes off whatever you do is the thing this
+    // file already records as having made the real one worthless. What is worth
+    // warning about here is a run with nothing downstream that wants the box,
+    // and `def.flow`'s dead-end test above already says that much.
+  },
+  /**
    * The tunnel — two mouths and a span that belongs to NOBODY.
    *
    * Structurally a belt again: `T.BELT`, a facing, hands on to what it faces.
@@ -2112,7 +2161,7 @@ const groundIsBusy = (ground) => {
  * concerned. Two lists would mean every hand-off asking two questions, and the
  * day somebody forgot the second one a crate would stop dead at every loader.
  */
-export const CONVEYOR_KINDS = ['belt', 'arm', 'sorter', 'under', 'lift'];
+export const CONVEYOR_KINDS = ['belt', 'arm', 'sorter', 'under', 'lift', 'packer'];
 
 /**
  * The kinds a DRAG lays a line of.
@@ -2123,7 +2172,7 @@ export const CONVEYOR_KINDS = ['belt', 'arm', 'sorter', 'under', 'lift'];
  * span the piece exists to give back — which stamps `T.BELT` down the whole
  * line, and the floor brush then refuses the ground you were promised.
  */
-export const RUN_KINDS = ['belt', 'arm', 'sorter'];
+export const RUN_KINDS = ['belt', 'arm', 'sorter', 'packer'];
 
 /**
  * How many cells one drag may lay — of conveyor, or of anything else.
@@ -2271,7 +2320,7 @@ export const derivedFlow = (kind) => kind === 'arm' || kind === 'sorter';
 
 export function conveyorsOf(L) {
   return [...(L?.belts ?? []), ...(L?.arms ?? []), ...(L?.sorters ?? []),
-    ...(L?.unders ?? []), ...(L?.lifts ?? [])];
+    ...(L?.unders ?? []), ...(L?.lifts ?? []), ...(L?.packers ?? [])];
 }
 
 /**
@@ -2336,6 +2385,23 @@ export const deckOf = (c) => (c?.deck === CEILING ? CEILING : 0);
  * as a storey toggle that appeared for the two pieces that cannot use one.
  */
 export const goesOverhead = (kind) => !!FIXTURES[kind]?.overhead;
+
+/**
+ * ...and the same set said in WORDS, for the three places that refuse.
+ *
+ * "belts, loaders and sorters" was written out by hand in `canPlace`, in the
+ * deck toggle's toast and in the palette tile's tip, which is this file's own
+ * trap: a list of the only members a category had, in three copies, none of
+ * which fails when a fourth arrives — the refusal simply names three of four
+ * and the player is told the tool they are holding cannot do the thing it just
+ * did. Derived, so the sentence is right the day somebody authors a fifth.
+ */
+export function overheadKinds() {
+  const names = FIXTURE_KINDS.filter(goesOverhead)
+    .map((k) => `${FIXTURES[k].label.toLowerCase()}s`);
+  if (names.length < 2) return names[0] ?? 'nothing';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
 
 /**
  * Two cells are neighbours only on the same deck — and this one line is what a
@@ -2640,12 +2706,20 @@ function conveyorFlow(L) {
   const arms = [...(L?.arms ?? []), ...(L?.sorters ?? [])];
   const unders = L?.unders ?? [];
   const lifts = L?.lifts ?? [];
+  // A packer sides with the BELTS and not with the machines, which is the one
+  // structural consequence of its `rot` meaning what it means on a belt: it
+  // knows its own direction, so the forward walk can start from it. Grouped with
+  // the loaders it would be a cell whose flow has to be derived from a feeder,
+  // and a run made of packers would then have no source at all — the degenerate
+  // shape `conveyorFlow` warns about, arriving through a new door.
+  const packers = L?.packers ?? [];
   const had = FLOW.get(L);
   if (had && had.belts === belts && had.arms === arms.length
     && had.armsRef === (L?.arms ?? []) && had.sortRef === (L?.sorters ?? [])
-    && had.underRef === unders && had.liftRef === lifts) return had.map;
+    && had.underRef === unders && had.liftRef === lifts
+    && had.packRef === packers) return had.map;
 
-  const cells = [...belts, ...arms, ...unders, ...lifts];
+  const cells = [...belts, ...packers, ...arms, ...unders, ...lifts];
   // A lift stands on both storeys, so it is filed under both — it is the one
   // cell a run on either deck may hand to.
   const at = new Map();
@@ -2771,9 +2845,26 @@ function conveyorFlow(L) {
     return { x: pick.x, z: pick.z, deck: pick.deck };
   };
 
-  // Seed: every plain belt answers for itself.
+  // Seed: every plain belt answers for itself — and so does a PACKER, for the
+  // same reason and by the same line.
+  //
+  // A packer's `rot` is its direction, exactly as a belt's is: it has no side to
+  // aim at, so the key was free to keep the meaning it has everywhere else on a
+  // run. Listed in `cells` but left out of this loop it was resolved by the
+  // leftovers pass at the bottom instead — AFTER every derived cell around it —
+  // so a sorter downstream of one was asked which way it carried on before
+  // anything knew which way the box had been travelling, and guessed. On the
+  // save it was found on it guessed its own feeder: the packer handed west into
+  // the junction and the junction's straight-on pointed back east into the
+  // packer.
+  //
+  // What that does NOT do is jam, which is why it needed an eye rather than a
+  // sweep: `conveyorBranches` refuses a neighbour that feeds you, so the three
+  // real legs were all still branches and boxes still went down them. The run
+  // worked. What you could see was the junction occasionally handing a box back
+  // the way it came, and there is nothing in the game that says a word about it.
   const queue = [];
-  for (const b of belts) {
+  for (const b of [...belts, ...packers]) {
     map.set(b.id, stepFrom(b, b.rot));
     queue.push(b);
   }
@@ -3146,6 +3237,7 @@ function conveyorFlow(L) {
     sortRef: L?.sorters ?? [],
     underRef: unders,
     liftRef: lifts,
+    packRef: packers,
     map,
   });
   return map;
@@ -3541,11 +3633,17 @@ export function conveyorLines(L) {
   const sorters = L?.sorters ?? [];
   const unders = L?.unders ?? [];
   const lifts = L?.lifts ?? [];
+  // A packer is an ordinary cell of a line. It does not BREAK one, for the
+  // reason a loader does not: it stands in the run, so breaking at machines
+  // would cut an aisle into one-cell lines and rebuild the per-cell shape this
+  // function exists to have deleted.
+  const packers = L?.packers ?? [];
   const had = LINES.get(L);
   if (had && had.belts === belts && had.arms === arms
-    && had.sorters === sorters && had.unders === unders && had.lifts === lifts) return had.out;
+    && had.sorters === sorters && had.unders === unders && had.lifts === lifts
+    && had.packers === packers) return had.out;
 
-  const cells = [...belts, ...arms, ...sorters, ...unders, ...lifts];
+  const cells = [...belts, ...arms, ...sorters, ...unders, ...lifts, ...packers];
   const grid = new Map();
   for (const c of cells) {
     if (c.kind === 'lift') {
@@ -3816,7 +3914,7 @@ export function conveyorLines(L) {
   }
 
   const out = { lines, byCell, order, feeds: from, ways: to };
-  LINES.set(L, { belts, arms, sorters, unders, lifts, out });
+  LINES.set(L, { belts, arms, sorters, unders, lifts, packers, out });
   return out;
 }
 
@@ -3929,7 +4027,7 @@ export function conveyorLoops(L) {
   // sorter whose named branch is the cell feeding it — so the line-level answer
   // above cannot draw the distinction the pair needs.
   const cells = [...(L?.belts ?? []), ...(L?.arms ?? []), ...(L?.sorters ?? []),
-    ...(L?.unders ?? []), ...(L?.lifts ?? [])];
+    ...(L?.unders ?? []), ...(L?.lifts ?? []), ...(L?.packers ?? [])];
   const at = new Map();
   for (const c of cells) {
     if (c.kind === 'lift') {
@@ -4004,8 +4102,10 @@ export function conveyorMeets(L, cell) {
   const belts = L?.belts ?? [];
   const arms = L?.arms ?? [];
   const sorters = L?.sorters ?? [];
+  const packers = L?.packers ?? [];
   let had = MEETS.get(L);
   if (!had || had.belts !== belts || had.arms !== arms || had.sorters !== sorters
+    || had.packers !== packers
     || had.shelves !== (L?.shelves ?? null) || had.stations !== (L?.stations ?? null)
     || had.bins !== (L?.bins ?? null) || had.pens !== (L?.pens ?? null)
     || had.plots !== (L?.plots ?? null)) {
@@ -4013,6 +4113,7 @@ export function conveyorMeets(L, cell) {
       belts,
       arms,
       sorters,
+      packers,
       shelves: L?.shelves ?? null,
       stations: L?.stations ?? null,
       bins: L?.bins ?? null,
@@ -4122,6 +4223,7 @@ export function fixturesOf(L) {
   for (const b of L.belts ?? []) out.push({ kind: 'belt', ...b });
   for (const a of L.arms ?? []) out.push({ kind: 'arm', ...a });
   for (const s of L.sorters ?? []) out.push({ kind: 'sorter', ...s });
+  for (const k of L.packers ?? []) out.push({ kind: 'packer', ...k });
   // ...and `unders`, which was the fourth to be left out and had been since the
   // day tunnels shipped: a mouth did not survive a shell stamp and nothing
   // warned about stranding one.
@@ -4304,7 +4406,7 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
      */
     if (!def.overhead) {
       return no(def.flow
-        ? `a ${def.label.toLowerCase()} goes on the floor — the ceiling takes belts, loaders and sorters`
+        ? `a ${def.label.toLowerCase()} goes on the floor — the ceiling takes ${overheadKinds()}`
         : 'only a conveyor can go on the ceiling');
     }
     /**
@@ -4554,7 +4656,7 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
     // that goes off whatever you do, and one of those is a warning nobody
     // reads. It is also what made the real one below worthless.
     const onRun = (tx, tz) => (tx === x && tz === z)
-      || [L.belts, L.arms, L.sorters, L.unders]
+      || [L.belts, L.arms, L.sorters, L.unders, L.packers]
         .some((list) => (list ?? []).some((c) => c.x === tx && c.z === tz));
     const atUnit = (tx, tz) => (L.shelves ?? []).some((sh) => sh.x === tx && sh.z === tz)
       || (L.stations ?? []).some((st) => st.x === tx && st.z === tz)

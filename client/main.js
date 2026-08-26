@@ -7049,7 +7049,13 @@ function saveView(now) {
   const line = JSON.stringify([v.pitch, v.yaw, build, v.centre.x, v.centre.z]);
   if (line === viewSaved) return;
   viewSaved = line;
-  writeJson(VIEW_KEY, { pitch: v.pitch, yaw: v.yaw, build });
+  // Spread over whatever is already there rather than written flat. This
+  // object is not only the camera's any more — `setLook` keeps the Cel + Ink
+  // switch in it, on the same argument (a fact about the person, not the shop)
+  // — and a save that named its own three fields would wipe it every half
+  // second the view moved. Which reads as the look reverting on its own, days
+  // later, with nothing to connect it to.
+  writeJson(VIEW_KEY, { ...(readJson(VIEW_KEY) ?? {}), pitch: v.pitch, yaw: v.yaw, build });
   if (ui.worldId) writeJson(viewAtKey(ui.worldId), v.centre);
 }
 

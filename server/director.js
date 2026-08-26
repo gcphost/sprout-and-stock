@@ -145,6 +145,13 @@ function applyPlan(game, plan, source) {
       tag: m.tag,
       demand_mult: clamp(Number(m.demand_mult) || 1, 0.1, 5),
       price_mult: clamp(Number(m.price_mult) || 1, 0.3, 4),
+      // The invented events never set it — `inventEvent` tells one story about
+      // a driver TAG on the shelves, and its plan is filtered above against
+      // tags that live on items, where a spawn tag lives on an archetype. So
+      // this reads 1 for everything the generator writes, and is here so that
+      // a plan which does say something about the crowd is not silently
+      // dropped on the way to the row.
+      spawn_mult: clamp(Number(m.spawn_mult) || 1, 0, 3),
       expires_day: game.day + clamp(Math.round(Number(m.days) || 2), 1, 5),
     });
   }
@@ -365,6 +372,10 @@ function stageEvent(game, reason) {
         tag: eff.tag,
         demand_mult: eff.demand_mult,
         price_mult: eff.price_mult,
+        // Straight through, unclamped, because the schema is the clamp on this
+        // path — an authored row is somebody's decision rather than a
+        // generator's roll, and `foldModifiers` bands it either way.
+        spawn_mult: eff.spawn_mult,
         expires_day: game.day + picked.duration_days,
       });
     }

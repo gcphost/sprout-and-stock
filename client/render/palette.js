@@ -142,8 +142,26 @@ export const PALETTE = {
 /** Player colours, cycled by join order. */
 export const PLAYER_COLORS = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
 
-/** Full-height architectural edges, in world units. */
-const WALL_H = 1.4;
+/**
+ * Full-height architectural edges, in world units.
+ *
+ * 1.75, up from the 1.4 it stood at since walls were buildable, and what
+ * unlocked that is `Scene.hideNearWalls` rather than anything about the art. At
+ * this camera pitch a wall conceals roughly `h / tan(pitch)` of the floor behind
+ * it — so every centimetre of silhouette was a centimetre off the shop, and the
+ * two faces nearest the viewer were spending it on the aisles you were trying to
+ * look at. A building whose near walls come down pays that cost nowhere: the far
+ * two are behind everything anyway, so height there is free and is the only
+ * thing that makes the place read as a building rather than as a low pen.
+ *
+ * Almost everything measures off this — an opening's header, an arch's
+ * springing, a curtain's drop, the ceiling — so it is one number and not a
+ * retune. The glazings are the exception and say so: a SILL is a real height
+ * (waist, knee, shoulder) and stays absolute, while a HEAD is "just under the
+ * lintel" and is written as `WALL_H - x`. Authored the other way round, raising
+ * the wall leaves a hand's width of brick above every window in the shop.
+ */
+const WALL_H = 1.75;
 
 /**
  * Tile kind -> how it renders.
@@ -235,6 +253,10 @@ export const FIXTURE_LOOK = {
   arm: { color: PALETTE.station, h: 0.78 },
   // ...and the same again for a junction, for the same reason.
   sorter: { color: PALETTE.station, h: 0.78 },
+  // ...and a packer, which wears the same housing and swallows a crate the same
+  // way. Missing, this is `undefined` and the piece is never added to the scene
+  // at all — see the note on `under` below for what that costs.
+  packer: { color: PALETTE.station, h: 0.78 },
   // ...and for a tunnel mouth. Missing, this is `undefined`, `plainBlock`
   // answers null and the fixture is never added to the scene AT ALL — no mesh
   // to raycast, so it cannot be pointed at, turned, bulldozed or shift-deleted,
@@ -580,15 +602,18 @@ export const EDGE_STYLE = {
   // the *wall*: glass casts none by default, which is right for a bottle and a
   // freezer door and wrong for a shopfront — a building whose south face stops
   // laying a shadow on its own forecourt reads as the wall having gone.
-  [E.WINDOW_FULL]: { ...EDGE_BASE.glass, sill: 0.05, head: 1.32, shadow: true },
+  [E.WINDOW_FULL]: { ...EDGE_BASE.glass, sill: 0.05, head: WALL_H - 0.08, shadow: true },
   // Standard glazing, pushed out over a sill. `out` is the one thing here that is
   // geometry rather than a pair of heights, and the renderer decides WHICH WAY out
   // is off the enclosure — a bay projects into the street, not into the aisle.
-  [E.WINDOW_BAY]: { ...EDGE_BASE.glass, sill: 0.34, head: 1.25, out: 0.2 },
+  [E.WINDOW_BAY]: { ...EDGE_BASE.glass, sill: 0.34, head: WALL_H - 0.15, out: 0.2 },
   // A strip up under the lintel. Light without a view, which is what you want on
   // a stockroom and on anything a passer-by should not be able to see the till
   // through.
-  [E.WINDOW_HIGH]: { ...EDGE_BASE.glass, sill: 0.72, head: 1.32 },
+  // A strip up under the lintel, so BOTH its numbers hang off the wall's top —
+  // a sill written absolutely would leave this one sitting at chest height the
+  // day the walls grew, which is a different window rather than a taller one.
+  [E.WINDOW_HIGH]: { ...EDGE_BASE.glass, sill: WALL_H - 0.68, head: WALL_H - 0.08 },
   [E.FENCE]: EDGE_BASE.fence,
   // Three more boundaries, and they are LOOKS rather than kinds — one price, one
   // set of rules, free to swap between (`FENCING`, shared/edges.js). Only a
@@ -975,8 +1000,9 @@ export function edgeBands(style) {
  * restyling a wall taller takes the ceiling with it.
  *
  * `LIFT` is the half that was missing, and it only became visible once a
- * hanging prop could be put where you actually want one. A wall is 1.4 and a
- * head tops out at 1.32, so the "ceiling" was barely above standing height:
+ * hanging prop could be put where you actually want one. A wall was 1.4 then
+ * and a head topped out at 1.32, so the "ceiling" was barely above standing
+ * height:
  * anything that hangs DOWN from it — a string of lights, a pendant on a flex —
  * arrived resting on top of the shelving it was bought to light. What that
  * reads as is the fitting being the wrong size, and it is the room being too
@@ -984,6 +1010,12 @@ export function edgeBands(style) {
  * whole silhouette of the building and this is a question about one prop kind;
  * the cost is that a fitting now sits above the wall line, which from a camera
  * looking into a roofless building reads as depth rather than as error.
+ *
+ * The walls DID grow in the end (see `WALL_H`), and this still stands rather
+ * than being folded back into them: what made the room short was the gap
+ * between the shelving and whatever hangs over it, and that gap is a fact about
+ * props. A ceiling that is only the wall top is one where the two are the same
+ * plane again the next time either moves.
  *
  * What sets the number is not the walls, though — it is the READOUTS. A unit
  * waiting for stock floats a thought bubble a little over its own top, so the

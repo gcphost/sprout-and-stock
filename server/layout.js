@@ -29,6 +29,7 @@ import {
   FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS, FIXTURES,
   footprint, sizeOf, deckOf, CEILING, LIFT_WAYS, rot4, sorterRoute, mergeRoute,
 } from '../shared/build.js';
+import { LOT_KINDS } from '../shared/lot.js';
 
 export { T };
 
@@ -216,6 +217,7 @@ export function generateLayout({
   sorters = 0,
   unders = 0,
   lifts = 0,
+  packers = 0,
   checkouts = 1,
   plots = 4,
   // Placed only, for `bins`' reason: nothing procedural puts an animal in a
@@ -231,7 +233,7 @@ export function generateLayout({
   shell = null,
 } = {}) {
   const req = {
-    seed, shelves, freezers, warmers, bins, belts, arms, sorters, unders, lifts, checkouts, plots, pens, stations,
+    seed, shelves, freezers, warmers, bins, belts, arms, sorters, unders, lifts, packers, checkouts, plots, pens, stations,
     placements: placements ?? [],
     // Walls, windows and doorways the player drew. An overlay for the same
     // reason `placements` is one: the generator rebuilds the shell from scratch
@@ -662,6 +664,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const sortersOut = [];
   const undersOut = [];
   const liftsOut = [];
+  const packersOut = [];
   const layoutSoFar = () => ({
     w: worldW, h: worldH, tiles, edgesV, edgesH, indoor, store, door: { x: doorX, z: doorZ },
     bay, drop, break: breakRoom,
@@ -669,7 +672,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     shelves: shelvesOut, checkouts: checkoutsOut, stations: stationsOut, plots: plotsOut,
     pens: pensOut,
     props: propsOut, bins: binsOut, belts: beltsOut, arms: armsOut, sorters: sortersOut,
-    unders: undersOut, lifts: liftsOut,
+    unders: undersOut, lifts: liftsOut, packers: packersOut,
     ground: groundOut,
     blocked,
   });
@@ -702,6 +705,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
     sorter: req.sorters,
     under: req.unders,
     lift: req.lifts,
+    packer: req.packers,
     checkout: req.checkouts,
     plot: req.plots,
     pen: req.pens,
@@ -1026,6 +1030,27 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // this is the junction the setting is usually made on.
       sorter.merge = mergeRoute(p);
       sortersOut.push(sorter);
+    } else if (p.kind === 'packer') {
+      // A belt cell by its stamp, a machine by its footprint — the loader's
+      // pair, read from the same table for the same reason. See `FIXTURES.arm`
+      // for what happens when this branch and `shared/build.js` disagree.
+      if (FIXTURES[p.kind]?.blocks && deckOf(p) !== CEILING) occupy(p.x, p.z);
+      if (deckOf(p) !== CEILING) set(p.x, p.z, T.BELT);
+      const packer = makePacker(p.id, p.x, p.z, p.rot ?? 0);
+      packer.tier = p.tier ?? 1;
+      packer.variant = p.variant ?? '';
+      packer.piece = p.piece ?? null;
+      packer.deck = deckOf(p);
+      // What it has been told to build, which is the one field it has that a
+      // belt has not. Carried across the re-flow with the same trap `mode`,
+      // `auto` and `reject` each name: build mode re-flows on every wall
+      // segment of a drag, so a tick list left out here is one that clears
+      // itself behind you while you are still drawing.
+      packer.assigned = Array.isArray(p.assigned) ? p.assigned.slice(0, LOT_KINDS) : [];
+      // ...and its merge, because a packer stands IN a run and is therefore a
+      // square two lines can arrive at.
+      packer.merge = mergeRoute(p);
+      packersOut.push(packer);
     } else if (p.kind === 'checkout') {
       occupy(p.x, p.z);
       const till = makeCheckout(layoutSoFar(), p.id, p.x, p.z, p.rot ?? 1, checkoutsOut);
@@ -1313,6 +1338,16 @@ function compose(req, storeW, storeH, allowDrops = true) {
        * answers with whichever deck it is asked about.
        */
       lifts: liftsOut,
+      /**
+       * ...and the packers. A sixth list for the same reason again: the run is
+       * made of six kinds now and everything that walks one asks `conveyorsOf`
+       * rather than any list by name. Its own rather than a flag on `belts`,
+       * because a packer is the only cell in the game that keeps a crate
+       * between ticks, so the two things that ask "which cell is this" — the
+       * flow map and the box's own address — must be able to tell it apart
+       * from an ordinary belt without reading a field most rows have not got.
+       */
+      packers: packersOut,
       /**
        * Which design of floor is painted on each cell that has one.
        *
@@ -1647,6 +1682,32 @@ function makeSorter(id, x, z, rot) {
     // is a route across the shop that happens to pass over it. See
     // `conveyorBranches`.
     riser: false,
+  };
+}
+
+/**
+ * A packer. Holds one box and fills it from the boxes going past.
+ *
+ * `assigned` is the only field a belt has not got, and it is empty on every
+ * packer ever built — which is what makes the tick list an override rather than
+ * a configuration step. Empty means *read the shop*: what the run downstream can
+ * actually take, which is the same evidence a sorter routes on, so a packer you
+ * have said nothing to is useful the moment you lay it.
+ *
+ * What it is NOT is a store. The box it is building is an ordinary `deliveries`
+ * entry standing on this tile — see `Game.packerBox` — so there is no contents
+ * field here to save, to migrate, or to lose on a re-flow.
+ */
+function makePacker(id, x, z, rot) {
+  return {
+    tier: 1,
+    variant: '',
+    id,
+    kind: 'packer',
+    x,
+    z,
+    rot,
+    assigned: [],
   };
 }
 

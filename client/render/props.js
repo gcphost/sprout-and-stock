@@ -13,8 +13,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { partsAt, seamStep, skinnedParts, modelBounds, FRONT_LIP } from '../../shared/model.js';
-import { FACE_CALM, VEHICLE_LOOK, CRATE_LOOK, WASTE_LOOK } from './palette.js';
+import { FACE_CALM, VEHICLE_LOOK, CRATE_LOOK, WASTE_LOOK, shade } from './palette.js';
+import { BUILDS, STOCK_HAIR, STOCK_HAIR_COLOR } from '../../shared/looks.js';
 import { signed } from '../money.js';
+import { lookOn, lookKey, gradientMap } from './look.js';
 
 /** One shared geometry per primitive shape — never allocate these per prop. */
 const GEO = {
@@ -32,18 +34,41 @@ const GEO = {
  * scenery primitives.  Keeping these separate means a low-poly tomato or a
  * crate does not silently become expensive just because the people did.
  */
+/*
+ * ONE box, and every person in the game is made of it.
+ *
+ * This used to be six geometries — two sphere resolutions for the masses, two
+ * more for limbs and beads, a sphere cap for headwear and a torus for a smile —
+ * because a character was smooth and round while the shop around it was
+ * flat-shaded and hard-edged. That mismatch is the thing people actually
+ * noticed: the crowd was the one set of objects on screen that did not look
+ * like it belonged to this game.
+ *
+ * A box has no segment count to tune, no pole to squash, and no silhouette that
+ * changes with the camera, so the whole "spend resolution where it is seen"
+ * argument the old table was built around simply stops applying. It is also
+ * separate from `GEO.box` on purpose: `SHARED_GEO` protects both from disposal,
+ * and a person's geometry having its own name is what keeps a future change to
+ * character detail from quietly re-costing every crate in the shop.
+ */
 const CHARACTER_GEO = {
-  body: new THREE.SphereGeometry(0.5, 18, 12),
-  head: new THREE.SphereGeometry(0.5, 18, 12),
-  shoe: new THREE.SphereGeometry(0.5, 14, 9),
-  arm: new THREE.SphereGeometry(0.5, 14, 9),
-  leg: new THREE.SphereGeometry(0.5, 14, 9),
-  cap: new THREE.CylinderGeometry(0.5, 0.5, 1, 18),
-  brim: new THREE.BoxGeometry(1, 1, 1),
+  box: new THREE.BoxGeometry(1, 1, 1),
 };
 
-/** The five above, by identity — see `paintLit` for the one thing that asks. */
-const SHARED_GEO = new Set(Object.values(GEO));
+/**
+ * Every module-level geometry, by identity — the primitives above and the
+ * character shapes with them.
+ *
+ * Two callers, and the second is the one that was wrong. `paintLit` clones
+ * before writing a hue into a shared shape, or one fixture tints every box in
+ * the game. `disposeGroup` frees whatever it is handed and has to skip these,
+ * and it was checking `GEO` alone: a character's meshes point straight at
+ * `CHARACTER_GEO`, so every shopper who left the shop disposed the head, body
+ * and limbs of everybody still in it. Nothing breaks — three re-uploads a
+ * disposed geometry the next time it is drawn — so what it costs is a buffer
+ * upload per character per departure, on the one thing that happens all day.
+ */
+const SHARED_GEO = new Set([...Object.values(GEO), ...Object.values(CHARACTER_GEO)]);
 
 const materialCache = new Map();
 const characterMaterialCache = new Map();
@@ -55,28 +80,67 @@ const characterMaterialCache = new Map();
  * writing depth over the goods behind it — the same trick the thought bubble
  * has always used, and without it a freezer door hides its own contents.
  */
+/**
+ * ...and what a shaded surface IS, which is the one thing the look changes here.
+ *
+ * `MeshToonMaterial` with a ramp of hard steps, or the Lambert the game shipped
+ * with. It is one branch in two functions because every mesh in the game comes
+ * through them — a shelf, a loaf, a hire, a wall — so nothing else in the
+ * renderer has to know the mode exists.
+ *
+ * A `glow` material is exempt and has to be: that flag is what the art declares
+ * on a lamp lens, a sign face, a neon tube, and shading a light source is what
+ * makes a lit sign go grey the moment the sun goes down.
+ *
+ * NO `flatShading` ON THE TOON ONE. three has no such property on it and says
+ * so, once per material, which at ~190 materials is a console you cannot read.
+ * It costs nothing anyway: every primitive in `GEO` is a box or a cylinder with
+ * split normals already, so the facets are in the geometry rather than in the
+ * shader.
+ */
+function shaded(color, extra) {
+  if (!lookOn()) {
+    return new THREE.MeshLambertMaterial({ color: new THREE.Color(color), ...extra });
+  }
+  const { flatShading, ...rest } = extra;
+  return new THREE.MeshToonMaterial({
+    color: new THREE.Color(color),
+    gradientMap: gradientMap(),
+    ...rest,
+  });
+}
+
 export function material(color, alpha = 1, glow = false) {
   const glass = alpha < 1;
-  const key = `${glow ? 'glow:' : ''}${glass ? `${color}@${alpha}` : String(color)}`;
+  // The mode is in the KEY rather than cleared out of the map, because this
+  // cache is keyed by colour and the mode decides what class a colour resolves
+  // to — so without it, turning the look on hands every colour back its Lambert
+  // and the rebuild comes out as exactly what it was. Keyed rather than cleared
+  // so a mesh still holding the old material goes on drawing until whatever
+  // owns it is rebuilt; see `Scene.setLook`.
+  const key = `${lookKey()}|${glow ? 'glow:' : ''}${glass ? `${color}@${alpha}` : String(color)}`;
   let m = materialCache.get(key);
   if (!m) {
-    const Material = glow ? THREE.MeshBasicMaterial : THREE.MeshLambertMaterial;
-    m = new Material({
-      color: new THREE.Color(color),
-      flatShading: true,
-      ...(glass ? { transparent: true, opacity: alpha, depthWrite: false } : {}),
-    });
+    const glassBits = glass ? { transparent: true, opacity: alpha, depthWrite: false } : {};
+    // No `flatShading` on the glow one either, and that is not a behaviour
+    // change: three has never had the property on `MeshBasicMaterial`, so it
+    // was being warned about and dropped. An unlit fill has no normals to
+    // flatten. What it buys is the console back — one line per material, and
+    // there are about a hundred and ninety of them.
+    m = glow
+      ? new THREE.MeshBasicMaterial({ color: new THREE.Color(color), ...glassBits })
+      : shaded(color, { flatShading: true, ...glassBits });
     materialCache.set(key, m);
   }
   return m;
 }
 
 /** A small smooth-material palette reserved for people. */
-function characterMaterial(color) {
-  const key = String(color);
+export function characterMaterial(color) {
+  const key = `${lookKey()}|${color}`;
   let m = characterMaterialCache.get(key);
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color: new THREE.Color(color) });
+    m = shaded(color, {});
     characterMaterialCache.set(key, m);
   }
   return m;
@@ -177,6 +241,28 @@ function fillColor(geo, colour) {
  * is what makes re-baking on the hour cost nothing but the fill.
  */
 export function paintLit(group, r, g, b) {
+  /**
+   * A BANDED SHOP CANNOT HOLD A BRIGHTNESS ABOVE ONE, so it must not be given
+   * one.
+   *
+   * The bake is a multiplier, and it runs well past 1 where lamps overlap — a
+   * quarter of every vertex colour in a mature shop, peaking above 2. Under
+   * Lambert that is a pool of light on the floor and reads as exactly that.
+   * Under a toon ramp the shaded term is already at the top step, so ×2 clips
+   * the channel to white: the colour is gone, not brightened, and what it looks
+   * like is a milky haze over the shelves — which reads as fog, or as the ink
+   * washing out, rather than as a number nobody clamped.
+   *
+   * Clamped rather than rescaled, and only under the look: the pool keeps its
+   * shape (the dim end of the bake is untouched), it just stops trying to
+   * express a brightness the material has no room for. Off, this line does
+   * nothing and the bake is the bake it always was.
+   */
+  if (lookOn()) {
+    r = Math.min(1, r);
+    g = Math.min(1, g);
+    b = Math.min(1, b);
+  }
   group.traverse((o) => {
     if (!o.isMesh || !o.geometry) return;
     const n = o.geometry.attributes.position?.count ?? 0;
@@ -342,103 +428,377 @@ function characterVariant(seed) {
   return n >>> 0;
 }
 
+
 /**
- * A smooth, toy-like person shared by shoppers and the fallback player.
+ * A chunky, faceted person, shared by shoppers and the fallback player.
  *
- * A deliberately soft, wide silhouette — a little Wall-E-world shopper rather
- * than a miniature realistic person.  It stays spare at shop-camera scale, but
- * its round outfit, tucked head and tiny feet make a crowded shop read as a
- * crowd of characters rather than coloured pawns. `variant` is visual-only and
- * gives the same customer the same headwear every time they cross the shop.
+ * Boxes, and that is the point rather than a simplification. Characters used to
+ * be spheres in a smooth material while every prop in the shop is a flat-shaded
+ * primitive with hard edges — so the people were the one thing on screen that
+ * did not belong to their own game, and what that produces as a note is "the
+ * art style doesn't fit", not "the shoppers are too round". A cube head over
+ * square shoulders shares a vocabulary with the shelving, and it still holds a
+ * silhouette at the eight pixels a shopper across the shop actually gets.
+ *
+ * Two axes of variation, and they do not compound. `look` is the AUTHORED one
+ * (`ArchetypeSchema.look`) — a build and a hairstyle, so a Karen is a Karen in
+ * every shop. `variant` is the hashed one, and it is what a row with no `look`
+ * falls back to, so a database written before any of this existed still has a
+ * varied crowd rather than a hundred identical people. Never the game RNG:
+ * a cosmetic draw taken from `this.rng` would move every balance number
+ * downstream of it (see `Game.namer` for the same argument about names).
+ *
+ * The head is deliberately left OUT of every weld. `animateMoods` swaps its
+ * material to flush it, and a head merged into the torso would take the body
+ * red with it.
  */
-export function buildCharacter(color, { hat = null, variant = '', varied = false } = {}) {
+export function buildCharacter(color, { hat = null, variant = '', varied = false, look = null } = {}) {
   const g = new THREE.Group();
   const variation = characterVariant(variant || color);
-  // A taller baseline lets the little legs read at normal game zoom. Customers
-  // then take one of five stable height/weight steps off their id — cosmetic
-  // only, so neither pathing nor the simulation has to know who is larger.
-  const height = varied ? [1.04, 1.11, 1.18, 1.25, 1.32][variation % 5] : 1.2;
-  const weight = varied ? [0.82, 0.94, 1.06, 1.18, 1.3][Math.floor(variation / 5) % 5] : 1;
-  g.scale.set(weight, height, weight);
-  const add = (geo, colour, scale, position, shadow = true) => {
-    const mesh = new THREE.Mesh(geo, characterMaterial(colour));
+
+  const build = BUILDS[look?.build] ?? BUILDS.regular;
+  /*
+   * A hair's-breadth of size jitter on top of the build, so a queue of four
+   * Budget Parents is not four traced copies. It is small on purpose: the
+   * build is what the player is meant to read, and a big jitter would blur
+   * `slight` into `stout` until neither means anything.
+   *
+   * Multiplied INTO the build rather than added beside it, and the build
+   * REPLACES the old hashed height/weight rather than scaling it — stacked,
+   * a tall row and a tall hash came out at 1.53 and the ring the client floats
+   * over a head (`RING_Y`) is placed against a fixed envelope.
+   */
+  const jitter = varied ? 0.96 + (variation % 5) * 0.02 : 1;
+  g.scale.set(build.w * jitter, 1.18 * build.h * jitter, build.w * jitter);
+
+  const part = (into, colour, scale, position, { shadow = true, rot = null } = {}) => {
+    const mesh = new THREE.Mesh(CHARACTER_GEO.box, characterMaterial(colour));
     mesh.scale.set(...scale);
     mesh.position.set(...position);
+    if (rot) mesh.rotation.set(...rot);
     mesh.castShadow = shadow;
-    g.add(mesh);
+    into.add(mesh);
     return mesh;
   };
 
-  // One generous, soft outfit is the silhouette. It is intentionally wider
-  // than it is tall: a shop full of these reads friendly and distinct from the
-  // upright machinery, while still fitting comfortably inside one tile.
-  add(CHARACTER_GEO.body, color, [0.5, 0.38, 0.4], [0, 0.37, 0]);
+  /*
+   * An OUTFIT, derived rather than authored.
+   *
+   * Every limb used to be bare `FACE_CALM` from shoulder to shoe, so a shopper
+   * was a coloured mass with four cream noodles hanging off it: the outfit was
+   * the torso and nothing else, and skin — the one colour every single person
+   * in the shop shares — was the largest thing about them after their body.
+   * Sleeves and trousers put the archetype's colour around the whole mass and
+   * leave skin at the hand and the face, and the three-band read (shirt,
+   * trousers, shoes) is most of what makes a stack of boxes look dressed.
+   *
+   * `shade` of the body colour rather than columns on the row, so a customer
+   * type invented tomorrow is dressed the moment it exists. The day somebody
+   * wants trousers that DISAGREE with the shirt, that is a field on the
+   * archetype next to `color`, not a second argument here.
+   *
+   * Skin is deliberately NOT authorable. `animateMoods` overwrites it from
+   * `FACE_RAMP` — which starts at `FACE_CALM` — on every shopper with a
+   * patience number, so an authored tone would be stomped on the first frame
+   * and read as the field doing nothing.
+   */
+  const trouser = shade(color, -0.34);
+  const shoe = shade(color, -0.62);
+
+  /*
+   * The mass, as two boxes with a step between them.
+   *
+   * A single box is a fridge — every silhouette it can make is the same
+   * silhouette at a different scale. A chest sat proud of a narrower waist
+   * gives the shoulders a hard corner to be read at, which is the one place a
+   * build's numbers actually show from across the shop.
+   *
+   * Welded: `weld` bakes the hue into the vertices, so a multi-colour group is
+   * still one mesh and none of the banding below costs a draw.
+   */
+  const torso = new THREE.Group();
+  part(torso, trouser, [0.33 * build.belly, 0.15, 0.23], [0, 0.325, 0]);
+  part(torso, color, [0.38 * build.shoulder, 0.17, 0.25], [0, 0.465, 0.005]);
+  g.add(weld(torso));
+
+  /*
+   * An arm is a pivot at the shoulder with two boxes hanging off it, and a
+   * THIRD child that has no geometry at all.
+   *
+   * `hold` is a group whose offset is exactly minus the pivot's, so its own
+   * origin lands back on the body's. Anything parented to it is positioned in
+   * ordinary body coordinates — the numbers a kit is authored in — and yet
+   * rotates about the SHOULDER when the arm swings. That is the whole fix for
+   * a bag hanging in mid-air while the hand carrying it walks through it: the
+   * two are now one rigid thing. Nothing else has to know it exists, and a
+   * container held in front with both hands (a basket, a trolley) simply
+   * stays on the body — see `syncKit`.
+   *
+   * The shoulder rides OUT with the build, or a buff character's arms hang
+   * through his own chest.
+   */
+  const armX = 0.19 * build.shoulder + 0.03;
   const arm = (x) => {
     const pivot = new THREE.Group();
-    pivot.position.set(x, 0.45, 0.01);
-    const hand = new THREE.Mesh(CHARACTER_GEO.arm, characterMaterial(FACE_CALM));
-    hand.scale.set(0.11, 0.17, 0.11);
-    hand.position.set(0, -0.105, 0.01);
-    hand.castShadow = true;
-    pivot.add(hand);
+    pivot.position.set(x, 0.50, 0.01);
+    const limb = new THREE.Group();
+    // Sleeve, then hand. The arm wants to be a stub against that much body,
+    // not a limb that reaches anything.
+    part(limb, color, [0.095, 0.155, 0.11], [0, -0.07, 0]);
+    part(limb, FACE_CALM, [0.09, 0.075, 0.10], [0, -0.183, 0.004]);
+    pivot.add(weld(limb));
+    const hold = new THREE.Group();
+    hold.position.set(-x, -0.50, -0.01);
+    pivot.add(hold);
     g.add(pivot);
-    return pivot;
+    return { pivot, hold };
   };
-  const leftArm = arm(-0.285);
-  const rightArm = arm(0.285);
-  // Two tiny hip pivots are the whole walk rig. They are built once with the
-  // body, then the renderer only writes two rotations while somebody moves —
-  // no skinned mesh, cloning or scene traversal per frame.
+  const left = arm(-armX);
+  const right = arm(armX);
+  // Two tiny hip pivots are the rest of the walk rig. They are built once with
+  // the body, then the renderer only writes four rotations while somebody
+  // moves — no skinned mesh, cloning or scene traversal per frame.
   const leg = (x) => {
     const pivot = new THREE.Group();
-    pivot.position.set(x, 0.29, 0.02);
-    const thigh = new THREE.Mesh(CHARACTER_GEO.leg, characterMaterial(FACE_CALM));
-    thigh.scale.set(0.14, 0.22, 0.145);
-    thigh.position.y = -0.12;
-    thigh.castShadow = true;
-    const foot = new THREE.Mesh(CHARACTER_GEO.shoe, characterMaterial('#33404d'));
-    foot.scale.set(0.13, 0.07, 0.15);
-    foot.position.set(x < 0 ? 0.015 : -0.015, -0.225, 0.005);
-    foot.castShadow = true;
-    pivot.add(thigh, foot);
+    pivot.position.set(x, 0.28, 0.01);
+    const limb = new THREE.Group();
+    // Trouser, then shoe. A bare thigh was the other half of the noodle read,
+    // and it is the worse half: legs are what a crowd is seen THROUGH at this
+    // camera, so forty shoppers meant eighty cream posts on the shop floor.
+    part(limb, trouser, [0.125, 0.21, 0.135], [0, -0.105, 0]);
+    part(limb, shoe, [0.145, 0.065, 0.185],
+      [x < 0 ? 0.008 : -0.008, -0.238, 0.022]);
+    pivot.add(weld(limb));
     g.add(pivot);
     return pivot;
   };
   g.userData.walker = {
-    left: leg(-0.12), right: leg(0.12), leftArm, rightArm,
+    left: leg(-0.10),
+    right: leg(0.10),
+    leftArm: left.pivot,
+    rightArm: right.pivot,
   };
+  g.userData.hold = { left: left.hold, right: right.hold };
 
-  // Tucked into the top rather than sat on a neck. That overlap is what stops
-  // the silhouette drifting back into a conventional tiny-human proportion.
-  const head = add(CHARACTER_GEO.head, FACE_CALM, [0.21, 0.205, 0.2], [0, 0.64, 0.025]);
-  // Named rather than found by index: mood animation changes only the skin.
+  /*
+   * A cube head sat straight on the shoulders. No neck, and no jowl either —
+   * the roll under the chin existed to stop two spheres reading as a head on a
+   * stick, and a box with a flat bottom on a box with a flat top has nothing
+   * to hide.
+   *
+   * Its own mesh, never welded: `animateMoods` flushes the head by swapping
+   * this material. `skin` stays a LIST because that is what the caller reads
+   * and a future face part may want to flush with it.
+   */
+  const head = part(g, FACE_CALM, [0.26, 0.21, 0.24], [0, 0.655, 0.01]);
   g.userData.head = head;
+  g.userData.skin = [head];
 
-  // Two tiny dark eyes are enough at this zoom; their front placement also
-  // makes the movement direction legible without the old protruding snout.
-  // Sphere geometry has a radius of 0.5, so the face reaches z = 0.125 here
-  // (not 0.225). Keeping this derived placement close to the head dimensions
-  // avoids eyes floating in front of the character at close zoom.
-  add(CHARACTER_GEO.head, '#35404a', [0.022, 0.026, 0.013], [-0.06, 0.64, 0.132], false);
-  add(CHARACTER_GEO.head, '#35404a', [0.022, 0.026, 0.013], [0.06, 0.64, 0.132], false);
-
-  // A player keeps the white cap requested by its caller.  Shoppers otherwise
-  // rotate through three quiet, non-content looks, ready for richer outfits
-  // later without putting a random draw into the simulation.
-  const look = hat ? 0 : variation % 3;
-  const headwear = hat ?? ['#d46f58', '#4f9b90', '#d3a94f'][variation % 3];
-  if (look === 0) {
-    // A fitted, low cap. The old hemisphere was a mushroom silhouette at this
-    // camera, so this is intentionally only a slim band over the crown.
-    add(CHARACTER_GEO.cap, headwear, [0.218, 0.045, 0.213], [0, 0.768, 0.025]);
-    add(CHARACTER_GEO.brim, headwear, [0.16, 0.018, 0.075], [0, 0.748, 0.13]);
-  } else if (look === 1) {
-    add(CHARACTER_GEO.cap, headwear, [0.215, 0.075, 0.21], [0, 0.78, 0.025]);
-  } else {
-    // A hair dome keeps the third option warm and ordinary, rather than making
-    // every customer look like they arrived in a uniform.
-    add(CHARACTER_GEO.cap, '#5c4538', [0.213, 0.06, 0.208], [0, 0.773, 0.025]);
+  /*
+   * Everything that decorates the head, welded into ONE non-casting mesh.
+   *
+   * Face, hair, beard and whatever is worn on the face all land in `trim` and
+   * merge together. They can, because `weld` bakes the hue into the vertices —
+   * so a group of nine boxes in six colours is still one draw, and the only
+   * thing that would split it is a material that shades differently (glass, a
+   * different flat-shading flag) or a mesh that casts a shadow when its
+   * neighbours do not. None of these do: nothing on a person casts, because the
+   * body already does and a floating shadow of a moustache is litter.
+   *
+   * Four groups is what this was, and at forty shoppers that is a hundred and
+   * twenty draws for no picture at all. The head itself stays OUT, and that one
+   * is not an oversight: `animateMoods` flushes it by swapping its material, and
+   * a head merged into its own eyebrows would take them red with it.
+   *
+   * Every number is placed against the head's own box — half-extents
+   * 0.13 / 0.105 / 0.12 about (0, 0.655, 0.01), so its front face is at
+   * z = 0.13 — rather than guessed. A box makes this the easy half: unlike the
+   * sphere this replaced, the surface is flat, so a feature is proud of it by
+   * whatever you add to 0.13 and nothing sinks at the edges.
+   *
+   * The whites are the point. Two dark dots is a button-eyed toy; a panel of
+   * sclera with a pupil sitting proud of it is a face. Brows are what make it
+   * capable of an expression at all, so they are here even though nothing
+   * animates them yet.
+   *
+   * Order within the group is not what puts a fringe over an eye or a nose over
+   * a face — these are opaque boxes and the depth buffer settles it, so what
+   * decides is the z each one is authored at. Worth saying because the parts
+   * below READ as though they were layered.
+   */
+  const trim = new THREE.Group();
+  for (const s of [-1, 1]) {
+    part(trim, '#fdfaf4', [0.058, 0.062, 0.02], [s * 0.058, 0.672, 0.132], { shadow: false });
+    part(trim, '#2b323b', [0.032, 0.038, 0.02], [s * 0.060, 0.670, 0.142], { shadow: false });
+    part(trim, '#6d5a4a', [0.062, 0.015, 0.02],
+      [s * 0.060, 0.716, 0.136], { shadow: false, rot: [0, 0, s * -0.16] });
   }
+  part(trim, '#95604f', [0.062, 0.018, 0.02], [0, 0.606, 0.134], { shadow: false });
+
+  /*
+   * Hair, which is the whole silhouette.
+   *
+   * At the eight pixels a shopper across the shop gets, a build says big or
+   * small and the hair says WHO — so this is the half a Karen, an emo and a
+   * buff guy are actually told apart by, and it is why the vocabulary is closed
+   * rather than a model: the renderer has to know how to sit a shape on a head
+   * that changes width with the build, and a parts blob could not be asked.
+   *
+   * The player keeps the cap their caller asked for. A shopper with no `look`
+   * takes a hashed one, so a database with nothing authored still has a crowd.
+   */
+  const hairColor = hat ?? look?.hair_color ?? STOCK_HAIR_COLOR[variation % 5];
+  const style = hat ? 'cap' : (look?.hair ?? STOCK_HAIR[variation % STOCK_HAIR.length]);
+  // Everything below sits on a head whose top is 0.76 and whose front is 0.13.
+  // A slab across the crown is the common half of every style bar `none`.
+  const crown = (h = 0.055, y = 0.7725) =>
+    part(trim, hairColor, [0.275, h, 0.255], [0, y, 0.01], { shadow: false });
+  /**
+   * The back of the head, which every long style needs and none of them had.
+   *
+   * The crown is a slab across the TOP and the side panels hang past the ears,
+   * so between them — below the crown, between the two sides, at z = -0.11 —
+   * the head box was simply bare. From in front that is invisible, which is why
+   * it shipped; the moment a shopper turns round they have a bald patch from
+   * the crown down to the nape, in skin rather than in hair, and what it reads
+   * as is the head poking THROUGH the hair.
+   *
+   * It is only ever the long styles. A crop, a bun and spikes are short, so a
+   * head visible below the crown is what a short haircut looks like — filling
+   * those in would be putting long hair on everybody.
+   *
+   * `y` and `h` are handed in rather than derived, because each style's sides
+   * hang to their own depth and a nape that stopped short of them is the same
+   * gap moved down half a centimetre.
+   */
+  const nape = (h, y) =>
+    part(trim, hairColor, [0.275, h, 0.05], [0, y, -0.108], { shadow: false });
+  if (style === 'crop') {
+    crown();
+  } else if (style === 'bob') {
+    crown();
+    // Down past the ears on both sides, square-cut. The side panels are what
+    // read at distance; the crown alone is a swimming cap.
+    for (const s of [-1, 1]) {
+      part(trim, hairColor, [0.045, 0.20, 0.255], [s * 0.135, 0.685, 0.01], { shadow: false });
+    }
+    nape(0.20, 0.685);
+  } else if (style === 'swept') {
+    // The Karen. Asymmetric on purpose — one side clipped short, the other
+    // swept out and forward over the brow. Symmetry is what makes every other
+    // style read as "a haircut"; this one reads as an OPINION, and that is the
+    // whole brief.
+    crown(0.075, 0.7825);
+    part(trim, hairColor, [0.05, 0.13, 0.255], [-0.135, 0.735, 0.01], { shadow: false });
+    part(trim, hairColor, [0.075, 0.235, 0.265], [0.145, 0.675, 0.01],
+      { shadow: false, rot: [0, 0, 0.22] });
+    part(trim, hairColor, [0.13, 0.075, 0.075], [0.07, 0.782, 0.115],
+      { shadow: false, rot: [0, 0, 0.30] });
+    // To the shorter of the two sides, or the nape is longer than the clipped
+    // side and the asymmetry — the whole point of this one — reads as a mistake
+    // from behind.
+    nape(0.13, 0.735);
+  } else if (style === 'fringe') {
+    // The emo. A long slab hanging off the crown and across one eye — the
+    // asymmetry again, and the reason the eyes are drawn before this is that
+    // the fringe is meant to COVER one of them.
+    crown(0.07, 0.78);
+    part(trim, hairColor, [0.175, 0.155, 0.055], [-0.045, 0.712, 0.145],
+      { shadow: false, rot: [0, 0, -0.20] });
+    for (const s of [-1, 1]) {
+      part(trim, hairColor, [0.045, 0.165, 0.255], [s * 0.135, 0.70, 0.01], { shadow: false });
+    }
+    nape(0.165, 0.70);
+  } else if (style === 'spikes') {
+    crown(0.045, 0.7675);
+    for (let i = 0; i < 4; i += 1) {
+      const x = -0.09 + i * 0.06;
+      part(trim, hairColor, [0.05, 0.085, 0.05], [x, 0.822, 0.01 + (i % 2) * 0.05],
+        { shadow: false, rot: [0, 0, (i % 2 ? 1 : -1) * 0.26] });
+    }
+  } else if (style === 'bun') {
+    crown();
+    part(trim, hairColor, [0.115, 0.10, 0.115], [0, 0.845, -0.02], { shadow: false });
+  } else if (style === 'cap') {
+    crown(0.075, 0.7825);
+    // A peak, which is the one piece of headwear that reads from behind as
+    // well as in front, because it breaks the box's outline.
+    part(trim, hairColor, [0.20, 0.028, 0.10], [0, 0.762, 0.175], { shadow: false });
+  } else if (style === 'beanie') {
+    // Pulled down over the ears, and stopping ABOVE the brows: a rim across
+    // somebody's eyebrows is a hat that has been yanked over their face.
+    part(trim, hairColor, [0.285, 0.135, 0.265], [0, 0.752, 0.01], { shadow: false });
+    part(trim, shade(hairColor, -0.18), [0.29, 0.035, 0.27], [0, 0.695, 0.01], { shadow: false });
+  } else if (style === 'puffs') {
+    // The clown. Bald on top with a puff over each ear, which is the one
+    // silhouette in the list that is mostly EMPTY — and that is why it reads
+    // from across the shop, because nothing else here has a gap in it.
+    for (const s of [-1, 1]) {
+      part(trim, hairColor, [0.115, 0.145, 0.19], [s * 0.165, 0.715, 0.01], { shadow: false });
+      part(trim, hairColor, [0.075, 0.09, 0.13], [s * 0.20, 0.775, 0.01], { shadow: false });
+    }
+  } else if (style === 'mohawk') {
+    // A single fin, front to back. Deliberately taller than it is wide: at this
+    // camera a low ridge reads as a badly-fitted cap.
+    part(trim, hairColor, [0.05, 0.155, 0.265], [0, 0.825, 0.01], { shadow: false });
+    part(trim, shade(hairColor, -0.25), [0.245, 0.035, 0.25], [0, 0.762, 0.01], { shadow: false });
+  } else if (style === 'hardhat') {
+    // Headwear rather than hair, and it shares the slot on purpose — see
+    // `CHARACTER_HAIRS`, which is really "what is on top of the head". The brim
+    // runs the whole way round, which is what stops it reading as a cap.
+    part(trim, hairColor, [0.245, 0.115, 0.225], [0, 0.79, 0.01], { shadow: false });
+    part(trim, hairColor, [0.315, 0.03, 0.295], [0, 0.742, 0.01], { shadow: false });
+    part(trim, shade(hairColor, -0.22), [0.045, 0.13, 0.23], [0, 0.80, 0.01], { shadow: false });
+  }
+
+  /*
+   * A beard, in the hair's own colour.
+   *
+   * Its own group rather than more entries in the style list above, because it
+   * is a different part of the head — see `CHARACTER_BEARDS`. Every shape here
+   * hangs off the bottom front of the head box (its underside is 0.55, its
+   * front 0.13) and stops short of the mouth at 0.606 where it should, or the
+   * character is eating it.
+   */
+  const chin = look?.beard ?? 'none';
+  if (chin === 'stubble') {
+    part(trim, shade(hairColor, 0.10), [0.20, 0.055, 0.02], [0, 0.578, 0.133], { shadow: false });
+  } else if (chin === 'moustache') {
+    part(trim, hairColor, [0.105, 0.028, 0.025], [0, 0.632, 0.135], { shadow: false });
+  } else if (chin === 'goatee') {
+    part(trim, hairColor, [0.105, 0.028, 0.025], [0, 0.632, 0.135], { shadow: false });
+    part(trim, hairColor, [0.062, 0.075, 0.028], [0, 0.575, 0.133], { shadow: false });
+  } else if (chin === 'full') {
+    // The lumberjack. It hangs BELOW the head, which is the whole read: a beard
+    // contained inside the face box is a brown patch, and a beard that breaks
+    // the chin line is a beard.
+    part(trim, hairColor, [0.225, 0.105, 0.055], [0, 0.572, 0.118], { shadow: false });
+    part(trim, hairColor, [0.165, 0.075, 0.05], [0, 0.512, 0.112], { shadow: false });
+    part(trim, hairColor, [0.105, 0.028, 0.025], [0, 0.636, 0.136], { shadow: false });
+  }
+
+  /*
+   * One thing on the face — and it is drawn AFTER the eyes on purpose, because
+   * every entry is something that sits over them.
+   */
+  const worn = look?.face ?? 'none';
+  if (worn === 'glasses' || worn === 'shades') {
+    const lens = worn === 'shades' ? '#22242c' : '#cfe6ee';
+    const rim = worn === 'shades' ? '#22242c' : '#6b6257';
+    for (const s of [-1, 1]) {
+      part(trim, lens, [0.078, 0.062, 0.012], [s * 0.058, 0.672, 0.142], { shadow: false });
+    }
+    // A bridge and two arms. The arms are what make a pair of glasses read as
+    // worn rather than painted on, because they carry round the side of a head
+    // the camera can see two faces of.
+    part(trim, rim, [0.04, 0.012, 0.012], [0, 0.672, 0.142], { shadow: false });
+    for (const s of [-1, 1]) {
+      part(trim, rim, [0.012, 0.012, 0.10], [s * 0.128, 0.674, 0.088], { shadow: false });
+    }
+  } else if (worn === 'nose') {
+    part(trim, '#d8392f', [0.055, 0.055, 0.045], [0, 0.641, 0.146], { shadow: false });
+  }
+  g.add(weld(trim));
 
   return g;
 }
@@ -1044,6 +1404,11 @@ export function buildPallet(piles, {
   // box than a taller one did, which reads as the label belonging to nothing.
   tag.position.y = covered ? CRATE_DECK + CRATE_H / 2 : CRATE_STEP + 0.47;
   g.add(tag);
+  // Handed out on the group so the renderer can fade it by how near the middle
+  // of the view this box is — see `fadeCrateLabels`. It survives the weld
+  // because `weld` carries `userData` across to the group it returns, and the
+  // sprite itself is re-hung rather than merged.
+  g.userData.label = tag;
 
   return weld(g);
 }
@@ -2461,7 +2826,7 @@ export function weld(group, keep = null) {
 /** Free the GPU memory a prop group holds. Materials are shared — don't dispose those. */
 export function disposeGroup(group) {
   group.traverse((o) => {
-    if (o.isMesh && o.geometry && !Object.values(GEO).includes(o.geometry)) {
+    if (o.isMesh && o.geometry && !SHARED_GEO.has(o.geometry)) {
       o.geometry.dispose();
     }
     // A sprite's are NOT shared: `buildTextSprite` draws its own canvas and

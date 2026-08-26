@@ -1145,8 +1145,8 @@ const MODIFIERS = [
     on: (live) => live?.boh === true,
     name: (on) => (on ? 'In the back' : 'On the shop floor'),
     sub: (on) => (on
-      ? 'Crew-only reserve. The shop orders extra into available space; staffed production also keeps its current ingredients here.'
-      : 'Shoppers browse it. Tap to make it crew-only storage — a kitchen is a room you mark out, not furniture you buy.'),
+      ? 'Crew only. The shop orders extra to fill it, and the kitchen keeps its ingredients here.'
+      : 'Shoppers browse it. Tap to make it crew-only storage.'),
     verb: 'build-boh',
   },
 ];
@@ -1190,12 +1190,12 @@ const HANDS = [
   {
     on: true,
     name: 'Let them rearrange it',
-    sub: 'Boards nothing sells off are cleared to the stockroom, and a split one is merged.',
+    sub: 'Dead boards go to the stockroom. Split ones get merged.',
   },
   {
     on: false,
     name: 'Leave it alone',
-    sub: 'Nothing comes off this unit but a sale. Refilling it is unaffected.',
+    sub: 'Only a sale takes stock off. It still gets refilled.',
   },
 ];
 
@@ -1217,23 +1217,23 @@ const HANDS = [
 const SORTS = [
   {
     route: 'smart',
-    name: 'Let the crew sort it',
-    sub: 'Sends each box down whichever line can actually shelve it. A mixed box splits.',
+    name: 'Wherever it fits',
+    sub: 'Each box goes down a line that can shelve it.',
   },
   {
     route: 'straight',
-    name: 'Favour the straight-through line',
-    sub: 'Sends every box straight ahead while that leg has room; a full leg can still fall back to another exit.',
+    name: 'Straight ahead',
+    sub: 'Unless that line is full.',
   },
   {
     route: 'branch',
-    name: 'Favour the leg it is aimed at',
-    sub: 'Sends every box down the side the blade crosses — turn it with R — while that leg has room.',
+    name: 'Down the branch',
+    sub: 'The way it points. Turn with R.',
   },
   {
     route: 'alternate',
-    name: 'Just split it evenly',
-    sub: 'Alternates, box by box, whatever is in them.',
+    name: 'Split evenly',
+    sub: 'One box each way, whatever is in it.',
   },
 ];
 
@@ -1273,23 +1273,23 @@ function sortRows(ui, f, live, { lives = [live] } = {}) {
 const MERGES = [
   {
     merge: 'default',
-    name: 'Whichever gets there first',
-    sub: 'What every junction has always done. Nearest box wins.',
+    name: 'First come, first served',
+    sub: 'Nearest box goes first.',
   },
   {
     merge: 'straight',
-    name: 'Let the straight line through',
-    sub: 'The run coming in behind this cell goes first. The leg waits, and moves the moment there is a gap.',
+    name: 'Straight line first',
+    sub: 'The branch waits for a gap.',
   },
   {
     merge: 'leg',
-    name: 'Let the leg in',
-    sub: 'The run turning in goes first. The straight-through line waits for a gap instead.',
+    name: 'Branch first',
+    sub: 'The straight line waits for a gap.',
   },
   {
     merge: 'alternate',
-    name: 'One after the other',
-    sub: 'Takes them in turn. A line with nothing on it is skipped rather than waited for.',
+    name: 'Take turns',
+    sub: 'One from each. Empty lines get skipped.',
   },
 ];
 
@@ -1343,9 +1343,9 @@ function mergeRows(ui, f, live, { lives = [live], many = [f] } = {}) {
  * working the whole time.
  */
 const ARM_MODES = [
-  { mode: 'both', name: 'Load and unload', sub: 'Lifts boxes onto the line and stocks whatever is beside it.' },
-  { mode: 'load', name: 'Only put goods on', sub: 'Lifts from the floor or a pad beside it. Never sets anything down.' },
-  { mode: 'unload', name: 'Only take goods off', sub: 'Stocks and sets down. Never picks anything up.' },
+  { mode: 'both', name: 'Load and unload', sub: 'Puts boxes on the line and takes them off.' },
+  { mode: 'load', name: 'Only load', sub: 'Puts boxes on. Never takes them off.' },
+  { mode: 'unload', name: 'Only unload', sub: 'Takes boxes off. Never puts them on.' },
 ];
 
 function armRows(ui, f, live, { lives = [live] } = {}) {
@@ -1358,6 +1358,59 @@ function armRows(ui, f, live, { lives = [live] } = {}) {
       picked: at,
       run: at ? null : () => ui.withBuildMode(
         () => ui.net.send('arm-mode', { ids: aimAt(ui, f), mode: r.mode }),
+      ),
+    };
+  });
+}
+
+/**
+ * What a packer is building.
+ *
+ * A CHECKBOX LIST capped at `LOT_KINDS`, and the cap is the whole design of this
+ * panel rather than a validation on it. A crate holds three kinds, so a packer
+ * told to build four can never be satisfied at all — it would stand there
+ * holding goods nothing can reach for the rest of the save, with every light on
+ * it saying it is working. The server refuses the fourth; this greys it, with
+ * the reason said out loud, because a row that is refused on press and looks
+ * available until then is the green-ghost bug wearing a menu.
+ *
+ * NONE TICKED IS THE ANSWER FOR ALMOST EVERY PACKER, which is why the heading
+ * says so rather than the list opening empty and reading as unconfigured. With
+ * no list it reads the run — `conveyorServes` plus `shelfAccepts`, the same
+ * evidence a sorter routes on — so a packer you lay and never touch folds
+ * whatever the aisle in front of it can take. Ticking is for the case the shop
+ * cannot infer: a box you want assembled for one destination.
+ *
+ * The catalogue is unfiltered, deliberately, and it is the one place this differs
+ * from a shelf's list. A shelf can only hold what its kind holds (`homeKind`),
+ * so filtering there is telling the truth; a packer builds a BOX, and a box
+ * holds anything — so a filter here would be an opinion about what you are
+ * allowed to consolidate.
+ */
+function packerRows(ui, f, live, { lives = [live] } = {}) {
+  const kept = live?.assigned ?? [];
+  const full = kept.length >= LOT_KINDS;
+  const holds = new Map((live?.holds ?? []).map((s) => [s.item_id, s.qty]));
+  return (ui.catalog.items ?? []).map((it) => {
+    const on = allSay(lives, (l) => (l?.assigned ?? []).includes(it.id));
+    const got = holds.get(it.id) ?? 0;
+    // Why it is greyed, said as a sentence rather than a disabled row with no
+    // explanation — the shelf list's own rule.
+    const why = !on && full ? `a crate holds ${LOT_KINDS} kinds` : '';
+    return {
+      icon: ICONS.crate,
+      name: it.name,
+      // What is already in the box, which is the one thing about this machine
+      // you cannot see from across the shop: a box part built and a box about to
+      // go out are the same box.
+      sub: got ? `${got} in the box` : (on ? 'waiting for some' : ''),
+      picked: on,
+      why,
+      run: why ? null : () => ui.withBuildMode(
+        () => ui.net.send('packer-items', {
+          ids: aimAt(ui, f),
+          items: on ? kept.filter((id) => id !== it.id) : [...kept, it.id],
+        }),
       ),
     };
   });
@@ -1407,8 +1460,8 @@ function rejectRows(ui, f, live, { lives = [live] } = {}) {
   const at = one && Number.isFinite(one.x) ? anchorTile(one.x, one.z, rot) : null;
   const where = at ? `goes to ${at.x},${at.z}` : 'goes that way';
   return [
-    { set: null, name: 'Split what nothing wants', sub: 'Shares strays across every line out of the junction.' },
-    { set: rot, name: 'Send strays the way it points', sub: `Anything no line can take ${where} — down the line, or set down if that side is ground.` },
+    { set: null, name: 'Split the strays', sub: 'Shared across every line out.' },
+    { set: rot, name: 'Send strays that way', sub: `Anything no line can take ${where}.` },
   ].map((r) => {
     const at = allSay(lives, (l) => (Number.isInteger(l?.reject) ? l.reject : null) === r.set);
     return {
@@ -1439,11 +1492,11 @@ function riserRows(ui, f, live, { lives = [live] } = {}) {
   // span surfaces onto the duct instead of onto the floor in front of it.
   const mouth = (f?.kind ?? live?.kind) === 'under';
   return (mouth ? [
-    { on: false, name: 'Come up onto the floor', sub: 'The span surfaces and hands on to the line it faces.' },
-    { on: true, name: `Come up to ${up}`, sub: 'The span carries straight on past the floor. Needs a run up there to hand to, or it stays on the floor.' },
+    { on: false, name: 'Come up on the floor', sub: 'Hands on to the line it faces.' },
+    { on: true, name: `Come up to ${up}`, sub: 'Needs a run up there, or it stays down.' },
   ] : [
-    { on: false, name: 'Keep it on this storey', sub: 'Only the lines beside it are ways out.' },
-    { on: true, name: `Also send some to ${up}`, sub: 'Adds the same square on the other storey as a branch — a keen line still wins.' },
+    { on: false, name: 'Stay on this storey', sub: 'Only the lines beside it.' },
+    { on: true, name: `Also use ${up}`, sub: 'One more way out. A line that wants the box still wins.' },
   ]).map((r) => {
     const at = allSay(lives, (l) => (l?.riser === true) === r.on);
     return {
@@ -1475,9 +1528,9 @@ function riserRows(ui, f, live, { lives = [live] } = {}) {
  */
 function liftRows(ui, f, live, { lives = [live] } = {}) {
   return [
-    { set: null, name: 'Work it out', sub: 'Carries away from whichever run feeds it — up off the floor, down off a duct.' },
-    { set: 'up', name: 'Always up', sub: 'Everything that reaches it goes to the ceiling run beside it.' },
-    { set: 'down', name: 'Always down', sub: 'Everything goes to the floor run beside it, including a crate already on the floor.' },
+    { set: null, name: 'Work it out', sub: 'Goes whichever way the boxes come from.' },
+    { set: 'up', name: 'Always up', sub: 'To the ceiling run beside it.' },
+    { set: 'down', name: 'Always down', sub: 'To the floor run beside it.' },
   ].map((r) => {
     const at = allSay(lives, (l) => (l?.way ?? null) === r.set);
     return {
@@ -1585,6 +1638,13 @@ function settingRows(ui, f, live, sel = {}) {
   }
   if (many.every((g) => g.kind === 'lift')) {
     under('Which way it carries', liftRows(ui, f, live, sel));
+  }
+  // What a packer is building. The heading says which of the two states it is
+  // in, because "nothing ticked" is an ANSWER here rather than an empty form —
+  // see `packerRows`.
+  if (many.every((g) => g.kind === 'packer')) {
+    under(live?.assigned?.length ? 'Building' : 'Build a box of',
+      packerRows(ui, f, live, sel));
   }
   // A tunnel mouth wears the same switch, because a span coming up under an
   // aisle wants the duct over it as often as it wants the floor. Only the
@@ -1715,6 +1775,7 @@ export function liveFixture(ui, f) {
   // they carry nothing but their merge rule, so `merges` is sparse and a MISS is
   // the answer rather than an absence: `mergeRoute(null)` is `default`, which is
   // what every belt nobody has spoken for is. See the snapshot.
+  if (f.kind === 'packer') return s.packers?.find((x) => x.id === f.id) ?? null;
   if (f.kind === 'belt') return s.merges?.find((x) => x.id === f.id) ?? null;
   return null;
 }

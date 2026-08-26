@@ -407,16 +407,17 @@ export function activeModifiers(day, worldId = DEFAULT_WORLD_ID) {
  */
 export function addModifier({
   worldId = DEFAULT_WORLD_ID, source, label = '', tag,
-  demand_mult = 1, price_mult = 1, expires_day,
+  demand_mult = 1, price_mult = 1, spawn_mult = 1, expires_day,
 }) {
   const dupe = mods.some((m) => m.world_id === worldId && m.source === source
     && m.label === label && m.tag === tag && m.demand_mult === demand_mult
-    && m.price_mult === price_mult && m.expires_day === expires_day);
+    && m.price_mult === price_mult && (m.spawn_mult ?? 1) === spawn_mult
+    && m.expires_day === expires_day);
   if (dupe) return false;
 
   mods.push({
     id: nextModId++, world_id: worldId, source, label, tag,
-    demand_mult, price_mult, expires_day,
+    demand_mult, price_mult, spawn_mult, expires_day,
   });
   touch(MODS);
   return true;

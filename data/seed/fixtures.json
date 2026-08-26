@@ -28049,6 +28049,1240 @@
     "body": null
   },
   {
+    "id": "packer",
+    "name": "Packer",
+    "model": {
+      "stages": [
+        {
+          "name": "Packer",
+          "at": 0,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#4a525e",
+              "pos": [
+                0,
+                0.072,
+                0
+              ],
+              "scale": [
+                1,
+                0.03,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7f8d9e",
+              "pos": [
+                -0.42,
+                0.083,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.012,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7f8d9e",
+              "pos": [
+                0.42,
+                0.083,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.012,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4e5865",
+              "pos": [
+                0,
+                0.36,
+                -0.4
+              ],
+              "scale": [
+                0.98,
+                0.62,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4e5865",
+              "pos": [
+                0,
+                0.36,
+                0.4
+              ],
+              "scale": [
+                0.98,
+                0.62,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#d6e9f4",
+              "pos": [
+                0,
+                0.34,
+                -0.29
+              ],
+              "scale": [
+                0.72,
+                0.42,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.3,
+              "glow": false,
+              "shadow": true,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#d6e9f4",
+              "pos": [
+                0,
+                0.34,
+                0.29
+              ],
+              "scale": [
+                0.72,
+                0.42,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.3,
+              "glow": false,
+              "shadow": true,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.1,
+                -0.18
+              ],
+              "scale": [
+                0.98,
+                0.05,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.1,
+                0.18
+              ],
+              "scale": [
+                0.98,
+                0.05,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4e5865",
+              "pos": [
+                0,
+                0.7,
+                0
+              ],
+              "scale": [
+                0.98,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#3f9fb0",
+              "pos": [
+                0,
+                0.735,
+                0
+              ],
+              "scale": [
+                0.86,
+                0.02,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c8d0da",
+              "pos": [
+                0,
+                0.755,
+                0
+              ],
+              "scale": [
+                0.8,
+                0.02,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                -0.39,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.08,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0.39,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.08,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.79,
+                -0.39
+              ],
+              "scale": [
+                0.8,
+                0.08,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.79,
+                0.39
+              ],
+              "scale": [
+                0.8,
+                0.08,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Quick packer",
+          "at": 0.5,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#4a525e",
+              "pos": [
+                0,
+                0.072,
+                0
+              ],
+              "scale": [
+                1,
+                0.03,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7f8d9e",
+              "pos": [
+                -0.42,
+                0.083,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.012,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7f8d9e",
+              "pos": [
+                0.42,
+                0.083,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.012,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4e5865",
+              "pos": [
+                0,
+                0.36,
+                -0.4
+              ],
+              "scale": [
+                0.98,
+                0.62,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4e5865",
+              "pos": [
+                0,
+                0.36,
+                0.4
+              ],
+              "scale": [
+                0.98,
+                0.62,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#d6e9f4",
+              "pos": [
+                0,
+                0.34,
+                -0.29
+              ],
+              "scale": [
+                0.72,
+                0.42,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.3,
+              "glow": false,
+              "shadow": true,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#d6e9f4",
+              "pos": [
+                0,
+                0.34,
+                0.29
+              ],
+              "scale": [
+                0.72,
+                0.42,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.3,
+              "glow": false,
+              "shadow": true,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.1,
+                -0.18
+              ],
+              "scale": [
+                0.98,
+                0.05,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.1,
+                0.18
+              ],
+              "scale": [
+                0.98,
+                0.05,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4e5865",
+              "pos": [
+                0,
+                0.7,
+                0
+              ],
+              "scale": [
+                0.98,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4fb3c4",
+              "pos": [
+                0,
+                0.735,
+                0
+              ],
+              "scale": [
+                0.86,
+                0.02,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c8d0da",
+              "pos": [
+                0,
+                0.755,
+                0
+              ],
+              "scale": [
+                0.8,
+                0.02,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                -0.39,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.08,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0.39,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.08,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.79,
+                -0.39
+              ],
+              "scale": [
+                0.8,
+                0.08,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.79,
+                0.39
+              ],
+              "scale": [
+                0.8,
+                0.08,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        },
+        {
+          "name": "Maglev packer",
+          "at": 1,
+          "parts": [
+            {
+              "shape": "box",
+              "color": "#4a525e",
+              "pos": [
+                0,
+                0.072,
+                0
+              ],
+              "scale": [
+                1,
+                0.03,
+                0.34
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7f8d9e",
+              "pos": [
+                -0.42,
+                0.083,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.012,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#7f8d9e",
+              "pos": [
+                0.42,
+                0.083,
+                0
+              ],
+              "scale": [
+                0.09,
+                0.012,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4e5865",
+              "pos": [
+                0,
+                0.36,
+                -0.4
+              ],
+              "scale": [
+                0.98,
+                0.62,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4e5865",
+              "pos": [
+                0,
+                0.36,
+                0.4
+              ],
+              "scale": [
+                0.98,
+                0.62,
+                0.2
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#d6e9f4",
+              "pos": [
+                0,
+                0.34,
+                -0.29
+              ],
+              "scale": [
+                0.72,
+                0.42,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.3,
+              "glow": false,
+              "shadow": true,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#d6e9f4",
+              "pos": [
+                0,
+                0.34,
+                0.29
+              ],
+              "scale": [
+                0.72,
+                0.42,
+                0.02
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 0.3,
+              "glow": false,
+              "shadow": true,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.1,
+                -0.18
+              ],
+              "scale": [
+                0.98,
+                0.05,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.1,
+                0.18
+              ],
+              "scale": [
+                0.98,
+                0.05,
+                0.03
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#4e5865",
+              "pos": [
+                0,
+                0.7,
+                0
+              ],
+              "scale": [
+                0.98,
+                0.06,
+                0.98
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#63cddd",
+              "pos": [
+                0,
+                0.735,
+                0
+              ],
+              "scale": [
+                0.86,
+                0.02,
+                0.62
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#c8d0da",
+              "pos": [
+                0,
+                0.755,
+                0
+              ],
+              "scale": [
+                0.8,
+                0.02,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                -0.39,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.08,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0.39,
+                0.79,
+                0
+              ],
+              "scale": [
+                0.05,
+                0.08,
+                0.8
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.79,
+                -0.39
+              ],
+              "scale": [
+                0.8,
+                0.08,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            },
+            {
+              "shape": "box",
+              "color": "#414956",
+              "pos": [
+                0,
+                0.79,
+                0.39
+              ],
+              "scale": [
+                0.8,
+                0.08,
+                0.05
+              ],
+              "rot": 0,
+              "surface": false,
+              "seam": false,
+              "alpha": 1,
+              "glow": false,
+              "shadow": false,
+              "drift": false,
+              "back": false,
+              "motion": null,
+              "tint": null
+            }
+          ]
+        }
+      ]
+    },
+    "tiers": [
+      {
+        "name": "Packer",
+        "cost": 0,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "heads": 1,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Quick packer",
+        "cost": 160,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 1.9,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "heads": 1,
+        "emits": null,
+        "open": null
+      },
+      {
+        "name": "Maglev packer",
+        "cost": 380,
+        "capacity_mult": 1,
+        "keeps_mult": 1,
+        "speed_mult": 3.2,
+        "unattended": 0,
+        "lines": 1,
+        "covers": 0,
+        "heads": 1,
+        "emits": null,
+        "open": null
+      }
+    ],
+    "variants": [],
+    "kind": "packer",
+    "cost": 160,
+    "emits": null,
+    "tags": [],
+    "surface": null,
+    "yields": null,
+    "charm": 0,
+    "work": null,
+    "open": false,
+    "sfx": null,
+    "signal": null,
+    "sort": 27.5,
+    "produces": null,
+    "body": null
+  },
+  {
     "id": "paddock-grazing",
     "name": "Grazing",
     "model": null,

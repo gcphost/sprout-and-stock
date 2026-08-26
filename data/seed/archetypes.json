@@ -31,7 +31,49 @@
       "dairy"
     ],
     "tags": [],
-    "steal_chance": 0
+    "steal_chance": 0,
+    "look": {
+      "build": "stout",
+      "hair": "bun",
+      "hair_color": "#6b4a33",
+      "beard": "none",
+      "face": "none"
+    }
+  },
+  {
+    "id": "builder",
+    "name": "Builder",
+    "affinities": {
+      "prepared": 1.1,
+      "lunch": 1,
+      "beverage": 0.9,
+      "meat": 0.8,
+      "cheap": 0.7,
+      "needs-warmer": 0.7,
+      "luxury": -0.6
+    },
+    "price_sensitivity": 0.6,
+    "patience": 38,
+    "budget_min": 8,
+    "budget_max": 24,
+    "basket_min": 1,
+    "basket_max": 4,
+    "spawn_weight": 1.6,
+    "color": "#e0a53a",
+    "staple_tags": [
+      "lunch"
+    ],
+    "tags": [
+      "hurried"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "buff",
+      "hair": "hardhat",
+      "hair_color": "#e8c33a",
+      "beard": "stubble",
+      "face": "none"
+    }
   },
   {
     "id": "bulk-shopper",
@@ -57,7 +99,14 @@
     "color": "#d98a5a",
     "staple_tags": [],
     "tags": [],
-    "steal_chance": 0
+    "steal_chance": 0,
+    "look": {
+      "build": "stout",
+      "hair": "cap",
+      "hair_color": "#3c5a78",
+      "beard": "stubble",
+      "face": "none"
+    }
   },
   {
     "id": "chancer",
@@ -80,7 +129,83 @@
     "tags": [
       "thief"
     ],
-    "steal_chance": 0.45
+    "steal_chance": 0.45,
+    "look": {
+      "build": "slight",
+      "hair": "beanie",
+      "hair_color": "#4a4550",
+      "beard": "stubble",
+      "face": "none"
+    }
+  },
+  {
+    "id": "clown",
+    "name": "Clown",
+    "affinities": {
+      "candy": 1.4,
+      "party": 1.3,
+      "kids": 1,
+      "snack": 0.9,
+      "bakery": 0.6,
+      "healthy": -0.7
+    },
+    "price_sensitivity": 0.4,
+    "patience": 110,
+    "budget_min": 12,
+    "budget_max": 38,
+    "basket_min": 2,
+    "basket_max": 6,
+    "spawn_weight": 0.5,
+    "color": "#f0e4d0",
+    "staple_tags": [
+      "party"
+    ],
+    "tags": [
+      "funny"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "regular",
+      "hair": "puffs",
+      "hair_color": "#e2453c",
+      "beard": "none",
+      "face": "nose"
+    }
+  },
+  {
+    "id": "emo",
+    "name": "Emo",
+    "affinities": {
+      "snack": 1.1,
+      "candy": 0.9,
+      "beverage": 1,
+      "junk": 0.8,
+      "cheap": 0.7,
+      "nostalgic": 0.5,
+      "frozen": 0.4,
+      "healthy": -0.5,
+      "produce": -0.4
+    },
+    "price_sensitivity": 0.7,
+    "patience": 150,
+    "budget_min": 6,
+    "budget_max": 20,
+    "basket_min": 1,
+    "basket_max": 4,
+    "spawn_weight": 1,
+    "color": "#33303c",
+    "staple_tags": [
+      "beverage"
+    ],
+    "tags": [
+      "emo"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "slight",
+      "hair": "fringe",
+      "hair_color": "#17161c"
+    }
   },
   {
     "id": "family-cook",
@@ -111,7 +236,14 @@
     "color": "#c98a5a",
     "staple_tags": [],
     "tags": [],
-    "steal_chance": 0
+    "steal_chance": 0,
+    "look": {
+      "build": "regular",
+      "hair": "bob",
+      "hair_color": "#7a4a2a",
+      "beard": "none",
+      "face": "none"
+    }
   },
   {
     "id": "foodie",
@@ -140,7 +272,14 @@
     "color": "#c98ad9",
     "staple_tags": [],
     "tags": [],
-    "steal_chance": 0
+    "steal_chance": 0,
+    "look": {
+      "build": "regular",
+      "hair": "bun",
+      "hair_color": "#2f2a26",
+      "beard": "none",
+      "face": "glasses"
+    }
   },
   {
     "id": "gift-hunter",
@@ -167,7 +306,48 @@
       "gift"
     ],
     "tags": [],
-    "steal_chance": 0
+    "steal_chance": 0,
+    "look": {
+      "build": "regular",
+      "hair": "bob",
+      "hair_color": "#c47a3a",
+      "beard": "none",
+      "face": "none"
+    }
+  },
+  {
+    "id": "gym-rat",
+    "name": "Gym Rat",
+    "affinities": {
+      "meat": 1.2,
+      "healthy": 1,
+      "dairy": 0.8,
+      "beverage": 0.7,
+      "produce": 0.6,
+      "premium": 0.4,
+      "junk": -0.8,
+      "candy": -0.6
+    },
+    "price_sensitivity": 0.3,
+    "patience": 75,
+    "budget_min": 30,
+    "budget_max": 70,
+    "basket_min": 3,
+    "basket_max": 7,
+    "spawn_weight": 1,
+    "color": "#4f9bd9",
+    "staple_tags": [
+      "meat"
+    ],
+    "tags": [
+      "buff"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "buff",
+      "hair": "crop",
+      "hair_color": "#4a3527"
+    }
   },
   {
     "id": "health-nut",
@@ -194,7 +374,86 @@
       "produce"
     ],
     "tags": [],
-    "steal_chance": 0
+    "steal_chance": 0,
+    "look": {
+      "build": "slight",
+      "hair": "bun",
+      "hair_color": "#3a2e28",
+      "beard": "none",
+      "face": "none"
+    }
+  },
+  {
+    "id": "karen",
+    "name": "Karen",
+    "affinities": {
+      "premium": 0.8,
+      "organic": 0.7,
+      "artisanal": 0.6,
+      "dairy": 0.5,
+      "produce": 0.5,
+      "bakery": 0.4,
+      "gluten-free": 0.5,
+      "healthy": 0.4,
+      "cheap": -0.6,
+      "junk": -0.7
+    },
+    "price_sensitivity": 0.8,
+    "patience": 24,
+    "budget_min": 18,
+    "budget_max": 46,
+    "basket_min": 2,
+    "basket_max": 5,
+    "spawn_weight": 1.1,
+    "color": "#e6d9c4",
+    "staple_tags": [
+      "premium"
+    ],
+    "tags": [
+      "difficult"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "stout",
+      "hair": "swept",
+      "hair_color": "#d8b25a"
+    }
+  },
+  {
+    "id": "lumberjack",
+    "name": "Lumberjack",
+    "affinities": {
+      "meat": 1.1,
+      "bulky": 0.9,
+      "pantry": 0.7,
+      "cheap": 0.6,
+      "heavy": 0.7,
+      "breakfast": 0.6,
+      "luxury": -0.6,
+      "vegan": -0.5
+    },
+    "price_sensitivity": 0.5,
+    "patience": 95,
+    "budget_min": 25,
+    "budget_max": 60,
+    "basket_min": 3,
+    "basket_max": 7,
+    "spawn_weight": 1,
+    "color": "#b4453f",
+    "staple_tags": [
+      "meat"
+    ],
+    "tags": [
+      "outdoorsy"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "stout",
+      "hair": "beanie",
+      "hair_color": "#7a4a2a",
+      "beard": "full",
+      "face": "none"
+    }
   },
   {
     "id": "morning-regular",
@@ -228,7 +487,120 @@
       "breakfast"
     ],
     "tags": [],
-    "steal_chance": 0
+    "steal_chance": 0,
+    "look": {
+      "build": "regular",
+      "hair": "crop",
+      "hair_color": "#5c4538",
+      "beard": "moustache",
+      "face": "none"
+    }
+  },
+  {
+    "id": "nan",
+    "name": "Nan",
+    "affinities": {
+      "bakery": 1,
+      "dairy": 0.9,
+      "classic": 0.9,
+      "nostalgic": 0.8,
+      "cheap": 0.7,
+      "produce": 0.6,
+      "viral": -0.7,
+      "trendy": -0.6
+    },
+    "price_sensitivity": 0.85,
+    "patience": 220,
+    "budget_min": 10,
+    "budget_max": 28,
+    "basket_min": 2,
+    "basket_max": 5,
+    "spawn_weight": 2,
+    "color": "#b28cc4",
+    "staple_tags": [
+      "bakery"
+    ],
+    "tags": [
+      "regular"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "slight",
+      "hair": "bun",
+      "hair_color": "#b9b3ad",
+      "beard": "none",
+      "face": "glasses"
+    }
+  },
+  {
+    "id": "office-worker",
+    "name": "Office Worker",
+    "affinities": {
+      "prepared": 1,
+      "lunch": 1.1,
+      "beverage": 1,
+      "premium": 0.5,
+      "healthy": 0.4,
+      "bulky": -0.7,
+      "heavy": -0.6
+    },
+    "price_sensitivity": 0.35,
+    "patience": 30,
+    "budget_min": 9,
+    "budget_max": 26,
+    "basket_min": 1,
+    "basket_max": 3,
+    "spawn_weight": 1.8,
+    "color": "#5a6478",
+    "staple_tags": [
+      "lunch"
+    ],
+    "tags": [
+      "hurried"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "tall",
+      "hair": "crop",
+      "hair_color": "#2f2a26",
+      "beard": "none",
+      "face": "none"
+    }
+  },
+  {
+    "id": "skater",
+    "name": "Skater",
+    "affinities": {
+      "snack": 1.2,
+      "beverage": 1.1,
+      "candy": 0.9,
+      "junk": 0.9,
+      "cheap": 0.8,
+      "viral": 0.6,
+      "household": -0.5
+    },
+    "price_sensitivity": 0.8,
+    "patience": 55,
+    "budget_min": 5,
+    "budget_max": 16,
+    "basket_min": 1,
+    "basket_max": 3,
+    "spawn_weight": 1.4,
+    "color": "#3fae8f",
+    "staple_tags": [
+      "beverage"
+    ],
+    "tags": [
+      "kid"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "kid",
+      "hair": "mohawk",
+      "hair_color": "#2f8fd6",
+      "beard": "none",
+      "face": "none"
+    }
   },
   {
     "id": "snack-kid",
@@ -257,6 +629,84 @@
       "kids"
     ],
     "tags": [],
-    "steal_chance": 0
+    "steal_chance": 0,
+    "look": {
+      "build": "kid",
+      "hair": "spikes",
+      "hair_color": "#8a5a2a",
+      "beard": "none",
+      "face": "none"
+    }
+  },
+  {
+    "id": "student",
+    "name": "Student",
+    "affinities": {
+      "cheap": 1.3,
+      "pantry": 1,
+      "snack": 0.9,
+      "junk": 0.8,
+      "frozen": 0.7,
+      "beverage": 0.6,
+      "premium": -0.8,
+      "luxury": -0.9
+    },
+    "price_sensitivity": 0.95,
+    "patience": 120,
+    "budget_min": 5,
+    "budget_max": 18,
+    "basket_min": 2,
+    "basket_max": 5,
+    "spawn_weight": 1.7,
+    "color": "#8f7ad0",
+    "staple_tags": [
+      "cheap"
+    ],
+    "tags": [
+      "regular"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "slight",
+      "hair": "crop",
+      "hair_color": "#4a3a30",
+      "beard": "none",
+      "face": "glasses"
+    }
+  },
+  {
+    "id": "tourist",
+    "name": "Tourist",
+    "affinities": {
+      "gift": 1.2,
+      "holiday": 1,
+      "snack": 0.8,
+      "beverage": 0.8,
+      "artisanal": 0.7,
+      "household": -0.7,
+      "bulky": -0.6
+    },
+    "price_sensitivity": 0.25,
+    "patience": 130,
+    "budget_min": 20,
+    "budget_max": 55,
+    "basket_min": 2,
+    "basket_max": 5,
+    "spawn_weight": 0.9,
+    "color": "#e8734f",
+    "staple_tags": [
+      "gift"
+    ],
+    "tags": [
+      "regular"
+    ],
+    "steal_chance": 0,
+    "look": {
+      "build": "regular",
+      "hair": "cap",
+      "hair_color": "#f2f0ea",
+      "beard": "none",
+      "face": "shades"
+    }
   }
 ]

@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-126 pieces across 25 kinds.
+127 pieces across 26 kinds.
 
 ## Fixtures
 
@@ -370,6 +370,20 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 1. **Sorter** — free, as built
 2. **Quick sorter** — $140, speed ×1.9
 3. **Maglev sorter** — $330, speed ×3.2
+
+### `packer`
+
+Indoors or out, owns its cell (people walk around it), nobody stands at it, rotates.
+
+#### Packer
+
+`packer` · kind `packer` · $160 to build
+
+16 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
+
+1. **Packer** — free, as built
+2. **Quick packer** — $160, speed ×1.9
+3. **Maglev packer** — $380, speed ×3.2
 
 ### `under`
 

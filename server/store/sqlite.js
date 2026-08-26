@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS archetypes (
   spawn_weight      REAL NOT NULL DEFAULT 1,
   steal_chance      REAL NOT NULL DEFAULT 0,
   color             TEXT NOT NULL DEFAULT '#d98cb3',
+  look              TEXT NOT NULL DEFAULT 'null',  -- JSON {build, hair, hair_color}
   created_by        TEXT NOT NULL DEFAULT 'seed',
   created_at        INTEGER NOT NULL
 );
@@ -291,16 +292,18 @@ CREATE TABLE IF NOT EXISTS world (
   value TEXT NOT NULL                     -- JSON
 );
 
--- Active demand/price modifiers. Written by the world director, read by pricing.
+-- Active demand/price/spawn modifiers. Written by the world director, read by
+-- pricing and by who comes through the door.
 -- Scoped to one world: a heat wave in your shop is not a heat wave in mine.
 CREATE TABLE IF NOT EXISTS modifiers (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   world_id    TEXT NOT NULL DEFAULT 'default',
   source      TEXT NOT NULL,              -- 'director' | 'event:<id>' | 'manual'
   label       TEXT NOT NULL DEFAULT '',
-  tag         TEXT NOT NULL,
+  tag         TEXT NOT NULL,              -- an item tag, or an archetype's
   demand_mult REAL NOT NULL DEFAULT 1,
   price_mult  REAL NOT NULL DEFAULT 1,
+  spawn_mult  REAL NOT NULL DEFAULT 1,
   expires_day INTEGER NOT NULL
 );
 
@@ -407,6 +410,19 @@ const ADDED_COLUMNS = [
   // existing row reads back as, and the schema decides what a new row that
   // omits it is. Disagree and the two halves of one control drift apart.
   ['archetypes', 'steal_chance', 'REAL NOT NULL DEFAULT 0'],
+  // What a shopper looks like beyond their colour. 'null' is every archetype
+  // written before there was an answer, and it does not mean "plain" — the
+  // renderer reads it as "hash one off their id", which is the crowd every
+  // existing shop already has. Same claim as the schema default, made twice for
+  // the reason `steal_chance` gives directly above.
+  ['archetypes', 'look', "TEXT NOT NULL DEFAULT 'null'"],
+  // Who an event brings through the door. Every modifier ever written moved
+  // goods and not people, and 1 is exactly that row — which is the same claim
+  // the schema default makes, and it has to be made in both places for the
+  // reason `steal_chance` gives above. It also has to be made a third time, in
+  // `foldModifiers`, because the web store keeps its rows in a vault rather
+  // than behind a column and an old one there really can arrive without it.
+  ['modifiers', 'spawn_mult', 'REAL NOT NULL DEFAULT 1'],
   // Where a piece sits on the build bar. 0 is "wherever the catalogue put you"
   // and the sort is stable, so every row authored before this reads back as the
   // palette it has always been — which is the same claim the schema default
@@ -471,7 +487,7 @@ export function contentVersion() {
 const JSON_FIELDS = {
   items: ['tags', 'model'],
   crops: ['seasons', 'model'],
-  archetypes: ['affinities', 'staple_tags', 'tags'],
+  archetypes: ['affinities', 'staple_tags', 'tags', 'look'],
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
@@ -634,17 +650,18 @@ export function activeModifiers(day, worldId = DEFAULT_WORLD_ID) {
  */
 export function addModifier({
   worldId = DEFAULT_WORLD_ID, source, label = '', tag,
-  demand_mult = 1, price_mult = 1, expires_day,
+  demand_mult = 1, price_mult = 1, spawn_mult = 1, expires_day,
 }) {
   const dupe = db().prepare(`SELECT id FROM modifiers
                              WHERE world_id = ? AND source = ? AND label = ? AND tag = ?
-                               AND demand_mult = ? AND price_mult = ? AND expires_day = ?`)
-    .get(worldId, source, label, tag, demand_mult, price_mult, expires_day);
+                               AND demand_mult = ? AND price_mult = ? AND spawn_mult = ?
+                               AND expires_day = ?`)
+    .get(worldId, source, label, tag, demand_mult, price_mult, spawn_mult, expires_day);
   if (dupe) return false;
 
-  db().prepare(`INSERT INTO modifiers (world_id, source, label, tag, demand_mult, price_mult, expires_day)
-                VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(worldId, source, label, tag, demand_mult, price_mult, expires_day);
+  db().prepare(`INSERT INTO modifiers (world_id, source, label, tag, demand_mult, price_mult, spawn_mult, expires_day)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(worldId, source, label, tag, demand_mult, price_mult, spawn_mult, expires_day);
   return true;
 }
 

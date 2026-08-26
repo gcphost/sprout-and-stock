@@ -6,7 +6,7 @@ import { pinLast, byRank, PALETTE_LEAD, KEYED } from './bar.js';
 // it for a grade. There is one rate and everything that goes down uses it.
 import {
   FIXTURES, isProp, isGround, isPaint, isSurface, FLOOR_KIND, STOCK_KINDS, shelfKind, FIXTURE_REFUND,
-  CEILING, goesOverhead,
+  CEILING, goesOverhead, overheadKinds,
 } from '../shared/build.js';
 import { homeKind } from '../shared/tags.js';
 // `E` beside `wayDefault`, and for the same reason the curtain reads its kind
@@ -357,19 +357,25 @@ export const KIND_TOOLS = {
     icon: ICONS.supplier,
     group: 'logistics',
     run: 'Runs',
-    blurb: 'A junction. R sets the branch; the crew pick which box goes down it.',
+    blurb: 'A junction. R aims the branch, and each box goes down a line that can shelve it.',
+  },
+  packer: {
+    icon: ICONS.crate,
+    group: 'logistics',
+    run: 'Runs',
+    blurb: 'Holds a box and fills it from the ones going past. Three part-crates become one trip.',
   },
   under: {
     icon: ICONS.move,
     group: 'logistics',
     run: 'Runs',
-    blurb: 'Two mouths, up to four cells apart, both facing the way goods go. Mouths block walking; the squares between stay yours.',
+    blurb: 'Two mouths up to four cells apart, both facing the way goods go. The squares between stay yours.',
   },
   lift: {
     icon: ICONS.station,
     group: 'logistics',
     run: 'Runs',
-    blurb: 'Joins the floor to the ceiling. Whatever feeds it decides which way it carries; R sets which side it comes out at.',
+    blurb: 'Joins the floor to the ceiling. Whatever feeds it decides which way it goes. R sets which side it comes out.',
   },
   plot: {
     icon: ICONS.plot,
@@ -383,7 +389,7 @@ export const KIND_TOOLS = {
     icon: ICONS.plot,
     group: 'farm',
     run: 'Pens',
-    blurb: 'A shelter for animals, outside. Fills up on its own — collect it from the gate, and never sow it. Paint a paddock around it to keep more than one.',
+    blurb: 'A shelter for animals, outside. Fills on its own — collect at the gate. Paint a paddock round it to keep more than one.',
   },
   bin: {
     icon: ICONS.close,
@@ -413,7 +419,7 @@ export const KIND_TOOLS = {
     icon: ICONS.floor,
     group: 'shell',
     sub: 'paint',
-    blurb: 'Drag along a wall. Finishes the side you are pointing at — the two faces of a wall are two decisions.',
+    blurb: 'Drag along a wall. Finishes the side you point at — the two faces are separate.',
   },
   floor: {
     icon: ICONS.floor,
@@ -423,7 +429,7 @@ export const KIND_TOOLS = {
     // would hide the second half of a job from anyone doing the first.
     group: 'shell',
     sub: 'floors',
-    blurb: 'Drag out an area. Floor is what a shelf needs under it — walls alone only make a room.',
+    blurb: 'Drag out an area. A shelf needs floor under it — walls alone only make a room.',
   },
   /**
    * The three pads that carry a job, filed with the belts rather than with the
@@ -456,13 +462,13 @@ export const KIND_TOOLS = {
     icon: ICONS.crate,
     group: 'logistics',
     run: 'Pads',
-    blurb: 'Drag out an area. Wholesale orders land here as pallets — make it bigger to take bigger deliveries.',
+    blurb: 'Drag out an area. Orders land here as pallets. Bigger pad, bigger deliveries.',
   },
   drop: {
     icon: ICONS.crate,
     group: 'logistics',
     run: 'Pads',
-    blurb: 'Drag out an area. Where hands get cleared and stock waits to be shelved. Indoors it is a stockroom.',
+    blurb: 'Drag out an area. Where stock waits to be shelved. Indoors it is a stockroom.',
   },
   // The one of the three that carries a job for the crew rather than for the
   // stock — and it stays here rather than following the car park out, because a
@@ -471,7 +477,7 @@ export const KIND_TOOLS = {
     icon: ICONS.staff,
     group: 'logistics',
     run: 'Pads',
-    blurb: 'Drag out an area. Your crew dock and charge here instead of topping up wherever they finished, and come back fuller. One cell holds one unit.',
+    blurb: 'Drag out an area. Your crew charge here and come back fuller than they would elsewhere. One cell holds one.',
   },
   // The fourth pad, and it sits with the roads because it is the END of one.
   //
@@ -488,7 +494,7 @@ export const KIND_TOOLS = {
     group: 'outdoors',
     sub: 'roads',
     run: 'Parking',
-    blurb: 'Drag out an area. Hardstanding out front for shoppers who drive here — one cell parks one, and they walk in from where they left it.',
+    blurb: 'Drag out an area. Parking for shoppers who drive here. One cell parks one, and they walk in from it.',
   },
   // The fifth pad, and the only one filed by what it holds rather than by where
   // it tends to be. It goes under Farm because the tab's own blurb already
@@ -501,7 +507,7 @@ export const KIND_TOOLS = {
     icon: ICONS.plot,
     group: 'farm',
     run: 'Grazing',
-    blurb: 'Drag out an area. Grazing for a pen standing in it — every four cells is another animal, and more animals fill it faster.',
+    blurb: 'Drag out an area. Grazing for a pen standing in it. Every four cells is another animal.',
   },
   // The ground the world came with, and the last cell in the game to become
   // something you could restyle. See the `land` sub-tab for why it is neither a
@@ -515,7 +521,7 @@ export const KIND_TOOLS = {
     icon: ICONS.plot,
     group: 'outdoors',
     sub: 'land',
-    blurb: 'Drag out an area. What the outdoors is made of — beds still dig into any of it, so this is a look and never a permission.',
+    blurb: 'Drag out an area. What the outdoors is made of. Purely a look — beds still dig into any of it.',
   },
   // The two ways in, on their own tab. See the `roads` sub-tab for why they are
   // not filed with the floors they are built like.
@@ -524,14 +530,14 @@ export const KIND_TOOLS = {
     group: 'outdoors',
     sub: 'roads',
     run: 'Driving',
-    blurb: 'Drag out an area. Vans and shoppers’ cars come in on whichever way is cheapest, and they would rather drive on this than on your grass.',
+    blurb: 'Drag out an area. Vans and cars would rather drive on this than on your grass — so it decides which way they come in.',
   },
   path: {
     icon: ICONS.walk,
     group: 'outdoors',
     sub: 'roads',
     run: 'Walking',
-    blurb: 'Drag out an area. Anybody walking outdoors would rather go round on this than cut across the grass. A striped one laid over a road is a crossing.',
+    blurb: 'Drag out an area. People walking outdoors would rather go round on this than cut across grass. Striped, over a road, it is a crossing.',
   },
 };
 
@@ -583,7 +589,7 @@ export const BUILD_TOOLS = [
     run: 'Walls',
     icon: ICONS.build,
     name: 'Low wall',
-    blurb: 'Waist high, and you see over it. Never makes a room — so a partition, never an annex. Takes paint like any wall.',
+    blurb: 'Waist high, and you see over it. A partition, never an annex — it makes no room. Takes paint like any wall.',
   },
   {
     id: 'window',
@@ -593,7 +599,7 @@ export const BUILD_TOOLS = [
     run: 'Glazing',
     icon: ICONS.ambient,
     name: 'Window',
-    blurb: 'A wall you can see through. Still encloses. Tap one you have already built to reglaze it.',
+    blurb: 'A wall you can see through. Still encloses. Tap a built one to reglaze it.',
   },
   // Three more glazings, and they are LOOKS rather than kinds — same price, same
   // enclosure, same wall, glass in a different part of it (`GLAZING`,
@@ -642,7 +648,7 @@ export const BUILD_TOOLS = [
     // could otherwise say that a door has a setting: there is no palette button
     // for a staff doorway on purpose — you find out a door should be one after the
     // room exists — so the tool that builds them is where it has to be said.
-    blurb: 'A way through. Still counts as part of the enclosure. Tap one you have already built to say who it is for.',
+    blurb: 'A way through. Still encloses. Tap a built one to say who it is for.',
   },
   // The span. Its own tool rather than a look on the doorway, for the reason the
   // roller door is one: a family is the set of things that swap for a *refit*,
@@ -656,7 +662,7 @@ export const BUILD_TOOLS = [
     run: 'Doors',
     icon: ICONS.build,
     name: 'Archway',
-    blurb: 'A way through with nothing in it. Encloses like a doorway. Tap one you have already built to keep shoppers out.',
+    blurb: 'A way through with nothing in it. Encloses like a doorway. Tap a built one to keep shoppers out.',
   },
   // The roller door. Its own tool rather than a look on the doorway, because a
   // family is the set of things that swap for a *refit* — and swapping a $34
@@ -669,7 +675,7 @@ export const BUILD_TOOLS = [
     run: 'Doors',
     icon: ICONS.crate,
     name: 'Roller door',
-    blurb: 'A garage bay door, rolled up under its lintel. Part of the enclosure, like any doorway. Tap one you have already built to say who it is for.',
+    blurb: 'A garage bay door, rolled up under its lintel. Encloses like any doorway. Tap a built one to say who it is for.',
   },
   // The curtain, and it is the one opening whose palette button lays the SIGNED
   // kind (`wayDefault`, shared/edges.js). A doorway is for everybody until you
@@ -689,7 +695,7 @@ export const BUILD_TOOLS = [
     run: 'Doors',
     icon: ICONS.staff,
     name: 'Strip curtain',
-    blurb: 'Hangs clear of the floor, so belts and crates carry on through it. Shoppers do not. Tap one to open it to everybody.',
+    blurb: 'Hangs clear of the floor, so belts and crates pass through. Shoppers do not. Tap one to open it to everybody.',
   },
   // Fences. Same tool, same drag, same lattice — and deliberately not the same
   // *meaning*: a fence never encloses (`ENCLOSING`, shared/edges.js), so fencing
@@ -733,7 +739,7 @@ export const BUILD_TOOLS = [
     run: 'Fencing',
     icon: ICONS.build,
     name: 'Gate',
-    blurb: 'A way through a fence. Tap one you have already built to keep shoppers out of the field.',
+    blurb: 'A way through a fence. Tap a built one to keep shoppers out of the field.',
   },
   // The bulldozer, and it is on every tab because "get rid of that" is not a
   // question about what sort of thing it is.
@@ -879,7 +885,7 @@ export function buildTools(ui) {
       // different kind of act from laying one.
       art: artForTool({ paint: true }, null),
       name: 'Bare Ground',
-      blurb: 'Takes the floor back up. Indoors that leaves a cell nothing can use — outdoors it is grass again.',
+      blurb: 'Takes the floor back up. Outdoors that is grass again; indoors it leaves a cell nothing can use.',
     });
     // ...and once more on the other side of the palette, because the brush it
     // undoes is on both. One null entry served every ground kind while every
@@ -904,7 +910,7 @@ export function buildTools(ui) {
       icon: ICONS.remove,
       art: artForTool({ paint: true }, null),
       name: 'Bare Ground',
-      blurb: 'Takes whatever is painted here back up — a road, a pad, a lawn — and leaves plain grass.',
+      blurb: 'Takes whatever is painted here — a road, a pad, a lawn — back to plain grass.',
     });
   }
 
@@ -925,7 +931,7 @@ export function buildTools(ui) {
       icon: ICONS.remove,
       art: artForTool({ paint: true }, null),
       name: 'Bare Wall',
-      blurb: 'Takes the finish off that side and leaves the wall as it was built. Half of what the paint cost comes back.',
+      blurb: 'Takes the finish off that side, back to the bare wall. Half the paint comes back.',
     });
   }
 
@@ -1019,7 +1025,7 @@ export function buildGroups(ui) {
       // and not for the arithmetic — and greyed-out with no reason given is the
       // one state where somebody would otherwise think the button was broken.
       title: `${t.name} — ${t.blurb}${poor ? ` · ${money(cost)} and you have ${money(cash)}` : ''}${
-        off ? ' · Only a belt, loader or sorter goes overhead' : ''}`,
+        off ? ` · Only ${overheadKinds()} go overhead` : ''}`,
       // Whether this one comes in shapes, which is what earns the tile its
       // chevron and makes a hold on it mean something. Asked of the PIECE, since
       // that is what `variantsOf` reads and what the popover will offer — a tool

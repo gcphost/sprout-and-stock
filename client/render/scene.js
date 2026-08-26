@@ -21,7 +21,7 @@ import {
   buildStamp,
   buildFootMark,
   buildPadGlyph,
-  weld, paintLit,
+  weld, paintLit, characterMaterial,
 } from './props.js';
 import { Heat } from './heat.js';
 import { T } from '../../shared/tiles.js';
@@ -38,6 +38,14 @@ import { hash01 } from '../../shared/hash.js';
 // numbers the layout carries, through `EDGE_STYLE`.
 import { E, SOLID, edgeBetween, wayBase } from '../../shared/edges.js';
 import { Lights, emittersIn, BAKED_LAYER } from './lights.js';
+import { Ink } from './post.js';
+import {
+  lookOn, setLookOn,
+  AMBIENT_NOON, SUN_NOON, BOUNCE_LOOK, SUN_DUSK_LEVEL, AMBIENT_DUSK_LEVEL,
+  SKY_TOP, SKY_HORIZON,
+  SHADOW_SPAN_MIN, SHADOW_SPAN_STEP, SHADOW_MARGIN,
+  SHADOW_BIAS, SHADOW_NORMAL_BIAS_TEXELS, SHADOW_MAP_LOOK,
+} from './look.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
   boardsForShare,
@@ -378,6 +386,31 @@ const BED_MAX = 12;
  * are stops reading as carried.
  */
 const CARRY_SHOWN = 4;
+/*
+ * How far off the centre line a kit has to be authored before it counts as
+ * held in ONE hand rather than in both — see `syncKit`. A shoulder sits at
+ * 0.255, so this is comfortably inside "out at the hip" and comfortably
+ * outside "in front of me".
+ */
+const HAND_SIDE = 0.13;
+/*
+ * What the arms do while the hands are full, in radians forward off the
+ * shoulder. A crate is held higher and tighter than a loose armful; a bag
+ * hanging off one hand needs neither, because it swings WITH that arm.
+ *
+ * `ARM_HELD` is how much of the walking counter-swing survives. Not zero: arms
+ * welded rigid to a body read as a mannequin being slid across the floor, and
+ * the whole point of the gait is that it says somebody is walking.
+ *
+ * `ARM_ONE_HANDED` quietens BOTH arms rather than only the one with the bag on
+ * it, which is not an approximation — somebody carrying a full bag walks
+ * differently, and a free arm still swinging its whole stride beside a loaded
+ * one reads as the loaded one being broken.
+ */
+const ARM_LIFT_CARRY = 1.0;
+const ARM_LIFT_HAUL = 1.18;
+const ARM_HELD = 0.16;
+const ARM_ONE_HANDED = 0.45;
 
 /**
  * A plain coloured box, for a fixture kind nobody has drawn yet.
@@ -558,6 +591,27 @@ const SHADOW_MAP = 1024;
 const SHADOW_TEXEL = (SHADOW_SPAN * 2) / SHADOW_MAP;
 
 /**
+ * ...and the same pair when the map is FITTED to the view rather than fixed.
+ *
+ * Cel + Ink wants the hardest shadow in the game and gets it by spending more
+ * texels on less ground rather than by dropping the filter — see
+ * `SHADOW_SPAN_MIN` in look.js for why the span, the map size and the tap are
+ * one decision. So the span becomes a fact about what is on screen, and
+ * everything derived from it has to follow: `snapToShadowTexel` takes the texel
+ * as an argument rather than
+ * reading the constant, and the redraw threshold is computed beside it. A snap
+ * rounding to a grid the map no longer has is exactly the shimmer the snap
+ * exists to remove, and it would be invisible in this file.
+ *
+ * The span is quantised so it stands still while the zoom eases: a value that
+ * slid continuously would move the grid under the snap on every frame of a
+ * pinch, which is the same shimmer arriving by the other door.
+ */
+/** How many texels the map is, which the look pays to double. */
+const shadowMapSize = () => (lookOn() ? SHADOW_MAP_LOOK : SHADOW_MAP);
+const shadowTexelFor = (span) => (span * 2) / shadowMapSize();
+
+/**
  * The light's own basis, which is constant because `SUN_OFFSET` is: the shadow
  * camera looks from `target + SUN_OFFSET` at `target` with world up, so its
  * right and up axes never depend on where the target has got to.
@@ -587,9 +641,9 @@ const SUN_AT = new THREE.Vector3();
  * The component along the light is left alone: it is the distance from the sun,
  * and rounding it would push the near plane about for nothing.
  */
-function snapToShadowTexel(p, out) {
-  const a = Math.round(p.dot(SUN_X) / SHADOW_TEXEL) * SHADOW_TEXEL;
-  const b = Math.round(p.dot(SUN_Y) / SHADOW_TEXEL) * SHADOW_TEXEL;
+function snapToShadowTexel(p, out, texel = SHADOW_TEXEL) {
+  const a = Math.round(p.dot(SUN_X) / texel) * texel;
+  const b = Math.round(p.dot(SUN_Y) / texel) * texel;
   return out
     .copy(SUN_X)
     .multiplyScalar(a)
@@ -622,6 +676,12 @@ const SHADOW_EVERY = 3;
  * bought and where it still is.
  */
 const SHADOW_SLIP = SHADOW_TEXEL / 4;
+
+/** ...and the same quarter of whatever texel the fitted map is on that frame. */
+const shadowSlipFor = (texel) => texel / 4;
+
+/** Scratch for the ink pass's target sizing, which runs once a frame. */
+const DRAW_SIZE = new THREE.Vector2();
 
 /** Scratch for `pickPropBox`, which runs per prop per pointer move. */
 const BOX_HIT = new THREE.Vector3();
@@ -656,6 +716,83 @@ const SEAL_SAMPLES = [
   [0.08, 0.98, 0.92], [0.92, 0.98, 0.92],
   [0.92, 0.6, 0.5], [0.5, 0.6, 0.92],
 ];
+
+/**
+ * The batch an INTERNAL wall goes in — one with shop floor on both sides.
+ *
+ * It carries no direction, and that is only affordable because these FADE rather
+ * than disappear. A partition is symmetric, so there is no near side to test:
+ * the honest question is whether this one stands between the camera and what you
+ * are looking at, which was built, and which is *finicky* — walls flicking in
+ * and out as you walk past a doorway, each pop asking to be explained. Ghosting
+ * them removes the reason to be clever. A partition that fades when it did not
+ * need to costs you almost nothing, where one that vanishes costs you the room,
+ * so the whole per-line test collapses into "all of them, softly".
+ */
+const FACE_IN = 'in';
+const FACE_IN_VEC = { fx: 0, fz: 0, always: true };
+
+/**
+ * A face key -> the direction it points, as a plain pair on the ground.
+ *
+ * Two spellings reach this: an EDGE's, which is one axis and a sign ('x+'), and
+ * a VERTEX's, which is the two summed and can be diagonal ('1,-1'). They are one
+ * question — which way does this piece of masonry look — so they answer through
+ * one function rather than two, and '' is a piece with no outside, which is the
+ * only value `ghostNearWalls` treats as "never".
+ *
+ * Not a `Vector3`: this is read once per mesh per frame and a dot product of two
+ * numbers is the whole of what anybody wants from it.
+ */
+function faceVector(key) {
+  if (!key) return null;
+  if (key === FACE_IN) return FACE_IN_VEC;
+  if (key.includes(',')) {
+    const [fx, fz] = key.split(',').map(Number);
+    return fx || fz ? { fx, fz } : null;
+  }
+  const s = key.endsWith('+') ? 1 : -1;
+  return key.startsWith('x') ? { fx: s, fz: 0 } : { fx: 0, fz: s };
+}
+
+/**
+ * The distinct cells a batch of boxes stands on, flat as [x, z, x, z, …].
+ *
+ * What `ghostNearWalls` measures against, and it is DEDUPED because the count is
+ * the whole reason it is precomputed: a painted wall is a body, a skin either
+ * side and a course of brick on each of those, so one cell of it is a dozen
+ * boxes at the same two coordinates. A shop's worth is a few dozen cells and
+ * several thousand boxes.
+ *
+ * A pier names `x`/`z` and a band names `cx`/`cz` — same fact, two spellings,
+ * and both arrive here rather than being unified at the call sites, because the
+ * band's pair is the CELL while its own position carries a thickness offset and
+ * an offset along the run. It is the cell that is wanted.
+ */
+function cellsOf(items) {
+  const seen = new Set();
+  const out = [];
+  for (const b of items) {
+    const x = b.cx ?? b.x;
+    const z = b.cz ?? b.z;
+    const key = `${x},${z}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(x, z);
+  }
+  return Float32Array.from(out);
+}
+
+/** Group things carrying a `face` by it, preserving order. One instanced mesh each. */
+function byFace(items) {
+  const out = new Map();
+  for (const item of items) {
+    const key = item.face ?? '';
+    if (!out.has(key)) out.set(key, []);
+    out.get(key).push(item);
+  }
+  return out;
+}
 
 /** The camera's home pose. Yaw swings it around Y; pitch raises and drops it. */
 const BASE_CAM_OFFSET = new THREE.Vector3(20, 24, 20);
@@ -1133,6 +1270,12 @@ const SKY_DUSK = new THREE.Color(PALETTE.skyDusk);
 // flat. These are the pale band at the horizon, not a second light source.
 const SKY_HORIZON_HIGH = new THREE.Color('#f4f7dc');
 const SKY_HORIZON_DUSK = new THREE.Color('#ffe0bf');
+// ...and the NOON pair Cel + Ink was tuned against. Only the top of the day
+// moves: dusk is a sunset either way, and a look that replaced both ends would
+// be a style that deleted the sunset rather than one that banded it. See
+// `SKY_TOP` in look.js.
+const SKY_HIGH_LOOK = new THREE.Color(SKY_TOP);
+const SKY_HORIZON_HIGH_LOOK = new THREE.Color(SKY_HORIZON);
 const SKY_MID = new THREE.Color();
 const SUN_HIGH = new THREE.Color(PALETTE.sunHigh);
 const SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
@@ -1272,6 +1415,11 @@ export class Scene {
     // soft takes a wide tap pattern per lit pixel, plain takes a small one. The
     // difference is a slightly tighter penumbra on a scene whose shadows are
     // mostly hard-edged boxes anyway.
+    //
+    // Filtered either way, including under Cel + Ink, which wants the hardest
+    // edge in the game and buys it by shrinking the TEXEL rather than by
+    // dropping the tap — see `SHADOW_SPAN_MIN` in look.js for what that cost and
+    // what turning the filter off cost instead.
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     /**
      * The shadow pass is a SECOND full draw of the scene — every object walked,
@@ -1291,6 +1439,24 @@ export class Scene {
     // drawn. See `SHADOW_SLIP`: the cadence is a floor now rather than a rule,
     // because the things this shadow is most obviously *of* move every frame.
     this.shadowSlip = 0;
+    /** What span the fitted map was last built for, so it is only rebuilt when
+     *  the quantised answer actually moves. Null while the look is off, which
+     *  is what keeps that path a straight `renderer.render` and nothing else. */
+    this.shadowSpan = null;
+    /** ...and whether that span has just moved, which is a redraw the cadence
+     *  must not be allowed to decline. See `fitShadowSpan`. */
+    this.shadowDirty = false;
+
+    /**
+     * The contour and the grade, or nothing at all.
+     *
+     * Held as null rather than as an object with a flag, so the look being OFF
+     * is one `if` in `render` and not a pass that draws the frame through a
+     * shader that happens to be the identity: off has to be byte-identical to
+     * the game as it shipped, and cost nothing, because that is what every
+     * screenshot in this repo is.
+     */
+    this.ink = lookOn() ? new Ink(this.renderer) : null;
 
     this.scene = new THREE.Scene();
     this.sky = makeSkyGradient();
@@ -1512,16 +1678,23 @@ export class Scene {
     const sun = new THREE.DirectionalLight(0xfff4dd, 1.15);
     sun.position.set(26, 40, 14);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
+    sun.shadow.mapSize.set(shadowMapSize(), shadowMapSize());
     const s = SHADOW_SPAN;
     Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 110 });
-    sun.shadow.bias = -0.0012;
+    // The NORMAL bias is deliberately not set here: it is a multiple of the
+    // shadow texel, and the texel is a fact about a span that moves with the
+    // zoom. `fitShadowSpan` is the one place the two are decided together — see
+    // `SHADOW_NORMAL_BIAS_TEXELS`, which is the whole argument.
+    sun.shadow.bias = lookOn() ? SHADOW_BIAS : -0.0012;
     this.sun = sun;
     this.scene.add(sun, sun.target);
 
-    // A cool bounce light so shadowed faces aren't muddy.
+    // A cool bounce light so shadowed faces aren't muddy. Kept on `this` for
+    // the same reason the ambient is: the look scales all three together, and a
+    // light nothing holds a reference to is one nothing can scale.
     const bounce = new THREE.DirectionalLight(0xbcd8ff, 0.32);
     bounce.position.set(-18, 12, -14);
+    this.bounce = bounce;
     this.scene.add(bounce);
 
     /**
@@ -1575,8 +1748,10 @@ export class Scene {
 
   /** Keep the painted sky in step with the same day cycle as the sun. */
   updateSky(daylight) {
-    this.skyTop.copy(SKY_DUSK).lerp(SKY_HIGH, daylight);
-    this.skyHorizon.copy(SKY_HORIZON_DUSK).lerp(SKY_HORIZON_HIGH, daylight);
+    const noon = lookOn();
+    this.skyTop.copy(SKY_DUSK).lerp(noon ? SKY_HIGH_LOOK : SKY_HIGH, daylight);
+    this.skyHorizon.copy(SKY_HORIZON_DUSK)
+      .lerp(noon ? SKY_HORIZON_HIGH_LOOK : SKY_HORIZON_HIGH, daylight);
     paintSkyGradient(this.sky, this.skyTop, this.skyHorizon);
   }
 
@@ -2838,6 +3013,76 @@ export class Scene {
     this.scene.add(this.tileGrid);
   }
 
+  /**
+   * Turn Cel + Ink on or off, which is a fact about the PERSON and not the shop.
+   *
+   * There is no UI for it and there is not going to be one — it exists for a
+   * machine that cannot afford a second scene draw, and it is reachable from
+   * the console the way every other renderer dial in this game is
+   * (`__sns.scene.setLook(false)`). `setLookOn` is what remembers it, in
+   * `sns-view` beside the camera; nothing about it reaches the save, the
+   * schema, the wire or the server.
+   *
+   * The rebuild is the whole of the work and it is not optional. `material()`
+   * is a cache keyed by colour and the mode decides what CLASS a colour
+   * resolves to, so every mesh in the shop is holding a material of the old
+   * kind — including the bodies under `actorRoot`, which survive a re-flow by
+   * design and would otherwise go on being Lambert in a banded shop until each
+   * of them happened to restage.
+   *
+   * A STYLE IS A LOOK AND NEVER A RULE: this touches no tile, no `blocked` bit
+   * and no fixture, and `pickFixture` has to answer the same thing afterwards —
+   * `userData.fixture` is stamped where a mesh is BUILT, so a rebuild that lost
+   * it would mean changing your look silently re-aims the pointer. That is
+   * `verify:look`'s second claim, and it is invisible for days if it breaks.
+   */
+  setLook(want) {
+    if (!setLookOn(want)) return lookOn();
+    const on = lookOn();
+
+    this.sun.shadow.mapSize.set(shadowMapSize(), shadowMapSize());
+    // A map that changed size is a texture of the wrong size, and three only
+    // reallocates when there is nothing there to reuse.
+    this.sun.shadow.map?.dispose();
+    this.sun.shadow.map = null;
+    this.sun.shadow.bias = on ? SHADOW_BIAS : -0.0012;
+    // Zeroed on the way out and never left where it was: `normalBias` applies
+    // whatever the filter is, so a value sized for a fitted frustum and
+    // forgotten would peter-pan every shadow in the shop off its own object,
+    // with nothing anywhere to connect it to. On the way IN it is not set here
+    // at all — `fitShadowSpan` owns it, because it is a multiple of a texel
+    // that has not been decided yet.
+    if (!on) this.sun.shadow.normalBias = 0;
+    if (!on) {
+      const s = SHADOW_SPAN;
+      Object.assign(this.sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s });
+      this.sun.shadow.camera.updateProjectionMatrix();
+    }
+    this.shadowSpan = null;
+    this.shadowDirty = true;
+
+    if (on) {
+      this.ink ??= new Ink(this.renderer);
+    } else {
+      this.ink?.dispose();
+      this.ink = null;
+    }
+
+    // Everything static, then everybody standing in it. The bodies have to be
+    // dropped by hand: `syncActors` only restages one whose `key` moved, and a
+    // style is not one of the things that key is made of.
+    for (const map of [this.players, this.customers, this.animals]) {
+      for (const rec of map.values()) {
+        this.actorRoot.remove(rec.obj);
+        this.dropFoot(rec);
+        disposeGroup(rec.obj);
+      }
+      map.clear();
+    }
+    this.rebuildWorld();
+    return on;
+  }
+
   /** Redraw the world we already have — for when the art changed, not the shop. */
   rebuildWorld() {
     if (!this._layout) return;
@@ -3791,9 +4036,15 @@ export class Scene {
     // its own thickness pushed out to the surface of the wall — see `paintSkin`.
     // A run is uniform in everything the loop below reads off `set[0]`, and that
     // now includes whether these boxes are wall or finish.
+    // ...and by which way it faces OUT of the building, because that is the one
+    // thing `ghostNearWalls` needs and an instanced mesh cannot say per
+    // instance: a batch takes one material, so the two faces standing between
+    // the camera and the shop have to be batches of their own. A wall with no
+    // outside — any wall at all in a shop whose enclosure has come down — keys
+    // as '' and is never faded.
     const push = (kind, vertical, spec) => {
-      const k = `${kind}:${vertical ? 'v' : 'h'}:${spec.color ?? ''}:${spec.skin ?? ''}`;
-      if (!runs.has(k)) runs.set(k, { kind, vertical, boxes: [] });
+      const k = `${kind}:${vertical ? 'v' : 'h'}:${spec.color ?? ''}:${spec.skin ?? ''}:${spec.face ?? ''}`;
+      if (!runs.has(k)) runs.set(k, { kind, vertical, face: spec.face ?? '', boxes: [] });
       runs.get(k).boxes.push(spec);
     };
 
@@ -3816,23 +4067,65 @@ export class Scene {
     // have come down and has no inside at all) it falls to the positive axis,
     // which is a decision rather than a guess: it has to be the same answer every
     // re-flow, or a bay would flip sides when you built a shelf.
-    const outward = (vertical, x, z) => {
+    // ...and ZERO is now a real answer rather than a fallback, which is the half
+    // `ghostNearWalls` rests on. "Both sides agree" is not a side, and the two
+    // callers want opposite things from it: a bay has to project SOMEWHERE, so
+    // it keeps the arbitrary +1 below, while a wall with no outside must never
+    // be taken down — hiding an interior partition because it happens to lie
+    // across the view is the shop losing rooms as you turn the camera.
+    const sides = (vertical, x, z) => {
       const m = L.indoor;
-      if (!m) return 1;
+      if (!m) return null;
       const at = (cx, cz) => (cx < 0 || cz < 0 || cx >= L.w || cz >= L.h
         ? 0 : m[cz * L.w + cx]);
-      const a = vertical ? at(x - 1, z) : at(x, z - 1);
-      const b = vertical ? at(x, z) : at(x, z);
-      if (a === b) return 1;
-      return a ? 1 : -1;
+      return [vertical ? at(x - 1, z) : at(x, z - 1), at(x, z)];
+    };
+    const outSign = (vertical, x, z) => {
+      const s = sides(vertical, x, z);
+      if (!s || s[0] === s[1]) return 0;
+      return s[0] ? 1 : -1;
+    };
+    const outward = (vertical, x, z) => outSign(vertical, x, z) || 1;
+
+    /**
+     * A PARTITION: shop floor on both sides of it.
+     *
+     * The distinction the cutaway rests on, and the reason it is asked rather
+     * than read off a zero sign. Zero means "the two sides agree", which is two
+     * completely different walls — a stockroom divider, and every wall in the
+     * building the moment somebody knocks a hole in one, since `computeIndoor`
+     * answers zero indoor cells rather than fewer. Told apart by WHICH way they
+     * agree: both indoors is a room boundary and comes down with the rest, both
+     * outdoors is a shop that has lost its enclosure and must never be touched.
+     */
+    const isPartition = (vertical, x, z) => {
+      const s = sides(vertical, x, z);
+      return !!s && !!s[0] && !!s[1];
+    };
+
+    /**
+     * Which batch a wall belongs to: one of the four outward faces, a partition's
+     * own lattice line, or '' for a wall with nothing to say.
+     *
+     * A partition has no facing to test and does not need one — it is symmetric,
+     * so whichever side you stand it is between the camera and half of a room.
+     * That is why it is its own answer rather than a sign: the four outer faces
+     * come down two at a time depending where you are looking from, and an
+     * internal wall comes down whenever the cutaway is on at all.
+     */
+    const faceOf = (vertical, x, z) => {
+      const s = outSign(vertical, x, z);
+      if (s) return `${vertical ? 'x' : 'z'}${s > 0 ? '+' : '-'}`;
+      return isPartition(vertical, x, z) ? FACE_IN : '';
     };
 
     const emit = (kind, vertical, cx, cz, x, z) => {
       const style = EDGE_STYLE[kind];
       if (!style) return;
       const dir = style.out ? outward(vertical, x, z) : 1;
+      const face = faceOf(vertical, x, z);
       const bands = edgeBands(style);
-      for (const band of bands) push(kind, vertical, { cx, cz, dir, ...band });
+      for (const band of bands) push(kind, vertical, { cx, cz, dir, face, ...band });
 
       // ...and the finish on either side of it, as a skin over the bands that
       // are wall. Two things are deliberately left bare. GLASS, because paint on
@@ -3851,7 +4144,7 @@ export class Scene {
           // because a wall repeats UP as well as along: `patternColor` takes two
           // coordinates and the second one here is the course, not the row.
           push(kind, vertical, {
-            cx, cz, dir, y0: band.y0, y1: band.y1, skin: side,
+            cx, cz, dir, face, y0: band.y0, y1: band.y1, skin: side,
             color: patternColor(surface, vertical ? z : x, Math.round(band.y0 * 8)),
           });
           // ...and the bricks on top of it, which is the third pattern that is
@@ -3870,7 +4163,7 @@ export class Scene {
           for (const b of brickBond(bond, 1, band.y0, band.y1,
             (vertical ? z : x) - 0.5)) {
             push(kind, vertical, {
-              cx, cz, dir, y0: b.y0, y1: b.y1, skin: side, proud: true,
+              cx, cz, dir, face, y0: b.y0, y1: b.y1, skin: side, proud: true,
               off: b.off, len: b.len,
               color: jitter(surface.color, 0.035, b.seed),
             });
@@ -3917,10 +4210,45 @@ export class Scene {
      * notched away. One square of the same cap material completes the moulding
      * into a crisp corner without changing the thickness of either wall.
      */
+    /**
+     * Which way a lattice VERTEX faces out, for the pieces that stand on one
+     * rather than on an edge — the corner cap, a door pier, an arch join.
+     *
+     * The sum of the outward signs of the walls actually meeting there, which
+     * gives the three answers a corner has and nothing has to enumerate them.
+     * Down a straight run both segments agree, so the vertex hides with its
+     * wall. At the near corner of a building the two disagree in axis and the
+     * diagonal points at the camera, so it goes too. At the far corner of a
+     * hidden wall the sum comes out square to the view and the piece stays,
+     * which is right: it is still capping the wall that is standing.
+     *
+     * Only walls that EXIST count. The mask alone would answer for a boundary
+     * with no wall on it, and a cap at the end of nothing is a floating tile.
+     */
+    const vertexFace = (x, z) => {
+      let fx = 0;
+      let fz = 0;
+      let inside = false;
+      const seg = (vertical, sx, sz) => {
+        if (vertical) fx += outSign(true, sx, sz);
+        else fz += outSign(false, sx, sz);
+        inside ||= isPartition(vertical, sx, sz);
+      };
+      if (z > 0 && verticalAt(x, z - 1)) seg(true, x, z - 1);
+      if (z < L.h && verticalAt(x, z)) seg(true, x, z);
+      if (x > 0 && horizontalAt(x - 1, z)) seg(false, x - 1, z);
+      if (x < L.w && horizontalAt(x, z)) seg(false, x, z);
+      if (fx || fz) return `${Math.sign(fx)},${Math.sign(fz)}`;
+      // Nothing pointing anywhere and yet walls meeting here: a corner between
+      // two partitions, which fades when they do.
+      return inside ? FACE_IN : '';
+    };
+
     const cornerCaps = new Map();
     const addCornerCap = (style, x, z, span) => {
-      const key = `${style.top}:${style.h}:${span}`;
-      if (!cornerCaps.has(key)) cornerCaps.set(key, { style, span, points: [] });
+      const face = vertexFace(x, z);
+      const key = `${style.top}:${style.h}:${span}:${face}`;
+      if (!cornerCaps.has(key)) cornerCaps.set(key, { style, span, face, points: [] });
       cornerCaps.get(key).points.push({ x: x - 0.5, z: z - 0.5 });
     };
     for (let z = 0; z <= L.h; z++) {
@@ -3936,9 +4264,12 @@ export class Scene {
       }
     }
 
-    for (const { style, span, points } of cornerCaps.values()) {
+    for (const { style, span, face, points } of cornerCaps.values()) {
       const caps = new THREE.InstancedMesh(box, material(style.top), points.length);
       caps.receiveShadow = true;
+      caps.userData.outward = faceVector(face);
+      caps.userData.hue = style.top;
+      caps.userData.spots = cellsOf(points);
       points.forEach((point, i) => {
         dummy.position.set(point.x, style.h + 0.03, point.z);
         dummy.scale.set(span, 0.07, span);
@@ -3958,15 +4289,24 @@ export class Scene {
           .find(isDoor);
         if (!vertical || !horizontal) continue;
         const style = EDGE_STYLE[vertical];
-        doorCorners.push({ x: x - 0.5, z: z - 0.5, h: style.h, t: style.t, color: style.color });
+        doorCorners.push({
+          x: x - 0.5, z: z - 0.5, h: style.h, t: style.t, color: style.color,
+          face: vertexFace(x, z),
+        });
       }
     }
 
-    if (doorCorners.length) {
-      const posts = new THREE.InstancedMesh(box, material(doorCorners[0].color), doorCorners.length);
+    // Grouped by face for `ghostNearWalls`, the same as everything else on a
+    // boundary: a pier left solid in a wall you are seeing
+    // through is a column of masonry standing in mid-air.
+    for (const [face, piers] of byFace(doorCorners)) {
+      const posts = new THREE.InstancedMesh(box, material(piers[0].color), piers.length);
       posts.castShadow = true;
       posts.receiveShadow = true;
-      doorCorners.forEach((post, i) => {
+      posts.userData.outward = faceVector(face);
+      posts.userData.hue = piers[0].color;
+      posts.userData.spots = cellsOf(piers);
+      piers.forEach((post, i) => {
         // A hair wider than the wall lets the pier meet both thin edge shells
         // cleanly at the point they share, instead of leaving a daylight seam.
         const span = post.t + 0.02;
@@ -3996,15 +4336,21 @@ export class Scene {
         if (!vertical && !horizontal) continue;
         const kind = vertical ? verticalAt(x, z - 1) : horizontalAt(x - 1, z);
         const style = EDGE_STYLE[kind];
-        archJoins.push({ x: x - 0.5, z: z - 0.5, h: style.h, t: style.t, color: style.color });
+        archJoins.push({
+          x: x - 0.5, z: z - 0.5, h: style.h, t: style.t, color: style.color,
+          face: vertexFace(x, z),
+        });
       }
     }
 
-    if (archJoins.length) {
-      const posts = new THREE.InstancedMesh(box, material(archJoins[0].color), archJoins.length);
+    for (const [face, joins] of byFace(archJoins)) {
+      const posts = new THREE.InstancedMesh(box, material(joins[0].color), joins.length);
       posts.castShadow = true;
       posts.receiveShadow = true;
-      archJoins.forEach((post, i) => {
+      posts.userData.outward = faceVector(face);
+      posts.userData.hue = joins[0].color;
+      posts.userData.spots = cellsOf(joins);
+      joins.forEach((post, i) => {
         const span = post.t + 0.02;
         dummy.position.set(post.x, post.h / 2, post.z);
         dummy.scale.set(span, post.h, span);
@@ -4016,7 +4362,7 @@ export class Scene {
       this.edgeGroup.add(posts);
     }
 
-    for (const { kind, vertical, boxes } of runs.values()) {
+    for (const { kind, vertical, face, boxes } of runs.values()) {
       const style = EDGE_STYLE[kind];
       const opaque = boxes.filter((b) => b.alpha === undefined);
       const clear = boxes.filter((b) => b.alpha !== undefined);
@@ -4032,6 +4378,15 @@ export class Scene {
         // so it is uniform in this too.
         mesh.castShadow = alpha === 1 || !!set[0].shadow;
         mesh.receiveShadow = true;
+        mesh.userData.outward = faceVector(face);
+        // What it takes to put this batch back — `ghostNearWalls` swaps the
+        // material for a see-through one keyed to the same colour, and a batch
+        // that could not name its own hue and alpha would have to come back as a
+        // guess. Glass is in here too and keeps its own, or a shopfront fades to
+        // the ghost's alpha and then cannot fade back.
+        mesh.userData.hue = set[0].color ?? style.color;
+        mesh.userData.alpha = alpha;
+        mesh.userData.spots = cellsOf(set);
         set.forEach((b, i) => {
           // A band may project across the line — that is a bay window, and it is
           // the one thing here that is geometry rather than a stack of heights.
@@ -4090,6 +4445,9 @@ export class Scene {
       if (!capped.length) continue;
       const cap = new THREE.InstancedMesh(box, material(style.top), capped.length);
       cap.receiveShadow = true;
+      cap.userData.outward = faceVector(face);
+      cap.userData.hue = style.top;
+      cap.userData.spots = cellsOf(capped);
       capped.forEach((b, i) => {
         dummy.position.set(b.cx, style.h + 0.03, b.cz);
         dummy.scale.set(vertical ? style.t + 0.06 : 1, 0.07, vertical ? 1 : style.t + 0.06);
@@ -4150,7 +4508,7 @@ export class Scene {
       // `syncActors`' `onBuild` and `markUnder`.
       (rec, p) => this.markUnder(rec, p));
     this.syncActors(state.customers, this.customers,
-      (c) => buildCharacter(c.color, { variant: c.id, varied: true }));
+      (c) => buildCharacter(c.color, { variant: c.id, varied: true, look: c.look ?? null }));
     // ...and the animals, keyed by which piece they came out of so that
     // redrawing a hen over MCP restages every hen in the shop — `syncActors`'
     // own `keyOf`, doing here exactly what it does for a promoted hire.
@@ -4374,15 +4732,45 @@ export class Scene {
     const t = state.time ?? 0.5;
     const daylight = Math.sin(Math.PI * Math.min(Math.max((t - 0.25) / 0.6, 0), 1));
 
-    this.sun.intensity = 0.30 + daylight * 1.00;
+    // The look moves the NOON end of all three and leaves dusk where it was —
+    // see `AMBIENT_NOON` in look.js, which is the same shape `SKY_TOP` uses one
+    // function down. Scaled instead, the look would darken the evening far more
+    // than it darkens midday, and three bands with a floor under them turn that
+    // into a shop with no lit faces left in it at all.
+    const look = lookOn();
+    const sunTop = look ? SUN_NOON : 1.30;
+    const fillTop = look ? AMBIENT_NOON : 0.90;
+
+    this.sun.intensity = SUN_DUSK_LEVEL + daylight * (sunTop - SUN_DUSK_LEVEL);
     this.sun.color.copy(SUN_DUSK).lerp(SUN_HIGH, daylight);
+    this.bounce.intensity = look ? BOUNCE_LOOK : 0.32;
 
     // `spill` is every lamp too far away to be given a real light, folded into
     // one number — so panning sharpens the near end of the shop rather than
     // switching the far end off. It only ever lifts the things the bake cannot
     // reach now; the floor already has every one of those lamps in it.
     this.lights.setDaylight(daylight);
-    this.ambient.intensity = 0.38 + daylight * 0.52 + this.lights.spill;
+    // The SKY half is what the look turns down, and the spill is added after
+    // it: `spill` is the shop's own lamps folded into one number, which is
+    // authored content and the one thing in this sum the style has no business
+    // dimming — a banded look that quietly darkened every lamp in the catalogue
+    // would read as the night shift being broken.
+    //
+    // ...and under the look the SUM has a ceiling, which is the half that was
+    // missing. `spill` is real light and reaches 0.29 in a mature shop, so
+    // added raw onto a fill tuned to 0.62 it is a 57% overshoot: the fill ends
+    // up level with the sun, every face lands in the same step, and the ramp
+    // has nothing left to band. What that looks like is a flat, washed-out shop
+    // — which reads as the toon shading not working rather than as the fill
+    // being too high, because the bands are all there and all the same.
+    //
+    // A ceiling rather than a smaller spill, because what spill is FOR still
+    // has to happen: a dark shop full of lamps is lifted toward a lit one, it
+    // simply cannot be lifted past one. At noon there is nothing to lift.
+    const sky = AMBIENT_DUSK_LEVEL + daylight * (fillTop - AMBIENT_DUSK_LEVEL);
+    this.ambient.intensity = look
+      ? Math.min(sky + this.lights.spill, fillTop)
+      : sky + this.lights.spill;
     this.ambient.color.copy(FILL_DUSK).lerp(FILL_HIGH, daylight);
 
     // ...and the shop's own ceiling, on the movers. Same ramp as `INDOOR_LIFT`
@@ -4467,6 +4855,12 @@ export class Scene {
           walker: obj.userData.walker ?? null,
           gait: 0,
           gaitAmount: 0,
+          // Where the arms are, and where the hands say they should be. Eased
+          // between at frame rate — see the bottom of the loop below.
+          armPose: 0,
+          armLift: 0,
+          armDamp: 1,
+          kitHand: null,
         };
         this.actorRoot.add(obj);
         map.set(a.id, rec);
@@ -4540,6 +4934,19 @@ export class Scene {
       // out as twelve loose tomatoes at chest height.
       this.syncHaul(rec, a.haul ?? null, this.crateCap);
       this.syncPastime(rec, a);
+
+      // ...and what the ARMS are doing about all three, which is decided here
+      // rather than in any of the syncs because it is a fact about the person
+      // and each of those knows only its own third of them. A crate outranks an
+      // armful (you cannot be holding both, but the record can be mid-swap on
+      // one snapshot), and a bag on one hand asks for nothing but a quieter
+      // swing on the arm it rides.
+      //
+      // Stashed, never applied: the pose is eased in `animateActors` at frame
+      // rate. Written here it would snap on the tick somebody picked something
+      // up, which is a limb teleporting.
+      rec.armLift = rec.haul ? ARM_LIFT_HAUL : (rec.carry ? ARM_LIFT_CARRY : 0);
+      rec.armDamp = rec.armLift ? ARM_HELD : (rec.kitHand ? ARM_ONE_HANDED : 1);
     }
     for (const [id, rec] of map) {
       if (!seen.has(id)) {
@@ -4833,7 +5240,12 @@ export class Scene {
       // at floor level, under boxes it has nothing to do with, and take its
       // label away (`covered` hides the goods). The server's own `crateStacked`
       // makes the same exception for the same reason.
-      if (d.belt) continue;
+      // ...and neither is the box a PACKER is building, for exactly the same
+      // reason wearing a different flag: it is off the line but it is INSIDE a
+      // machine, waist-high, with whatever is riding past drawn across it. Filed
+      // into the tower on its square it would be drawn on the floor under the
+      // conveyor, which reads as a box that fell out of the run.
+      if (d.belt || d.packer) continue;
       const tile = `${Math.round(d.x)},${Math.round(d.z)}`;
       if (!stacks.has(tile)) stacks.set(tile, []);
       stacks.get(tile).push(d);
@@ -4885,7 +5297,7 @@ export class Scene {
       // `waste` is in the key because it is in the picture: a crate the shop
       // gave up on is drawn in a different wood, and a box that changed hands
       // between the two without a redraw would keep whichever it was built as.
-      const key = `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${cap}:${at}:${covered ? 'c' : 'o'}${d.waste ? ':w' : ''}${d.belt ? ':b' : ''}`;
+      const key = `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${cap}:${at}:${covered ? 'c' : 'o'}${d.waste ? ':w' : ''}${d.belt || d.packer ? ':b' : ''}`;
       const existing = this.deliveryProps.get(d.id);
       const drawn = d;
       if (existing && existing.userData.key === key) {
@@ -4914,7 +5326,7 @@ export class Scene {
         disposeGroup(existing);
       }
       const obj = buildPallet(piles, {
-        covered, cap, waste: d.waste === true, label: !d.belt,
+        covered, cap, waste: d.waste === true, label: !d.belt && !d.packer,
       });
       // Sat on the deck of the belt rather than on the floor. `at` is 0 for
       // anything belted (it is in no pile), so this is the belt's own height and
@@ -4936,7 +5348,7 @@ export class Scene {
       // goods on it and the same label rules, seen in transit. `BELT_DECK` is
       // measured to the carriers so the foot stays on the track — a scale about
       // the group's own origin lifts nothing, because that origin is the foot.
-      if (d.belt) obj.scale.setScalar(BELT_CRATE);
+      if (d.belt || d.packer) obj.scale.setScalar(BELT_CRATE);
       // A hand's turn per crate, so a tower reads as boxes somebody put there
       // rather than as one extruded box, and each one's edges stay findable to
       // point at. Alternating rather than random: a prop rebuilt on every
@@ -5133,8 +5545,16 @@ export class Scene {
           rec.walker.right.rotation.x = -swing;
           // Arms counter-swing the legs. Kept on the same two-pivot rig so the
           // whole gait remains four scalar writes per generic character.
-          rec.walker.leftArm.rotation.x = -swing * 0.72;
-          rec.walker.rightArm.rotation.x = swing * 0.72;
+          //
+          // ...damped and lifted by whatever is in the hands. Negative is
+          // FORWARD: the pivot is at the shoulder and the arm hangs down its
+          // own -y, so a positive turn about +x carries the hand backward.
+          // Eased rather than set, so picking something up is a limb moving
+          // rather than a limb somewhere else on the next frame.
+          rec.armPose += ((rec.armLift ?? 0) - rec.armPose) * Math.min(1, dt * 9);
+          const damp = rec.armDamp ?? 1;
+          rec.walker.leftArm.rotation.x = -swing * 0.72 * damp - rec.armPose;
+          rec.walker.rightArm.rotation.x = swing * 0.72 * damp - rec.armPose;
         }
         // ...and whatever is standing on the floor under them comes along. Set
         // rather than eased again: it is already following an eased position,
@@ -11071,7 +11491,13 @@ export class Scene {
       if (!item) continue;
       const one = buildModel(item.model, { castShadow: false });
       one.scale.setScalar(0.5);
-      one.position.set(((n % 2) - 0.5) * 0.16, n * 0.15, ((n % 2) - 0.5) * 0.1);
+      // Two by two, not four in a column. `CARRY_SHOWN` at 0.15 apart is a
+      // 0.45-tall tower, which on a body 0.78 high starts at the arms and ends
+      // above the head — an armful drawn as a totem pole, and the reason
+      // carried goods read as floating rather than as held. A block is what an
+      // armful looks like.
+      one.position.set(((n % 2) - 0.5) * 0.17, Math.floor(n / 2) * 0.13,
+        ((Math.floor(n / 2) % 2) - 0.5) * 0.08);
       held.add(one);
       n++;
     }
@@ -11082,7 +11508,7 @@ export class Scene {
     const total = lines.reduce((s, l) => s + l.qty, 0);
     if (total > 1) {
       const label = buildTextSprite(`x${total}`, { fill: '#fff3cf', scale: 0.62 });
-      label.position.set(0.3, 0.28 + n * 0.15, 0);
+      label.position.set(0.28, 0.16 + Math.floor((n - 1) / 2) * 0.13, 0);
       held.add(label);
     }
     // Welded, like stock and crops: an armful is up to `CARRY_SHOWN` little
@@ -11090,8 +11516,12 @@ export class Scene {
     // The label rides along untouched — `weld` re-hangs a sprite rather than
     // trying to merge it.
     const armful = weld(held);
-    // Out in front at chest height, so it reads as carried rather than worn.
-    armful.position.set(0, 0.62, 0.34);
+    // In the HANDS, which is where `animateActors` puts them the moment there
+    // is something to hold — see `armLift`. It used to sit at chest height and
+    // a third of a tile out in front, on the reasoning that it should read as
+    // carried rather than worn; what it actually read as was floating, because
+    // the arms went on swinging behind it and nothing connected the two.
+    armful.position.set(0, 0.50, 0.27);
     rec.obj.add(armful);
     rec.carry = armful;
   }
@@ -11111,6 +11541,19 @@ export class Scene {
    * held at the side and a basket held in front are the same code and a
    * different drawing.
    *
+   * ...and which of those two it is decides its PARENT, which is the third
+   * thing and the one that was wrong. A bag is authored out at the hip, where
+   * the hand is — so hung on the body it stood still while the arm carrying it
+   * swung straight through it, four times a second, for the whole walk out of
+   * the shop. `buildCharacter`'s `hold` groups are the fix and they cost this
+   * nothing: their origin is the body's own, so the authored numbers are
+   * unchanged and the bag simply rides the shoulder. A container held in FRONT
+   * (a basket, a trolley — anything whose art sits near the centre line) stays
+   * on the body, because it is held in both hands and swinging it off one
+   * would be the same bug pointed the other way. `HAND_SIDE` is the line, and
+   * it is measured off the built model rather than declared on the row: a kit
+   * that moves to the other hip should not need a column filling in.
+   *
    * No shadow, for the reason nothing on a person casts one: the body already
    * does, and a bag laying its own across the floor reads as litter.
    */
@@ -11122,14 +11565,23 @@ export class Scene {
     rec.kitKey = key;
 
     if (rec.kit) {
-      rec.obj.remove(rec.kit);
+      // Its parent is whichever of the three it went on, so it is asked rather
+      // than assumed — `rec.obj.remove` would silently leave a bag welded to a
+      // hand for the rest of the visit.
+      rec.kit.parent?.remove(rec.kit);
       disposeGroup(rec.kit);
       rec.kit = null;
+      rec.kitHand = null;
     }
     if (!key) return;
 
-    rec.kit = buildModel(model, { castShadow: false, t: fill });
-    rec.obj.add(rec.kit);
+    const bag = buildModel(model, { castShadow: false, t: fill });
+    const mid = new THREE.Box3().setFromObject(bag).getCenter(new THREE.Vector3());
+    const hold = rec.obj.userData.hold;
+    const side = Math.abs(mid.x) >= HAND_SIDE ? (mid.x > 0 ? 'right' : 'left') : null;
+    rec.kitHand = hold && side ? side : null;
+    (rec.kitHand ? hold[rec.kitHand] : rec.obj).add(bag);
+    rec.kit = bag;
   }
 
   /**
@@ -11630,14 +12082,26 @@ export class Scene {
    * Tilt rather than position, because `syncActors` lerps x and z toward the
    * server every frame and a jitter added to those would be pulled straight
    * back out. `rotation.y` is facing; `z` is free.
+   *
+   * The flush goes on through `characterMaterial`, and that is a fix rather
+   * than a tidy-up. It used to reach for `material()`, which is the FLAT-SHADED
+   * cache the shop's props share — so the first frame this ran, every shopper's
+   * head stopped being smooth and became a faceted ball, while the body beside
+   * it stayed round. It fires for everybody with a patience number, `anger: 0`
+   * included, so it was every shopper in the shop from the moment they walked
+   * in, and what it read as is character art that had not been finished.
+   *
+   * `skin` rather than `head`, because the chin is part of the face: flushing
+   * one of the two is a rash. `head` is kept for anything still asking.
    */
   animateMoods(now) {
     const t = now / 1000;
     for (const rec of this.customers.values()) {
       const anger = rec.anger;
       if (anger == null) continue;
-      const head = rec.obj.userData.head;
-      if (head) head.material = material(faceColor(anger));
+      const skin = rec.obj.userData.skin ?? [rec.obj.userData.head].filter(Boolean);
+      const mat = characterMaterial(faceColor(anger));
+      for (const m of skin) m.material = mat;
       rec.obj.rotation.z = anger > 0 ? Math.sin(t * 34 + rec.phase) * 0.1 * anger : 0;
     }
   }
@@ -11943,6 +12407,244 @@ export class Scene {
     }
   }
 
+  /**
+   * Only the boxes you are looking at say what is in them.
+   *
+   * See `LABEL_NEAR` for why. Three things about the shape of it.
+   *
+   * It is an OPACITY rather than a `visible` flag across the band, because a
+   * caption that snapped on as you panned would read as the label popping into
+   * existence — which is the one thing a readout must never do, since the
+   * player's next question is what changed about the crate. Hidden outright
+   * only at the far end, where there is nothing left to draw.
+   *
+   * The sprite's material is its OWN — `buildTextSprite` mints a canvas, a
+   * texture and a material per label, which is why `disposeGroup` frees them —
+   * so writing opacity here cannot reach any other label, and the `transparent`
+   * flag it was built with is what makes the write mean anything.
+   *
+   * And it is asked of every crate every frame rather than only of the ones
+   * that moved, because the thing that moves is the CAMERA: a box standing
+   * still in the yard changes its answer the moment you pan away from it. It is
+   * a distance and a compare per crate, on the same list `syncDeliveries`
+   * already walks.
+   */
+  fadeCrateLabels() {
+    // The zoom half is one number for the whole shop, so it is asked once and
+    // multiplied in rather than recomputed per box. Either half at zero is
+    // gone: they are two reasons not to draw a caption, not two votes.
+    const zoom = this.legible(LABEL_VIEW_FULL, LABEL_VIEW_GONE);
+    for (const obj of this.deliveryProps.values()) {
+      const tag = obj.userData.label;
+      // A box on a belt or inside a packer never had one — see `buildPallet`.
+      if (!tag) continue;
+      const lit = zoom && this.nearness(obj.position.x, obj.position.z, LABEL_NEAR, LABEL_FAR) * zoom;
+      tag.visible = lit > 0.02;
+      if (tag.visible) tag.material.opacity = lit;
+    }
+  }
+
+  /**
+   * See THROUGH whatever is standing between the camera and the shop.
+   *
+   * The two faces of the building nearest the viewer hide the aisles behind
+   * them, and the taller the walls the more they hide: at this pitch a wall
+   * conceals about `h / tan(pitch)` of floor, so every centimetre added to the
+   * silhouette is taken off the room. Which is why the walls could never grow —
+   * not because a taller wall looks wrong, but because it eats the shop. Ghost
+   * the near ones and the height is free.
+   *
+   * FADED RATHER THAN HIDDEN, and it was built the other way first, which is the
+   * interesting part. Taking a wall away is the obvious implementation and it
+   * makes every rule around it *finicky*: a wall that vanishes has to vanish for
+   * a reason the player can feel, so the outer faces needed a facing test, the
+   * partitions needed a per-line "is this actually between us" test, and each of
+   * those pops as you turn or walk. The cost of being wrong is the whole wall.
+   * At 15% the cost of being wrong is nothing — you can still see it is there,
+   * you can see through it, and the room keeps its shape — so the rules
+   * underneath get to be crude. That is the trade: a softer effect buys a
+   * simpler rule, and the simpler rule is what stops it feeling fussy.
+   *
+   * The COPING fades with it, and it was held back at first — left solid so a
+   * ghosted wall drew a hard line along its own top, on the reasoning that the
+   * plan of the shop should stay readable. In a room you have leant right into
+   * that line is not a plan, it is a solid bar hanging in the air across the
+   * thing you zoomed in on, and it reads worse than the wall did: a wall you can
+   * see through is obviously a wall, where a beam with nothing under it is
+   * obviously nothing. What makes the outline idea work in a plan view is that
+   * you can see the whole outline, and this only ever fires when you cannot.
+   *
+   * Read off the camera every frame rather than baked at build, because the view
+   * turns: a set of walls chosen when the shop was laid out would come straight
+   * back the moment somebody pressed Q, which is the shape of a bug rather than
+   * of a decision. It is a dot product and a material compare per batch, and
+   * there are a few dozen.
+   *
+   * ...and only while they are actually IN THE WAY, which is TWO tests and needs
+   * both. `WALL_CUT_VIEW` is how closely you are leant in: pulled right out you
+   * are looking at a building rather than into a room, the near walls are a
+   * tenth of the screen and hide almost nothing. `WALL_GHOST_REACH` is WHERE you
+   * are looking, and it is the one that was missing — leant in over the middle of
+   * an empty shop floor, the far wall is still turned at you and still fades,
+   * with nothing anywhere near it, which reads as the effect firing at random
+   * because from where you are sitting it did. A wall has to be facing you, and
+   * close to what you are looking at, and you have to be close enough for it to
+   * matter. See `nearCamLook`.
+   *
+   * Three more things about which walls qualify.
+   *
+   * An INTERNAL wall goes too — cutting those is the ordinary answer in this
+   * kind of game (the Sims calls it walls-down and has a button for it) — and it
+   * goes wholesale, on the trade above. See `FACE_IN`.
+   *
+   * A wall with NOTHING TO SAY is never touched, and telling that apart from a
+   * partition is the whole of `isPartition`. Both are a zero from `outSign`, and
+   * one of them is every wall in a shop whose enclosure has come down, since
+   * `computeIndoor` answers zero indoor cells rather than fewer (this file's own
+   * third trap). Both-indoors fades; both-outdoors stays solid. Fold those two
+   * together and knocking one hole in a wall turns the entire building to glass.
+   *
+   * The test is against `camOffset`, which is the direction from what is being
+   * looked at TOWARD the camera — so a positive dot is a face turned at the
+   * viewer. No epsilon: at a yaw where a wall is exactly edge-on the dot is zero
+   * and it stays solid, which is right, since a wall seen end-on is a line.
+   *
+   * And FIRST PERSON keeps everything. The cutaway is a convention of the
+   * overhead view — down at eye level the wall in front of you is the room.
+   *
+   * A ghosted wall casts no SHADOW while it is ghosted. Glass already works this
+   * way for the same reason: three has no half-shadow (the map is a depth pass,
+   * so a part casts fully or not at all whatever its opacity), and a wall you can
+   * see straight through laying a hard black stripe across the aisle reads as a
+   * wall that is still there and a renderer that has lost track of it.
+   */
+  ghostNearWalls() {
+    if (!this.edgeGroup) return;
+    const { x, z } = this.camOffset;
+    const cut = !this.fpv && this.viewTiles() <= WALL_CUT_VIEW;
+    for (const o of this.edgeGroup.children) {
+      const f = o.userData.outward;
+      if (!f || !o.userData.hue) continue;
+      const ghost = cut
+        && (f.always || f.fx * x + f.fz * z > 0)
+        && this.nearCamLook(o.userData.spots, WALL_GHOST_REACH);
+      // `material` is a cache keyed by colour and alpha, so both of these are
+      // shared objects that already exist — this is an identity compare and an
+      // assignment, never an allocation. Writing `.opacity` instead is the trap
+      // named all over this file: that field belongs to every prop in the game
+      // painted the same colour.
+      const want = material(o.userData.hue, ghost ? WALL_GHOST : (o.userData.alpha ?? 1));
+      if (o.material === want) continue;
+      o.material = want;
+      // Its OWN flag back, remembered the first time it is touched rather than
+      // re-derived from the alpha. A coping never cast one, and a batch handed
+      // "opaque, therefore casts" would start laying a shadow it has not laid
+      // since the shop was built — a fade that leaves something DARKER behind it.
+      o.userData.cast ??= o.castShadow;
+      o.castShadow = !ghost && o.userData.cast;
+    }
+  }
+
+  /**
+   * How much of a readout is drawn at this distance from the middle of the
+   * view: 1 inside `near`, 0 beyond `far`, straight line between.
+   *
+   * One function for both because it is one question — how near the thing you
+   * are looking at is this — and two copies of it would drift the day either
+   * band moved.
+   */
+  nearness(x, z, near, far) {
+    const d = Math.hypot(x - this.camLook.x, z - this.camLook.z);
+    return d <= near ? 1 : Math.max(0, (far - d) / (far - near));
+  }
+
+  /**
+   * The other half of the same question, and the one that actually answers
+   * zooming out: how legible a readout is at the zoom being drawn.
+   *
+   * `FRUSTUM / zoom` is how many tiles of shop are on screen top to bottom, and
+   * `this.ortho.zoom` rather than `camZoom` because that is the eased value the
+   * frame is being drawn through — read the wish instead and a readout snaps
+   * away a third of a second before the view it belongs to has moved.
+   */
+  legible(full, gone) {
+    const tall = this.viewTiles();
+    return tall <= full ? 1 : Math.max(0, (gone - tall) / (gone - full));
+  }
+
+  /**
+   * Is any of these cells within `reach` tiles of the middle of the view.
+   *
+   * The half of `ghostNearWalls` that is about WHERE you are looking rather than
+   * how closely. Facing and zoom between them still fade a wall on the far side
+   * of an empty shop floor — it is turned at you, and you are leant in, and it is
+   * nowhere near anything you can see. Which reads as the effect firing at
+   * random, because from where you are sitting it did.
+   *
+   * A whole batch fades if ONE of its cells qualifies, which is right rather than
+   * approximate: a batch is one face of one building, so the cells in it are a
+   * line, and half a wall fading is worse than all of it.
+   *
+   * Squared throughout and it breaks on the first hit, so the usual answer costs
+   * a handful of multiplies. The list is deduped at build (`cellsOf`) because
+   * the boxes are not: a painted wall is a dozen of them on every cell.
+   */
+  nearCamLook(spots, reach) {
+    if (!spots) return true;
+    const r2 = reach * reach;
+    for (let i = 0; i < spots.length; i += 2) {
+      const dx = spots[i] - this.camLook.x;
+      const dz = spots[i + 1] - this.camLook.z;
+      if (dx * dx + dz * dz <= r2) return true;
+    }
+    return false;
+  }
+
+  /**
+   * How many tiles of shop are on screen top to bottom.
+   *
+   * `this.ortho.zoom` rather than `camZoom` because that is the eased value the
+   * frame is being drawn through — read the wish instead and everything keyed to
+   * it jumps a third of a second before the view it belongs to has moved.
+   */
+  viewTiles() {
+    return FRUSTUM / (this.ortho.zoom || 1);
+  }
+
+  /**
+   * The thought bubbles, faded the same way — see `BUBBLE_NEAR` for why it is a
+   * scale rather than an opacity, and why it may not touch `visible`.
+   *
+   * EVERY bubble in the game, which is four maps and one readout. A shopper's
+   * hangs on the body, a bare board's stands in `actorRoot` at the unit's own
+   * tile, and a ripe bed's and a full pen's ride an `overlay` group at theirs —
+   * so the only thing that differs between them is where the distance is
+   * measured from. Fading some and not others is worse than fading none: a room
+   * where the shelves have gone quiet and the beds are still shouting reads as
+   * the fade being broken rather than as a decision, and the four are the same
+   * sentence about four subjects.
+   *
+   * `animatePlots` bobs a plot's bubble on the same frame, on `position` — the
+   * two do not collide, and that is why this is a scale and not a hop.
+   */
+  fadeBubbles() {
+    const zoom = this.legible(BUBBLE_VIEW_FULL, BUBBLE_VIEW_GONE);
+    const near = (obj, at) => {
+      const p = at.position;
+      obj.scale.setScalar(zoom && this.nearness(p.x, p.z, BUBBLE_NEAR, BUBBLE_FAR) * zoom);
+    };
+    for (const rec of this.wantBubbles?.values() ?? []) near(rec.obj, rec.obj);
+    for (const rec of this.players.values()) {
+      if (rec.bubble) near(rec.bubble, rec.obj);
+    }
+    for (const rec of this.plotProps.values()) {
+      if (rec.bubble) near(rec.bubble, rec.overlay);
+    }
+    for (const rec of this.penProps.values()) {
+      if (rec.bubble) near(rec.bubble, rec.overlay);
+    }
+  }
+
   render() {
     const now = performance.now();
     // How long the last frame took. Everything else animated in here is a sine
@@ -12170,6 +12872,15 @@ export class Scene {
     // — the ground is baked and sits on a layer these cannot reach, which is
     // what makes a pool that follows you acceptable again. See lights.js.
     this.lights.update(this.camLook);
+    // Which boxes are near enough to say what is in them. Beside the lights for
+    // the same reason and on the same input: it is a fact about where the view
+    // is, so it belongs to the frame rather than to the 10Hz sync — a caption
+    // that only faded ten times a second reads as flicker while you pan.
+    this.fadeCrateLabels();
+    this.fadeBubbles();
+    // ...and the walls between you and the shop. Same input again — `camOffset`
+    // is `camAngle` posed, and the ease above has just moved it.
+    this.ghostNearWalls();
     // The one line in the game that decides which camera is being drawn
     // through, and it is the line that poses it — see the constructor.
     //
@@ -12205,7 +12916,10 @@ export class Scene {
     // move together, and `SUN_OFFSET` is what separates them), so nothing in
     // the shading changes: this only decides where the depth map is sampled
     // from, which is the half that was crawling.
-    snapToShadowTexel(this.camLook, SUN_AT);
+    // ...on whatever grid the map is on THIS frame, which is a constant until
+    // the look is on and the span is fitted to the view. See `fitShadowSpan`.
+    const texel = this.ink ? this.fitShadowSpan() : SHADOW_TEXEL;
+    snapToShadowTexel(this.camLook, SUN_AT, texel);
     this.sun.target.position.copy(SUN_AT);
     this.sun.position.copy(SUN_AT).add(SUN_OFFSET);
     // Down here, after the view has finished moving, and that is not tidiness.
@@ -12234,10 +12948,83 @@ export class Scene {
     // The tick is stepped whatever happens, or the cadence would only ever
     // count the frames the drift rule had already declined.
     const stale = (this.shadowTick++ % SHADOW_EVERY) === 0;
-    const draw = stale || this.shadowSlip > SHADOW_SLIP;
-    if (draw) this.shadowSlip = 0;
+    const draw = stale || this.shadowDirty || this.shadowSlip > shadowSlipFor(texel);
+    if (draw) { this.shadowSlip = 0; this.shadowDirty = false; }
     this.renderer.shadowMap.needsUpdate = draw;
-    this.renderer.render(this.scene, this.camera);
+    if (!this.ink) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    // Everything the ink is drawn against is the same frame the game would have
+    // drawn; what the pass adds is a second draw of it for the normals and one
+    // fullscreen composite. Sized here rather than in `resize`, because the
+    // drawing buffer is what the targets have to match and `setPixelRatio` is
+    // free to disagree with `innerWidth` about what that is.
+    this.renderer.getDrawingBufferSize(DRAW_SIZE);
+    this.ink.setSize(DRAW_SIZE.x, DRAW_SIZE.y);
+    // How far the eye is from what it is LOOKING AT, which is what the contour
+    // fades against. Not `camera.position.length()`: that is a distance from
+    // the world origin, so in a shop built at (22, 17) it would thin every line
+    // in the game as you walked north.
+    this.ink.render(this.scene, this.camera, this.camera.position.distanceTo(this.camLook));
+  }
+
+  /**
+   * Shrink the shadow frustum onto what is on screen, and say what texel that
+   * leaves the map on.
+   *
+   * The map is a fixed number of texels however much ground it is asked to
+   * cover, so the span IS the resolution: at ±30 for a view eleven tiles tall,
+   * most of every texel is spent on ground nobody is looking at, and a PCF tap a
+   * texel wide is then blurring six centimetres of wall. Fitted, it is the same
+   * map over a third of the area — which is what makes a filtered shadow read as
+   * HARD, and a banded look wants hard edges, so this is where they come from.
+   *
+   * The footprint is the ortho frustum laid on the ground: its height stretches
+   * by the pitch, because a view tilted 40° off vertical sees further along the
+   * ground than across it. First person gets the constant back — a perspective
+   * frustum reaches the far wall, and there is nothing here to fit to.
+   *
+   * Quantised to `SHADOW_SPAN_STEP`, and that is the load-bearing half: the
+   * snap grid in `snapToShadowTexel` is derived from the span, so a span that
+   * slid continuously with the zoom would move the grid under the snap every
+   * frame of a pinch. Which is precisely the shimmer the snap exists to remove,
+   * arriving by the other door.
+   */
+  fitShadowSpan() {
+    let span = SHADOW_SPAN;
+    if (!this.fpv) {
+      const half = FRUSTUM / 2 / Math.max(0.05, this.ortho.zoom);
+      const across = half * Math.max(1, (this.renderer.domElement.clientWidth || 1)
+        / (this.renderer.domElement.clientHeight || 1));
+      const along = half / Math.max(0.2, Math.sin(this.camPitch));
+      span = Math.hypot(across, along) + SHADOW_MARGIN;
+      span = Math.min(SHADOW_SPAN, Math.max(SHADOW_SPAN_MIN,
+        Math.ceil(span / SHADOW_SPAN_STEP) * SHADOW_SPAN_STEP));
+    }
+    if (span !== this.shadowSpan) {
+      this.shadowSpan = span;
+      const c = this.sun.shadow.camera;
+      c.left = -span;
+      c.right = span;
+      c.top = span;
+      c.bottom = -span;
+      c.updateProjectionMatrix();
+      // The map now covers different ground from the one already drawn, so the
+      // one already drawn is of nowhere. A flag rather than `needsUpdate`,
+      // because the cadence below writes that field last and would put this
+      // straight back — which is a zoom whose shadows step two frames after the
+      // shop, intermittently, depending on where the tick had got to.
+      this.shadowDirty = true;
+    }
+    // ...and the self-shadowing bias with it, because it is a multiple of the
+    // TEXEL and the texel just moved. This is the pair that must never come
+    // apart: a constant here is a lattice of little triangles over every large
+    // lit surface in the shop — most of a wall, at any zoom where the span has
+    // grown past what the constant was picked for — and it reads as a texture
+    // somebody applied rather than as a number nobody scaled.
+    this.sun.shadow.normalBias = SHADOW_NORMAL_BIAS_TEXELS * shadowTexelFor(span);
+    return shadowTexelFor(span);
   }
 
   /**
@@ -12260,6 +13047,7 @@ export class Scene {
     this.staticRoot.clear();
     this.actorRoot.clear();
     this.sky?.texture.dispose();
+    this.ink?.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
   }
@@ -12406,7 +13194,9 @@ const LAMP_DUD = '#d4574a';
  * crosses stays open; everything else is closed in, which is what makes the
  * thing read as a machine with the line running through it.
  */
-const COVERED_KINDS = new Set(['arm', 'sorter']);
+// ...and a packer, which wears the same housing for the same reason: it
+// swallows a crate, so every side a box does NOT cross is walled in.
+const COVERED_KINDS = new Set(['arm', 'sorter', 'packer']);
 
 /**
  * WHAT MAY OWN A SHAFT UP THROUGH THE CEILING, besides a `lift`.
@@ -12471,8 +13261,152 @@ const SLAT_RGB = new THREE.Color();
  */
 const BELT_CRATE = 1;
 
+/**
+ * How near the middle of the view a crate has to be before it says what is in
+ * it, in tiles: fully legible inside the first, gone by the second, faded
+ * across the band between them.
+ *
+ * A crate NAMES its contents pile by pile, which is right about the box you
+ * walked over to and wrong about the twenty behind it: every one of them is
+ * shouting at the same volume, and the ones nearest the camera are drawn over
+ * by the ones behind, so a full yard is a wall of overlapping captions with the
+ * shop underneath it. Reading is the same thing `buildPallet` already refuses a
+ * moving box for — a caption you cannot read is worse than no caption, because
+ * it is also in the way.
+ *
+ * It is measured off `camLook` (the centre of the view) rather than off the
+ * player, because what the label answers is "what is in that one", and the one
+ * you mean is the one you are looking at — build mode flies the view away from
+ * the body entirely.
+ *
+ * It is a WORLD radius, and on its own it does NOT answer zoom — which is what
+ * the first cut of this got wrong, and the reason is arithmetic rather than
+ * taste. A shop is about ten tiles across, so any radius wide enough to caption
+ * the crate you walked up to already takes in the whole building: pull the view
+ * right out and every box in the yard is still inside 7.5 tiles of the middle,
+ * so nothing fades and the change reads as not having worked. What this radius
+ * is good for is the case it was written for — a yard of thirty boxes seen from
+ * close up — and that is all it is kept for. Zoom is `LABEL_VIEW_FULL`.
+ */
+const LABEL_NEAR = 4.5;
+const LABEL_FAR = 7.5;
+
+/**
+ * ...and the half that DOES answer zoom, in tiles of view height — full while
+ * the view is shorter than the first, gone once it is taller than the second.
+ *
+ * The honest criterion is not distance at all, it is how big the thing is on
+ * screen. These are world objects under an ortho camera, so their screen size is
+ * exactly proportional to `zoom` and nothing else — a caption two tiles from the
+ * camera and one twenty tiles away are drawn the same size, which is why no
+ * radius could ever have said this. `FRUSTUM / zoom` is that number said the way
+ * a person would say it: how much shop is on screen top to bottom.
+ *
+ * The zoom the game opens at shows about 11.7 tiles, and the report this came
+ * from is a screenshot at roughly that — so a caption has to be most of the way
+ * gone there and back at a glance the moment you lean in. 8 and 12.
+ *
+ * A bubble gets its own, wider pair for `BUBBLE_NEAR`'s reason exactly: it is a
+ * picture rather than a word, it survives being small, and finding the one bare
+ * shelf in a room is a thing you do from across the room. At the opening zoom a
+ * bubble is still fully there and a caption is not, which is the difference
+ * said out loud.
+ */
+const LABEL_VIEW_FULL = 8;
+const LABEL_VIEW_GONE = 12;
+const BUBBLE_VIEW_FULL = 12;
+const BUBBLE_VIEW_GONE = 18;
+
+/**
+ * How much shop has to be on screen before the near walls stop being scenery and
+ * start being in the way — see `ghostNearWalls`, in tiles of view height.
+ *
+ * 5, which is a long way inside the zoom the game opens at (11.7) — about three
+ * notches of the wheel past it. Anything looser and this fires while you are
+ * still looking at a shop rather than at a shelf: the opening view is a whole
+ * building with its walls round it and that is the picture you want, and a
+ * cutaway that starts as soon as you touch the wheel reads as the building
+ * falling apart rather than as the camera getting out of the way. At 5 tiles of
+ * view height you are close enough that a wall genuinely is the thing in front
+ * of what you came in to look at.
+ *
+ * It is the weaker of the two tests and always was: zoom says how closely you
+ * are looking and says nothing at all about WHAT, so on its own it fades the
+ * walls of a room you are nowhere near. `WALL_GHOST_REACH` is the other half.
+ */
+const WALL_CUT_VIEW = 5;
+
+/**
+ * How much of a wall is left when it is being seen through.
+ *
+ * Low, because a wall is not one layer: the body, a painted skin either side and
+ * a course of brick on top of that are four boxes deep on the same line, and
+ * transparency compounds — so 0.4 a band comes out very nearly solid on a wall
+ * anybody has decorated. This is the number that keeps a plain wall a hint and a
+ * painted one from being a pane of smoked glass.
+ */
+const WALL_GHOST = 0.15;
+
+/**
+ * How near the middle of the view a wall has to be before it counts as being in
+ * the way, in tiles.
+ *
+ * A TILE COUNT and deliberately not a share of the screen, which is the opposite
+ * call to the crate captions two constants up and is made for the opposite
+ * reason. A caption is a thing you read, so what matters is how big it is drawn;
+ * a wall is a thing that stands between you and somewhere, so what matters is how
+ * far away it actually is. Scaled by zoom this would reach further the more you
+ * pulled out, which is exactly backwards — the wide view is the one that wants
+ * its building whole.
+ *
+ * 4, which is about an aisle and a half: near enough that a wall is genuinely
+ * across what you are looking at, far enough that leaning into a corner fades
+ * both walls of it rather than one.
+ */
+const WALL_GHOST_REACH = 4;
+
+/**
+ * The same band for the thought bubbles — what a shopper wants, and what an
+ * empty board is waiting for — and it is WIDER than the labels' on purpose.
+ *
+ * They are the same complaint (the screenshot that prompted both is a room of
+ * translucent balls with the shop behind them) and not quite the same question.
+ * A crate's caption is text, so it is only worth drawing at the distance you
+ * could read it; a bubble is a picture of an item, which survives being small,
+ * and the thing it answers — *which* of these shelves is empty — is one you scan
+ * a room for rather than walk up to. Fade it at the label's radius and the only
+ * way to find a bare board is to stand in front of it, which is the state the
+ * bubble exists to fix.
+ *
+ * Faded by SCALE rather than by opacity, which is the one thing here that is
+ * forced rather than chosen: `bubbleMaterial` is a module-level singleton and
+ * the icon inside comes out of `material()`'s shared cache, so an opacity
+ * written on either reaches every bubble in the game and a good deal else
+ * besides — see the note on `tufts` and `onBeforeCompile`. Shrinking is per
+ * object, costs nothing, and reads as the thought receding.
+ *
+ * ...and it may never write `visible`, because `syncWants` owns that field: it
+ * hides a bubble whose fixture has gone, ten times a second, and a frame loop
+ * setting it back to true would draw a readout over a shelf that is not there.
+ */
+const BUBBLE_NEAR = 7;
+const BUBBLE_FAR = 11;
+
 /** Where the top of the track is — what a machine's side walls stand on. */
 const BELT_TOP = 0.09;
+
+/**
+ * Where a packer stands the box it is building.
+ *
+ * The top of the authored tray — see `crateY`. It is a repeat of a number in the
+ * `packer` fixture row, which is the one thing about this piece that is not
+ * derived, and the reason is that a fixture's model is content and this is code:
+ * the renderer cannot ask a row where its ledge is without inventing a `holds`
+ * flag on a part, which is a whole authoring concept for one machine. The tell
+ * if they drift is visible in one glance — the box floats over the lip, or sinks
+ * through it.
+ */
+const PACKER_TRAY = 0.77;
 
 /**
  * An overhead duct's glazing: how far out from the middle of the cell a pane
@@ -13056,6 +13990,24 @@ const FLOW_INK = {
 };
 
 function crateY(d, at) {
+  /**
+   * A packer's box stands on the TRAY, which is over the track rather than in
+   * it.
+   *
+   * It rode at `BELT_DECK` first, on the reasoning that a machine holding a box
+   * is holding it where a box on that machine would be — and that is exactly
+   * wrong here for a reason no other piece has. A packer is a run cell, so the
+   * crates it is NOT folding ride through the same square at the same height,
+   * through the box it is building. Two crates in one space reads as the held
+   * one being a ghost, or as the run being drawn wrong; either way the one thing
+   * this piece is meant to show you — the box filling — is the thing you cannot
+   * see.
+   *
+   * Matched to the authored tray, and it has to be: the number is in the
+   * `packer` fixture row's model and here, and nothing checks they agree. A box
+   * that floats over the lip or sinks through it is the tell.
+   */
+  if (d.packer) return PACKER_TRAY;
   if (!d.belt) return at * CRATE_STEP;
   // `CEILING_Y` is where an overhead cell's model ORIGIN sits, so the box rides
   // `BELT_DECK` above that — the same gap it rides above a belt on the floor,
@@ -13099,6 +14051,7 @@ function fixturesIn(L) {
     ...(L.sorters ?? []).map((s) => ({ ...s, kind: 'sorter' })),
     ...(L.unders ?? []).map((u) => ({ ...u, kind: 'under' })),
     ...(L.lifts ?? []).map((f) => ({ ...f, kind: 'lift' })),
+    ...(L.packers ?? []).map((k) => ({ ...k, kind: 'packer' })),
     // Decorations carry their own kind, because there is more than one of them
     // and which list they came out of no longer says which.
     //

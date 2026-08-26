@@ -24,6 +24,9 @@ import { z } from 'zod';
 import { START_TIERS, DEFAULT_TIER } from '../shared/start.js';
 import { DIFFICULTIES, NEW_DIFFICULTY } from '../shared/difficulty.js';
 import { JOBS } from '../shared/schemas.js';
+import {
+  CHARACTER_BUILDS, CHARACTER_HAIRS, CHARACTER_BEARDS, CHARACTER_FACES,
+} from '../shared/looks.js';
 
 /**
  * What each job actually does, for the tool description.
@@ -629,14 +632,29 @@ server.registerTool('create_archetype', {
     basket_min: z.number().int().min(1).default(1),
     basket_max: z.number().int().min(1).default(4),
     spawn_weight: z.number().min(0).default(1).describe('Relative likelihood vs other archetypes.'),
-    color: z.string().default('#d98cb3').describe('#rrggbb — how they look in game.'),
+    color: z.string().default('#d98cb3').describe('#rrggbb — their clothes. Trousers and shoes are shaded from it.'),
+    look: z.object({
+      build: z.enum(CHARACTER_BUILDS).default('regular'),
+      hair: z.enum(CHARACTER_HAIRS).default('crop'),
+      hair_color: z.string().default('#3a2e28').describe('#rrggbb — the beard takes this too.'),
+      beard: z.enum(CHARACTER_BEARDS).default('none'),
+      face: z.enum(CHARACTER_FACES).default('none').describe('One thing worn on the face. `nose` is a clown\'s.'),
+    }).nullable().default(null).describe(
+      'What they look like beyond their colour — this is what makes an archetype a CHARACTER rather than a coloured pawn. '
+      + `build: ${CHARACTER_BUILDS.join('|')}. hair: ${CHARACTER_HAIRS.join('|')}. `
+      + `beard: ${CHARACTER_BEARDS.join('|')}. face: ${CHARACTER_FACES.join('|')}. `
+      + 'Omit for the old behaviour: a size and haircut hashed off each shopper\'s id.',
+    ),
   },
 }, async (args) => text(await call('POST', '/content/archetype', args)));
 
 server.registerTool('create_event', {
   title: 'Create or update a world event',
   description:
-    'Add an event the world director can fire — a heat wave, a trend, a shortage. Effects are expressed against tags, so an event written today still works on items invented next month.',
+    'Add an event the world director can fire — a heat wave, a trend, a shortage. Effects are expressed against tags, so an event written today still works on items invented next month.\n\n'
+    + 'An effect can move three things. `demand_mult` and `price_mult` are matched against an ITEM\'s tags — what the town wants and what it pays. '
+    + '`spawn_mult` is matched against an ARCHETYPE\'s tags instead, and changes WHO walks through the door: `{tag: "emo", spawn_mult: 3}` is an emo takeover. '
+    + 'Call list_tags for the item vocabulary and list_content archetypes for the people one; a tag nobody carries moves nothing.',
   inputSchema: {
     id: z.string(),
     name: z.string(),
@@ -645,6 +663,8 @@ server.registerTool('create_event', {
       tag: z.string(),
       demand_mult: z.number().min(0).max(10).default(1),
       price_mult: z.number().min(0).max(10).default(1),
+      spawn_mult: z.number().min(0).max(10).default(1)
+        .describe('Matched against archetype tags, not item tags. 1 = no change, 3 = takeover, 0 = none of them today.'),
     })).min(1),
     duration_days: z.number().int().min(1).max(30).default(2),
     weight: z.number().min(0).default(1),
@@ -776,14 +796,16 @@ server.registerTool('set_reputation', {
 }, async (args) => text(await call('POST', '/reputation', args)));
 
 server.registerTool('add_modifier', {
-  title: 'Force a demand or price change',
+  title: 'Force a demand, price or crowd change',
   description:
-    'Directly push demand or price for a tag, without waiting for the director. '
+    'Directly push demand, price or who walks in for a tag, without waiting for the director. '
     + 'The fastest way to check that a new tag actually does something: spike it and watch whether customers change behaviour.',
   inputSchema: {
-    tag: z.string().describe('Which tag to affect.'),
+    tag: z.string().describe('Which tag to affect — an item tag for demand/price, an archetype tag for spawn.'),
     demand_mult: z.number().min(0).max(10).default(1).describe('1 = no change, 3 = frenzy, 0.3 = slump.'),
     price_mult: z.number().min(0).max(10).default(1).describe('Multiplier on fair market price.'),
+    spawn_mult: z.number().min(0).max(10).default(1)
+      .describe('How many more shoppers carrying this ARCHETYPE tag walk in. 1 = no change, 3 = takeover, 0 = none today.'),
     days: z.number().int().min(1).max(30).default(2),
     label: z.string().default('manual').describe('Shown to players in the HUD.'),
   },

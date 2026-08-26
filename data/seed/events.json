@@ -55,6 +55,40 @@
     "min_day": 4
   },
   {
+    "id": "emo-takeover",
+    "name": "The Band Is In Town",
+    "description": "Somebody old and loud is playing the civic hall. The whole town is wearing eyeliner and buying energy drinks.",
+    "effects": [
+      {
+        "tag": "emo",
+        "demand_mult": 1,
+        "price_mult": 1,
+        "spawn_mult": 3
+      },
+      {
+        "tag": "beverage",
+        "demand_mult": 1.8,
+        "price_mult": 1.15,
+        "spawn_mult": 1
+      },
+      {
+        "tag": "nostalgic",
+        "demand_mult": 1.9,
+        "price_mult": 1.2,
+        "spawn_mult": 1
+      },
+      {
+        "tag": "candy",
+        "demand_mult": 1.5,
+        "price_mult": 1.1,
+        "spawn_mult": 1
+      }
+    ],
+    "duration_days": 2,
+    "weight": 1.2,
+    "min_day": 0
+  },
+  {
     "id": "health-kick",
     "name": "New Year Health Kick",
     "description": "Resolutions are in full swing. Kale is having a moment; crisps are not.",

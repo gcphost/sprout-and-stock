@@ -59,6 +59,7 @@
  */
 
 import { Game } from '../server/sim/index.js';
+import { isWalkable } from '../server/layout.js';
 import { silenceMilestones } from '../server/sim/goals.js';
 import { writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
@@ -98,10 +99,42 @@ const TEST_TILL = {
 const PLAIN = 1;
 const SENSOR = 2;
 
+/**
+ * The sweep's own shopper.
+ *
+ * `spawnCustomer()` with no id takes a WEIGHTED DRAW over whatever archetypes
+ * the live content database happens to hold, and `basket_min`/`basket_max` then
+ * decide how many rolls building their list takes — so authoring a new customer
+ * type in another window moves this file's whole RNG stream and a shopper twelve
+ * spawns later ends up somewhere `pathTo` cannot leave. What that reads as is
+ * this sweep failing on a claim about counters, days after somebody added a
+ * Gym Rat, and there is nothing in the output connecting the two.
+ *
+ * So it authors its own, the way this file already authors its own till and its
+ * own item: fixed weight, fixed basket, nothing anybody else can move. It is
+ * still a weighted draw, but over a pool this file controls — the two spawn
+ * weights it does not control are irrelevant because `spawnCustomer` is asked
+ * for this id by name.
+ */
+const SHOPPER = 'zz-walkout-shopper';
+{
+  const res = writeContent('archetype', {
+    id: SHOPPER,
+    name: 'Walkout Test Shopper',
+    affinities: { pantry: 1 },
+    basket_min: 1,
+    basket_max: 1,
+    patience: 600,
+    spawn_weight: 0,
+  }, 'verify');
+  check(res.ok, `the catalog accepts ${SHOPPER}`, res.error ?? '');
+}
+
 // Registered before the first write, not after the last: a crash halfway
 // through must not leave a Test Gate on somebody's build menu.
 process.on('exit', () => {
   try { remove('fixtures', PIECE); } catch { /* the DB is already gone */ }
+  try { remove('archetypes', SHOPPER); } catch { /* the DB is already gone */ }
 });
 
 {
@@ -171,6 +204,49 @@ const ITEM = 'zz-walkout-thing';
 const PRICE = 3;
 
 /**
+ * The tile just inside the front door — where somebody who has walked in is.
+ *
+ * `spawnCustomer` puts a new shopper on `approach.off`, which is deliberately
+ * **off the tile grid entirely** (`{x: 10, z: 29}` on a map 22 deep), and hands
+ * them a route in from it; the first leg of that walk is the one leg that has
+ * no tile under it. So a fixture that keeps the spawn and throws the route away
+ * has not built somebody stood in the shop, it has built somebody stood off the
+ * edge of the world — see `regenerateLayout`, which despawns exactly that
+ * person on the stated grounds that "A\* can't route out of a tile that doesn't
+ * exist".
+ *
+ * Which is invisible in all but one assertion in this file, because nothing
+ * else here walks anywhere: `walkOut`, `completeSale` and the miss curve are
+ * arithmetic about somebody's basket and never ask where their feet are. The
+ * one that does ask is section 1's counter walk, and what it reads as is the
+ * SHOP being wrong — a plain till that sends people home — rather than as a
+ * shopper who was never in it.
+ *
+ * Worse, it failed *intermittently*, which is what kept it alive. `findPath`
+ * keys its grid `z * w + x`, so a start off the WEST edge (`x: -8`) wraps to a
+ * perfectly ordinary in-bounds cell and the search succeeds from a tile nobody
+ * chose, while one off the SOUTH edge (`z: 29`) indexes past the end and fails.
+ * Four of the eight approaches are each. So whether this file passed came down
+ * to which approach `rng.pick` landed on, and that moves whenever the content
+ * database does — which is why it went red the day eleven archetypes were
+ * authored, pointing at a shop and a counter that had not changed.
+ */
+function standTile(g) {
+  const L = g.layout;
+  const door = { x: L.door.x, z: L.door.z - 1 };
+  if (isWalkable(g.walk, L, door.x, door.z)) return door;
+  // A shop shaped differently than this file's own `SHOP` would still get an
+  // answer rather than the edge of the world. Scanning is fine here — it runs
+  // a few dozen times in a sweep, never in the game.
+  for (let z = 0; z < L.h; z++) {
+    for (let x = 0; x < L.w; x++) {
+      if (L.indoor?.[z * L.w + x] && isWalkable(g.walk, L, x, z)) return { x, z };
+    }
+  }
+  return door;
+}
+
+/**
  * Somebody stood in the shop with shopping in their basket.
  *
  * Built directly rather than walked in off the street, for `verify-till`'s
@@ -179,13 +255,23 @@ const PRICE = 3;
  * `BROWSE` rather than the state they spawn in, because `customersInside` — the
  * divisor the whole curve hangs off — does not count anybody still on the path
  * outside.
+ *
+ * ...and standing on a real tile, which is the half that was missing — see
+ * `standTile`. They all stand on the same one deliberately: a body is a
+ * SURCHARGE on a step and never a wall (`CROWD`, capped at four in
+ * `pathing.js`), so a dozen of them on the doormat is a slightly dearer route
+ * through the door and not a shop nobody can cross. Spreading them out would
+ * be a second thing this file decides that the feature does not depend on.
  */
 function shopper(g, lines = 1) {
-  const res = g.spawnCustomer();
+  const res = g.spawnCustomer(SHOPPER);
   if (!res.ok) return null;
   const cust = g.customers[res.id];
   cust.state = 'BROWSE';
   cust.path = null;
+  const stand = standTile(g);
+  cust.x = stand.x;
+  cust.z = stand.z;
   cust.mood = 1;
   cust.patience = 1e6;
   cust.basket = Array.from({ length: lines }, () => ({ item_id: ITEM, price: PRICE }));

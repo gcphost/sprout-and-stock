@@ -1,10 +1,10 @@
 # Belts — the trip nobody walks
 
-Status: **steps 1, 2, 2b, 3, 3b, 4, 4b and 7–11 built.** Steps 5–6 and 12
+Status: **steps 1, 2, 2b, 3, 3b, 4, 4b, 7–11 and 12 built.** Steps 5–6
 proposed.
 
-Steps 1–3 are the build. Steps 5–6 and 12 are written down so the shape is
-argued now rather than discovered later, and should not be started.
+Steps 1–3 are the build. Steps 5–6 are written down so the shape is argued now
+rather than discovered later, and should not be started.
 
 What shipped: the `belt`, `arm` and `sorter` kinds, the tile they stamp, the
 downstream-first tick with backpressure, the catalog rows, a `scroll` motion kind
@@ -1980,9 +1980,7 @@ wrong is where you go and read the sorter.
 
 ---
 
-## Step 12 — the packer, which is a crate that stands still
-
-**Proposed. Nothing in this section is built.**
+## Step 12 — the packer, which is a crate that stands still ✅
 
 ### The hole
 
@@ -2132,9 +2130,41 @@ change" would be the instrument rather than the feature. What it is worth is
 **trips saved per delivery**, which is a thing you watch rather than a number a
 run reports.
 
-The sweep it does need is `verify:pack`'s claims pointed at a machine, and the
-one that decides whether this is opt-in: **a shop with no packer is the old game
-to the crate.**
+`verify:packer` is that sweep — 155 claims, and it shipped WITH the piece, which
+is the rule `verify:ceiling` is this repo's counter-example for.
+
+### What the build actually found
+
+Four things, and three of them are traps this file or CLAUDE.md already names,
+arriving through a new door.
+
+**`clearRails` lifted the box the machine was holding**, which is this rule's own
+premise turned against it. That sweep exists because "on a conveyor cell and not
+on the run" used to mean a crate nothing owns — and it is now the exact
+description of a box being built. Unguarded, the packer took one pile out of the
+first crate and the rails put it straight back on the line: a machine that emits
+what it was fed, one pile at a time, which is a length of belt that cost £160 and
+looks like it is working the whole time.
+
+**"Satisfied" fired on the first unit.** Every ticked kind present is true the
+moment one of each lands, so a list of one kind released a box holding a single
+loaf. The fix is the game's own sentence for this — `wholeCrate` refuses a box
+not worth more than an armful — so a satisfied box has to beat `carryCapacity`
+before it goes, and the stale clock is what stops that being for ever. Written
+the obvious way, the piece is off and nothing anywhere says so.
+
+**`repositionFixture` cleared the list on R**, exactly as it cleared
+`sorter.auto` for a whole step. Named in the spec above, caught by the sweep
+anyway, which is the argument for writing both.
+
+**And `floorCrates` had to learn about it** — the `inACar` trap in its third
+form. `!d.waste && !d.belt` was a complete description of "a box anybody may walk
+up to and lift" until a machine could hold one still.
+
+The one thing the spec got right and is worth keeping: the box is an ordinary
+`deliveries` entry with a `packer` field, not a contents field on the fixture. So
+spoilage, `binOrphans`, `stockCrates`, the renderer and `persist` are all
+inherited rather than written, and the whole feature is four fields and a swing.
 
 ---
 

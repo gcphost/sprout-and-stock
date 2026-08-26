@@ -2081,6 +2081,7 @@ export class Game {
       sorters: want.sorter ?? 0,
       unders: want.under ?? 0,
       lifts: want.lift ?? 0,
+      packers: want.packer ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       // Both call sites, or the shop accepts a pen, charges for it, and drops
@@ -3250,6 +3251,10 @@ export class Game {
         // about a shopper on screen has to call them something.
         name: c.name ?? null,
         color: c.color, state: c.state,
+        // ...and what they look like. Omitted entirely when null, which is
+        // every archetype authored before `look` existed, so a shop with none
+        // set sends the frame it always did.
+        ...(c.look ? { look: c.look } : {}),
         // What is in their arms, which after the till is what they PAID for —
         // `bought`. Goods that vanished at the counter would read as the sale
         // eating them, and someone walking out with their shopping is the only
@@ -3370,7 +3375,7 @@ export class Game {
       // the reason `managed` is: `sortRows` reads `live.auto`, so with nothing
       // on the wire it was always undefined, always resolved to the default,
       // and left "Let the crew sort it" permanently lit with a dead press under
-      // it while "Just split it evenly" sent, worked, logged, and never moved
+      // it while "Split it evenly" sent, worked, logged, and never moved
       // the highlight. Two dead buttons is what a control with no state on the
       // wire looks like, and it is invisible in the sim — `sorterOut` reads the
       // layout and was right the whole time. Empty on every shop that has never
@@ -3449,6 +3454,37 @@ export class Game {
         ...shaftWire(s.id),
       })),
       /**
+       * ...and the packers. On the wire for the reason `auto` is: the menu is
+       * drawn from the snapshot, so a tick list that lives only in the layout is
+       * a row that can never tick.
+       *
+       * `holds` is what is in the box it is building, and it is here rather than
+       * being read off the crate for the same reason `belt` is sent on a crate:
+       * the client would otherwise have to match a box to a machine by rounded
+       * position, and a packer's box stands on the machine's own square with
+       * whatever is riding past drawn across it. `full` is the number the menu
+       * puts it over, because a box at 9 of 12 and one at 9 of 24 are the same
+       * three piles and a different sentence.
+       */
+      packers: (this.layout.packers ?? []).map((k) => {
+        const box = this.packerBox(k);
+        return {
+          id: k.id,
+          rot: k.rot ?? 0,
+          assigned: toList(k.assigned),
+          holds: lotStacks(box),
+          full: this.crateLot().cap,
+          // ...and whether it is WAITING on something that is not coming, which
+          // is the one state of this machine a still frame cannot show. A box
+          // part built and a box about to go out are the same box. Sparse — it
+          // is only true of a packer that has been given a list it cannot
+          // finish, which is no packer at all until you tick one.
+          ...(box && !this.packerReady(k, box) && this.packerList(k)
+            ? { waiting: true } : {}),
+          ...(mergeRoute(k) !== 'default' ? { merge: mergeRoute(k) } : {}),
+        };
+      }),
+      /**
        * ...and how a plain belt settles a merge, which is on the wire for the
        * reason the three above are: the menu is drawn from the snapshot, so a
        * control whose state lives only in the layout is a row that never ticks.
@@ -3519,6 +3555,14 @@ export class Game {
         // when a box is drawn between two of them and neither rounding is a lie
         // you would want a light blinking on.
         ...(d.belt ? { belt: d.belt } : {}),
+        // ...and the box a PACKER is building, which is neither of the two
+        // states this field has ever had. It is not on the line (`stepBelts`
+        // must not move it) and it is not on the floor (it is waist-high, inside
+        // a machine) — so a client that saw only `belt` would file it into
+        // whatever tower shares its square and draw it sitting on the ground
+        // under the conveyor. Sparse like the two above: every crate in every
+        // shop that has never built one is one or the other.
+        ...(d.packer ? { packer: d.packer } : {}),
         // ...and WHICH STOREY it is on, as a fraction, because a lift is the
         // one hop where the number between 0 and 1 is the whole thing you can
         // watch. Left off the wire the sim carried the box up perfectly and the
@@ -3953,6 +3997,13 @@ export class Game {
     // A loader gets first refusal on whatever is standing on it; if it does not
     // send the box anywhere, the run moves it on in the same tick as before.
     this.stepArms(dt);
+    // ...and the packers, on the same side of `stepBelts` and for the same
+    // reason said about the other machine that holds a box: it takes what it
+    // wants out of whatever is standing on it, and the run moves that box on in
+    // the same tick. Run after `stepBelts` a box would be part way onto the next
+    // cell before anything had asked whether the packer wanted a pile out of it,
+    // and what that reads as is a machine that works most of the time.
+    this.stepPackers(dt);
     this.stepBelts(dt);
 
     this.stepPlayers(dt);
@@ -11841,6 +11892,52 @@ export class Game {
   }
 
   /**
+   * What a packer is building, as a list of item ids.
+   *
+   * An empty list is *read the shop*, which is every packer ever laid and is the
+   * whole of what makes this a control rather than a setup step — see
+   * `packerList`.
+   *
+   * CAPPED AT `LOT_KINDS`, and the refusal is the point rather than tidiness. A
+   * crate holds three kinds, so a packer told to build a box of four can never
+   * be satisfied: it would hold goods nothing can reach for the rest of the
+   * save, with every light on it saying it is working. That is the given-up-
+   * board bug with a roof on it, and a cap you can read beats a stale timer you
+   * cannot — `PACK_STALE_SECONDS` is still there for the shop CHANGING under a
+   * list that was legal when you set it, which is the case no menu can refuse.
+   *
+   * Written onto the placement as well as the record, which is the trap
+   * `setSorterRoute` names one function down: `compose` rebuilds the record from
+   * the placement on every re-flow, and build mode re-flows on every wall
+   * segment of a drag, so a list written only to the record is one that clears
+   * itself behind you while you are still drawing.
+   */
+  setPackerItems(playerId, id, items) {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+    if (f.kind !== 'packer') return err('that is not a packer');
+    const cell = (this.layout.packers ?? []).find((k) => k.id === id);
+    if (!cell) return err('that is not a packer');
+    const c = content();
+    // Deduped and checked against the catalog, because content is edited live: a
+    // list naming a row somebody deleted is a box that can never be finished,
+    // which is the same permanent wait the cap above exists to refuse.
+    const list = [...new Set(toList(items))].filter((i) => c.byId.items[i]);
+    if (list.length > LOT_KINDS) return err(`a crate holds ${LOT_KINDS} kinds`);
+    cell.assigned = list;
+    const placement = this.placements.find((p) => p.id === id);
+    if (placement) placement.assigned = list;
+    // The wait restarts, or a list changed after a box had been standing for
+    // forty seconds sends that box out on the old list's clock.
+    this.packWait?.delete(id);
+    this.persist();
+    this.pushLog(list.length
+      ? `That packer is building ${list.map((i) => c.byId.items[i]?.name ?? i).join(' + ')}.`
+      : 'That packer will build whatever the run downstream wants.');
+    return ok({ id, assigned: list });
+  }
+
+  /**
    * ...and the same question asked of the cell two lines MEET on.
    *
    * Its own verb rather than a fourth branch of `setSorterRoute`, because a
@@ -12269,6 +12366,14 @@ export class Game {
   clearRails() {
     for (const d of this.deliveries) {
       if (d.belt) continue;
+      // ...and never the box a PACKER is holding, which is this rule's own
+      // premise turned against it. "On a conveyor cell and not on the run" is
+      // exactly what a building box IS, deliberately — so unguarded, the sweep
+      // that exists to stop a crate resting on the rails lifts it onto them the
+      // tick after the machine starts it. What that produces is a packer that
+      // takes one pile out of the first box and immediately sends it on, which
+      // is a length of belt that cost forty pounds and looks like it is working.
+      if (d.packer) continue;
       const cell = this.beltAt(Math.round(d.x), Math.round(d.z));
       if (!cell || !this.crateRested(d)) continue;
       if (this.mayRide(d, cell) && this.loadBelt(cell, d)) continue;
@@ -13192,7 +13297,14 @@ export class Game {
         for (let j = loc.i; j < line.cells.length; j++) {
           const c2 = line.cells[j];
           if (line.dist[j] < at - 1e-9) continue;
-          if (c2.kind !== 'arm' || c2.mode === 'load' || crate.armDone === c2.id) continue;
+          // ...and a PACKER, which holds for the same one swing and for the
+          // same reason: it has to be offered the box exactly once, on the
+          // centre, rather than two thirds of the time somewhere across the
+          // gap. `armDone` is the one mark and it is already cleared on
+          // arrival at a new cell, so both machines share it rather than
+          // growing a second flag that means the same thing.
+          const machine = c2.kind === 'arm' ? c2.mode !== 'load' : c2.kind === 'packer';
+          if (!machine || crate.armDone === c2.id) continue;
           cap = Math.min(cap, line.dist[j]);
           break;
         }
@@ -13735,7 +13847,14 @@ export class Game {
    * crew it exists to replace.
    */
   floorCrates() {
-    return this.deliveries.filter((d) => !d.waste && !d.belt);
+    // ...and never the box a PACKER is building, which is the `inACar` trap in
+    // its third form. `!d.waste && !d.belt` was a complete description of "a box
+    // anybody may walk up to and lift" until a machine could hold one still, and
+    // a packer's box answers it: off the line, on the floor, sitting in the
+    // aisle. `unload` scores a stray at `stray * 1e6`, so unguarded every
+    // stocker in the shop abandons the bay and queues at the machine that exists
+    // to make that walk unnecessary — with every hire visibly doing their job.
+    return this.deliveries.filter((d) => !d.waste && !d.belt && !d.packer);
   }
 
   /**
@@ -15011,6 +15130,443 @@ export class Game {
     return true;
   }
 
+  // -------------------------------------------------------------------------
+  // The packer — docs/belts.md step 12
+  // -------------------------------------------------------------------------
+
+  /**
+   * The box this machine is BUILDING, which is an ordinary crate standing still.
+   *
+   * The whole of what makes this piece affordable is here. A packer holds goods
+   * between ticks, which is the one thing nothing else on a run does — and the
+   * obvious shape for that is a contents field on the fixture, which is the
+   * SEVENTH place goods can live and is what the argument at the top of
+   * docs/belts.md spends four paragraphs refusing. Each of those places is four
+   * subsystems that fail quietly: something has to age it, something has to
+   * sweep it when its item row is deleted, something has to count it as supply
+   * so the buyer does not order against it, something has to draw it, and a save
+   * has to carry it.
+   *
+   * So it is a `deliveries` entry, and every one of those five is inherited
+   * rather than written: `spoilYard` ages it, `binOrphans` sweeps it,
+   * `stockCrates` counts it, the renderer already knows what a crate looks like,
+   * and `persist` writes `this.deliveries` whole. A packer holding six loaves is
+   * a crate holding six loaves that happens to be parked.
+   *
+   * `d.packer` and NOT `d.belt`, which is the one distinction that had to be
+   * drawn. A box on the line is one the run may move; this one must stand still
+   * until it is released, and `stepBelts` moves exactly what has `d.belt`. It
+   * also keeps the cell free for the boxes going past — `beltBusy` files one
+   * crate per cell, so a building box filed on the rails would be a plug in the
+   * run rather than a machine in it.
+   *
+   * The cost of that choice is one line in `floorCrates`, and it is the
+   * `inACar` trap exactly: `!d.waste && !d.belt` was a complete description of
+   * "a box anybody may walk up to and lift" until this existed, and a packer's
+   * box answers it. `unload` scores a stray at `stray * 1e6`, so unguarded every
+   * stocker in the shop abandons the bay and queues at the machine that exists
+   * to make the walk unnecessary — the crew emptying the thing bought to replace
+   * them, with every hire visibly doing their job.
+   */
+  packerBox(p) {
+    return this.deliveries.find((d) => d.packer === p.id) ?? null;
+  }
+
+  /**
+   * The crate standing ON a packer's cell — the one going past, not the one
+   * being built.
+   *
+   * `armHolds`' twin, and the `off` guard is there for `armHolds`' reason: a box
+   * keeps naming the cell it set off from for the whole of a hand-off, so one
+   * that has begun to leave is still filed here while it is drawn most of the
+   * way onto the next square. Tipping that one is goods leaving a box the player
+   * is watching move away.
+   */
+  packerFeed(p) {
+    return this.deliveries.find((d) => d.belt === p.id && !(d.off > 0)) ?? null;
+  }
+
+  /**
+   * What this packer is building, or null for "read the shop".
+   *
+   * Null is every packer ever laid, which is what makes the tick list an
+   * override rather than a configuration step: a piece that does nothing until
+   * you have told it what to do is a piece you buy and then have to set up, and
+   * the shop already knows what is down each of its lines. Same argument
+   * `sorter.auto` makes, and the same evidence — `conveyorServes` walks the run
+   * forward and `shelfAccepts` is the shop's one rule for whether a unit will
+   * have something, so a packer is right about an item authored this afternoon
+   * and there is nothing to keep up to date.
+   */
+  packerList(p) {
+    const list = toList(p.assigned);
+    return list.length ? list : null;
+  }
+
+  /**
+   * Would this packer take this kind out of a box going past?
+   *
+   * Three things have to be true and the third is the one worth stating.
+   *
+   * It is not RUBBISH. A waste crate is not stock — `stockCrates` filters it out
+   * everywhere in the game for exactly that reason — and the only thing on a run
+   * that may end one is a skip. A packer that folded rot into a box of bread
+   * would be laundering it: the merge keeps the destination's stamp, so what
+   * comes out the far end is a crate of perfectly fresh-looking goods.
+   *
+   * The shop has not GIVEN UP on it. `givenUp` is the one judgement rule a
+   * loader asks and it is asked here for the loader's reason — this is a machine
+   * acting unattended in a loop, which is the exact thing that rule exists for.
+   * Without it a packer builds boxes of the one item nothing in the shop will
+   * ever shelve, for ever, and the run reads as working.
+   *
+   * And SOMETHING DOWNSTREAM WANTS IT, which is the half that keeps this from
+   * being a bin with a lid. A packer that filled its box with what the shop has
+   * no room for is a full crate walked to one board and carried home again,
+   * which is `verify:pack`'s own centrepiece said about a machine rather than
+   * about a hire.
+   */
+  packerTakes(p, itemId) {
+    if (!itemId) return false;
+    if (givenUp(this, itemId)) return false;
+    const list = this.packerList(p);
+    if (list) return list.includes(itemId);
+    return conveyorServes(this.layout, p).some((sh) => this.shelfAccepts(sh, itemId));
+  }
+
+  /**
+   * Is the box worth a journey yet?
+   *
+   * THREE ANSWERS AND NOT ONE, and the third is the one that will feel wrong to
+   * write and is doing all the work.
+   *
+   * *Full* is the obvious one — `crateLot().cap` is a trip by definition.
+   *
+   * *Satisfied* is the pitch: every kind it was ticked for is in there. It can
+   * only ever be asked of a packer that WAS ticked, because a derived list is a
+   * question about the shop rather than an order, and "the shop wants nothing
+   * else" is a state a busy run passes through several times a minute.
+   *
+   * AND IT HAS TO BEAT AN ARMFUL, which is the half the first build left out
+   * and which turns the whole piece off. A list of one kind is satisfied by the
+   * first unit that lands, so the machine released a box holding a single loaf
+   * and started another — a packer that emits exactly what it was fed, one pile
+   * at a time, which is a length of belt that cost forty pounds. Nothing about
+   * that looks wrong: the boxes go past, the shelves fill, and the trip you
+   * bought the machine to fold is still being made three times.
+   *
+   * `carryCapacity` is the bar rather than a number of its own, because it is
+   * the sentence the game already uses for exactly this: `wholeCrate` refuses a
+   * box that is not worth more than one armful, which is what "worth a journey"
+   * has meant since a hire could shoulder one. A box that does not beat it
+   * waits, and the stale clock below is what stops that being for ever.
+   *
+   * *Stale* is the safety catch, and without it this piece is a hole in the
+   * shop. A box waiting on a kind the shop has stopped buying waits for the rest
+   * of the save — holding goods nothing can reach, with every light on the
+   * machine saying it is working. That is the given-up-board bug with a roof on
+   * it, and `LOT_KINDS` guarantees it is reachable rather than unlucky: a crate
+   * holds three kinds, so a packer ticked for four can never be satisfied at
+   * all. The menu caps the list at three; this is what covers the shop changing
+   * under a list that was legal when you set it.
+   */
+  packerReady(p, box) {
+    if (!box || !lotTotal(box)) return false;
+    if (lotTotal(box) >= this.crateLot().cap) return true;
+    const list = this.packerList(p);
+    if (list && lotTotal(box) > this.carryCapacity()
+      && list.every((id) => lotQty(box, id) > 0)) return true;
+    /**
+     * ...and the WAIT, whose length is the one thing the machine now looks up
+     * the line to decide.
+     *
+     * It shortens rather than being replaced, and that distinction is the whole
+     * of what makes the lookahead usable. "Nothing behind me, so go" fires on the
+     * first tick the line happens to be clear — and a delivery is a stream with
+     * gaps in it, so a burst of three crates two seconds apart would be sent as
+     * three boxes of four, which is the piece switched off. Every folding claim
+     * in `verify:packer` failed on exactly that.
+     *
+     * So: something coming is a reason to wait LONGER, not a gate. On a quiet
+     * run a part box goes out in `PACK_QUIET_SECONDS` instead of holding stock
+     * for three quarters of a minute on behalf of nobody; on a busy one the long
+     * backstop is what it always was, because a box upstream is not a box that
+     * will arrive — it can jam, or be sent down another leg at a junction
+     * between there and here.
+     */
+    const since = this.packWait?.get(p.id);
+    if (since == null) return false;
+    const wait = this.packerInbound(p) ? Game.PACK_STALE_SECONDS : Game.PACK_QUIET_SECONDS;
+    return this.elapsed - since >= wait;
+  }
+
+  /**
+   * IS ANYTHING COMING THAT THIS PACKER WANTS?
+   *
+   * The question the stale clock was standing in for, and standing in for it
+   * badly in both directions. Forty-five seconds is too long on a quiet morning
+   * — a part box sits holding stock nothing is going to add to, for the sake of
+   * a wait that was never about anything — and it is a guess on a busy one.
+   * Asked properly it costs nothing to be right: a machine that can see an empty
+   * line behind it has no reason at all to keep waiting.
+   *
+   * ONE HOP, deliberately. A crate on this packer's own line behind it, or on a
+   * line that hands directly into it. Transitively is the whole network, which
+   * in a shop wired as a loop is *every* crate in the building — so the answer
+   * would be "yes, always", the box would never go out early, and the feature
+   * would be an expensive way of doing nothing. One hop covers the case this
+   * exists for, which is a delivery coming down the run it is standing in.
+   *
+   * BEHIND IT rather than merely on the same line, or a packer mid-line counts
+   * every box it has already sent as a reason to keep waiting for them.
+   *
+   * And it is a REASON TO WAIT rather than a reason to go: `packerReady` still
+   * has the stale clock under it, because a box that is upstream is not a box
+   * that will arrive — it can be jammed, or diverted at a junction between here
+   * and there. Without that backstop this is a machine that waits for ever on
+   * evidence that was true when it looked.
+   */
+  packerInbound(p) {
+    const net = this.beltLines();
+    const here = net.byCell.get(p.id);
+    if (!here) return false;
+    const feeders = net.feeds.get(here.line.id) ?? [];
+    const lines = new Set([here.line.id, ...feeders.map((l) => l.id)]);
+    for (const d of this.deliveries) {
+      if (!d.belt || d.waste) continue;
+      const at = net.byCell.get(d.belt);
+      if (!at || !lines.has(at.line.id)) continue;
+      // On my own line, only what is behind me. On a line that feeds mine,
+      // anything — all of it is on its way here.
+      if (at.line.id === here.line.id && at.i >= here.i) continue;
+      if (lotStacks(d).some((s) => this.packerTakes(p, s.item_id))) return true;
+    }
+    return false;
+  }
+
+  /**
+   * How long a part-built box waits on a kind that is not coming.
+   *
+   * Measured against `elapsed` and held in memory rather than on the crate,
+   * which is this file's oldest trap and the reason `yieldedAt` is not saved
+   * either: that clock restarts at zero on every load, so a stamp written to the
+   * save would sit in the future and the box would never go out again. In memory
+   * the worst a reload can do is restart the wait, which is a box that leaves
+   * late once.
+   */
+  static PACK_STALE_SECONDS = 45;
+
+  /**
+   * ...and how long it waits when the line behind it is EMPTY.
+   *
+   * Long enough to ride out the gaps inside a delivery — a van's load reaches
+   * the run a crate at a time, and a loader lifts one every `ARM_SECONDS`, so a
+   * burst has holes in it that are nothing to do with the burst being over.
+   * Short enough that a part box on a dead morning is not stock held for nobody.
+   */
+  static PACK_QUIET_SECONDS = 8;
+
+  /**
+   * One swing. Take what it wants out of the box in front of it, and let go of
+   * its own when that one is worth the trip.
+   *
+   * RELEASE IS ASKED FIRST, and the order is the difference between a machine
+   * and a plug. A packer that filled before it released would take a pile out of
+   * the very box it was about to be replaced by, and on a busy run it would
+   * never reach the release at all — the box grows, the cap holds it, and what
+   * you watch is a conveyor backing up behind a machine that is working
+   * perfectly.
+   */
+  packerSwing(p) {
+    const box = this.packerBox(p);
+    if (this.packerReady(p, box)) return this.packerRelease(p, box);
+
+    const feed = this.packerFeed(p);
+    if (!feed || feed.waste) return false;
+    /**
+     * ...AND NEVER A BOX THIS MACHINE HAS ALREADY SWUNG AT, which is the whole
+     * of what keeps it from eating its own output.
+     *
+     * `packerRelease` puts the built box on this cell — that is what a hand-off
+     * onto a run IS — so for as long as it stands there, which is every tick
+     * until the line ahead takes it, `packerFeed` answers with the box the
+     * machine just sent. Unguarded it takes the piles straight back out into a
+     * fresh crate and sends that, over and over: measured on a live save, 24 of
+     * 55 fills were the packer re-packing its own output, and one shop churned
+     * 72 boxes in 60 seconds out of a dock that delivers nothing like that.
+     *
+     * What it LOOKS like is the tell and the reason this needed an eye: the box
+     * has a new id every time, so the crate on the tray flashes in and out
+     * rather than filling. Nothing jams, nothing is lost, and the throughput
+     * figure is inflated by exactly the churn — so a sweep counting boxes sent
+     * would have called it a win.
+     *
+     * `armDone` is the mark and it is the one already there: it means "this
+     * machine has had its swing at this box", `stepBelts` clears it the moment
+     * the box reaches a new cell, and a loader has used it for the same purpose
+     * since there were loaders. So this also gives the rule a packer should have
+     * had anyway — ONE swing per box — which is what stops a crate held by
+     * backpressure being tipped again on every tick it waits.
+     */
+    if (feed.armDone === p.id) return false;
+    /**
+     * ...AND NEVER A BOX THAT IS ALREADY WORTH A JOURNEY.
+     *
+     * This machine exists to fold PART-crates. A box that already beats an
+     * armful is already a trip — taking it apart and reassembling it moves the
+     * same goods to the same shelf down the same run, and the only thing that
+     * changed is that it stopped on the way.
+     *
+     * What that looks like is the tell, and it is what a full crate off a van
+     * does every single time: the box goes up onto the tray and comes straight
+     * back down a second later. Not a stutter and not a bug you could point at —
+     * the goods arrive correctly — but a machine visibly doing nothing, which is
+     * indistinguishable from one that is broken.
+     *
+     * `carryCapacity` is the bar for the same reason it is the bar in
+     * `packerReady`: `wholeCrate` has meant "worth more than one armful" since a
+     * hire could shoulder a box, and a packer that used a different number would
+     * be a second opinion about the one question this shop already answers.
+     *
+     * It also makes the piece cheap where it does nothing. A dock that lands
+     * full crates is a dock a packer passes through untouched, which is what
+     * lets you put one at the front of the run without thinking about it.
+     */
+    if (lotTotal(feed) > this.carryCapacity()) return false;
+    return this.packerFill(p, feed);
+  }
+
+  /**
+   * Tip what it wants out of the box going past, and let the rest ride on.
+   *
+   * TIPPED AND NEVER STOPPED, which is `armTip`'s shape and is the whole of what
+   * keeps a packer from being a plug: the piles it wants come out, the remainder
+   * carries on down the line, and a box it emptied goes away rather than riding
+   * on as a nothing. The alternative — hold the arrival until it is empty — is a
+   * machine that stops a run dead the first time somebody sends it a crate of
+   * something it has never been asked for.
+   *
+   * Biggest pile first, which is `fillCrate`'s ordering and matters here for
+   * `fillCrate`'s reason: the KIND SLOTS are the scarce thing (`LOT_KINDS` is
+   * three), so spending one on the four eggs before the one lettuce is the box a
+   * glance would have packed.
+   *
+   * The stamp rides with it, which is one line of `lotAdd` and two ways to get
+   * wrong. A merge keeps the DESTINATION's stamp, and a kind the box has not got
+   * arrives as a bare pair with no stamp at all, which `spoilYard` reads as
+   * fresh for ever — either one makes a packer the way to beat rot, and a crate
+   * of laundered flour looks exactly like a crate of flour. It is the pair
+   * `verify:pack` already pins about the rung, and it is the same two lines here
+   * because it is the same operation.
+   */
+  packerFill(p, feed) {
+    const opts = this.crateLot();
+    let box = this.packerBox(p);
+    let took = 0;
+
+    /**
+     * The pile's own clock rides across, and the OLDER stamp wins.
+     *
+     * `packCrate`'s `carry`, written out again here rather than shared, because
+     * the two differ in the one place that matters: that one writes onto
+     * `p.haul` and this onto a `deliveries` entry. Both write through `.stacks`
+     * and never through `lotStacks`, which hands back copies on purpose — a
+     * stamp written onto what it returns is written onto a value nobody keeps,
+     * and what that reads as is the clock silently not carrying, which is the
+     * bug wearing the fix.
+     */
+    const carry = (id, from) => {
+      if (from == null || !box) return;
+      const pile = (box.stacks ?? []).find((s) => s.item_id === id);
+      if (pile) pile.day = Math.min(pile.day ?? from, from);
+    };
+
+    for (const pile of lotStacks(feed).sort((a, b) => b.qty - a.qty)) {
+      if (!this.packerTakes(p, pile.item_id)) continue;
+      // Both caps at once — units and kind slots — which is why this is
+      // `lotRoom` rather than a subtraction. An empty machine has a whole
+      // crate's worth of room and no box yet to ask.
+      const room = box ? lotRoom(box, pile.item_id, opts) : opts.cap;
+      if (room <= 0) continue;
+      // Read BEFORE the take: `lotTake` is what empties the source, and a stack
+      // drained to nothing is gone by the time there is anything to stamp.
+      const was = pile.day ?? feed.day ?? null;
+      const out = lotTake(feed, pile.item_id, Math.min(pile.qty, room));
+      if (!(out.took > 0)) continue;
+      feed.stacks = out.lot?.stacks ?? [];
+      if (!box) {
+        box = {
+          id: `del-${this.nextDeliveryId++}`,
+          stacks: [],
+          x: p.x,
+          z: p.z,
+          packer: p.id,
+        };
+        this.deliveries.push(box);
+      }
+      box.stacks = lotAdd(box, pile.item_id, out.took, opts).lot?.stacks ?? box.stacks;
+      carry(pile.item_id, was);
+      took += out.took;
+    }
+
+    if (!took) return false;
+    // A box it emptied goes away rather than riding on as a nothing, which is
+    // `armTip`'s own ending.
+    if (!lotTotal(feed)) this.deliveries = this.deliveries.filter((d) => d.id !== feed.id);
+    this.packWait ??= new Map();
+    if (!this.packWait.has(p.id)) this.packWait.set(p.id, this.elapsed);
+    return true;
+  }
+
+  /** Put the built box on the run, which is an ordinary hand-off. */
+  packerRelease(p, box) {
+    if (!box) return false;
+    const cell = this.beltAt(p.x, p.z, deckOf(p));
+    // Backpressure comes free: `loadBelt` refuses a cell that is taken, so a
+    // packer at the head of a full run simply holds — which is the correct
+    // behaviour and needed no code to get.
+    if (!cell || !this.loadBelt(cell, box)) return false;
+    box.packer = null;
+    // A new square is a new machine, and the packer it just left is one of them
+    // — without this the box is released and tipped straight back in, for ever,
+    // which is a machine that looks busy and moves nothing.
+    box.armDone = p.id;
+    this.packWait?.delete(p.id);
+    return true;
+  }
+
+  /**
+   * Every packer, once per swing.
+   *
+   * The empty-list guard is the assertion that decides whether any of this is
+   * opt-in: a shop that never built one takes no pass, keeps no clock and writes
+   * no field, which is every save in existence.
+   *
+   * Movement is not here — `stepBelts` walks a packer along with the belts,
+   * because `beltAt` answers for it. A machine that could not hand on would be a
+   * plug in the middle of every run it stood in.
+   */
+  stepPackers(dt) {
+    const packers = this.layout.packers ?? [];
+    if (!packers.length) return;
+    this.packClock ??= new Map();
+
+    for (const p of packers) {
+      const per = Game.ARM_SECONDS / (this.fixtureStats(p).speed_mult || 1);
+      const clock = (this.packClock.get(p.id) ?? 0) + dt;
+      if (clock < per) { this.packClock.set(p.id, clock); continue; }
+      const feed = this.packerFeed(p);
+      // ...and this box has had its swing, so the run may take it on. The mark
+      // goes on whether or not anything was taken — see the hold in
+      // `stepBelts`: without it a box the packer wanted nothing from waits at
+      // the machine for ever, which is a run that stops dead the first time you
+      // send it something it was not asked for.
+      if (this.packerSwing(p)) this.packClock.set(p.id, 0);
+      else this.packClock.set(p.id, per);
+      if (feed) feed.armDone = p.id;
+    }
+  }
+
   stepStations(dt) {
     const stations = this.layout.stations ?? [];
     if (!stations.length) return;
@@ -15946,6 +16502,7 @@ export class Game {
       ...(this.layout.sorters ?? []).map((s) => ({ ...s, kind: 'sorter', ref: s })),
       ...(this.layout.unders ?? []).map((u) => ({ ...u, kind: 'under', ref: u })),
       ...(this.layout.lifts ?? []).map((f) => ({ ...f, kind: 'lift', ref: f })),
+      ...(this.layout.packers ?? []).map((k) => ({ ...k, kind: 'packer', ref: k })),
     ];
   }
 
@@ -17273,6 +17830,12 @@ export class Game {
       // the day something can, it is a side somebody named on purpose.
       reject: from.reject === (from.rot ?? 0) ? rot4(Number(spec.rot) || 0) : from.reject,
       riser: from.riser,
+      // ...and what a PACKER has been told to build, which is a list rather
+      // than a flag and is reset by exactly the same omission. R is the press
+      // most likely to follow laying one — you aim the run — and a tick list
+      // silently emptied by it reads as the machine forgetting, which is
+      // indistinguishable from a machine that never took the list.
+      assigned: from.assigned,
       // ...and who goes first where two lines meet on it. It rides along rather
       // than re-aiming the way `reject` does, because it names a RULE and not a
       // side — but R is very much the press here too: which of two lines is
@@ -18669,6 +19232,7 @@ export class Game {
       sorters: want.sorter ?? 0,
       unders: want.under ?? 0,
       lifts: want.lift ?? 0,
+      packers: want.packer ?? 0,
       checkouts: want.checkout,
       plots: want.plot,
       // Both call sites, or the shop accepts a pen, charges for it, and drops
@@ -19564,13 +20128,60 @@ export class Game {
     }
   }
 
+  /**
+   * WHO comes through the door, and what an event is allowed to do about it.
+   *
+   * Until this existed a world event could move demand and price and nothing
+   * else, so no event could ever change the *crowd* — a school holiday and a
+   * goth night were both "everyone wants sweets", said at the same twenty kinds
+   * of shopper in the same proportions. `spawn_mult` is the third axis, matched
+   * against `ArchetypeSchema.tags` and never against an archetype id, which is
+   * the whole reason that column was added.
+   *
+   * **One draw, whatever is happening.** The multiplier is folded into the
+   * WEIGHTS and the pick is the single `rng.weighted` call it always was —
+   * exactly `rollList`'s argument about `demand_mult`, and for the same reason:
+   * `weighted` calls `rng.next()` once regardless of what it is handed, so a
+   * shop with no spawn modifier on it draws the same random number it always
+   * drew and comes out of a balance run byte-identical. Rolling the crowd
+   * first and then rolling the shopper would shift the whole stream, and
+   * CLAUDE.md is explicit about what that does to a measurement.
+   *
+   * The empty case returns the caller's own array rather than a rebuilt copy of
+   * it — `foldModifiers` deletes an all-1 entry precisely so this test is
+   * cheap, and every modifier in every save today folds to nothing.
+   *
+   * The product over an archetype's tags is deliberate and matches how `demand`
+   * reaches an item: somebody tagged both `kid` and `emo` on a night that wants
+   * both is doubly likely, which is what those two tags being true of them
+   * means. A weight of zero is honoured — `weighted` skips it — and a table
+   * that zeroes *everybody* falls back to `items[0]` rather than crashing,
+   * which is the one place this could have emptied the town.
+   */
+  drawArchetype(archetypes, folded = this.folded()) {
+    const spawn = folded?.spawn ?? {};
+    if (Object.keys(spawn).length === 0) return this.rng.weighted(archetypes, 'spawn_weight');
+    const weighted = archetypes.map((a) => ({
+      a,
+      w: (a.spawn_weight ?? 1) * (a.tags ?? []).reduce((s, t) => s * (spawn[t] ?? 1), 1),
+    }));
+    return this.rng.weighted(weighted, 'w').a;
+  }
+
   spawnCustomer(archetypeId, space = null) {
     const c = content();
     if (c.archetypes.length === 0) return err('no customer archetypes exist');
 
+    // Folded ONCE and handed to both readers. Not an optimisation — though
+    // `folded()` is uncached and this is the spawn path, so it is that too:
+    // who walks in and what they came in for are two questions about the same
+    // day, and asking the table twice is how they could ever be answered from
+    // two different ones. It cannot happen today, and the day a modifier
+    // expires mid-tick is the day it could.
+    const folded = this.folded();
     const arch = archetypeId
       ? c.byId.archetypes[archetypeId]
-      : this.rng.weighted(c.archetypes, 'spawn_weight');
+      : this.drawArchetype(c.archetypes, folded);
     if (!arch) return err(`no archetype "${archetypeId}"`);
 
     // They arrive from somewhere, rather than appearing in the middle of the
@@ -19669,6 +20280,12 @@ export class Game {
       z: at.z + this.rng.float(-(car ? 0 : 0.7), car ? 0 : 0.7),
       facing: 0,
       color: arch.color,
+      // Copied onto the shopper beside their colour rather than looked up by
+      // the client, for the reason `color` is: the renderer would otherwise
+      // need the archetype catalog to draw a person, and a shopper who spawned
+      // before the catalog message landed would be drawn wrong and never
+      // redrawn. Null is every archetype authored before `look` existed.
+      look: arch.look ?? null,
       state: 'ENTER',
       path: null,
       basket: [],
@@ -19708,7 +20325,7 @@ export class Game {
        */
       lane: null,
       wantCount: units,
-      list: this.rollList(arch, units),
+      list: this.rollList(arch, units, folded),
       errandAt: -1,
       missed: [],
       settled: false,
