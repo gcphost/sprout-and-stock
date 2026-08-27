@@ -106,6 +106,27 @@ export const E = {
   RAILING: 22,
   /** Masonry, waist high. A partition you look over — see `FENCING`. */
   LOW_WALL: 23,
+  // A DOORWAY WITH GLASS IN IT, twice over — and the first thing in this file
+  // that has a rule AND a look. See `WAY_LOOKS` for why that axis finally
+  // earned its place, and `EDGE_BASE.glazed` for what the two are made of.
+  //
+  // Both are the same hole a doorway is: what is glazed is the wall AROUND the
+  // opening, never the opening itself. That is the shutter's own rule about
+  // there being no shut one, and it bites harder here — glass you can see
+  // through, drawn across a hole you walk through, is a kind the table calls
+  // passable and the picture calls solid, which is the disagreement every
+  // green-ghost bug in this codebase is made of. Here it would arrive as a
+  // shopper strolling through a plate-glass door, and it would look *correct*.
+  /** A doorway with a fanlight over it. Lines up with a high window. */
+  DOOR_TRANSOM: 24,
+  DOOR_TRANSOM_STAFF: 25,
+  DOOR_TRANSOM_IN: 26,
+  DOOR_TRANSOM_OUT: 27,
+  /** ...and the same doorway glazed to the lintel with a slim frame. */
+  DOOR_SHOPFRONT: 28,
+  DOOR_SHOPFRONT_STAFF: 29,
+  DOOR_SHOPFRONT_IN: 30,
+  DOOR_SHOPFRONT_OUT: 31,
 };
 
 /**
@@ -159,7 +180,55 @@ export const WAYS = new Map([
   // an archway between the shop and the stockroom takes the roof off both.
   [E.ARCH, { base: 'arch', rule: 'all', roofs: true }],
   [E.ARCH_STAFF, { base: 'arch', rule: 'staff', roofs: true }],
+  // The glazed doorway, and it is one base with two LOOKS — the first row in
+  // this table to carry both axes. It roofs and it signs exactly as a doorway
+  // does, because it IS a doorway; the glass is in the wall over and beside the
+  // hole rather than in it.
+  [E.DOOR_TRANSOM, { base: 'glazed', look: 'transom', rule: 'all', roofs: true }],
+  [E.DOOR_TRANSOM_STAFF, { base: 'glazed', look: 'transom', rule: 'staff', roofs: true }],
+  [E.DOOR_TRANSOM_IN, { base: 'glazed', look: 'transom', rule: 'in', roofs: true }],
+  [E.DOOR_TRANSOM_OUT, { base: 'glazed', look: 'transom', rule: 'out', roofs: true }],
+  [E.DOOR_SHOPFRONT, { base: 'glazed', look: 'shopfront', rule: 'all', roofs: true }],
+  [E.DOOR_SHOPFRONT_STAFF, { base: 'glazed', look: 'shopfront', rule: 'staff', roofs: true }],
+  [E.DOOR_SHOPFRONT_IN, { base: 'glazed', look: 'shopfront', rule: 'in', roofs: true }],
+  [E.DOOR_SHOPFRONT_OUT, { base: 'glazed', look: 'shopfront', rule: 'out', roofs: true }],
 ]);
+
+/**
+ * THE SECOND AXIS, and why it took until the fifth opening to earn one.
+ *
+ * `GLAZING` has a look axis and `WAYS` deliberately did not: the roller door
+ * and the arch are each their own BASE, and docs/building.md §21 writes down the
+ * test that settled both. A family is *the set of things that swap for a refit*,
+ * so two things belong in one family exactly when swapping them is free — and a
+ * swap is free exactly when it moves no number. A $34 doorway for a $46 shutter
+ * is a purchase, so they are two families and there is no look axis in it.
+ *
+ * The glazed doorway is the first thing that fails that test the other way. A
+ * fanlight over a door and a glazed surround round the same door are the same
+ * hole, the same enclosure, the same rule and the same glass — $48 either way,
+ * which is a doorway plus what glass costs over a wall. So by the test's own
+ * terms they are ONE family with two looks, and the axis is what the test asked
+ * for rather than a convenience.
+ *
+ * The pairing with `GLAZING` is the point: `transom` is `WINDOW_HIGH` said about
+ * a doorway and `shopfront` is `WINDOW_FULL` said about one, and both line up
+ * with their window on the same wall by construction, because all four measure
+ * off the one head line (`HEAD_ROOM`, client/render/palette.js). Draw a
+ * shopfront along the front of the shop, put a shopfront door in the middle of
+ * it, and the glass runs through unbroken — which is the whole of what anybody
+ * wants a glazed door for, and is impossible if the two are authored apart.
+ *
+ * A base with no entry here has one look and no choice, which is every opening
+ * that existed before this: `wayLook` answers null for all of them, and the menu
+ * offers no second row.
+ */
+export const WAY_LOOKS = {
+  glazed: ['transom', 'shopfront'],
+};
+
+/** Which look this opening wears, or null for a base that has only one. */
+export const wayLook = (kind) => WAYS.get(kind)?.look ?? null;
 
 /**
  * Which rules each sort of opening can be given, in the order a menu lists them.
@@ -189,10 +258,21 @@ export const WAY_RULES = {
   // is a marking on the floor and needs no direction. It leads with `all`,
   // because unlike a curtain an arch is bought to be walked through.
   arch: ['all', 'staff'],
+  // ...and a glazed doorway takes the doorway's four, because it is a doorway.
+  // The reason an arch and a curtain get two is that a one-way rule would have
+  // no picture in them, and this one has a doorway's picture exactly.
+  glazed: ['all', 'staff', 'in', 'out'],
 };
 
-/** What the palette lays when you drag this sort of opening out. */
-export const wayDefault = (base) => wayKind(base, WAY_RULES[base]?.[0] ?? 'all');
+/**
+ * What the palette lays when you drag this sort of opening out.
+ *
+ * Takes a look now, and defaults to the base's FIRST — which is `WAY_RULES`'s
+ * own convention (the order is what the button lays) said about the other axis.
+ * A base with no looks passes `null` and matches the rows that have none.
+ */
+export const wayDefault = (base, look = WAY_LOOKS[base]?.[0] ?? null) =>
+  wayKind(base, WAY_RULES[base]?.[0] ?? 'all', look);
 
 /** What sort of opening this is, or null for anything that isn't one. */
 export const wayBase = (kind) => WAYS.get(kind)?.base ?? null;
@@ -200,9 +280,18 @@ export const wayBase = (kind) => WAYS.get(kind)?.base ?? null;
 /** Who may cross, or null for anything that isn't an opening. */
 export const wayRule = (kind) => WAYS.get(kind)?.rule ?? null;
 
-/** The kind that is this sort of opening with this rule on it. */
-export function wayKind(base, rule) {
-  for (const [kind, w] of WAYS) if (w.base === base && w.rule === rule) return kind;
+/**
+ * The kind that is this sort of opening with this rule and this look on it.
+ *
+ * `look` is compared against `null` rather than left off when absent, or a base
+ * with looks would answer its first row to a caller that meant a different one —
+ * a menu whose Shopfront square quietly lays a transom, which draws as the press
+ * having done nothing.
+ */
+export function wayKind(base, rule, look = null) {
+  for (const [kind, w] of WAYS) {
+    if (w.base === base && w.rule === rule && (w.look ?? null) === look) return kind;
+  }
   return null;
 }
 
@@ -311,7 +400,15 @@ export function fenceKind(look) {
  * purpose: you would have built a wall along that run anyway, so what the charm
  * is priced against is the $14 the glass costs OVER a wall, not the $26.
  */
-export const EDGE_CHARM = new Map([...GLAZING.keys()].map((k) => [k, 0.4]));
+export const EDGE_CHARM = new Map([
+  ...[...GLAZING.keys()].map((k) => [k, 0.4]),
+  // ...and the glazed doorway, at the same rate and for the same arithmetic: it
+  // is $48 against a doorway's $34, so what the charm is priced against is the
+  // $14 the glass costs OVER the way through you would have built anyway. Both
+  // looks alike, which is the per-family rule above holding — a fanlight is
+  // prettier than a glazed surround to you and identical to the town.
+  ...[...WAYS].filter(([, w]) => w.base === 'glazed').map(([k]) => [k, 0.4]),
+]);
 
 /**
  * What the whole shell is worth, walked once.

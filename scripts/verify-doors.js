@@ -79,8 +79,9 @@ import { remove } from '../server/db.js';
 import { findPath } from '../server/sim/pathing.js';
 import { queueLane, canPlaceEdge, canPlaceEdges } from '../shared/build.js';
 import {
-  E, SOLID, ENCLOSING, RULED, WAYS, GLAZING, GLAZING_LOOKS, computeIndoor,
-  edgeBetween, eviOf, ehiOf, canStep, shopperCanCross, wayBase, wayRule, wayKind,
+  E, SOLID, ENCLOSING, RULED, WAYS, WAY_RULES, WAY_LOOKS, GLAZING, GLAZING_LOOKS,
+  computeIndoor, edgeBetween, eviOf, ehiOf, canStep, shopperCanCross,
+  wayBase, wayRule, wayLook, wayKind,
   wayDefault, glazingKind, glazingLook, edgeFamily,
 } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
@@ -200,7 +201,32 @@ const routes = (g, ent, goal) => g.pathTo(ent, goal);
     eq(ENCLOSING.has(kind), !!w.roofs,
       `a ${w.base} with rule "${w.rule}" encloses iff its row says it roofs`);
     eq(RULED.has(kind), w.rule !== 'all', `"${w.rule}" is ruled iff it is not "all"`);
-    eq(wayKind(w.base, w.rule), kind, `${w.base}/${w.rule} resolves back to itself`);
+    // Both axes, or the round trip stops being an identity the moment a base
+    // has two looks: `wayKind` walks the table in order, so asked for the rule
+    // alone it would answer the FIRST row matching it and every shopfront door
+    // would resolve back as a fanlight. Which is the bug this line exists to
+    // catch, so it has to be asked with everything the row carries.
+    eq(wayKind(w.base, w.rule, w.look ?? null), kind,
+      `${w.base}/${w.rule}${w.look ? `/${w.look}` : ''} resolves back to itself`);
+  }
+  // ...and the second axis in its own right — every look of every base is
+  // reachable, and no two of them are the same kind. A look that resolved to
+  // its neighbour is a palette button that lays the wrong piece, which is
+  // invisible until you look closely at a wall you have just built.
+  for (const [base, looks] of Object.entries(WAY_LOOKS)) {
+    const seen = new Set();
+    for (const look of looks) {
+      for (const rule of WAY_RULES[base] ?? []) {
+        const kind = wayKind(base, rule, look);
+        check(kind !== null, `${base}/${rule}/${look} exists`);
+        check(!seen.has(kind), `${base}/${rule}/${look} is its own kind`);
+        seen.add(kind);
+        eq(wayLook(kind), look, `...and it knows which look it is`);
+        eq(wayRule(kind), rule, `...and which rule`);
+      }
+    }
+    eq(seen.size, looks.length * (WAY_RULES[base] ?? []).length,
+      `${base} has one kind per rule per look and no two share`);
   }
   // No one-way gate, and that is a decision rather than an omission: "in" is read
   // off the enclosure, a fence never encloses, so a one-way gate would be a
@@ -651,6 +677,65 @@ const routes = (g, ent, goal) => g.pathTo(ent, goal);
   g.buildEdge('me', { ...at, kind: E.WINDOW_BAY });
   g.placeFixture('me', { kind: 'shelf', x: L.store.x + 4, z: L.store.z + 2, rot: 0 });
   eq(kindAt(g.layout, at), E.WINDOW_BAY, 'and buying a shelf does not reglaze it');
+}
+
+// ---------------------------------------------------------------------------
+// 11. THE GLAZED DOORWAY, which is the first edge in the game with a rule AND a
+// look — and the whole of what that costs is that the two axes must not touch
+// each other.
+//
+// Everything else here is derived and provable by reading a table. This is not:
+// pressing Shopfront on a staff entrance has to leave a staff entrance, and
+// there is nothing on screen that would say it had not. A glazed door thrown
+// open to the town looks exactly like a glazed door — the sign is a stripe on a
+// threshold read edge-on — so the failure arrives days later as shoppers in the
+// stockroom, pointing at the pathing.
+//
+// The money is the other half, and it is docs/building.md §21's test made real
+// rather than asserted against a constant: a look inside the family is free
+// (else trying both along a frontage costs half a door a press), and the family
+// itself is a purchase (else a doorway grows glass for nothing).
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const L = g.layout;
+  const at = { o: 'h', x: L.store.x + 3, z: L.store.z };
+  const built = g.buildEdge('me', { ...at, kind: E.DOOR_TRANSOM_STAFF });
+  check(built.ok, 'a glazed staff doorway goes into the back wall', built.error ?? '');
+  const start = g.cash;
+
+  // The look moves and the rule does not.
+  const swap = g.buildEdge('me', { ...at, kind: wayKind('glazed', 'staff', 'shopfront') });
+  check(swap.ok, 'it can be restyled as a shopfront door', swap.error ?? '');
+  eq(wayLook(kindAt(g.layout, at)), 'shopfront', 'and it really is one now');
+  eq(wayRule(kindAt(g.layout, at)), 'staff', 'and it is STILL staff-only');
+  eq(g.cash, start, 'which costs nothing — a look is a look');
+
+  // ...and the rule moves and the look does not, which is the same claim the
+  // other way round and fails independently: one function reads both axes off
+  // the kind in front of it, and it can drop either one.
+  const sign = g.buildEdge('me', { ...at, kind: wayKind('glazed', 'all', 'shopfront') });
+  check(sign.ok, 'it can be thrown open to everybody', sign.error ?? '');
+  eq(wayRule(kindAt(g.layout, at)), 'all', 'and the sign really has gone');
+  eq(wayLook(kindAt(g.layout, at)), 'shopfront', 'and it is STILL a shopfront door');
+  eq(g.cash, start, 'and signing one is free, exactly as a doorway is');
+
+  // A plain doorway is a different family, so this one is a purchase — which is
+  // the line that keeps the look axis honest. Fold the two families together
+  // and glass over your door becomes free.
+  check(edgeFamily(E.DOOR) !== edgeFamily(E.DOOR_TRANSOM),
+    'a doorway and a glazed one are different families');
+  const plain = g.buildEdge('me', { ...at, kind: E.DOOR });
+  check(plain.ok, 'and it can be swapped for a plain doorway', plain.error ?? '');
+  check(g.cash !== start, 'but that is a swap, not a refit — money moves');
+
+  // It encloses like the doorway it is. Left out of `ENCLOSING` this would take
+  // the roof off whatever room it stands in, every shelf inside would be
+  // refused, and the refusal reads "something is already there".
+  g.buildEdge('me', { ...at, kind: E.DOOR_SHOPFRONT });
+  const indoor = computeIndoor(g.layout);
+  check(indoor[(L.store.z + 1) * L.w + (L.store.x + 3)] === 1,
+    'and a shop with one in its wall is still a shop');
 }
 
 // ---------------------------------------------------------------------------

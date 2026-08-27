@@ -651,6 +651,33 @@ export const BUILD_TOOLS = [
     // room exists — so the tool that builds them is where it has to be said.
     blurb: 'A way through. Still encloses. Tap a built one to say who it is for.',
   },
+  // The glazed doorway, twice — and unlike the arch, the shutter and the
+  // curtain, these two are LOOKS of one family rather than two tools that
+  // happen to sit together (`WAY_LOOKS`, shared/edges.js). Same test as always:
+  // both are $48, so swapping them is free and they belong in one menu. On the
+  // bar as well as in that menu for the glazings' own reason — the menu can
+  // only restyle a door that already exists, and what anybody actually wants is
+  // to draw the front of the shop in one go.
+  {
+    id: 'door-transom',
+    edge: E.DOOR_TRANSOM,
+    group: 'shell',
+    sub: 'walls',
+    run: 'Doors',
+    icon: ICONS.ambient,
+    name: 'Glazed doorway',
+    blurb: 'A doorway with a fanlight over it. Lines up with a high window. Tap a built one to restyle it or say who it is for.',
+  },
+  {
+    id: 'door-shopfront',
+    edge: E.DOOR_SHOPFRONT,
+    group: 'shell',
+    sub: 'walls',
+    run: 'Doors',
+    icon: ICONS.ambient,
+    name: 'Shopfront door',
+    blurb: 'A doorway with one sheet of glass over it, in a slim frame. Put one in a run of shopfront and the glass carries through.',
+  },
   // The span. Its own tool rather than a look on the doorway, for the reason the
   // roller door is one: a family is the set of things that swap for a *refit*,
   // and trading a $34 doorway for a $28 arch is a purchase rather than a change

@@ -1601,6 +1601,89 @@ than across it, and they needed no new machinery — `off`/`len` place a band
 along the wall, so a vertical member is a short band that happens to be tall, the
 same way the curtain's strips ride a brick course's.
 
+### The head line, and the two glazed doorways
+
+**Built** — step 30, and it is one number and a family. The number is the
+interesting half, because it is what the family stands on.
+
+**A wall grew and took every opening with it.** Every way through in
+`edgeBands` was written as `style.h - <a lintel's worth>`, which reads as "just
+under the lintel" and is the same sentence a window's `head` is written in.
+That sentence is right about a window — glass should run up to the top of a
+taller wall, or raising it leaves a hand's width of brick over every pane — and
+it is wrong about a doorway, because a doorway's height is a fact about the
+person walking through it and no amount of masonry changes it. So raising
+`WALL_H` from 1.75 to 2.1 raised every door, gate, arch and shutter in the game
+by a third of a tile, and what that draws is not a taller building: it is the
+same building with smaller people in it. It reads as the characters having
+shrunk, which sends you to the wrong file.
+
+`HEAD_ROOM` is the fix and it is `GROUND_LINE`'s mirror — the line an opening's
+head stops at, absolute, so the **lintel** thickens as the wall grows and the
+hole does not. 1.6 against a character who tops out at 1.32 is a doorway about a
+fifth again as tall as the people using it. It is a **ceiling and not a
+height**: `headOf` takes the lower of it and "as high as this boundary can span
+one", so a gate cut in a fence half a tile tall is untouched.
+
+Two things fell out of it that are worth more than the number. The first is that
+`WINDOW_HIGH` had to be re-derived: both its numbers hung off the wall top, so
+with a door head at 1.6 and a high sill at 1.42 the strip started *below* the
+door beside it and the two overlapped — two openings in one wall disagreeing
+about their own head line, which reads as one of them being misplaced and gives
+you no way to tell which. Its sill is `HEAD_ROOM` now, and every glazed thing in
+the shell caps at one `GLASS_HEAD`. Nearly-lining-up is the bad case: a
+two-centimetre step in a header reads as bad bricklaying rather than as art that
+is out.
+
+The second is that once the head line is a constant, **a doorway and a high
+window fit together** — which is the whole of the second half of this step.
+
+**The glazed doorway is the first edge with a rule AND a look**, and it is
+`WAY_LOOKS`. §21 above decided the roller door was a *base* rather than a look
+on the doorway, and wrote down the test: a family is the set of things that swap
+for a **refit**, so two things belong in one family exactly when swapping them
+moves no number. A $34 doorway for a $46 shutter is a purchase, so no look axis.
+
+This is the first thing to fail that test the other way. A fanlight over a door
+and the same door glazed to the lintel in a slim frame are the same hole, the
+same enclosure, the same rule and the same glass — $48 either way, which is a
+doorway plus what glass costs over the wall it replaces ($26 − $12). By the
+test's own terms that is **one family with two looks**, so the axis is what the
+test asked for rather than a convenience. And the family is still separate from
+`door`: glass over your doorway is a purchase, which is what stops the look axis
+being a way to get glazing free.
+
+The pairing with `GLAZING` is the point rather than a flourish. `transom` is
+`WINDOW_HIGH` said about a doorway and `shopfront` is `WINDOW_FULL` said about
+one, and all four measure off the one head line — so a run of frontage with a
+door in the middle of it draws as a single band of glass. Authored apart they
+would each be nearly right, which is the failure above with a door in it.
+
+**The glass is never in the hole**, and that is §21's "there is no shut one"
+arriving in a place where it bites harder. A pane drawn across a way through is
+a kind the table calls passable and the picture calls solid — the disagreement
+every green-ghost bug in this codebase is made of — and here it arrives as a
+shopper strolling through plate glass while looking entirely deliberate. Glazed
+cheeks down the two jambs were built and thrown away for the same reason: at
+this camera a pane a twelfth of a tile wide either side of a doorway does not
+read as a frame, it reads as glass across the opening.
+
+So what separates the two looks is the **frame**, which is `TRANSOM_BAR` and a
+thickness. A bar under the pane reads as a traditional light over a door; no bar,
+in a wall 0.13 thick against the masonry's 0.17, reads as one sheet of glass.
+
+**What it cost elsewhere was one menu.** `showEdgeMenu` was one row of exclusive
+squares for five families, because no edge had ever chosen two things. Two rows
+rather than eight squares, since the axes are independent — a staff fanlight and
+a staff shopfront door both exist — and eight squares that are really 4×2 is a
+menu you have to read twice to find out it is not offering eight things. The trap
+underneath it is that `kindFor` now reads the axis it is *not* setting off the
+edge in front of it: press Shopfront on a staff entrance and the rule has to
+survive. It would not say if it did not — a glazed door thrown open to the town
+looks exactly like a glazed door, and the failure arrives days later as shoppers
+in the stockroom, pointing at the pathing. `verify:doors` §11 pins both
+directions, because one function reads both axes and can drop either one.
+
 ### The arch, and the three ways to be a fence
 
 Two additions in one step, and the reason they belong together is that they are

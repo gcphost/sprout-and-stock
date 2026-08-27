@@ -33,7 +33,7 @@
  */
 
 import {
-  WAY_RULES, GLAZING_LOOKS, FENCE_LOOKS, wayBase, wayRule, wayKind,
+  WAY_RULES, WAY_LOOKS, GLAZING_LOOKS, FENCE_LOOKS, wayBase, wayRule, wayLook, wayKind,
   glazingLook, glazingKind, fenceLook, fenceKind, edgeFamily, edgeW, edgeN, isIndoor,
 } from '../shared/edges.js';
 import { ICONS } from './icons.js';
@@ -131,6 +131,20 @@ const CHOICE = {
     icon: ICONS.build,
     sub: 'Waist-high masonry. The one boundary that takes a finish.',
   },
+  // ...and how a glazed doorway is glazed — see `WAY_LOOKS`. Looks again, so
+  // swapping is free again, and both say so.
+  transom: {
+    name: 'Fanlight',
+    short: 'Fanlight',
+    icon: ICONS.ambient,
+    sub: 'Glass in the band over the head. Lines up with a high window.',
+  },
+  shopfront: {
+    name: 'Shopfront',
+    short: 'Shop',
+    icon: ICONS.ambient,
+    sub: 'The same glass with no bar under it, in a slimmer frame. Lines up with a shopfront.',
+  },
 };
 
 /**
@@ -183,6 +197,17 @@ const FAMILY = {
   // words, because "you keep the wall" is not true of a hedge.
   window: { what: 'Window', asks: 'Glazed', free: 'free — you keep the wall' },
   fence: { what: 'Boundary', asks: 'Made of', free: 'free — it is the same fence either way' },
+  // The first family with BOTH axes, so it is the first with two questions —
+  // `asks` is the rule, the way every opening's is, and `looks` names the other
+  // row. `free` is deliberately absent: a look is free within this family and
+  // the family itself is not free to get into, so the panel would be saying
+  // "changing it costs nothing" over a square that swaps the rule.
+  glazed: {
+    what: 'Glazed doorway',
+    asks: 'Open to',
+    looks: 'Glazing',
+    noWay: 'One way needs an inside and an outside — this has the same on both sides.',
+  },
 };
 
 /** The kind on one lattice line. `edgesV` is a west face, `edgesH` a north one. */
@@ -224,7 +249,23 @@ export function choicesFor(L, at) {
   return isBoundary(L, at) ? all : all.filter((r) => r === 'all' || r === 'staff');
 }
 
-/** What this edge's choice is right now. */
+/**
+ * The SECOND row, and it is empty for everything but a glazed doorway.
+ *
+ * A window and a boundary choose a look and nothing else; every other opening
+ * chooses a rule and nothing else; and until `WAY_LOOKS` there was no edge in
+ * the game that chose both, which is why this menu was one row for five
+ * families. It takes no `L`, unlike `choicesFor` — a rule can be off the table
+ * because of where the edge stands (one way needs an inside and an outside) and
+ * a look never can. A fanlight is a fanlight wherever it is, which is the
+ * sentence the glazings have always had.
+ */
+export function looksFor(kind) {
+  const base = wayBase(kind);
+  return (base && WAY_LOOKS[base]) || [];
+}
+
+/** What this edge's primary choice is right now — a rule, or a family's look. */
 const choiceOf = (kind) => wayRule(kind) ?? glazingLook(kind) ?? fenceLook(kind) ?? null;
 
 /**
@@ -234,11 +275,24 @@ const choiceOf = (kind) => wayRule(kind) ?? glazingLook(kind) ?? fenceLook(kind)
  * and a look cannot be told apart from the choice alone — and `wayKind` answers
  * `null` for anything it does not recognise, so getting this wrong is a menu
  * whose every square does nothing.
+ *
+ * It takes the KIND as well as the family now, and that is the whole of what a
+ * second axis costs: pressing Shopfront has to keep the rule the door already
+ * had, and pressing Staff has to keep the glazing. Read the other axis off the
+ * edge in front of you or every square silently resets the one it does not
+ * mention — a staff entrance restyled to a fanlight and quietly thrown open to
+ * the town, which is a rule change wearing a look and nothing anywhere says so.
  */
 const LOOK_KIND = { window: glazingKind, fence: fenceKind };
-const kindFor = (family, choice) => (LOOK_KIND[family]
-  ? LOOK_KIND[family](choice)
-  : wayKind(family, choice));
+const kindFor = (kind, family, axis, choice) => {
+  if (LOOK_KIND[family]) return LOOK_KIND[family](choice);
+  const rule = axis === 'rule' ? choice : (wayRule(kind) ?? 'all');
+  const look = axis === 'look' ? choice : wayLook(kind);
+  return wayKind(family, rule, look);
+};
+
+/** Which axis this family's primary row sets. */
+const primaryAxis = (family) => (LOOK_KIND[family] ? 'look' : 'rule');
 
 /** Is there anything to open here at all? Asked by the hover and by the press. */
 export const hasEdgeMenu = (L, at) => !!(L && at && edgeFamily(kindAt(L, at)));
@@ -268,6 +322,8 @@ export function showEdgeMenu(ui, at) {
   const family = edgeFamily(kind);
   const choice = choiceOf(kind);
   const choices = choicesFor(L, at);
+  const looks = looksFor(kind);
+  const look = wayLook(kind);
 
   ui.openPanel = 'way';
   // ...and whoever's menu was open before this one is no longer the subject, so
@@ -280,7 +336,7 @@ export function showEdgeMenu(ui, at) {
   ui.rail.setOpen(null);
   ui.wayRef = { o: at.o, x: at.x, z: at.z };
   ui.panelTick = tickEdge;
-  ui._wayKey = `${kind}:${choices.join(',')}`;
+  ui._wayKey = `${kind}:${choices.join(',')}:${looks.join(',')}`;
 
   const info = CHOICE[choice] ?? CHOICE.all;
   const meta = FAMILY[family] ?? FAMILY.door;
@@ -308,6 +364,7 @@ export function showEdgeMenu(ui, at) {
     </div>
     <div class="fx-detail">
       ${line(meta.asks, info.name)}
+      ${looks.length ? line(meta.looks, CHOICE[look]?.name ?? '—') : ''}
       ${meta.free ? line('Changing it', meta.free) : ''}
       ${why ? line('One way', `<i>${why}</i>`) : ''}
     </div>
@@ -316,25 +373,39 @@ export function showEdgeMenu(ui, at) {
   // One row of exclusive choices rather than a list of switches: an edge has
   // exactly one answer to what it is, and two switches you could both turn on
   // would need a rule about which of them wins.
-  const squares = choices.map((c) => {
-    const i = CHOICE[c];
-    return actIcon(`edge:${c}`, i.icon, i.name, i.sub, i.short, { on: c === choice });
-  });
-  parts.push(`<div class="pnl-foot"><div class="fx-verbs">${squares.join('')}</div></div>`);
+  //
+  // ...and a second row where the family has two axes, which today is only the
+  // glazed doorway. Two rows rather than one of everything, because the two are
+  // *independent* — a staff fanlight and a staff shopfront door both exist —
+  // and eight squares that are really 4x2 is a menu you have to read twice to
+  // find out it is not offering eight things.
+  const row = (axis, list, current) => {
+    const squares = list.map((c) => {
+      const i = CHOICE[c];
+      return actIcon(`edge:${axis}:${c}`, i.icon, i.name, i.sub, i.short, { on: c === current });
+    });
+    return `<div class="fx-verbs">${squares.join('')}</div>`;
+  };
+  parts.push(`<div class="pnl-foot">${row(primaryAxis(family), choices, choice)}${
+    looks.length ? row('look', looks, look) : ''}</div>`);
 
   // Titled by the family, which is the one word on this panel that stays true
   // whatever you press.
   ui.showPanel(`${info.icon} ${meta.what}`, parts.join(''), `way:${at.o}:${at.x},${at.z}`);
-  wireEdgeMenu(ui, at, family);
+  wireEdgeMenu(ui, at, family, kind);
   return true;
 }
 
-function wireEdgeMenu(ui, at, family) {
+function wireEdgeMenu(ui, at, family, was) {
   ui.el.panelBody.querySelectorAll('[data-act]').forEach((el) => {
-    const choice = el.dataset.act.startsWith('edge:') ? el.dataset.act.slice(5) : null;
-    if (!choice) return;
+    // `edge:<axis>:<choice>`. The axis is in the key rather than inferred from
+    // the choice, because with two rows on one family the words no longer tell
+    // them apart on their own — and a look read as a rule resolves to no kind
+    // at all, which is a square that does nothing.
+    const [tag, axis, choice] = el.dataset.act.split(':');
+    if (tag !== 'edge' || !choice) return;
     el.onclick = () => {
-      const kind = kindFor(family, choice);
+      const kind = kindFor(was, family, axis, choice);
       if (kind === null) return;
       // A `build-edge` at that line with a different kind, and nothing else:
       // storage, persistence, `withEdge`, `deriveEdges` and the renderer all
@@ -364,6 +435,7 @@ function tickEdge(ui) {
   if (ui.openPanel !== 'way' || !ui.wayRef) return;
   const L = ui.scene?.storeLayout;
   if (!L || !hasEdgeMenu(L, ui.wayRef)) { ui.closePanel(); return; }
-  const key = `${kindAt(L, ui.wayRef)}:${choicesFor(L, ui.wayRef).join(',')}`;
+  const kind = kindAt(L, ui.wayRef);
+  const key = `${kind}:${choicesFor(L, ui.wayRef).join(',')}:${looksFor(kind).join(',')}`;
   if (key !== ui._wayKey) showEdgeMenu(ui, ui.wayRef);
 }

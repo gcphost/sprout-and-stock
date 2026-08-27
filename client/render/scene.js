@@ -9,7 +9,7 @@
 
 import * as THREE from 'three';
 import { PALETTE, TILE_STYLE, PAD_MARK, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, SURROUND_COLORS, conveyorAccent, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
-import { buildSurround, apronMaterial, HAZE } from './surround.js';
+import { buildSurround, apronMaterial, surroundGround, HAZE } from './surround.js';
 import { surroundOf, DEFAULT_SURROUND } from '../../shared/surrounds.js';
 import {
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
@@ -3187,7 +3187,7 @@ export class Scene {
      * in the shop — so it is disposed at the top of the next `buildWorld`.
      */
     this.apronMat?.dispose();
-    this.apronMat = apronMaterial(PALETTE.grass);
+    this.apronMat = apronMaterial(this.fieldColor());
     const ground = new THREE.Mesh(groundGeo, this.apronMat);
     ground.receiveShadow = true;
     // Onto the baked layer with every other bit of ground. It is not baked —
@@ -4048,7 +4048,46 @@ export class Scene {
     const want = surroundOf(id);
     if (want === this.surroundId) return;
     this.surroundId = want;
-    if (this.storeLayout) this.addSurround(this.storeLayout.w, this.storeLayout.h);
+    if (!this.storeLayout) return;
+    this.addSurround(this.storeLayout.w, this.storeLayout.h);
+    this.recolourField();
+  }
+
+  /**
+   * What colour the land past the lot is. See `ground` in `SURROUND_COLORS`.
+   *
+   * THE LOT'S OWN CELLS ARE NOT THIS, and that is the whole of the line. A bare
+   * cell inside the lot is `PALETTE.grass` wherever the shop stands, because it
+   * is YOUR ground — the difference between a shop in a city and a shop in the
+   * country is what lies beyond the fence, not what you are standing on. Painted
+   * the surround's colour, a countryside shop's grass came out the same stubble
+   * as the field, which is a farm with no farm in it.
+   *
+   * What that costs is a seam at the edge of the lot, and it is the good kind:
+   * a straight line where your green stops and the field starts is a boundary,
+   * which is what it is.
+   */
+  fieldColor() {
+    return surroundGround(this.surroundId ?? DEFAULT_SURROUND);
+  }
+
+  /**
+   * Repaint the field for a surround that has just changed.
+   *
+   * A COLOUR AND NOT A REBUILD, which is the whole of why this exists. The apron
+   * belongs to `buildWorld` — the one call that disposes every wall, floor,
+   * fixture and prop in the building and makes them again. Running that off a
+   * menu press to change one colour is the thing `setSurround` was split out to
+   * avoid, and the shop would visibly blink.
+   *
+   * Nothing about the ground MOVED, so nothing has to be rebuilt: the apron is
+   * one owned mesh with one colour on it (see `apronMaterial` for why it is
+   * owned rather than shared), and moving to a place with different ground is a
+   * write to that colour. Everything inside the lot is untouched by design —
+   * see `fieldColor`.
+   */
+  recolourField() {
+    this.apronMat?.color.set(this.fieldColor());
   }
 
   /**

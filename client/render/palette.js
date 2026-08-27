@@ -163,6 +163,31 @@ export const PALETTE = {
 export const SURROUND_COLORS = {
   country: {
     /**
+     * ★ THE LAND PAST THE LOT, which is the largest thing on screen and was the
+     * last thing that did not know where the shop is.
+     *
+     * The apron runs 320 tiles in every direction, so a city shop stood in the
+     * middle of a bright meadow with a skyline behind it — three bands of city
+     * and one enormous field, which reads as the backdrop having been pasted on.
+     * It is one colour rather than a texture because the apron is one flat
+     * plane, and because a colour is the only thing about the ground that can be
+     * changed without rebuilding the shop (see `Scene.recolourField`).
+     *
+     * IT STOPS AT THE FENCE. Everything inside the lot — bare cells and painted
+     * ground alike — is what it always was, because that is the shop's own land
+     * and the surround is a fact about the horizon. See `Scene.fieldColor`.
+     *
+     * DRY FIELD RATHER THAN LAWN, and this is the one of the three that moves an
+     * existing shop: `country` is the default, so every save in the game was
+     * standing on `PALETTE.grass` until this line. It is worth it because the
+     * ridge, the woodland and the hedgerow are all green — the ground being
+     * green too left the whole frame one colour, and stubble under green hills
+     * is what farmland actually looks like from a distance. `PALETTE.grass`
+     * itself is untouched: it is still what a painted lawn is made of, so the
+     * two now read as a mown patch in a field, which is the right relationship.
+     */
+    ground: '#9a8d5e',
+    /**
      * THE RIDGE, which is doing most of the work in every one of the three.
      *
      * The apron runs 320 tiles and the camera can only ever see about 19 of
@@ -197,6 +222,10 @@ export const SURROUND_COLORS = {
     hedge: '#476b41',
   },
   suburb: {
+    // Mown rather than meadow: a shade darker and a good deal less acid than the
+    // countryside's, which is most of the difference between a lawn somebody
+    // cuts and a field somebody grazes.
+    ground: '#82b862',
     // Greener than the city's and greyer than the countryside's — a suburb is
     // the one of the three where the ridge is half built on.
     hill: '#84b46d',
@@ -240,11 +269,30 @@ export const SURROUND_COLORS = {
     farRoof: '#84796f',
   },
   city: {
-    // The ridge a city stands on is the city — these are the ground the blocks
-    // are bedded into, so they are grey-green rather than green, or the towers
-    // look like they were dropped on a golf course.
-    hill: '#8a9a80',
-    hillAlt: '#7f8f78',
+    // Hardstanding rather than verge: grey, with barely enough green left in it
+    // to keep the per-cell jitter and the shadows readable — a dead neutral over
+    // 320 tiles reads as an untextured plane rather than as ground.
+    //
+    // It is deliberately of a piece with `hill` below, because in a city the
+    // ground and the thing the blocks are bedded into are the same stuff: the
+    // seam at the edge of the lot is what says "the backdrop is a different
+    // picture", and it is a seam right where the camera is looking. Lighter than
+    // the ridge, so the ridge still reads as mass standing ON it.
+    ground: '#9ba098',
+    /**
+     * The ridge a city stands on IS the city, so the terraces are made of the
+     * same stuff the blocks are.
+     *
+     * They were grey-green — ground with the green pulled out of it — which is
+     * the right answer for a hill a city happens to be standing on and the wrong
+     * one for what this band is: at ten to twenty-four tiles the steps read as
+     * mass, and green mass among grey blocks reads as hills that somebody
+     * forgot to build on. Concrete, and a step DARKER than `block` below, so the
+     * blocks standing on the terraces still come forward off them — the same
+     * job `hillAlt` does against `hill`, done one layer up.
+     */
+    hill: '#7e8794',
+    hillAlt: '#737c8a',
     // The far band is the city PROPER — the towers you never get to. Grey-blue
     // and deliberately the coldest colour in this file, since it is the one
     // thing meant to read as genuinely distant.
@@ -292,7 +340,7 @@ export const PLAYER_COLORS = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
 /**
  * Full-height architectural edges, in world units.
  *
- * 1.75, up from the 1.4 it stood at since walls were buildable, and what
+ * 2.1, up from the 1.4 it stood at since walls were buildable, and what
  * unlocked that is `Scene.hideNearWalls` rather than anything about the art. At
  * this camera pitch a wall conceals roughly `h / tan(pitch)` of the floor behind
  * it — so every centimetre of silhouette was a centimetre off the shop, and the
@@ -301,14 +349,104 @@ export const PLAYER_COLORS = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
  * two are behind everything anyway, so height there is free and is the only
  * thing that makes the place read as a building rather than as a low pen.
  *
- * Almost everything measures off this — an opening's header, an arch's
- * springing, a curtain's drop, the ceiling — so it is one number and not a
- * retune. The glazings are the exception and say so: a SILL is a real height
- * (waist, knee, shoulder) and stays absolute, while a HEAD is "just under the
- * lintel" and is written as `WALL_H - x`. Authored the other way round, raising
- * the wall leaves a hand's width of brick above every window in the shop.
+ * What measures off this is everything that is a fact about the WALL — a
+ * window's head, a curtain's rail, the ceiling — so raising it is one number
+ * rather than a retune, and a glazing goes on running up to the top of the wall
+ * it is set in. Note which way round the two halves of a window are authored: a
+ * SILL is a real height (waist, knee, shoulder) and stays absolute, while a HEAD
+ * is "just under the lintel" and is written as `WALL_H - x`. The other way
+ * round, raising the wall leaves a hand's width of brick above every window in
+ * the shop.
+ *
+ * What does NOT measure off it is anything that is a fact about the person
+ * walking through — see `HEAD_ROOM`. A doorway, a gate, an arch and a roller
+ * door all keep their height and grow a thicker lintel, because a wall that
+ * takes its openings up with it is not a taller building: it is the same
+ * building with smaller people in it. That is the whole reason this number can
+ * be moved at all, and the first thing to check if you move it again.
  */
-const WALL_H = 1.75;
+const WALL_H = 2.1;
+
+/**
+ * The line an opening's head stops at: how tall a way through is, from the deck.
+ *
+ * `GROUND_LINE`'s mirror, and it exists for the same reason that one does — a
+ * number the wall must not be allowed to decide. Every opening in this file used
+ * to be written as `style.h - <a lintel's worth>`, which reads as "just under the
+ * lintel" and is the same sentence a window's HEAD is written in (see `WALL_H`).
+ * It is right about a window and wrong about a doorway, and the difference is
+ * what the number MEANS: a window's head is a fact about the wall — glass runs
+ * up to the top of it and a strip of brick above every pane is what a taller
+ * wall should not leave behind — where a doorway's head is a fact about the
+ * PERSON walking through, which no amount of masonry changes. Written the wall's
+ * way, raising it by a hand's width raises every door, gate, arch and shutter in
+ * the game by a hand's width, and what that draws is not a taller building: it
+ * is a building at the same scale with a smaller person in it, which reads as
+ * the characters having shrunk.
+ *
+ * So the wall grows and the hole does not — the lintel over it thickens instead,
+ * which is what a taller wall over the same door actually looks like.
+ *
+ * 1.6 against a character who tops out at 1.32 (see `LIFT`) is a doorway about a
+ * fifth again as tall as the people using it, which is roughly what a real one
+ * is. It is also within a centimetre of the 1.59 every opening stood at when the
+ * walls were 1.75, so this is a decoupling rather than a retune: nothing on
+ * screen moved on the day it went in.
+ *
+ * `LINTEL` is the least masonry an opening is ever spanned by, and it is what
+ * keeps this a CEILING rather than a height. A gate is cut in a fence half a
+ * tile tall, so an absolute head would be a metre above the thing it is a hole
+ * in — `headOf` takes the lower of the two, and every boundary shorter than a
+ * wall goes on being spanned the way it always was.
+ */
+const HEAD_ROOM = 1.6;
+const LINTEL = 0.16;
+
+/**
+ * Where an opening's head sits in a given edge: the head line, or as high as the
+ * boundary can span it, whichever is lower.
+ *
+ * One function because four pieces ask it — a doorway, an arch, a roller door
+ * and (through the arch) a signed one of each — and the four disagreeing is how
+ * you end up with a shop whose doors are one height and whose arches are
+ * another. `lintel` is how much masonry that piece needs over the hole: an arch
+ * closes its own span in, so its header is thinner than a doorway's and the
+ * corbels below it do the work.
+ */
+const headOf = (style, lintel = LINTEL) => Math.min(HEAD_ROOM, style.h - lintel);
+
+/**
+ * The line GLASS stops at, which is not the line an opening stops at.
+ *
+ * A pane runs as high as the wall lets it and leaves a lintel's worth of
+ * masonry over itself, which is the `WALL_H - x` sentence being right — see
+ * `WALL_H`. One constant rather than the same subtraction in four places,
+ * because the four are now required to agree: a shopfront, a high window and
+ * both glazed doorways all cap here, so a run of frontage with a door in the
+ * middle of it draws as one band of glass rather than as three that nearly line
+ * up. Nearly is the bad case — a two-centimetre step in a header reads as a
+ * wall that has been built badly rather than as art that is out.
+ *
+ * A bay is the one glazing that does not use it, and says why in its own row:
+ * it projects, so it wears a deeper head to cap the box it steps out into.
+ *
+ * `TRANSOM_BAR` is the solid member sat on the head of a fanlight, and it is
+ * the whole difference between the two glazed doorways. Both are the same
+ * regular doorway with glass in the band over it — the hole is a hole, and
+ * nothing in this family ever draws glass across a way through — so what is
+ * left to tell them apart is the frame. A bar under the pane reads as a
+ * traditional light over a door; no bar, in a slimmer wall, reads as one sheet
+ * of glass and is what "smooth" means here.
+ *
+ * Glazed cheeks down the two jambs were tried first and are gone. They drew
+ * the shopfront door as a screen with a gap in it, which is a fair picture of a
+ * real shop entrance and the wrong picture here: at this camera a pane a
+ * twelfth of a tile wide either side of a doorway does not read as a frame, it
+ * reads as glass across the opening — which is the one thing this whole family
+ * must never look like, since the opening is walked through.
+ */
+const GLASS_HEAD = WALL_H - 0.08;
+const TRANSOM_BAR = 0.06;
 
 /**
  * Tile kind -> how it renders.
@@ -727,6 +865,31 @@ const EDGE_BASE = {
   // and the thickness is what makes the corbels read at 45°, since what you see
   // of a step is its top face.
   arch: { color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.22, arch: true },
+  // A DOORWAY WITH GLASS IN THE WALL OVER IT. Two looks, one base — see
+  // `WAY_LOOKS` in shared/edges.js for why that axis exists at all, and note
+  // what is shared here: both are `opening: true`, so the hole itself is the
+  // doorway's own hole and the threshold under it is the doorway's own
+  // threshold. A signed one paints that step exactly where a signed doorway
+  // paints it, and paint on the wall lands on the parts of it that are wall.
+  //
+  // `transom` is a fanlight: glass in the band between the head and the lintel,
+  // which is `WINDOW_HIGH`'s band to the millimetre. That is not a coincidence
+  // and it is the whole reason the head line is a constant — put one of these
+  // in a run of high windows and the strip carries straight through it.
+  glazedDoor: {
+    color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.17,
+    opening: true, transom: true, bar: TRANSOM_BAR,
+  },
+  // ...and `shopfront` is the same doorway with the same glass over it and the
+  // joinery taken out: no bar under the pane, and a frame thinner than the
+  // masonry beside it (0.13 against 0.17). That is the whole of it, and it is
+  // the whole of it on purpose — the pane runs from the head to the lintel in
+  // one piece and lines up with the shopfront glazing either side, so a run of
+  // frontage with one of these in the middle draws as a single band of glass.
+  shopDoor: {
+    color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.13,
+    opening: true, transom: true,
+  },
   // A boundary. One base for all four looks, because every fact the sim has about
   // them is shared — see `FENCING`, shared/edges.js. Each look overrides only
   // what it is made of.
@@ -749,18 +912,24 @@ export const EDGE_STYLE = {
   // the *wall*: glass casts none by default, which is right for a bottle and a
   // freezer door and wrong for a shopfront — a building whose south face stops
   // laying a shadow on its own forecourt reads as the wall having gone.
-  [E.WINDOW_FULL]: { ...EDGE_BASE.glass, sill: 0.05, head: WALL_H - 0.08, shadow: true },
+  [E.WINDOW_FULL]: { ...EDGE_BASE.glass, sill: 0.05, head: GLASS_HEAD, shadow: true },
   // Standard glazing, pushed out over a sill. `out` is the one thing here that is
   // geometry rather than a pair of heights, and the renderer decides WHICH WAY out
   // is off the enclosure — a bay projects into the street, not into the aisle.
   [E.WINDOW_BAY]: { ...EDGE_BASE.glass, sill: 0.34, head: WALL_H - 0.15, out: 0.2 },
+  // A strip up under the lintel, and it starts ON the head line rather than a
+  // hand's width above it — see `HEAD_ROOM`. Both numbers used to hang off the
+  // wall top (`WALL_H - 0.68`), which was right while nothing else in the wall
+  // had an opinion about where the top of an opening is. Now something does:
+  // the day a doorway stopped growing with the wall, a head at 1.6 and a sill at
+  // 1.42 meant the strip started BELOW the door beside it and the two overlapped
+  // by a hand's width — two openings in one wall disagreeing about their own
+  // head line, which reads as one of them being misplaced and gives you no way
+  // to tell which. Derived, so they cannot disagree again.
   // A strip up under the lintel. Light without a view, which is what you want on
   // a stockroom and on anything a passer-by should not be able to see the till
   // through.
-  // A strip up under the lintel, so BOTH its numbers hang off the wall's top —
-  // a sill written absolutely would leave this one sitting at chest height the
-  // day the walls grew, which is a different window rather than a taller one.
-  [E.WINDOW_HIGH]: { ...EDGE_BASE.glass, sill: WALL_H - 0.68, head: WALL_H - 0.08 },
+  [E.WINDOW_HIGH]: { ...EDGE_BASE.glass, sill: HEAD_ROOM, head: GLASS_HEAD },
   [E.FENCE]: EDGE_BASE.fence,
   // Three more boundaries, and they are LOOKS rather than kinds — one price, one
   // set of rules, free to swap between (`FENCING`, shared/edges.js). Only a
@@ -807,6 +976,17 @@ export const EDGE_STYLE = {
   [E.SHUTTER_STAFF]: { ...EDGE_BASE.shutter, mark: PALETTE.markStaff },
   [E.SHUTTER_IN]: { ...EDGE_BASE.shutter, mark: PALETTE.markIn },
   [E.SHUTTER_OUT]: { ...EDGE_BASE.shutter, mark: PALETTE.markOut },
+  // The glazed doorway, both looks, all four rules — derived off the two bases
+  // rather than written out, so restyling a wall takes every one of them with
+  // it and a signed one puts its stripe exactly where a signed doorway puts it.
+  [E.DOOR_TRANSOM]: EDGE_BASE.glazedDoor,
+  [E.DOOR_TRANSOM_STAFF]: { ...EDGE_BASE.glazedDoor, mark: PALETTE.markStaff },
+  [E.DOOR_TRANSOM_IN]: { ...EDGE_BASE.glazedDoor, mark: PALETTE.markIn },
+  [E.DOOR_TRANSOM_OUT]: { ...EDGE_BASE.glazedDoor, mark: PALETTE.markOut },
+  [E.DOOR_SHOPFRONT]: EDGE_BASE.shopDoor,
+  [E.DOOR_SHOPFRONT_STAFF]: { ...EDGE_BASE.shopDoor, mark: PALETTE.markStaff },
+  [E.DOOR_SHOPFRONT_IN]: { ...EDGE_BASE.shopDoor, mark: PALETTE.markIn },
+  [E.DOOR_SHOPFRONT_OUT]: { ...EDGE_BASE.shopDoor, mark: PALETTE.markOut },
 };
 
 /** How see-through a pane of glass is. Read by the geometry and the material. */
@@ -974,8 +1154,42 @@ export function edgeBands(style) {
   // the band is the same band, so a signed door is the same geometry as a plain
   // one and nothing downstream had to learn a second shape.
   if (style.opening) {
+    const head = headOf(style);
+    // GLAZED, which is the same opening with the masonry over it replaced by a
+    // pane — see `EDGE_BASE.glazedDoor`. Built out of the plain doorway's bands
+    // rather than beside them, for the reason the shutter's and the arch's are:
+    // the head and the step are at the same heights, so one of these in a run of
+    // doorways lines up with them and a signed one puts its stripe where a
+    // signed doorway puts it.
+    //
+    // The glass replaces the HEADER and never the hole. That is the one rule in
+    // this family and it is the shutter's own "there is no shut one": a pane
+    // drawn across a way through would be a kind the table calls passable and
+    // the picture calls solid, arriving as a shopper walking through plate
+    // glass and looking entirely deliberate while it did.
+    if (style.transom) {
+      // Capped rather than run to the top, so the coping has masonry to sit on
+      // and the frontage reads as one band of glass under one lintel — see
+      // `GLASS_HEAD`. Guarded, because a glazed opening authored on a boundary
+      // too short to carry one would otherwise emit a band of negative height,
+      // which draws as a sliver at the wrong end of the wall.
+      const cap = Math.min(GLASS_HEAD, style.h - 0.06);
+      // The bar a fanlight sits on, and the one thing separating the two looks
+      // — see `TRANSOM_BAR`. It is inside the glazed band rather than under the
+      // head, or it would be a low rail across the way through.
+      const sill = Math.min(cap, head + (style.bar ?? 0));
+      return [
+        { y0: cap, y1: style.h },
+        ...(sill > head ? [{ y0: head, y1: sill }] : []),
+        ...(cap > sill ? [{ y0: sill, y1: cap, alpha: GLASS }] : []),
+        { y0: 0, y1: GROUND_LINE + (style.mark ? 0.03 : 0), color: style.mark },
+      ];
+    }
     return [
-      { y0: style.h - 0.16, y1: style.h },
+      // The header runs from the head line to whatever the wall came to, so it
+      // is the LINTEL that grows with the wall and never the hole — see
+      // `HEAD_ROOM`. One band either way, so a taller shop cost nothing here.
+      { y0: head, y1: style.h },
       // Up FROM the deck rather than starting at the floor line, and the two are
       // not the same picture: a way through is cut in whatever the shop is
       // standing on, so a gate in a fence sits on grass at 0.01 and a doorway on
@@ -1002,7 +1216,11 @@ export function edgeBands(style) {
   // carries NO colour of its own, because it is masonry. Paint an arched wall and
   // the arch is painted, which is the whole reason anybody builds one.
   if (style.arch) {
-    const head = style.h - ARCH_HEAD;
+    // The crown is the head line, the same as a doorway's — an arch is a grander
+    // way through the same wall, not a taller one, and two pieces you can swap
+    // between for free must not be two different holes. What a taller wall buys
+    // an arch is the pier over it, which is exactly what an arch wants.
+    const head = headOf(style, ARCH_HEAD);
     const spring = head - ARCH_RISE;
     return [
       { y0: head, y1: style.h },
@@ -1051,7 +1269,12 @@ export function edgeBands(style) {
   // it. What is added is the machinery, and every piece of that carries its own
   // colour, which is what keeps a finish off it.
   if (style.shutter) {
-    const head = style.h - 0.16;
+    // The head line, for the reason the doorway's is — and it matters twice
+    // over here, because the coil hangs off it and the tracks run up to it. Left
+    // on the wall top, a taller shop would leave the roll and the guides drawn
+    // over a hole nothing has to duck under, which is a shutter that has been
+    // scaled up rather than a wall that has grown.
+    const head = headOf(style);
     const coil = head - SHUTTER_COIL;
     const rib = SHUTTER_COIL / SHUTTER_RIBS;
     const jamb = 0.5 - SHUTTER_TRACK / 2;
@@ -1089,6 +1312,13 @@ export function edgeBands(style) {
   // machinery that was there rather than teaching the renderer a second shape.
   if (style.curtain) {
     const drop = Math.max(GROUND_LINE, style.drop ?? CURTAIN_DROP);
+    // The one head in this file that is still measured off the wall, and it is
+    // not an oversight: a curtain's hole is at the BOTTOM (`drop`, absolute), so
+    // a taller wall lengthens the strips and leaves what has to pass under them
+    // exactly where it was. Pinned to `HEAD_ROOM` instead, the rail would come
+    // down and the wall above it would simply not be drawn — a strip curtain
+    // with a gap over it, which is a partition you can see the stockroom
+    // through.
     const head = style.h - 0.1;
     const pitch = 1 / CURTAIN_STRIPS;
     // Who it is for, on the rail. Under the rail rather than on it, because the

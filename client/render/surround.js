@@ -103,7 +103,7 @@
 
 import * as THREE from 'three';
 import { hash01 } from '../../shared/hash.js';
-import { S } from '../../shared/surrounds.js';
+import { S, surroundOf } from '../../shared/surrounds.js';
 import { SURROUND_COLORS } from './palette.js';
 import { material } from './props.js';
 
@@ -274,7 +274,57 @@ function inject(src, mark, next) {
   return src.replace(mark, next);
 }
 
-function hazed(color, own, sink = true) {
+/**
+ * ★ HOW FAR THE NEAR QUARTER OF THE RING DROPS, IN WORLD UNITS.
+ *
+ * It was nine of the instance's OWN heights, on the reasoning that everything
+ * here is about as tall as it is scaled, so a proportional sink buries the lot
+ * and they all clear at about the same moment. That is true of a hill, a tree
+ * and a tower, and it is false of the one shape nobody had built yet: a THIN
+ * PART HIGH UP. A city block's parapet is 0.14 thick sitting five units off the
+ * ground, so nine of its own heights is 1.26 — the block goes and the lid stays,
+ * and what you get is flat slabs hanging in mid-air over an empty field. Which
+ * reads as the hiding being broken rather than as arithmetic, and it is the
+ * shape of every detail anybody would add next: a cap, a sign, a canopy.
+ *
+ * So it is a distance in the WORLD, converted into object space by the
+ * instance's own y scale. Two things fall out of that and both are the point.
+ * Every instance sharing a material sinks by the same amount, so a landform
+ * made of four steps and a block wearing a lid go down RIGID rather than coming
+ * apart on the way — which is what a proportional sink was quietly buying and
+ * would have to be given back. And it becomes a number per band, because there
+ * is no single one: a 1.2-unit bollard and an 11-unit tower want the same
+ * *fraction* of the ramp, and the tower is in a different mesh anyway.
+ *
+ * `NEAR` buries anything on the props band or the ridge (tallest ~5) by about
+ * two fifths of the way through the hide ramp; `FAR` does the same for the
+ * skyline. Both are deliberately several times what they have to clear — see
+ * `HIDE_FROM`, the ramp they are a fraction of.
+ */
+const SINK_NEAR = 12.0;
+const SINK_FAR = 30.0;
+
+/**
+ * The half of the vertex shader that gets a thing out of the way.
+ *
+ * `world` names a `vec3` the caller has already filled with this vertex's world
+ * position, because both callers need one and only one of them keeps it.
+ */
+function sinkGLSL(world, sink) {
+  if (!sink) return '';
+  return `{
+         float sy = 1.0;
+         #ifdef USE_INSTANCING
+           sy = max(length(instanceMatrix[1].xyz), 1e-4);
+         #endif
+         vec2 rel = ${world}.xz - uSpan.xy;
+         float cosCam = dot(normalize(rel + vec2(1e-4)), uNear.xy);
+         float hide = smoothstep(${HIDE_FROM.toFixed(3)}, ${HIDE_TO.toFixed(3)}, cosCam) * uNear.z;
+         transformed.y -= hide * ${sink.toFixed(1)} / sy;
+       }`;
+}
+
+function hazed(color, own, sink = SINK_NEAR) {
   const m = material(color).clone();
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uHaze = HAZE.color;
@@ -286,40 +336,30 @@ function hazed(color, own, sink = true) {
        uniform vec3 uNear;
        ${shader.vertexShader}`,
       '#include <begin_vertex>',
+      /**
+       * GET OUT OF THE WAY -- see the note on HAZE.near, and on SINK_NEAR for
+       * how far.
+       *
+       * IT SINKS RATHER THAN DISSOLVES, and the first version did dissolve: a
+       * per-pixel dither against a discard, which is the standard trick and is
+       * wrong for this art. Everything in this game is flat colour over large
+       * areas, so a stochastic threshold has nothing to hide in -- what it drew
+       * was a hillside of black speckle, which reads as the renderer being
+       * broken rather than as anything fading.
+       *
+       * Sinking costs nothing, stays completely opaque (so no sorting, which an
+       * instanced mesh cannot do within itself anyway), and is the one
+       * disappearance that suits the subject: the apron runs 320 tiles in every
+       * direction, so a hill going down goes behind ground that is already
+       * there and simply becomes the field again.
+       */
       `#include <begin_vertex>
-       #define SINK_UNITS ${sink ? '9.0' : '0.0'}
        #ifdef USE_INSTANCING
          vSurWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
        #else
          vSurWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
        #endif
-       {
-         /**
-          * GET OUT OF THE WAY -- see the note on HAZE.near.
-          *
-          * IT SINKS RATHER THAN DISSOLVES, and the first version did dissolve:
-          * a per-pixel dither against a discard, which is the standard trick
-          * and is wrong for this art. Everything in this game is flat colour
-          * over large areas, so a stochastic threshold has nothing to hide in
-          * -- what it drew was a hillside of black speckle, which reads as the
-          * renderer being broken rather than as anything fading.
-          *
-          * Sinking costs nothing, stays completely opaque (so no sorting, which
-          * an instanced mesh cannot do within itself anyway), and is the one
-          * disappearance that suits the subject: the apron runs 320 tiles in
-          * every direction, so a hill going down goes behind ground that is
-          * already there and simply becomes the field again.
-          *
-          * Measured in OBJECT space, so the instance scale multiplies it -- a
-          * tall thing sinks proportionally faster and they all clear at about
-          * the same moment. Every geometry here is roughly a unit high, so this
-          * buries the lot several times over.
-          */
-         vec2 rel = vSurWorld.xz - uSpan.xy;
-         float cosCam = dot(normalize(rel + vec2(1e-4)), uNear.xy);
-         float hide = smoothstep(${HIDE_FROM.toFixed(3)}, ${HIDE_TO.toFixed(3)}, cosCam) * uNear.z;
-         transformed.y -= hide * SINK_UNITS;
-       }`,
+       ${sinkGLSL('vSurWorld', sink)}`,
     );
     /**
      * The HAZE half. Injected AFTER the shading and tone map but BEFORE the
@@ -378,7 +418,9 @@ function hazed(color, own, sink = true) {
   // unless three is told they are interchangeable — `tuftMaterial` writes the
   // same line for the same reason. Colour is a uniform, so one program serves
   // every backdrop material there will ever be.
-  m.customProgramCacheKey = () => (sink ? 'surround-haze-sink' : 'surround-haze-flat');
+  // The distance is baked into the source, so it has to be part of the key —
+  // one program per band rather than one for the file.
+  m.customProgramCacheKey = () => `surround-haze-${sink}`;
   own.push(m);
   return m;
 }
@@ -476,8 +518,8 @@ const TINT = new THREE.Color();
 const DUMMY = new THREE.Object3D();
 
 /** An instanced backdrop mesh: hazed material, per-instance colour, unpickable. */
-function batch(geo, color, count, own) {
-  const mesh = new THREE.InstancedMesh(geo, hazed(color, own), count);
+function batch(geo, color, count, own, sink = SINK_NEAR) {
+  const mesh = new THREE.InstancedMesh(geo, hazed(color, own, sink), count);
   mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
   mesh.castShadow = false;
   mesh.receiveShadow = false;
@@ -744,7 +786,9 @@ function distant(w, h, C, own, shape) {
   // is — see `terrace`. A tower is one box and a peak is four, which is the
   // whole of the difference between a city and a landscape here.
   const per = shape.towers ? 1 : PEAK_STEPS;
-  const mesh = batch(new THREE.BoxGeometry(1, 1, 1), C.far, n * (per + shape.roofs), own);
+  // `SINK_FAR`, because a tower is 11 units tall against a bollard's 1.2 and the
+  // two want the same fraction of the hide ramp — see the note there.
+  const mesh = batch(new THREE.BoxGeometry(1, 1, 1), C.far, n * (per + shape.roofs), own, SINK_FAR);
   // Named so `Scene.aimSurround` can switch the whole layer off at pitches that
   // cannot see it — see the note there. This layer is by far the most expensive
   // thing in the file and it is invisible for most of normal play.
@@ -844,15 +888,9 @@ function distant(w, h, C, own, shape) {
  * is no longer there. That reads as a rendering fault, which is exactly what
  * `hazed`'s own note says about the dither it replaced.
  *
- * IT IS MEASURED IN WORLD UNITS AND NOT IN OBJECT ONES, which is the whole
- * reason this could not simply share the other snippet. `hazed` sinks by nine of
- * the instance's OWN heights, which buries a hill and a tree alike because every
- * geometry in here is about as tall as the thing it draws. A pane is a third of
- * a unit tall standing on a block five units high, so nine of its own heights is
- * three units of sink against the block's forty-five: the two would separate
- * rather than leave together. Dividing by the instance's y scale spends the same
- * nine units on every pane, which is more than enough to put the tallest of them
- * under the apron.
+ * It takes `SINK_NEAR` like everything else on those two bands, which is what
+ * makes a lit pane leave WITH the block it is set into rather than a moment
+ * before or after it.
  */
 function sunken(mat) {
   mat.onBeforeCompile = (shader) => {
@@ -864,19 +902,13 @@ function sunken(mat) {
        ${shader.vertexShader}`,
       '#include <begin_vertex>',
       `#include <begin_vertex>
-       {
-         #ifdef USE_INSTANCING
-           vec3 sWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
-           float sy = max(length(instanceMatrix[1].xyz), 1e-4);
-         #else
-           vec3 sWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
-           float sy = 1.0;
-         #endif
-         vec2 rel = sWorld.xz - uSpan.xy;
-         float cosCam = dot(normalize(rel + vec2(1e-4)), uNear.xy);
-         float hide = smoothstep(${HIDE_FROM.toFixed(3)}, ${HIDE_TO.toFixed(3)}, cosCam) * uNear.z;
-         transformed.y -= hide * 9.0 / sy;
-       }`,
+       vec3 sWorld;
+       #ifdef USE_INSTANCING
+         sWorld = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
+       #else
+         sWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+       #endif
+       ${sinkGLSL('sWorld', SINK_NEAR)}`,
     );
   };
   mat.customProgramCacheKey = () => 'surround-glow-sink';
@@ -1352,6 +1384,21 @@ export function buildSurround(id, w, h) {
 }
 
 /**
+ * WHAT COLOUR THE GROUND IS HERE.
+ *
+ * The one thing in a surround that is NOT drawn by this file — the apron and the
+ * lot's own unpainted cells belong to `buildWorld`, and they are between them
+ * most of the screen. So the answer lives here with the rest of the place and
+ * `Scene` asks for it, rather than this file reaching into the ground.
+ *
+ * Total, like `surroundOf`, for the same reason: a read has to answer something,
+ * and a renderer is the wrong place to find out that a save is wrong.
+ */
+export function surroundGround(id) {
+  return (SURROUND_COLORS[surroundOf(id)] ?? SURROUND_COLORS[S.COUNTRY]).ground;
+}
+
+/**
  * THE APRON'S OWN MATERIAL — the one that actually makes a sky.
  *
  * The ground runs `GROUND_MARGIN` (320) tiles past the last cell so the world
@@ -1368,10 +1415,10 @@ export function buildSurround(id, w, h) {
  * file fading into the same colour is what makes it read as distance rather
  * than as a green field with a gradient on it.
  *
- * `sink: false` is the one thing here that is not optional. The apron is the
+ * A sink of ZERO is the one thing here that is not optional. The apron is the
  * ground — sinking the quarter of it nearest the camera would drop the floor
  * out of the world.
  */
 export function apronMaterial(color) {
-  return hazed(color, [], false);
+  return hazed(color, [], 0);
 }

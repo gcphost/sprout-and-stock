@@ -250,6 +250,18 @@ const EDGE_COST = {
   // panelling it is a decision about the picture and never about the money, and
   // the refit in `buildEdge` is what makes changing your mind free.
   [E.HEDGE]: 4, [E.RAILING]: 4, [E.LOW_WALL]: 4,
+  // A glazed doorway is a doorway plus what glass costs over the wall it
+  // replaces — $34 + ($26 - $12) — and that arithmetic is doing two jobs. It is
+  // why this is not a look of `door` (the swap moves a number, so it is a
+  // purchase and therefore a family of its own, which is docs/building.md §21's
+  // test), and it is why the two LOOKS in it are one price (they are the same
+  // doorway with the same glass in it, so swapping them moves nothing and the
+  // refit in `buildEdge` makes it free). All eight rows at one figure: the rule
+  // axis is priced flat here exactly as a signed doorway's is.
+  [E.DOOR_TRANSOM]: 48, [E.DOOR_TRANSOM_STAFF]: 48,
+  [E.DOOR_TRANSOM_IN]: 48, [E.DOOR_TRANSOM_OUT]: 48,
+  [E.DOOR_SHOPFRONT]: 48, [E.DOOR_SHOPFRONT_STAFF]: 48,
+  [E.DOOR_SHOPFRONT_IN]: 48, [E.DOOR_SHOPFRONT_OUT]: 48,
 };
 const EDGE_LABEL = {
   [E.WALL]: 'a wall', [E.WINDOW]: 'a window', [E.DOOR]: 'a doorway',
@@ -263,6 +275,13 @@ const EDGE_LABEL = {
   [E.SHUTTER_IN]: 'a roller entrance', [E.SHUTTER_OUT]: 'a roller exit',
   [E.ARCH]: 'an archway', [E.ARCH_STAFF]: 'a staff archway',
   [E.HEDGE]: 'a hedge', [E.RAILING]: 'a railing', [E.LOW_WALL]: 'a low wall',
+  [E.DOOR_TRANSOM]: 'a glazed doorway',
+  [E.DOOR_TRANSOM_STAFF]: 'a glazed staff doorway',
+  [E.DOOR_TRANSOM_IN]: 'a glazed entrance', [E.DOOR_TRANSOM_OUT]: 'a glazed exit',
+  [E.DOOR_SHOPFRONT]: 'a shopfront door',
+  [E.DOOR_SHOPFRONT_STAFF]: 'a shopfront staff door',
+  [E.DOOR_SHOPFRONT_IN]: 'a shopfront entrance',
+  [E.DOOR_SHOPFRONT_OUT]: 'a shopfront exit',
 };
 const PLAYER_SPEED = 4.2;      // tiles/sec
 /**
@@ -17577,6 +17596,8 @@ export class Game {
     // are one price today. The day they are not, this line is already right.
     costs.curtain = EDGE_COST[wayDefault('curtain')];
     costs.shutter = EDGE_COST[E.SHUTTER];
+    costs['door-transom'] = EDGE_COST[E.DOOR_TRANSOM];
+    costs['door-shopfront'] = EDGE_COST[E.DOOR_SHOPFRONT];
     costs.fence = EDGE_COST[E.FENCE];
     // Every boundary at the fence's own price, keyed by the palette entry's id —
     // one line per look rather than one number, for the reason the glazings have
