@@ -1292,7 +1292,7 @@ what the next step was meant to be.
 | Doc | Covers | Status |
 |---|---|---|
 | [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, the fence that stopped being the only thing a boundary could be made of, and the head line — how tall a way through is, which stopped being a fact about the wall the day the walls grew, and which is what lets a doorway and a high window line up and be glazed as one piece | steps 1–9, 11, 13–27, 29–30 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
-| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make | steps 1–6 and 8–15 built; 7 proposed |
+| [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make, and the crew who stood up — five identical parts of a thirty-six part cap at three-quarters of a shopper's height, against a limb that is one flag on a part and a rig everything downstream was already guarded for | steps 1–6, 8–16 built; 7 proposed |
 | [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the same T read the other way — who goes first where two runs MEET, which is a fact about the cell rather than about the belt, so it is asked of whatever piece is standing where the lines arrive, and the piece that usually is is the sorter, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg, the tunnel that stopped being its own ecosystem — a span that DIPS to a storey below, so a mouth is a lift pointed down and the piston is the crate's own `deck` rather than two clocks beside it, plus the toggle that brings a span up onto the ceiling instead of the floor, and **Where a crate goes, in order** — the whole routing ladder in one place, with the audit's gap list at the foot, and the map that takes a SUBJECT — pick a shelf and everything but the shortest ways a box reaches it goes grey, because the reachable set is 15 runs of 23 whatever you pick, and the packer that stands still — a crate parked on a run that fills itself from the boxes going past, so a dock of part-crates is one trip instead of three | steps 1–4, 2b, 3b, 4b, 7–12 built; 5–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
 | [docs/customers.md](docs/customers.md) | patience as a budget every annoyance draws on, anger you can see, theft, a shop that turns people away when it's full, the list they came in with, the regulars who come back — a name with a memory, kept on the save rather than in the content database — and the event that moves the CROWD rather than the shelves, matched on an archetype's tags because naming one by id is `if (item.id === 'tomato')` wearing a customer | steps 1–4 and 6–9 built; 5 and 10–12 proposed |
@@ -1305,6 +1305,7 @@ what the next step was meant to be.
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
 | [docs/difficulty.md](docs/difficulty.md) | why a neglected shop finds a level instead of going under — the settle spring, the floor under demand, and a game where standing still is free; difficulty as a second axis beside the starting tier, upkeep as the first fixed cost, why today's constants are the *easy* preset rather than the default, and the grace a new shop's first week gets because the presets were only ever measured on a day-60 save | steps 1 and 1b built; 2–4 proposed |
+| [docs/roof.md](docs/roof.md) | the ceiling you can only see from under it — why the roof already exists twice (`openness` dims every indoor cell to `ROOF_LEVEL`, and `WAYS` authors `roofs` per opening) and has never had a mesh, the one rule every game with this problem shares, the indoor mask as the ceiling, and the clerestory that falls out of hanging it high enough to clear the overhead ducts — where the solid wall stops exactly at the overhead deck and the glass is the clearance the lift baskets needed | steps 1–2 built; 3–4 proposed, and step 2's light half open |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
 | [docs/tutorial.md](docs/tutorial.md) | the robot who shows you round a shop you have just made — a veil that blocks rather than only darkens, a step that is a predicate over the snapshot rather than a press it caught, the third answer to "where is the hole" that stops it ever wedging, and the second list for somebody who JOINED a shop rather than making one | steps 1 and 1b built; 2–4 proposed |
 | [docs/audio.md](docs/audio.md) | a bus per slider, why the sounds cannot come from the log, the four caps that stop a busy shop being a slot machine, sound as a column on a catalog row, the Sound rows and the Credits tab in the Menu, the loop a fixture holds open while it works — and why the ambient bed was built, played and cut | steps 2–5 built; 1 cut; 6 proposed |
@@ -1726,6 +1727,51 @@ what the next step was meant to be.
   zero and the release now goes to the camera. An edge-scroll version of this
   was built first and thrown away — it fires when you did not ask, and the band
   along the bottom is also the path to the toolbar.
+- **…and it was chained to the SNAPSHOT rather than to the body, which is why
+  walking read as chunky.** Three separate causes landing in one place, and none
+  of them is a stutter in the shop — the shop was smooth throughout. **The camera
+  chased a staircase.** `syncState` set `camTarget` off `state.players`, which
+  arrives at 10Hz, while `ACTOR_CHASE` eases the body somewhere else every frame:
+  a lerp toward a target that steps 0.42 of a tile every hundred milliseconds
+  does not smooth the step away, it *rings* — the view lurches on the frame a
+  packet lands and coasts until the next. That ripple is not on one body, it is
+  the entire screen. `trackEye` takes the target off the mesh, after
+  `animateActors` and before the pose. **The playing camera had no floor.**
+  `EASE`'s own note argues at length that a proportional ease is a spring which
+  "never arrives while the thing it chases is still moving", and then gives the
+  floor that fixes it to `CINE_EASE` only — so the recording camera got the dolly
+  and the person actually walking got the spring, sliding the whole shop under
+  their feet and gliding it back on every stop. The number is arithmetic rather
+  than taste: a floor is only a floor while it out-paces what it chases, and
+  `PLAYER_SPEED * SPRINT_SPEED` is 6.72 tiles a second, so anything under 0.112 a
+  frame reverts to the old trailing spring the moment somebody holds Shift —
+  which would read as *sprinting* being the broken part. **And the gains were per
+  raw frame.** Every other easing in the renderer is against `dt` and each says
+  why; the camera pose was the one loop still on a fixed fraction, and it is the
+  loop where it matters most, because at 30fps `look` was half as responsive and
+  the floor half the speed — so the view trailed twice as far behind a walk on
+  exactly the machine already struggling to draw it. Two causes compounding,
+  reading as one. `gainFor` is the conversion and it **compounds rather than
+  scales** (`1 - (1-g)^(dt*60)`): a lerp is repeated multiplication, so linear
+  scaling overshoots past 1 on a slow frame, which is a camera that snaps on
+  precisely the frames that hitched.
+- **…and a body SNAPPED between headings, which is the half a smooth position
+  cannot hide.** `facing` is `atan2` of a direction, and no person in this game
+  is ever handed a continuous one: the keys send eight (`Math.sign` in
+  `pollInput`), so steering W then D is a 45° jump and reversing is 180°, and
+  `followPath` walks tile to tile, so every corner of every route is a quarter
+  turn taken between two frames. `syncActors` wrote it straight onto the mesh, so
+  what you watched was the model being swapped for a different model rather than
+  somebody turning round — and you are watching the one you are steering.
+  `ACTOR_TURN` is `VEHICLE_TURN` arriving for people, at 13 against a lorry's 5,
+  because a van turning slowly is a van and you turning slowly is a control that
+  does not answer. Two things it rests on. It goes the short way (`turnTo`), or a
+  reversal unwinds 180° the long way about — a full spin on the spot, at one
+  heading only, which is the kind of thing you see once and cannot reproduce. And
+  `rec.yaw` had to stay the field it always was while becoming the **drawn**
+  answer rather than the shop's: `animateRest` and `animateEmote` both blend off
+  it to mean "what they would otherwise be facing", both run per frame, and both
+  were being handed a heading that only moved when a packet landed.
 - **A thing put down against a wall turns its own back to it — and a wall is not
   a tile.** `faceAlong` in `shared/build.js` is aim assist, not a rule: it picks
   the facing whose browsing spot is open and whose *opposite* side is not, which

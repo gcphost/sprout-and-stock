@@ -2040,6 +2040,102 @@ hysteresis.
   the bay walks empty-handed; carrying something outbound is a real gain and a
   genuinely harder job.
 
+## Step 16 — a crew you can tell apart ✅
+
+Every hire in the game was **five parts of a thirty-six part cap**, and four of
+those five were byte-identical on all eight kinds: a base cylinder, a torso box,
+a head box, a lit band. Only the fifth — the thing they held — ever differed,
+and two kinds did not even manage that: the **runner and the stocker were the
+same model to the digit**, same box, same colour, same position. What that reads
+as is a roster you cannot read.
+
+Two measurements, not opinions, and they are the whole brief:
+
+- A hire's crown sat at **0.88 tiles** against a shopper's `PERSON_H` of
+  **1.18**. Head level with a customer's shoulders — not "compact machine", a
+  child. Nothing had to change for this but numbers, because `bodyExtent`
+  measures the pick box and the selection ring off the art rather than off a
+  constant.
+- Nothing on any worker had ever set `motion`, and `animateActors` reported
+  `walker: null` for every robot anybody had authored, so a hire slid about the
+  shop as one rigid piece and an emote dipped the entire body forward.
+
+### `bone` — the only code in it
+
+A part may now name one of four limbs (`shared/schemas.js`), and that is the
+whole of the opt-in: a model with no bone on any part builds exactly the group
+it always did, which is every fixture, kit, vehicle and animal in the game.
+`buildRig` gives a model that asks the same four pivots and the same two
+`userData` fields `crowdRig` writes, so **nothing downstream changed at all** —
+`animateActors` already ran the gait off `walker`, `animateEmote` already waved
+with it, and `syncKit` already hung a bag on `hold`. All three were guarded on
+the rig being absent, and all three simply started firing.
+
+Where the joint is, is **derived rather than authored**: an arm hangs down its
+own -y from a shoulder, so the hinge is the top of whatever sits on the bone.
+Authoring the point was the alternative and it is the worse one — a pivot is a
+number nobody looks at twice, so a limb redrawn longer keeps swinging about
+where the old one used to meet the body, which reads as the arm being detached
+rather than as a stale constant.
+
+All four pivots are built whenever any one is asked for. A bot with a skirt
+instead of legs would otherwise take the gait's first write to `left.rotation`
+and take the room down; `walker` is read as a complete set.
+
+### The other three quarters are content
+
+- **Relief, cut inward.** A chest is a standing frame — two pillars and two
+  rails — round a well pulled 0.08 back, rather than a plate stacked on the
+  front. Same picture for a third of the depth, and it is the depth step the ink
+  needs: the crease detector is hair-fine by design, so a 0.03 lip draws no line
+  at all while a free-standing edge is found by the silhouette pass.
+- **Colour by surface area.** Structure is `#d7dfe8`; dark is an accent on small
+  members and recesses only. A piece that is half dark by area is a piece the
+  contour cannot describe — the conveyor family learned that the expensive way.
+- **The waist ring wears the `glow` slot**, which the charge overlay already
+  rewrites per band (`CHARGE_LOOK`), so a hire running flat is legible across
+  the shop for one authored part and no code.
+- **A silhouette each.** Chef squat and wide under a toque, runner tall and
+  narrow with a tail fin, guard heavy-shouldered and amber, stocker braced,
+  farmhand under a brim. At the size a hire actually gets on screen a held prop
+  is a dozen pixels and the outline is the whole shape.
+- **An antenna on all eight**, bead pulsing on `motion`, because the one thing
+  they should share is reading as *powered on*.
+
+Thirty to thirty-four parts a stage, against a cap of thirty-six. The budget was
+always there.
+
+### Three things the first pass got wrong
+
+**An arm's length is set by a constant in `scene.js`, not by the body.**
+`syncCarry` parks an armful at `(0, 0.50, 0.27)` and `animateActors` swings the
+arms `ARM_LIFT_CARRY` — 1.0 radian — forward to meet it, so a hand lands
+`reach * sin(1)` in front of the shoulder and nowhere else. Arms drawn to look
+right hanging down were 0.53 long, which reaches **0.45** out: the goods floated
+at the chest while both hands closed on air half a tile past them. It reads as
+the carrying being broken and it is arithmetic. `reach` is 0.325 and the sweep
+now swings a hand and asserts where it lands.
+
+**A recess needs a back.** The chest well was one dark box the full depth of the
+body, so its rear face was flush with the chassis behind it — from the other
+side of the shop, a black rectangle cut clean out of the bot, reading as seeing
+straight *through* them. A well is a floor **and** a back panel, and the floor's
+depth has to move with `d` or it is flush on one kind and floating on the next.
+
+**Two colours on one plane is the fault that reads as a bug.** Everything else
+here reads as art you dislike; a shared face flickers, and what you see is a
+strip of the wrong colour crawling as the camera turns. It cost the back of
+every chest well and the guard's own neck. `coplanar()` in the authoring script
+is the guard: for each pair of parts of different colours it looks for faces
+within 0.004 of each other that actually face one another, and it found
+**eleven** more — every stacked arm segment, both feet, four crowns, the
+antenna bead. Cheap to run and impossible to eyeball.
+
+⚠️ **`drift` does not work on a hire.** It is handled by `buildProp` in
+`render/motion.js`, and `buildActor` calls `buildModel` directly — so a drifting
+part authored on a worker is a box that sits there. Steam off the chef wants
+that path widening first.
+
 ## Once a worker is data-driven
 
 These are cheap *because* of the split above, and expensive without it.

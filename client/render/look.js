@@ -278,6 +278,55 @@ export const INK_NORMAL_SCALE = 0.5;
  */
 export const SCENE_SAMPLES = 4;
 
+/* -------------------------------------------------------------- the marking */
+
+/**
+ * WHAT YOU ARE POINTING AT, DRAWN AS A LINE ROUND IT.
+ *
+ * The marker used to be a frame on the tile, which was a proxy for the question
+ * — you point at a shelf to walk to the side of it, so the tile is a true thing
+ * to say and not the thing you asked. It got away with it while the shop was
+ * soft-shaded and a flat mark read as a mark. The ink ended that: everything in
+ * the building now carries a hard contour, so the one unlit quad on the floor
+ * read as a UI layer that had fallen into the picture.
+ *
+ * IT IS A SCREEN PASS, AND THE ROAD NOT TAKEN IS THE INTERESTING PART. The
+ * obvious build is the inverted hull — clone the art, push it outward, draw the
+ * back faces — and it is what every cel-shaded game does. It was built, and it
+ * is wrong for THIS art: a hull traces the silhouette of a SOLID, and a shelf is
+ * four thin boards with air between them. Expanded, each board fattens into its
+ * own slab and the gaps let you see every one of them, so what you get is a
+ * shelf whose insides have been painted amber rather than a shelf with a line
+ * round it. Nothing about the hull is broken; a hollow object simply has no
+ * silhouette to trace in object space. The picture only exists on the screen, so
+ * that is where it has to be found — which also buys the two things a hull can
+ * never have: one WEIGHT at every zoom, and a band that does not thin on a duct
+ * because a duct is flat.
+ *
+ * `WIDE` and `THIN` are device pixels, and the pair is the whole reason the mask
+ * carries three channels rather than one. Two markers are very often on the same
+ * shelf — the thing under the pointer is usually the thing whose menu is open —
+ * and the answer that has worked since they were frames is that one sits inside
+ * the other. So the selection is drawn wide and the pointer narrow, on top: what
+ * you see is a teal band with an amber one inside it, which is two true
+ * sentences rather than one marker eating the other.
+ *
+ * The colours are the marks' own and are quoted here rather than re-chosen —
+ * `MARKER_LOOK` in props.js is where they live and what the ground frames still
+ * use, and a second opinion about what amber means is how the aim frame and the
+ * aim contour end up different colours in one shop.
+ */
+export const MARK = {
+  /** The camera layer nothing but the mask pass draws. */
+  LAYER: 4,
+  WIDE: 7.5,
+  THIN: 4.5,
+  /** In the mask's R, G and B, in this order. */
+  AIM: '#ffd66b',
+  SEL: '#5fd6c4',
+  RAZE: '#e2564a',
+};
+
 /* ------------------------------------------------------------------- shadow */
 
 /**

@@ -201,6 +201,49 @@ const BAKE_GAIN = 0.9;
 const BAKE_MAX = 0.75;
 
 /**
+ * What share of a lamp reaches something ABOVE it.
+ *
+ * Every fitting in this shop is a downlight — a pendant, a strip in a freezer
+ * cabinet, a shade on a stand — and the bake had no idea, because it is a
+ * distance and nothing else. That was invisible for as long as the only things
+ * it reached were the floor, the walls and the fixtures, every one of which is
+ * under the lamps. The roof is the first surface over them, and it is over them
+ * by about 0.7 of a tile against a 4-tile range: `fall` is still 0.68 up there,
+ * so a pendant baked the underside of its own slab at nearly full brightness,
+ * `BAKE_MAX` landed it at 1.47 over `ROOF_LEVEL`, and the largest flat surface
+ * in the game clipped to white. What that reads as is the ceiling being a
+ * lightbox — the brightest thing in a frame taken at eye level, in a shop lit
+ * from above.
+ *
+ * A share rather than nothing at all, because a fitting DOES throw a little up
+ * and the faint halo round one is most of what says it is a fitting rather than
+ * a decal. It wants to be small: the soffit is the largest flat surface in the
+ * game and the one thing it must never be is the brightest, so the number is set
+ * by where the ceiling sits against the FLOOR under the same lamp — a lift of
+ * about 0.04 over `ROOF_LEVEL` against the floor's 0.11, which is a shop lit
+ * from above rather than a lightbox with a shop under it.
+ */
+const UPLIGHT = 0.05;
+
+/**
+ * How far above a lamp it takes to get there, in tiles.
+ *
+ * Because it is a fact about HEIGHT and never about angle, which is the one
+ * mistake available here. Modelled as a cone — the share falling off with how
+ * directly overhead the sample is — the ceiling comes out a DONUT: dimmest
+ * straight above the fitting, where the cone is tightest, and brightest a tile
+ * out where `fall` is still high and the angle has opened up. That is a halo
+ * with a hole in it, which reads as worse art than the white pool it replaced.
+ *
+ * The band exists at all because one baked path is per-VERTEX
+ * (`rebakeMesh` walks `position`), so an unsoftened step would draw a hard
+ * horizontal line across anything tall enough to straddle a lamp — an overhead
+ * duct beside a pendant is the case in the shop today. A quarter tile is under
+ * the height of a crate and over the width of that seam.
+ */
+const UPLIGHT_BAND = 0.25;
+
+/**
  * A WINDOW IS A HOLE IN THE ROOF, which is the only shape it could have here.
  *
  * Not a lamp — the room is not short of light, it is short of *sky*. So a pane
@@ -484,7 +527,11 @@ export class Lights {
       const d2 = (e.x - x) ** 2 + (e.y - y) ** 2 + (e.z - z) ** 2;
       if (d2 >= e.range * e.range) continue;
       const fall = (1 - Math.sqrt(d2) / e.range) ** 2;
-      const amount = fall * e.intensity * this.lit * BAKE_GAIN;
+      // Which SIDE of the lamp this is, which a distance cannot say. See
+      // `UPLIGHT` and `UPLIGHT_BAND`.
+      const up = Math.min(1, Math.max(0, y - e.y) / UPLIGHT_BAND);
+      const side = 1 - (1 - UPLIGHT) * up;
+      const amount = fall * side * e.intensity * this.lit * BAKE_GAIN;
       const c = tint(e.color);
       r += amount * c.r;
       g += amount * c.g;

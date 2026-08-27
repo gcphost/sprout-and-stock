@@ -16,7 +16,7 @@ import { partsAt, seamStep, skinnedParts, modelBounds, FRONT_LIP } from '../../s
 import { FACE_CALM, VEHICLE_LOOK, CRATE_LOOK, WASTE_LOOK, shade } from './palette.js';
 import { BUILDS, STOCK_HAIR, STOCK_HAIR_COLOR } from '../../shared/looks.js';
 import { signed } from '../money.js';
-import { lookOn, lookKey, gradientMap } from './look.js';
+import { lookOn, lookKey, gradientMap, MARK } from './look.js';
 
 /** One shared geometry per primitive shape — never allocate these per prop. */
 const GEO = {
@@ -351,6 +351,75 @@ function turnAxis(part) {
   return 'y';
 }
 
+/** The four pivots a walk is made of. Closed, because the renderer holds each by name. */
+const MODEL_BONES = ['leftArm', 'rightArm', 'left', 'right'];
+
+/**
+ * Where a limb is hinged, read off the limb.
+ *
+ * An arm hangs down its own -y from a shoulder and a leg hangs down from a hip,
+ * so the joint is the TOP of whatever is on the bone, centred on the rest of it.
+ * Authoring the point instead was the alternative and it is the worse one: a
+ * pivot is a number nobody looks at again, so a limb redrawn longer keeps
+ * swinging about where the old one used to meet the body — which reads as the
+ * arm being detached rather than as a stale constant.
+ */
+function jointOf(parts) {
+  let x0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+  let z0 = Infinity; let z1 = -Infinity;
+  for (const p of parts) {
+    const [sx, sy, sz] = p.scale ?? [0.3, 0.3, 0.3];
+    const [px, py, pz] = p.pos ?? [0, 0, 0];
+    x0 = Math.min(x0, px - sx / 2); x1 = Math.max(x1, px + sx / 2);
+    y1 = Math.max(y1, py + sy / 2);
+    z0 = Math.min(z0, pz - sz / 2); z1 = Math.max(z1, pz + sz / 2);
+  }
+  return [(x0 + x1) / 2, y1, (z0 + z1) / 2];
+}
+
+/**
+ * The skeleton an authored model gets if — and only if — it asks for one.
+ *
+ * Same four pivots and the same two `userData` fields `crowdRig` writes, because
+ * everything downstream reads them by name: `animateActors` runs the gait off
+ * `walker`, `animateEmote` waves with it, and `syncKit` hangs a bag on `hold`.
+ * All three are already guarded on it being absent, so a model that names no
+ * bone is the group `buildModel` has always returned.
+ *
+ * All four pivots are built whenever any one of them is asked for, and the
+ * unclaimed ones sit at the origin with nothing on them. `walker` is read as a
+ * complete set — a bot with a skirt instead of legs would otherwise take the
+ * gait's first write to `left.rotation` and take the room down.
+ */
+function buildRig(group, parts) {
+  if (!parts.some((p) => p.bone)) return null;
+  const pivots = new Map();
+  for (const name of MODEL_BONES) {
+    const own = parts.filter((p) => p.bone === name);
+    const pivot = new THREE.Group();
+    if (own.length) pivot.position.set(...jointOf(own));
+    group.add(pivot);
+    // Exactly minus the pivot, so anything parented here is positioned in
+    // ordinary body coordinates and still swings from the shoulder. The same
+    // trick `characterParts` calls `hold`, and the whole fix for a basket
+    // hanging in mid-air beside the hand carrying it.
+    const hold = new THREE.Group();
+    hold.position.copy(pivot.position).negate();
+    pivot.add(hold);
+    pivots.set(name, { pivot, hold });
+  }
+  group.userData.walker = {
+    left: pivots.get('left').pivot,
+    right: pivots.get('right').pivot,
+    leftArm: pivots.get('leftArm').pivot,
+    rightArm: pivots.get('rightArm').pivot,
+  };
+  group.userData.hold = {
+    left: pivots.get('leftArm').hold, right: pivots.get('rightArm').hold,
+  };
+  return { parentFor: (bone) => (bone ? pivots.get(bone).pivot : group) };
+}
+
 export function buildModel(model, {
   castShadow = true, t = 1, abuts = null, skin = null, alpha: ghost = 1,
 } = {}) {
@@ -362,6 +431,8 @@ export function buildModel(model, {
   const parts = skinnedParts(partsAt(model, t), skin);
   group.userData.moving = [];
   if (!parts.length) return group;
+
+  const rig = buildRig(group, parts);
 
   for (const part of parts) {
     // A seam exists to close the end of a unit, and there is no end to close
@@ -388,7 +459,13 @@ export function buildModel(model, {
     // answers rather than a dimmer. See the note in `shared/schemas.js`.
     mesh.castShadow = castShadow && (alpha >= 1 || part.shadow === true);
     mesh.receiveShadow = false;
-    group.add(mesh);
+    // A limb's boxes are authored in body coordinates like everything else, so
+    // the joint's own offset comes back off them on the way into the pivot.
+    // Written before `moving` records `pos`, or a motion part on an arm eases
+    // back to a place measured in the wrong space.
+    const home = rig ? rig.parentFor(part.bone) : group;
+    if (home !== group) mesh.position.sub(home.position);
+    home.add(mesh);
     if (part.motion) {
       group.userData.moving.push({
         mesh,
@@ -2016,10 +2093,10 @@ const GHOST_COLOURS = {
  *
  * Told apart by SHAPE rather than by colour, because the colour is already
  * spoken for — it carries the verdict, and a red ghost has to stay legible as
- * red. So: an open ring is somewhere a customer stands, and a ring with a post
- * standing in it is somewhere one of YOURS stands. The post is upright rather
- * than flat for the same reason: on a 45° camera a mark on the floor is read at
- * a glance and a thing standing up is read as a person.
+ * red. So: an empty square is somewhere a customer stands, and a square with a
+ * post standing in it is somewhere one of YOURS stands. The post is upright
+ * rather than flat for the same reason: on a 45° camera a mark on the floor is
+ * read at a glance and a thing standing up is read as a person.
  */
 export function buildWorkSpot(role, at, colour = 0xffd66b) {
   const g = new THREE.Group();
@@ -2028,7 +2105,25 @@ export function buildWorkSpot(role, at, colour = 0xffd66b) {
     side: THREE.DoubleSide, depthTest: false,
   });
 
-  const pad = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.34, 18), mat);
+  // SQUARE, and the same argument `buildFootMark`, `buildStamp` and the press
+  // ripple all make: this floor is a grid, everything on it that means anything
+  // is tile-shaped, and a disc is the one outline down here that lines up with
+  // nothing around it. It was a ring while it was the only mark of its kind on
+  // the ground; beside a contour drawn round the unit it is standing at, a
+  // circle reads as belonging to a different game.
+  //
+  // Smaller than the ring it replaced — 0.27 against 0.34 — and that is the
+  // shape change being paid for rather than a second opinion about size. A
+  // square holds its size on the DIAGONAL, which is the trade `buildFootMark`
+  // names: at the ring's own radius the corners reach 0.48 of a tile, so four
+  // spots round a unit very nearly met each other and read as a patch of floor
+  // rather than as four places to stand. At 0.27 the corners land where the
+  // ring's edge used to, so a spot claims the floor it always did.
+  // ...and a THIN band on it, which the ring never needed to be. A ring's
+  // weight was the only thing making a small circle visible on a cream floor;
+  // a square is read by its corners, so it stays legible far lighter — and
+  // heavy, four of them round one unit are the loudest thing in the aisle.
+  const pad = new THREE.Mesh(new THREE.ShapeGeometry(frameShape(0.27, 0.06)), mat);
   pad.rotation.x = -Math.PI / 2;
   pad.position.y = 0.1;
   pad.renderOrder = 12;
@@ -2236,6 +2331,108 @@ export function buildCageMarker(mode = 'aim', size = { x: 1, y: 1, z: 1 }) {
 }
 
 /**
+ * One flat flag per channel. Never disposed, like `material()`'s cache.
+ *
+ * Not a colour — a CHANNEL. What goes in the mask is which marker covered the
+ * pixel, and the shade it comes out is a uniform in the composite, so the two
+ * markers can be told apart there and drawn at two different widths. See
+ * `MARK` in look.js.
+ *
+ * `AdditiveBlending` is what lets them overlap: a shelf that is both pointed at
+ * and open writes 1 into R and 1 into G at the same pixel, and with ordinary
+ * blending the second one to draw would simply replace the first. Depth is off
+ * for the same reason — the mask is a silhouette, so a board hidden behind
+ * another board still belongs to it.
+ */
+const CONTOUR_MATS = [];
+
+const contourMat = (ch) => (CONTOUR_MATS[ch] ??= new THREE.MeshBasicMaterial({
+  color: new THREE.Color(ch === 0 ? 1 : 0, ch === 1 ? 1 : 0, ch === 2 ? 1 : 0),
+  blending: THREE.AdditiveBlending,
+  depthTest: false,
+  depthWrite: false,
+  // Or the renderer's tone curve bends a flag on its way into the buffer, and
+  // what the composite tests is a number nobody wrote.
+  toneMapped: false,
+  fog: false,
+}));
+
+/**
+ * The thing you are pointing at, drawn as ITSELF.
+ *
+ * A frame on the tile answers "which square" and was always standing in for the
+ * question anybody actually asks, which is "which of these". It got away with it
+ * while the shop was soft-shaded and a flat mark read as a mark. The cel ink
+ * ended that: every object in the building now carries a hard contour and reads
+ * as solid, so the one flat unlit quad in the frame reads as a UI layer that
+ * fell into the picture — and a shelf is drawn most of a tile up-screen of the
+ * ground it stands on, so the mark was not even under the thing it named.
+ *
+ * So the marker is the object's own silhouette, in the marker's colour, sitting
+ * just outside the black ink. Nothing is invented and nothing can drift: it is
+ * the same meshes, so a highlight can never be next to what it is highlighting.
+ *
+ * WHAT THIS BUILDS IS NOT THE LINE. It is a stencil of the thing, drawn into a
+ * mask the composite dilates — see `MARK` in look.js for why the line cannot be
+ * geometry on this art, and what was built and thrown away first. So these
+ * meshes are flat flags on a layer of their own, and nothing in the main pass
+ * ever sees them.
+ *
+ * The geometry is BORROWED and never cloned. A hover is a thing that happens
+ * every time the pointer crosses a shelf, and cloning a welded unit's buffers
+ * at that rate is a stall you would feel as the pointer moving; sharing them is
+ * free, and `disposeGroup` is told so it cannot free the shelf on the way out.
+ *
+ * @param {THREE.Object3D} source  the fixture's own group, in `staticRoot`
+ * @param {THREE.Vector3}  origin  where the returned group will stand, so the
+ *        clones can carry their offsets relative to it. The TILE rather than the
+ *        art, and unrotated, because work spots are added to this group as
+ *        children and they are already computed in world axes.
+ * @param {string} mode  a `MARKER_LOOK` key. A look with no `mark` channel gets
+ *        no contour and the caller keeps its frame — which is how `kin` stays a
+ *        frame without a second decision anywhere: seventeen contours at once
+ *        is a shop painted in teal, and that marker already gave up weight
+ *        rather than legibility for exactly this reason.
+ * @param {?function} skip  parts not to include. Moving ones, because the mask
+ *        is built once and a blade turns under it — the same rule
+ *        `collectEdges` keeps for the ink itself.
+ */
+export function buildContour(source, origin, mode = 'aim', skip = null) {
+  const look = MARKER_LOOK[mode] ?? MARKER_LOOK.aim;
+  if (look.mark == null || !source) return null;
+
+  source.updateMatrixWorld(true);
+  const g = new THREE.Group();
+  g.userData.color = look.color;
+  // What `setMarkedSet` and the Ink pass both ask, rather than re-deriving it
+  // from what is inside: an empty mask pass is a full traversal of the scene
+  // graph for a texture nothing wrote to.
+  g.userData.mark = true;
+  const rel = new THREE.Matrix4().makeTranslation(-origin.x, -origin.y, -origin.z);
+
+  source.traverse((o) => {
+    if (!o.isMesh || !o.visible || !o.geometry) return;
+    // An invisible hit volume is not art. The lift keeps one shaft-sized box so
+    // the pointer has something to catch, and stencilled it would ring a
+    // four-metre column round a machine you can see straight through.
+    if (o.material?.visible === false || o.material?.opacity === 0) return;
+    if (skip?.(o)) return;
+    const c = new THREE.Mesh(o.geometry, contourMat(look.mark));
+    c.matrixAutoUpdate = false;
+    c.matrix.copy(rel).multiply(o.matrixWorld);
+    c.castShadow = false;
+    c.receiveShadow = false;
+    // `clone` brings the FIXTURE's layer with it — every fixture is off layer 0
+    // so the eight real lights cannot reach it twice — and this has to be on
+    // the one layer the mask pass draws and the main pass does not.
+    c.layers.set(MARK.LAYER);
+    c.userData.borrowed = true;
+    g.add(c);
+  });
+  return g.children.length ? g : null;
+}
+
+/**
  * A square outline lying in the XY plane, drawn as one shape with a hole.
  *
  * A square rather than a circle because the thing being marked stands on a
@@ -2307,12 +2504,17 @@ const MARKER_LOOK = {
   // Amber is "this is what you are pointing at". Red is the same sentence with
   // a bulldozer in your hands, and the outline is the only warning that arrives
   // before the tap rather than after it.
-  aim: { color: 0xffd66b, half: 0.45, band: 0.08, chevron: true },
-  raze: { color: 0xe2564a, half: 0.45, band: 0.08, chevron: true },
+  // `mark` is which channel of the contour mask this writes, and having one at
+  // all is what opts a look into being drawn round the object rather than on
+  // the floor. See `MARK` in look.js — the two the composite draws narrow.
+  aim: { color: 0xffd66b, half: 0.45, band: 0.08, chevron: true, mark: 0 },
+  raze: { color: 0xe2564a, half: 0.45, band: 0.08, chevron: true, mark: 2 },
   // The one whose menu is open. Cool, because it is not a verb — nothing is
   // about to happen to it, it is simply the thing you are reading about — and
   // pushed out to the tile edge, so the aim frame sits inside it.
-  selected: { color: 0x5fd6c4, half: 0.5, band: 0.07, arm: 0.24, chevron: false },
+  // ...and the WIDE one, so the aim band sits inside it exactly as the aim
+  // frame sat inside the selection brackets.
+  selected: { color: 0x5fd6c4, half: 0.5, band: 0.07, arm: 0.24, chevron: false, mark: 1 },
   // "This would take what you are holding." The only one with no outline on
   // the ground, because it is the only one that appears in *numbers* — eight
   // of these at once, and eight squares painted on the floor is a shop you
@@ -3190,6 +3392,24 @@ export function collectEdges(group, out, { angle = 24, skip = null } = {}) {
 }
 
 /**
+ * One fixture's contour as ONE geometry, so it can be kept.
+ *
+ * `collectEdges` answers a geometry per mesh, which is the right unit for the
+ * shop-wide merge and the wrong one for a cache: a loader is 31 meshes, and
+ * holding 31 buffers per unit to save rebuilding them is bookkeeping nobody
+ * wants. Folded here, the cache holds one object per fixture and the shop-wide
+ * merge folds ~150 instead of ~2,100.
+ */
+export function mergeEdges(geometries) {
+  if (!geometries.length) return null;
+  if (geometries.length === 1) return geometries[0];
+  const merged = mergeGeometries(geometries, false);
+  if (!merged) return null;
+  geometries.forEach((g) => g.dispose());
+  return merged;
+}
+
+/**
  * Fold everything `collectEdges` gathered into the one object that draws it.
  *
  * `depthWrite` is off and the depth TEST is on, which is the pair that makes
@@ -3208,10 +3428,18 @@ export function collectEdges(group, out, { angle = 24, skip = null } = {}) {
  * `polygonOffset` is the usual tool and is no use here: WebGL only implements
  * `POLYGON_OFFSET_FILL`, so three sets the flag and nothing happens to a line.
  */
-export function buildEdgeLines(geometries, color, opacity) {
+export function buildEdgeLines(geometries, color, opacity, { own = true } = {}) {
   if (!geometries.length) return null;
-  const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries, false);
-  if (merged !== geometries[0]) geometries.forEach((g) => g.dispose());
+  // `own: false` says the caller is KEEPING what it handed over — the fixture
+  // art cache holds one merged contour per unit and re-offers it on every
+  // re-flow, so freeing them here would hand back a freed buffer next time.
+  // The single-geometry case has to clone for the same reason: the merge is
+  // skipped, so the line would otherwise be drawn straight out of the cache's
+  // own object and `clearEdgeLines` would dispose it.
+  const merged = geometries.length === 1
+    ? (own ? geometries[0] : geometries[0].clone())
+    : mergeGeometries(geometries, false);
+  if (own && merged !== geometries[0]) geometries.forEach((g) => g.dispose());
   if (!merged) return null;
   const mat = new THREE.LineBasicMaterial({
     color: new THREE.Color(color),
@@ -3231,7 +3459,12 @@ export function buildEdgeLines(geometries, color, opacity) {
 /** Free the GPU memory a prop group holds. Materials are shared — don't dispose those. */
 export function disposeGroup(group) {
   group.traverse((o) => {
-    if (o.isMesh && o.geometry && !SHARED_GEO.has(o.geometry)) {
+    // `borrowed` is geometry this group does not own: a contour is the FIXTURE's
+    // own meshes worn a second time (see `buildContour`), so freeing it here
+    // would free the shelf the marker is drawn around — and the shelf is still
+    // standing there, now with nothing in its buffers. `SHARED_GEO` protects the
+    // primitives for the same reason; this protects a borrowing.
+    if (o.isMesh && o.geometry && !o.userData.borrowed && !SHARED_GEO.has(o.geometry)) {
       o.geometry.dispose();
     }
     // A sprite's are NOT shared: `buildTextSprite` draws its own canvas and

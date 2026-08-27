@@ -7301,7 +7301,21 @@ function stepPerf(now, ms, hz) {
     // number here because the frame cost of a leak is nil until it is fatal.
     + `geo ${info?.memory?.geometries ?? 0}  tex ${info?.memory?.textures ?? 0}`
     + `  prog ${scene.renderer?.info?.programs?.length ?? 0}`
-    + `  dpr ${scene.renderer?.getPixelRatio?.().toFixed(2) ?? '?'}`;
+    + `  dpr ${scene.renderer?.getPixelRatio?.().toFixed(2) ?? '?'}\n`
+    // The one cost on here that is NOT per frame — see `Scene.buildWorld`. A
+    // re-flow stops the world between two frames, so it never shows up in
+    // `cpu` or `worst`; this is the only place a build press that stutters can
+    // be told from a shop that is simply heavy to draw.
+    + `reflow ${(scene.reflowMs ?? 0).toFixed(1)}ms`
+    + `  worst ${(scene.reflowWorst ?? 0).toFixed(1)}  x${scene.reflows ?? 0}`
+    + `  kept ${scene.reflowKept ?? '-'}\n`
+    // ...broken down, because "the rebuild is slow" is not an actionable
+    // sentence: the phases answer to completely different things — how much you
+    // have BUILT, how big the map is, how much you have PAINTED — and which one
+    // it is decides whether the fix is a cache, a cap or a smaller sweep.
+    + Object.entries(scene.reflowPhases ?? {})
+      .sort((a, b) => b[1] - a[1]).slice(0, 6)
+      .map(([k, v]) => `${k} ${v.toFixed(1)}`).join('  ');
   perf.at = now;
   perf.frames = 0;
   perf.worst = 0;

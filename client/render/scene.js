@@ -18,14 +18,14 @@ import {
   buildStationBays,
   buildTextSprite, setTextSprite, buildMoneyLabel, moneySaid,
   buildPallet, CRATE_STEP, BELT_DECK, buildProgressRing, setRingProgress, buildGhost,
-  buildSoil, buildFixtureGhost, buildTargetMarker, buildEdgeArrow, buildCageMarker, buildWorkSpot, disposeGroup, material,
+  buildSoil, buildFixtureGhost, buildTargetMarker, buildEdgeArrow, buildCageMarker, buildContour, buildWorkSpot, disposeGroup, material,
   buildGrowthBar, setGrowthBar,
   buildRipple,
   buildStamp,
   buildFootMark,
   buildPadGlyph,
   weld, paintLit, characterMaterial, PERSON_H,
-  collectEdges, buildEdgeLines,
+  collectEdges, buildEdgeLines, mergeEdges,
 } from './props.js';
 import { Heat } from './heat.js';
 import { T } from '../../shared/tiles.js';
@@ -346,9 +346,9 @@ const FPV_LOOK = 0.0046;
  * bigger, clamped to what is left — which gives ease-out on a big correction
  * and a steady tracking rate on a small one.
  *
- * The floors are per FRAME, like the gains, because everything in this loop
- * already is. `look` is 0.055 of a tile, which is about 3.3 tiles a second at
- * 60Hz — comfortably above a walk, so the camera locks on rather than trailing.
+ * The floors are quoted per FRAME OF 60Hz, and `gainFor` is what makes that a
+ * unit rather than a coincidence — see below. `look` in cinema is 0.055 of a
+ * tile, about 3.3 tiles a second, which is comfortably above a *shopper's* walk.
  * `yaw` is 0.0075 radians, about 26° a second: a slow pan you would have set on
  * a tripod, and the gain above it is what takes over when you throw the drag.
  *
@@ -356,16 +356,56 @@ const FPV_LOOK = 0.0046;
  * the only smoothing knob there was; with a floor doing the tracking, the gain
  * is only shaping the ease-out, and a low one there is what read as syrup.
  *
+ * ...and the ordinary camera got a floor of its own in the end, which is the
+ * argument three paragraphs up finally being applied to the person it was
+ * written about. `lookMin: 0` left the playing camera as exactly the spring that
+ * note describes — fastest at the start, asymptotic at the end, and never
+ * arriving while the thing it chases is still moving — so walking anywhere slid
+ * the whole shop under your feet and stopping glided it back. Cinema was given
+ * the dolly and the player was left on the spring.
+ *
+ * It is nearly twice cinema's, and the number is arithmetic rather than taste:
+ * a floor is only a floor while it out-paces what it is chasing, and what this
+ * one chases is YOU. `PLAYER_SPEED` is 4.2 tiles a second and `SPRINT_SPEED`
+ * multiplies it to 6.72, so anything under 0.112 a frame is a camera that keeps
+ * pace with a walk and reverts to the old trailing spring the moment somebody
+ * holds Shift — which would read as sprinting being the broken part.
+ *
  * Zoom gets no floor on purpose: it is the one of the four that is never
  * chasing a moving target — a wheel notch is a fixed distance, so the spring
  * arrives on its own and a floor would only put a snap on the last of it.
  */
 const EASE = {
-  look: 0.08, lookMin: 0, yaw: 0.14, yawMin: 0, zoom: 0.18, tilt: 1, tiltMin: 0,
+  look: 0.08, lookMin: 0.12, yaw: 0.14, yawMin: 0, zoom: 0.18, tilt: 1, tiltMin: 0,
 };
 const CINE_EASE = {
   look: 0.09, lookMin: 0.055, yaw: 0.10, yawMin: 0.0075, zoom: 0.09, tilt: 0.12, tiltMin: 0.006,
 };
+
+/**
+ * The frame the gains and floors above are quoted against.
+ *
+ * Every other easing in this file is against `dt` — `ACTOR_CHASE`,
+ * `VEHICLE_CHASE`, `CROWD_EASE` — and each says why: a fixed fraction per frame
+ * is a different camera on every machine. The camera pose was the one loop still
+ * on a raw per-frame fraction, and it is the loop where that matters most,
+ * because the camera moves the WHOLE SCREEN. At 30fps `look` was half as
+ * responsive and the floor would have been half the speed, so the view trailed
+ * twice as far behind a walk on exactly the machine already struggling to draw
+ * it — which reads as the game getting sloppier as it gets slower, and is the
+ * two of them compounding rather than one cause.
+ */
+const EASE_HZ = 60;
+
+/**
+ * A gain quoted per 60Hz frame, said for a frame that actually lasted `dt`.
+ *
+ * The compounding form rather than `gain * dt * 60`: a lerp is repeated
+ * multiplication by `1 - gain`, so the honest way to ask for two frames' worth
+ * is to square it. Linear scaling overshoots past a gain of 1 on a slow frame,
+ * which is a camera that snaps on precisely the frames that hitched.
+ */
+const gainFor = (gain, dt) => (gain >= 1 ? 1 : 1 - Math.pow(1 - gain, dt * EASE_HZ));
 
 /**
  * Move a number toward another by `gain` of the gap, never slower than `floor`
@@ -1231,6 +1271,28 @@ const VEHICLE_TURN = 5;
 const ACTOR_CHASE = 4.3;
 
 /**
+ * ...and how fast a body comes round to which way it is pointing.
+ *
+ * The turn's own `VEHICLE_TURN`, arriving for people, and the argument is the
+ * one written there: a heading that snaps a quarter turn between two ticks reads
+ * as the mesh being swapped rather than as somebody going round a corner. A
+ * lorry gets it because `vanRoute` is straight legs with a right angle in the
+ * middle; a person gets it because *every* heading they are ever handed is one
+ * of a handful. The keys send eight directions, so steering across a diagonal is
+ * a 45° snap and reversing is 180°; `followPath` walks tile to tile, so a route
+ * turns in quarters. There has never been a fraction of a turn anywhere in this.
+ *
+ * Well above the lorry's 5, which is the whole difference between the two: a van
+ * turning slowly is a van, and you turning slowly is a control that does not
+ * answer. At 13 a right angle is most of the way round in a tenth of a second —
+ * fast enough that a press still feels like a press, slow enough that there is a
+ * turn on screen rather than a jump cut. It is deliberately quicker than
+ * `ACTOR_CHASE`, or a body would arrive somewhere still facing the way it set
+ * off.
+ */
+const ACTOR_TURN = 13;
+
+/**
  * How far a drawn body is shoved off the tile the shop put it on, so that two
  * people standing in one place read as two people.
  *
@@ -1728,6 +1790,13 @@ export class Scene {
     /** Whether the view is inside somebody's head. See `setFirstPerson`. */
     this.fpv = false;
     /**
+     * The roof, drawn only from under it. Held so the mode can show and hide it
+     * without rebuilding: it lives under `staticRoot`, which `buildWorld`
+     * disposes wholesale, and a rebuild of the shop behind a key you can press
+     * twice a second is not a toggle. See `addCeiling`.
+     */
+    this.ceiling = null;
+    /**
      * Where they are looking, in radians off the horizon, as a target/drawn
      * pair like the yaw's — see `EASE.tilt`, which collapses the two into one
      * outside cinema.
@@ -1929,6 +1998,34 @@ export class Scene {
     // cleared by `addFixtureProps` for the same reason as the map above: it
     // describes meshes a re-flow throws away.
     this.propBoxes = new Map();
+    // ...and the art ITSELF, by fixture id, which is what a contour marker is
+    // built out of. Every fixture is in here and not only the props, because
+    // the highlight is now about the object for all of them — see `markerFor`.
+    // Filled and cleared beside `propBoxes`, and for its reason: these are
+    // groups in `staticRoot`, which a re-flow throws away wholesale.
+    this.fixtureProps = new Map();
+    /**
+     * ...AND THE ART THAT DID NOT CHANGE, KEPT ACROSS THE RE-FLOW.
+     *
+     * A re-flow disposes the shop and builds it again, and it fires on every
+     * build press and on every wall segment of a drag. That is right about the
+     * ground, the walls and the ceiling — all three are facts about the whole
+     * building — and it is wrong about a shelf twenty tiles from the one you
+     * placed, which is byte-for-byte the shelf it was. On a shop with a hundred
+     * conveyor cells that was ~60ms of a ~86ms stall, spent rebuilding art
+     * nobody had touched: `?perf` reads it as `fx:model` and `fx:ink`.
+     *
+     * Keyed on everything the art is DERIVED from rather than on the fixture's
+     * own record, which is the whole difficulty — a unit's panels are a fact
+     * about its neighbours (`carriesOn`) and a conveyor's deck is a fact about
+     * the flow, so a key that said only "this shelf has not moved" would leave
+     * a run wearing the seams of the shop it used to be in. See `fixtureArtKey`
+     * for what goes in and what is deliberately never reused.
+     *
+     * Emptied by `clearFixtureArt`, which `rebuildWorld` calls — that is the one
+     * path a *look* or a catalog edit comes down, and neither is in the key.
+     */
+    this.fixtureArt = new Map();
     // Markers that come in SETS rather than one at a time — see `setMarkedSet`.
     // Keyed by what the set means ('picked', 'kin') so the two are independent:
     // they are live at once and answer different questions.
@@ -2515,6 +2612,10 @@ export class Scene {
     const next = !!on;
     if (next === this.fpv) return this.fpv;
     this.fpv = next;
+    // The roof goes up and comes down with the mode, and it is a flag rather
+    // than a rebuild. `addCeiling` is born reading the same field, so a re-flow
+    // while you are in there does not drop it.
+    if (this.ceiling) this.ceiling.visible = next;
     if (next) {
       this.camZoom = ZOOM_MAX;
       this.ortho.zoom = ZOOM_MAX;
@@ -3517,12 +3618,58 @@ export class Scene {
   /** Redraw the world we already have — for when the art changed, not the shop. */
   rebuildWorld() {
     if (!this._layout) return;
+    // A style or a catalog edit redraws every fixture without moving one, and
+    // neither is in `fixtureArtKey`. See `clearFixtureArt`.
+    this.clearFixtureArt();
     this.layoutVersion = -1;
     this.buildWorld(this._layout);
   }
 
+  /**
+   * ...and how long that took, because nothing could say.
+   *
+   * A re-flow is the one piece of work in the client that is neither a frame
+   * nor a message: it disposes the whole shop and builds it again, on the tick a
+   * build press lands, and it fires on every wall segment of a drag. So it is
+   * invisible to every number on the `?perf` readout — `frame`/`cpu` are a
+   * running average over 250ms and `worst` is capped by the loop, while what a
+   * player actually feels is one stall between two frames with the world
+   * stopped inside it. "Placing something pauses the game" is a complaint that
+   * has nowhere to land without this.
+   *
+   * Kept as a peak rather than a last value: a drag re-flows a dozen times and
+   * the one that hurts is the worst of them, which a last-value readout would
+   * overwrite a millisecond later.
+   */
   buildWorld(layout) {
     if (layout.version === this.layoutVersion) return;
+    const startedAt = performance.now();
+    this.reflowPhases = {};
+    this._phaseAt = startedAt;
+    try {
+      this.composeWorld(layout);
+    } finally {
+      this.reflowMs = performance.now() - startedAt;
+      this.reflowWorst = Math.max(this.reflowWorst ?? 0, this.reflowMs);
+      this.reflows = (this.reflows ?? 0) + 1;
+    }
+  }
+
+  /**
+   * Close off a span of `composeWorld` and file it under a name.
+   *
+   * Split by hand rather than derived, because the interesting boundaries are
+   * not the method calls: the tile sweep and the instanced-kind sweep are two
+   * loops in the middle of one function and they answer to completely different
+   * things (the size of the map, and how much you have painted).
+   */
+  phase(name) {
+    const now = performance.now();
+    if (this.reflowPhases) this.reflowPhases[name] = now - this._phaseAt;
+    this._phaseAt = now;
+  }
+
+  composeWorld(layout) {
     this.layoutVersion = layout.version;
     this._layout = layout;
     const L = layout.layout ?? layout;
@@ -3532,6 +3679,12 @@ export class Scene {
     // That barely mattered when the shop only re-flowed on an upgrade; build
     // mode re-flows on every placement.
     this.profiles.clear();
+    // Anything we mean to keep has to LEAVE first — `disposeGroup` walks
+    // whatever is still under the root and frees its buffers, and a kept group
+    // handed back next re-flow with freed buffers draws as a fixture that is
+    // simply not there. `addFixtureProps` puts back the ones whose key still
+    // matches and disposes the rest.
+    for (const rec of this.fixtureArt.values()) this.staticRoot.remove(rec.group);
     disposeGroup(this.staticRoot);
     this.staticRoot.clear();
     // Anything still dropping was a group under that root, and is now a freed
@@ -3543,7 +3696,9 @@ export class Scene {
     // made every shelf in the shop blink each time you laid a tile, and taking
     // the records out without taking the MESHES out orphans a full set of stock
     // at the old positions. See `refreshFixtureProps` for both.
+    this.phase('dispose');
     this.refreshFixtureProps(L);
+    this.phase('props');
 
     // Lamps first, because the floor is about to be BAKED with them — every
     // emitter in the shop folded into the per-cell colour the tile mesh was
@@ -3552,12 +3707,17 @@ export class Scene {
     this.aimLights(L);
     this.bakedGround = [];
     this.bakedMeshes = [];
+    // Disposed with the root a few lines up, so the handle has to go with it —
+    // a shop whose walls came down builds no ceiling at all, and a stale one
+    // here is a freed buffer the mode would go on toggling.
+    this.ceiling = null;
 
     // The footfall sheet is the size of the world, so it is re-cut here — the
     // one thing outside `staticRoot` that a re-flow legitimately touches, since
     // buying land is the only way the grid ever changes. `resize` keeps the
     // overlap, so growing the shop does not lose what has been watched.
     this.heat.resize(L.w, L.h);
+    this.phase('lights');
 
     // Ground: one big plane rather than 1500 grass tiles. It runs well past the
     // last tile — see GROUND_MARGIN — so the world never visibly ends, and so
@@ -3643,6 +3803,7 @@ export class Scene {
     // `staticRoot` that can change without anything having MOVED — see
     // `setSurround`, which is `setPaint`'s argument said about the horizon.
     this.addSurround(L.w, L.h);
+    this.phase('ground');
 
     // Everything raised gets an instanced box per tile kind — and, for floor,
     // per DESIGN of floor. Which design a cell is painted lives in its own
@@ -3837,13 +3998,19 @@ export class Scene {
       }
     }
 
+    this.phase('tiles');
     this.addEdges(L);
+    this.phase('walls');
+    this.addCeiling(L);
+    this.phase('ceiling');
     this.addFixtureProps(L);
+    this.phase('fixtures');
     // After the fixtures, so the path is drawn over the decks rather than under
     // them. `staticRoot`, because it is a fact about the building and a re-flow
     // is what changes it — the same group the belts themselves live in, and
     // disposed wholesale with them.
     this.addConveyorPaths(L);
+    this.phase('belts');
     // Only before there is anybody to follow — see `camFollowing`. A shop that
     // re-flows is still the shop you are standing in, and where you are looking
     // is not something a re-flow gets an opinion about.
@@ -3854,15 +4021,38 @@ export class Scene {
     this.storeLayout = L;
     // Only ever redraws when the map has changed SIZE — see `syncTileGrid`.
     this.syncTileGrid(L);
-    // The fixture the pointer was over belongs to the old layout — a re-flow can
-    // renumber it or move it out from under the marker. Whoever is aiming will
-    // set it again on the next pointer move or frame.
+    // Every ring, cage and outline the pointer or a selection had up. The
+    // fixture one of them was drawn round belongs to the old layout — a re-flow
+    // can renumber it or move it out from under the marker — and the art all
+    // four are BUILT OUT OF has just been disposed. See `dropMarkers`; `UI` puts
+    // back whatever is still true on the next frame.
+    this.dropMarkers();
+  }
+
+  /**
+   * Every marker that is drawn OUT OF a fixture's own meshes, dropped.
+   *
+   * `buildContour` borrows the art rather than copying it — that is what makes
+   * an outline follow a shape nobody authored an outline for — and a re-flow
+   * frees those buffers. So a marker that survives one is drawing geometry that
+   * has been disposed, at wherever the thing used to stand: the teal outline
+   * left hanging in mid-air a few tiles from the shelf it belongs to.
+   *
+   * `this.reflows` is in all four keys, so each of them would rebuild the next
+   * time it is ASKED — and "the next time it is asked" is a pointer move, which
+   * may be never. Dropping them here closes that window rather than narrowing
+   * it. Nothing is lost by it: what a marker is drawn from lives in `UI`
+   * (`syncPickMarkers`, `refollowSelection`), and both run on a layout landing,
+   * so the ring is back on the same frame. It is the DRAWING that goes, never
+   * the selection — see CLAUDE.md on `keepPicked`, which is the opposite
+   * mistake and a much worse one.
+   */
+  dropMarkers() {
     this.setAimTarget(null);
-    // ...and the picked pile with it, for the same reason and one more: the
-    // marker is measured off the goods meshes, which this teardown has just
-    // disposed. `liveBoard` re-resolves the pick by id on the next frame, so a
-    // pile that survived the re-flow gets its cage straight back.
     this.setPickedBoard(null);
+    // `[]` rather than the default, or the null fixture is handed to `spotsOf`.
+    this.setSelectedTarget(null, []);
+    for (const name of [...this.markSets.keys()]) this.setMarkedSet(name, null);
   }
 
   /**
@@ -4175,6 +4365,7 @@ export class Scene {
     this.movingFixtures.clear();
     this.signalFixtures.clear();
     this.propBoxes.clear();
+    this.fixtureProps.clear();
     this.bakedProps = [];
     // The geometry contour, gathered across every fixture and merged into ONE
     // object at the foot of this method. See `buildEdgeLines`: a line per
@@ -4183,7 +4374,102 @@ export class Scene {
     this.clearEdgeLines();
     const edges = [];
 
+    // Split by hand, for `Scene.phase`'s reason: this loop is four unrelated
+    // costs wearing one name, and which of them owns a re-flow decides whether
+    // the fix is the art, the ink or the lighting.
+    const spans = { model: 0, place: 0, bake: 0, ink: 0, reuse: 0 };
+    // Which ids answered from the cache or were re-filed into it this pass.
+    // Anything left over belonged to a fixture the re-flow got rid of.
+    const keep = new Set();
+    // How much of the shop answered from the cache, for the readout. The one
+    // number that says whether any of this is working: a shop that is redrawing
+    // every fixture and a shop whose key never matches look identical.
+    let reused = 0;
+    let mark = performance.now();
+    const span = (k) => { const n = performance.now(); spans[k] += n - mark; mark = n; };
+
     for (const f of fixturesIn(L)) {
+      mark = performance.now();
+      /**
+       * ...unless this one is already built and nothing it is drawn from moved.
+       *
+       * The whole of the saving, and the whole of the risk: everything below
+       * this branch is skipped, so anything `fixtureArtKey` fails to name is a
+       * fixture wearing art from a shop that no longer exists. It reads as the
+       * unit not having updated — which, standing in build mode having just
+       * pressed something, reads as the press not having worked.
+       */
+      const artKey = this.fixtureArtKey(L, f, byTile);
+      const kept = artKey ? this.fixtureArt.get(f.id) : null;
+      if (kept && kept.key === artKey) {
+        keep.add(f.id);
+        this.staticRoot.add(kept.group);
+        /**
+         * ...settled, because a re-flow empties `landings`.
+         *
+         * A fixture you have just placed is dropped into its tile over
+         * `LAND_MS`, and the animation lives in a list `composeWorld` clears.
+         * Place a second thing before the first has finished falling and the
+         * first is reused mid-drop with nothing left to finish it: it hangs
+         * there, half a tile up and a little too big, for the rest of the
+         * session. Two presses in quick succession is the *ordinary* way to
+         * build, so this is not an edge case — and it is one assignment.
+         */
+        const settleOff = this.artSetback(L, f);
+        const settleMid = footprintMid(f.kind, f.x, f.z);
+        kept.group.position.set(
+          settleMid.x + (settleOff?.dx ?? 0), this.fixtureBaseY(f), settleMid.z + (settleOff?.dz ?? 0),
+        );
+        kept.group.scale.set(1, 1, 1);
+        /**
+         * ...and the MATRIX with it, which is not a formality here.
+         *
+         * three.js refreshes `matrixWorld` during render, so a group whose
+         * transform is set outside one is correct on screen a frame later and
+         * wrong to anything that reads it in between. `buildContour` is exactly
+         * that reader: a marker is built out of this group's meshes in world
+         * space, and `UI` rebuilds every marker the moment a layout lands —
+         * before anything has been drawn.
+         *
+         * A freshly built prop never notices, because `collectEdges` calls this
+         * on its way past. A reused one is the case that does, and the two
+         * lines above are what make it one: a fixture caught mid-landing was
+         * last drawn half a tile in the air, so the outline is cut from THAT
+         * matrix and hangs up and to the left of the shelf it belongs to —
+         * which is a stranded contour with a perfectly ordinary cause.
+         */
+        kept.group.updateMatrixWorld(true);
+        this.fixtureProps.set(f.id, kept.group);
+        if (kept.box) this.propBoxes.set(f.id, kept.box);
+        // Re-tinted rather than kept: a lamp may have moved even though this
+        // has not, and a tint is one multiply against a group.
+        this.bakedProps.push({ group: kept.group, x: f.x, y: this.fixtureBaseY(f) + 0.5, z: f.z });
+        this.paintProp(kept.group, f.x, this.fixtureBaseY(f) + 0.5, f.z);
+        if (kept.edges) edges.push(kept.edges);
+        if (kept.group.userData.moving?.length) {
+          this.movingFixtures.set(f.id, {
+            moving: kept.group.userData.moving,
+            phase: (f.x * 0.31 + f.z * 0.17) % 1,
+            signal: kept.signal,
+            conveyor: CONVEYOR_KINDS.includes(f.kind),
+          });
+        }
+        if (kept.signal) {
+          this.signalFixtures.set(f.id, {
+            signal: kept.signal,
+            model: kept.model,
+            stages: kept.group.userData.stages ?? null,
+            shown: kept.group.userData.shown ?? 0,
+          });
+        }
+        reused += 1;
+        span('reuse');
+        continue;
+      }
+      // This unit's contour, kept beside its art so neither is rebuilt
+      // without the other.
+      let fxEdges = null;
+      let fxBox = null;
       // A conveyor's slats come out here and are re-laid by `addConveyorSlats`,
       // because a slat has to follow the PATH through the cell and a part
       // authored in model space can only ever lie one way. They stay authored —
@@ -4272,7 +4558,13 @@ export class Scene {
       // `fixtureAt` was chosen to dodge, too — these groups are rebuilt from
       // the layout in the same call that re-mints, so the id on one is never
       // older than the mesh.
+      span('model');
       prop.userData.fixture = f.id;
+      // ...and kept, so a marker can be built out of the art rather than out of
+      // a guess at where the art is. Stamped here for `userData.fixture`'s own
+      // reason: this is the one place that knows, because the group is built
+      // FROM `f`.
+      this.fixtureProps.set(f.id, prop);
       this.staticRoot.add(prop);
       // How big it came out, in world space, for anything that has to treat the
       // thing as an object rather than as a cell. Two callers, and they have to
@@ -4286,7 +4578,8 @@ export class Scene {
       // variant it picked, or where it ended up standing.
       if (isProp(f.kind)) {
         prop.updateMatrixWorld(true);
-        this.propBoxes.set(f.id, new THREE.Box3().setFromObject(prop));
+        fxBox = new THREE.Box3().setFromObject(prop);
+        this.propBoxes.set(f.id, fxBox);
       }
       // Baked, like the ground it stands on. A lamp is a point *under* a
       // canopy, so the lid of a display case faces away from every light in the
@@ -4295,6 +4588,7 @@ export class Scene {
       //
       // Measured at half the unit's height, so a tall case is lit by what is
       // beside it rather than by what is on the floor at its feet.
+      span('place');
       this.bakedProps.push({ group: prop, x: f.x, y: this.fixtureBaseY(f) + 0.5, z: f.z });
       this.paintProp(prop, f.x, this.fixtureBaseY(f) + 0.5, f.z);
       // ...and off layer 0 with the ground, or the eight real lights would light
@@ -4309,7 +4603,16 @@ export class Scene {
       {
         const moving = prop.userData.moving?.length
           ? new Set(prop.userData.moving.map((m) => m.mesh)) : null;
-        collectEdges(prop, edges, { skip: moving ? (o) => moving.has(o) : null });
+        span('bake');
+        // Gathered into ONE geometry for this unit rather than pushed straight
+        // onto the shop's pile — see `mergeEdges`. That is what makes a
+        // contour keepable, and it is why `buildEdgeLines` is told it does not
+        // own what it is handed.
+        const mine = [];
+        collectEdges(prop, mine, { skip: moving ? (o) => moving.has(o) : null });
+        fxEdges = mergeEdges(mine);
+        if (fxEdges) edges.push(fxEdges);
+        span('ink');
       }
       if (landed.has(f.id)) this.land(prop, f.x, f.z);
       // Anything authored with `motion`. Two identical machines side by side
@@ -4343,6 +4646,30 @@ export class Scene {
           signal, model, stages: prop.userData.stages ?? null, shown: prop.userData.shown ?? 0,
         });
       }
+      // Filed for the next re-flow. An id already in here is one whose key just
+      // failed, so what it was holding is freed rather than dropped — the group
+      // is out of `staticRoot` by now (see `composeWorld`), so nothing else
+      // would ever get round to it.
+      if (artKey) {
+        const stale = this.fixtureArt.get(f.id);
+        if (stale) { disposeGroup(stale.group); stale.edges?.dispose(); }
+        this.fixtureArt.set(f.id, {
+          key: artKey, group: prop, edges: fxEdges, signal, model, box: fxBox,
+        });
+        keep.add(f.id);
+      }
+    }
+
+    this.reflowKept = `${reused}/${keep.size}`;
+
+    // Whatever the re-flow got rid of. Its group left `staticRoot` before the
+    // teardown on the strength of being in here, so this is the only thing
+    // standing between a deleted shelf and a leak.
+    for (const [id, rec] of this.fixtureArt) {
+      if (keep.has(id)) continue;
+      disposeGroup(rec.group);
+      rec.edges?.dispose();
+      this.fixtureArt.delete(id);
     }
 
     // Every fixture's creases, as one object. Built whatever the switch says and
@@ -4350,7 +4677,13 @@ export class Scene {
     // can make while standing still — a version that built on demand would need
     // a re-flow to answer, and a re-flow is the one thing that changes the
     // picture you were comparing.
-    const lines = buildEdgeLines(edges, INK.COLOR, INK.AMOUNT);
+    mark = performance.now();
+    const lines = buildEdgeLines(edges, INK.COLOR, INK.AMOUNT, { own: false });
+    span('ink');
+    Object.assign(this.reflowPhases ?? {}, {
+      'fx:model': spans.model, 'fx:place': spans.place, 'fx:bake': spans.bake, 'fx:ink': spans.ink,
+      'fx:reuse': spans.reuse,
+    });
     if (lines) {
       lines.layers.set(BAKED_LAYER);
       this.edgeRoot.add(lines);
@@ -4370,6 +4703,73 @@ export class Scene {
    * since it looks for `isMesh` and a `LineSegments` is not one. The material is
    * per-build too (it carries an `onBeforeCompile`), so it goes with it.
    */
+  /**
+   * Throw the kept art away — for the two changes that are not in its key.
+   *
+   * A style and a catalog edit both redraw every fixture in the shop without
+   * moving one of them, and both arrive through `rebuildWorld`. Putting them in
+   * the key instead would mean a version number threaded through two files for
+   * a thing that happens by hand, twice a session.
+   */
+  clearFixtureArt() {
+    for (const rec of this.fixtureArt.values()) {
+      this.staticRoot.remove(rec.group);
+      disposeGroup(rec.group);
+      rec.edges?.dispose();
+    }
+    this.fixtureArt.clear();
+  }
+
+  /**
+   * Everything this fixture's art is derived from, as one string.
+   *
+   * The rule for adding to it: if `addFixtureProps` reads it while building the
+   * group, it belongs here. Three of them are not facts about the fixture at
+   * all, and those are the ones that make this hard —
+   *
+   * - **its NEIGHBOURS.** `carriesOn` drops the end panel where one unit runs
+   *   into the next, and `boardProfile` compares their shelving, so a run's art
+   *   changes when the thing beside it does. The eight surrounding tiles go in
+   *   at the same fields `carriesOn` compares by. Miss this and building a
+   *   shelf leaves the one next to it wearing an end panel through the middle
+   *   of a row — invisible until you look at that shelf, and it will still be
+   *   wrong tomorrow.
+   * - **the FLOW.** A conveyor's deck is halved where nothing feeds it and its
+   *   housing goes on a side nothing is attached to, and both are answers about
+   *   the whole run — a belt laid at the far end of the shop re-cuts a corner
+   *   thirty tiles away. So the path goes in whole.
+   * - **the LIGHT**, which does not: `paintProp` is re-run on every reuse
+   *   rather than keyed, because it is one tint on a group and re-tinting is
+   *   far cheaper than deciding whether a lamp moved.
+   *
+   * `under` and `lift` opt out entirely, and that is a judgement rather than a
+   * limitation: a tunnel mouth's art depends on which mouth it is PAIRED with
+   * (`tunnelExit`), and a pairing is a matching down a whole chain rather than
+   * anything a neighbourhood can see. There are a handful of each in a shop, so
+   * the honest answer is to go on rebuilding them.
+   */
+  fixtureArtKey(L, f, byTile) {
+    // eslint-disable-next-line no-use-before-define
+    if (f.kind === 'under' || f.kind === 'lift') return null;
+    // The setback is a fact about the WALL behind it, not about the fixture —
+    // put a wall up behind a shelf and its art shifts forward. Nothing else in
+    // here would say so, and what it draws as is one shelf buried in a wall you
+    // have just built.
+    const parts = [artFields(f), this.fixtureT(f), JSON.stringify(this.artSetback(L, f) ?? null)];
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dz) continue;
+        const n = byTile.get(`${f.x + dx},${f.z + dz}`);
+        parts.push(n ? `${n.kind}/${n.piece ?? ''}/${n.tier ?? 1}/${n.variant ?? ''}/${n.rot ?? 0}` : '');
+      }
+    }
+    if (CONVEYOR_KINDS.includes(f.kind)) {
+      parts.push(JSON.stringify(this.conveyorPath(L, f) ?? null));
+      parts.push(derivedFlow(f.kind) ? this.conveyorFacing(L, f) : (f.rot ?? 0));
+    }
+    return parts.join('|');
+  }
+
   clearEdgeLines() {
     for (const o of [...this.edgeRoot.children]) {
       o.geometry?.dispose();
@@ -4731,6 +5131,193 @@ export class Scene {
      * mountain range into existence.
      */
     if (this.surroundFar) this.surroundFar.visible = this.camPitch < FAR_SHOW_PITCH;
+  }
+
+  /**
+   * The roof, which is the indoor mask given a mesh.
+   *
+   * The shop has believed it has one for a long time. `Lights.openness` answers
+   * 0 indoors and dims that cell to `ROOF_LEVEL`, and `WAYS` authors `roofs` per
+   * opening — a curtain roofs and a gate does not. What was never drawn is the
+   * surface itself, which does not matter from 40° up and is the whole of the
+   * room at eye level: first person put the camera at `FPV_Y` inside a building
+   * open to the sky.
+   *
+   * Four things about it.
+   *
+   * It is PER CELL and never a lid shaped like the building, which is what
+   * answers "and sometimes I want to see outside" with no toggle in it. The mask
+   * has the doorway in it, so walking out ends the ceiling at the wall line
+   * behind you; standing in the yard there is none; knocking the back wall out
+   * opens the shop to the weather. All of that is the same question the light
+   * has always asked, so none of it is a second rule that could disagree.
+   *
+   * It is drawn ONLY IN FIRST PERSON, and that is this game's answer to the rule
+   * every game with this problem shares — the roof is hidden for the room the
+   * camera is in. There are no rooms here to be in one of (enclosure is
+   * shop-wide), so the axis that survives is the mode, and it says the same
+   * thing: overhead, the camera is never in a room; at eye level it always is.
+   * `ghostNearWalls` already draws exactly this line about walls.
+   *
+   * It casts NO SHADOW. three has no half-shadow — the map is a depth pass, so a
+   * part casts fully or not at all — and a lit plane over the whole shop floor
+   * would put the building in permanent darkness from the sun. Glass and a
+   * ghosted wall opt out for the same reason.
+   *
+   * And it takes no RAY. `pickFixture` raycasts the art under `staticRoot`, and
+   * a surface between the camera and everything else would answer every pick in
+   * the shop. Being invisible outside first person is not the same claim as
+   * being unhittable, so it says so itself rather than resting on the mode.
+   *
+   * A shop with no enclosure gets none of it, and that is correct here rather
+   * than a bug to be patched: `computeIndoor` answers *zero* indoor cells rather
+   * than fewer, which is the trap named all over CLAUDE.md — and this is the one
+   * place where the all-or-nothing answer is the honest picture. A building with
+   * a hole in it has no roof. Do not copy the keeping rule the ceiling-duct
+   * branch of `canPlace` needed; that one existed because the failure DESTROYED
+   * builds, and a drawing destroys nothing.
+   */
+  addCeiling(L) {
+    const cells = [];
+    for (let z = 0; z < L.h; z++) {
+      for (let x = 0; x < L.w; x++) if (L.indoor?.[z * L.w + x]) cells.push([x, z]);
+    }
+    if (!cells.length) return;
+
+    // The slab, the upstand and the glazing go up and come down together, so
+    // they hang off one group and the mode toggles one flag. They are also the
+    // only three things in the shop that share a fate: none of them exists
+    // without the others, and a room with a roof and no walls up to it is worse
+    // than no roof at all.
+    const group = new THREE.Group();
+    group.visible = this.fpv;
+
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, ROOF_SLAB, 1), material(0xffffff), cells.length,
+    );
+    mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cells.length * 3), 3);
+    // The unlit colour and where it is, kept for `rebakeGround` the way every
+    // other baked batch keeps them: the hour moves and the jitter does not.
+    const bare = new Float32Array(cells.length * 3);
+    const at = new Float32Array(cells.length * 3);
+    const dummy = new THREE.Object3D();
+
+    cells.forEach(([x, z], i) => {
+      dummy.position.set(x, ROOF_Y + ROOF_SLAB / 2, z);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      // White material, absolute instance colour — `instanceColor` MULTIPLIES,
+      // so a material carrying the hue as well draws the ceiling at roughly
+      // colour squared. The floor loop above documents what that looks like.
+      const c = new THREE.Color(jitter(PALETTE.ceiling, 0.03, x * 31 + z * 17));
+      bare[i * 3] = c.r;
+      bare[i * 3 + 1] = c.g;
+      bare[i * 3 + 2] = c.b;
+      at[i * 3] = x;
+      at[i * 3 + 1] = ROOF_Y;
+      at[i * 3 + 2] = z;
+      // Baked at the UNDERSIDE, which is the only side anybody is ever under.
+      mesh.setColorAt(i, this.lights.bakeInto(c, x, ROOF_Y, z));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor.needsUpdate = true;
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.raycast = () => {};
+    // Off layer 0 with the rest of the baked geometry, or the eight real lamps
+    // pool on it a second time. See `BAKED_LAYER`.
+    mesh.layers.set(BAKED_LAYER);
+    this.bakedGround.push({ mesh, bare, at });
+    group.add(mesh);
+
+    this.addClerestory(L, group);
+    this.staticRoot.add(group);
+    this.ceiling = group;
+  }
+
+  /**
+   * What closes the gap between the wall top and the roof.
+   *
+   * The roof has to clear the overhead network, and the walls stop at 2.10, so
+   * something has to happen in the 1.40 tiles between them or the room is open
+   * to the sky — which from a chair reads as a wall that ran out rather than as
+   * a building. What goes in there is a low upstand and a strip of glass, and
+   * the split is the only interesting decision in this method: the solid part
+   * stops at `CEILING_Y`, which is exactly where the overhead deck begins.
+   *
+   * That is what makes the two heights explain each other rather than being two
+   * unrelated numbers. The wall stops where the ducts start; the glass is
+   * precisely the clearance the lift baskets needed. Both bands are DERIVED — the
+   * upstand is `LIFT` and the glazing is `ELEVATOR_BASKET_H + ROOF_CLEAR` — so a
+   * taller shaft or a taller wall moves the band rather than breaking it.
+   *
+   * Three things about it.
+   *
+   * It follows the MASK's boundary rather than the walls, which is the same
+   * source the slab itself comes off. Reading `edgesV`/`edgesH` instead would
+   * mean deciding what an upstand does above a doorway, an arch and a curtain —
+   * three answers to a question that has one, since every enclosing opening is
+   * solid masonry well below 2.10 anyway. A cell being indoors and its neighbour
+   * not is the whole of it.
+   *
+   * A PARTITION gets none. Both sides indoors is not a boundary, so a stockroom
+   * divider stays at 2.10 and you can see over it — which is what an internal
+   * wall does in a real shop, and is the same distinction `isPartition` draws
+   * about the cutaway one method along.
+   *
+   * And NOTHING here casts a shadow, the slab included. `Lights` already dims an
+   * indoor cell to `ROOF_LEVEL` because it has always believed in this roof; a
+   * band that also cast one would be the building darkened twice, and three has
+   * no half-shadow to soften it with.
+   */
+  addClerestory(L, group) {
+    const wall = EDGE_STYLE[E.WALL];
+    const inAt = (x, z) => (x < 0 || z < 0 || x >= L.w || z >= L.h
+      ? 0 : (L.indoor?.[z * L.w + x] ?? 0));
+
+    const segs = [];
+    for (let z = 0; z < L.h; z++) {
+      for (let x = 0; x <= L.w; x++) {
+        if (!inAt(x - 1, z) !== !inAt(x, z)) segs.push([x - 0.5, z, true]);
+      }
+    }
+    for (let z = 0; z <= L.h; z++) {
+      for (let x = 0; x < L.w; x++) {
+        if (!inAt(x, z - 1) !== !inAt(x, z)) segs.push([x, z - 0.5, false]);
+      }
+    }
+    if (!segs.length) return;
+
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    const dummy = new THREE.Object3D();
+    // Run long by the wall's own thickness so the corners have no daylight seam
+    // in them — the hair the door piers are widened by, said about a band thin
+    // enough that a seam would be most of what you see of it.
+    const len = 1 + wall.t;
+
+    const band = (y0, y1, mat) => {
+      const mesh = new THREE.InstancedMesh(box, mat, segs.length);
+      segs.forEach(([x, z, vertical], i) => {
+        dummy.position.set(x, (y0 + y1) / 2, z);
+        dummy.scale.set(vertical ? wall.t : len, y1 - y0, vertical ? len : wall.t);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      mesh.raycast = () => {};
+      group.add(mesh);
+    };
+
+    // The wall's own colour and the wall's own thickness, because this IS the
+    // wall as far as anybody standing under it is concerned — a band a shade off
+    // would read as a course of something else laid on top.
+    band(wall.h, CEILING_Y, material(wall.color));
+    // ...and the same colour again at `GLASS`, which is how every other pane in
+    // the game is glazed. See the alpha band in `edgeBands`.
+    band(CEILING_Y, ROOF_Y, material(wall.color, GLASS));
   }
 
   addEdges(L) {
@@ -5718,12 +6305,35 @@ export class Scene {
       // not an instruction about when to draw them.
       rec.tx = a.x;
       rec.tz = a.z;
-      // Kept as well as applied, because `animateRest` turns a body on its break
-      // and needs to know what it would otherwise be facing — reading the mesh
-      // back would have it blending against its own previous answer between
-      // snapshots and drifting away from the shop's.
-      rec.yaw = a.facing ?? 0;
-      rec.obj.rotation.y = rec.yaw;
+      /**
+       * Which way the shop says they are pointing — a TARGET, the way the
+       * position two lines up is, and for the same reason said about the other
+       * half of a body.
+       *
+       * `facing` is `atan2` of a direction, and the directions a person is ever
+       * handed are not continuous. A key sends one of eight, so steering W then
+       * D snaps a body 90° between two frames; `followPath` walks tile to tile,
+       * so every corner of every route is a quarter turn taken instantly. What
+       * that reads as is a model being swapped for a different model rather than
+       * a person turning round, and it is the half of "chunky" a smooth position
+       * cannot hide — you are watching the thing you are steering.
+       *
+       * `rec.yaw` stays what it always was, which is what `animateRest` and
+       * `animateEmote` need: both blend off it to say "what they would otherwise
+       * be facing", and both are per-frame passes, so handing them a heading
+       * that only moved when a packet landed was the same stutter one layer up.
+       * It is the DRAWN answer now rather than the shop's, which is strictly
+       * what those two were after.
+       *
+       * A body seen for the first time takes the target whole. There is no turn
+       * to draw for somebody who was not on screen a frame ago, and easing from
+       * a default of zero would spin every shopper as they walked in.
+       */
+      rec.tyaw = a.facing ?? 0;
+      if (rec.yaw === undefined) {
+        rec.yaw = rec.tyaw;
+        rec.obj.rotation.y = rec.yaw;
+      }
 
       // Stashed rather than applied: how cross someone looks is animated at
       // 60fps in `animateMoods`, and a shake that only moved when state landed
@@ -6422,8 +7032,54 @@ export class Scene {
    * straight to where the shop says they are, because there is no walk to draw:
    * they took it while nothing was on screen.
    */
+  /**
+   * Re-aim the camera at where the body it rides is actually DRAWN.
+   *
+   * `syncState` sets `camTarget` off the snapshot, which is the shop's answer
+   * and arrives ten times a second. The body is not drawn there — `ACTOR_CHASE`
+   * eases it every frame — so the camera was chasing a staircase while the thing
+   * it is pointed at slid smoothly underneath it. A lerp toward a target that
+   * steps 0.42 of a tile every hundred milliseconds does not smooth the step
+   * away, it *rings*: the view lurches on the frame a packet lands and coasts
+   * until the next one. And because this is the camera, that ripple is not on
+   * one body — it is the entire screen, ten times a second, for as long as you
+   * hold a key. Which is what "chunky" is: nothing in the shop is stuttering,
+   * the window onto it is.
+   *
+   * So the target is taken from the mesh, once a frame, after `animateActors`
+   * has moved it. Nothing about the shop's answer is discarded — the drawn
+   * position is chasing exactly that — this is only the difference between
+   * pointing the camera at the news and pointing it at the picture.
+   *
+   * `ox`/`oz` come off first, for the reason `animateActors` takes them off
+   * before easing: the crowd nudge is a look, and a camera that inherited it
+   * would pan the whole shop sideways because somebody walked up to you.
+   *
+   * The free-roam absorption is `syncState`'s, said again and for the same
+   * reason: `camPan` is an offset off this target, so moving the target without
+   * absorbing the delta drags a parked view along behind whoever it was chained
+   * to.
+   */
+  trackEye() {
+    if (!this._eyeId) return;
+    const rec = this.players.get(this._eyeId) ?? this.customers.get(this._eyeId);
+    if (!rec?.obj || rec.tx === undefined) return;
+    const x = rec.obj.position.x - rec.ox;
+    const z = rec.obj.position.z - rec.oz;
+    if (this.freeRoam) {
+      this.camPan.x += this.camTarget.x - x;
+      this.camPan.z += this.camTarget.z - z;
+    }
+    this.camTarget.set(x, EYE_Y, z);
+    if (this.freeRoam) this.clampPan();
+  }
+
   animateActors(dt, snap = false) {
     const move = snap ? 1 : 1 - Math.exp(-dt * ACTOR_CHASE);
+    // The same, for the heading — see `ACTOR_TURN`. `snap` takes it whole for
+    // the reason the position does: a tab that was not being drawn owes nobody
+    // the turn they took while it was away.
+    const turn = snap ? 1 : 1 - Math.exp(-dt * ACTOR_TURN);
     let slip = 0;
     // Reused rather than rebuilt, the way `EDGE_V` is: this runs every frame
     // over every body in the shop, and the list is the input to both the
@@ -6443,6 +7099,17 @@ export class Scene {
         const dz = (rec.tz - az) * move;
         rec.obj.position.x = ax + dx;
         rec.obj.position.z = az + dz;
+        // The short way round (`turnTo`), which is what stops somebody who
+        // reversed from unwinding 180° the long way about — a full spin on the
+        // spot, at one heading only, which is the kind of thing you see once and
+        // cannot reproduce. Written to the mesh here and re-derived from
+        // `rec.yaw` by `animateRest` and `animateEmote` below, so a body on a
+        // break or mid-wave still blends off the drawn heading rather than
+        // fighting this for the same field.
+        if (rec.tyaw !== undefined && rec.yaw !== rec.tyaw) {
+          rec.yaw += turnTo(rec.yaw, rec.tyaw) * turn;
+          rec.obj.rotation.y = rec.yaw;
+        }
         if (rec.walker) {
           // `dx`/`dz` are the body movement we actually drew this frame, not a
           // snapshot guess. That keeps the feet planted when the body has
@@ -7839,7 +8506,7 @@ export class Scene {
     // size the stack was when you first pointed at it, which is a highlight
     // that stops agreeing with what you can see while you watch it.
     const art = board ? this.shelfProps.get(f?.id)?.key ?? '' : '';
-    const key = f ? `${f.id}:${mode}:${f.y ?? 0}:${board ?? ''}:${art}` : null;
+    const key = f ? `${f.id}:${mode}:${f.y ?? 0}:${board ?? ''}:${art}:${this.reflows}` : null;
     if (this.aimKey === key) return;
     this.aimKey = key;
     if (this.aimMarker) {
@@ -7876,7 +8543,7 @@ export class Scene {
    */
   setPickedBoard(f, board = null) {
     const art = board ? this.shelfProps.get(f?.id)?.key ?? '' : '';
-    const key = f && board ? `${f.id}:${board}:${art}` : null;
+    const key = f && board ? `${f.id}:${board}:${art}:${this.reflows}` : null;
     if (this.pickedKey === key) return;
     this.pickedKey = key;
     if (this.pickedMarker) {
@@ -7892,17 +8559,23 @@ export class Scene {
   /**
    * A frame on the tile, or a cage round the thing.
    *
-   * Which one is not a style choice, it is what the fixture *is*: everything
-   * that owns a cell is marked as a cell, because that is what you point at one
-   * for — you walk to the side of a shelf, and the frame is where you would be
-   * standing. A decoration owns no cell, so a frame under one marks the floor
-   * beside it and leaves the thing itself unchanged. Worse for a hanging prop,
-   * which is drawn most of a tile up-screen of its own cell: the marker appears
-   * somewhere you are demonstrably not pointing.
+   * A unit takes the CONTOUR, and that used to be a frame on its tile. The
+   * frame's problem was never the shelf, it was that the frame is a proxy: you
+   * point at a shelf to walk to the side of it, so the tile is a true thing to
+   * say and it is not the thing you asked. It survived on the strength of
+   * looking like a mark — and the cel ink retired that, because every object in
+   * the shop now carries a hard contour and the one flat unlit quad in the
+   * frame reads as a UI layer that fell into the picture. See `buildContour`.
    *
-   * Sized from `propBoxes`, which is the same volume the pointer is tested
-   * against — so the highlight is a picture of the hitbox rather than a second
-   * guess at it, and "it lit up but the tap missed" cannot happen.
+   * That folds in the decoration, which needed its own answer before and does
+   * not now. A prop owns no cell, so a frame under one marked the floor beside
+   * it; a hanging one is drawn most of a tile up-screen of its own cell, so the
+   * mark appeared somewhere you were demonstrably not pointing. Both are the
+   * same complaint — the marker was not on the object — and one marker that IS
+   * the object answers them together, which is why `propBoxes` is no longer
+   * asked here. It is still what the pointer is tested against, and the two
+   * cannot drift apart now for a better reason than agreeing: the highlight is
+   * made of the meshes the ray hit.
    *
    * A board takes the cage for a third reason, and it is the one that makes
    * board-level aiming legible at all: a frame on the tile would be the same
@@ -7910,11 +8583,86 @@ export class Scene {
    * the milk beside it would look identical. The thing you have to be able to
    * tell apart is *which pile*, so the marker has to be round the pile.
    */
+  /**
+   * Is anything in the shop pointed at or open — the contour pass's own switch.
+   *
+   * Asked once a frame and answered off the four holders rather than by walking
+   * the scene, which is the whole point: the mask pass is a full traversal of
+   * the tree for a texture nothing wrote to unless there is something to write.
+   * Most frames there is not, because nothing is marked until the pointer is
+   * over something.
+   *
+   * `userData.mark` and not "is there a marker" — a frame marker is drawn in the
+   * ordinary pass and has nothing to do with this, so a `kin` set of seventeen
+   * frames must not switch the pass on. See `buildContour`.
+   */
+  marksOn() {
+    if (this.aimMarker?.userData.mark
+      || this.selectedMarker?.userData.mark
+      || this.pickedMarker?.userData.mark) return true;
+    for (const rec of this.markSets.values()) if (rec.group.userData.mark) return true;
+    return false;
+  }
+
+  /**
+   * Run `fn` with this group standing where it BELONGS rather than where it is
+   * being drawn this frame.
+   *
+   * `land` drops a newly-placed fixture into its tile over `LAND_MS`, raised
+   * and squashed on the way, and `buildContour` bakes whatever matrix it finds
+   * into a fixed one. So an outline cut during those few hundred milliseconds
+   * is cut round the pose mid-drop and then STAYS there — the shelf finishes
+   * falling and the teal outline does not follow, because nothing in the
+   * marker's key has changed. What you see is a contour hanging half a tile
+   * above the thing it belongs to, for the rest of the session, on the one
+   * fixture you just put down.
+   *
+   * Which is why this is here and not a `landings` check in `markerFor`: the
+   * marker is not wrong to be built now, it is wrong to be built from a
+   * *transient* pose. `land` already records where the thing belongs (`r.y`,
+   * captured before the animation touches it), so there is a right answer to
+   * hand over — and the frame after this the animator carries on from where it
+   * was, none the wiser.
+   */
+  atRest(group, fn) {
+    const land = group ? this.landings.find((r) => r.g === group) : null;
+    if (!land) return fn();
+    const y = group.position.y;
+    const scale = group.scale.clone();
+    group.position.y = land.y;
+    group.scale.set(1, 1, 1);
+    try {
+      return fn();
+    } finally {
+      group.position.y = y;
+      group.scale.copy(scale);
+      group.updateMatrixWorld(true);
+    }
+  }
+
   markerFor(f, mode, board = null) {
-    const box = board
-      ? this.boardBox(f, board)
-      : (isProp(f.kind) ? this.propBoxes.get(f.id) : null);
+    const box = board ? this.boardBox(f, board) : null;
     if (!box) {
+      // The object's own outline, which is the answer for a shelf and a lamp
+      // alike — see `buildContour`. It comes back null for a look with no
+      // `hull` (`kin`, which appears seventeen at a time) and for a fixture
+      // whose art has not been built yet, and both of those keep the frame.
+      const at = new THREE.Vector3(f.x, f.y ?? this.fixtureBaseY(f), f.z);
+      // A Set of the MESHES, which is `collectEdges`' own spelling one call
+      // along: the record is `{mesh, ...}` and testing the record against an
+      // object is a skip that never fires, so the hull would quietly include
+      // every blade in the shop and only show it on a machine mid-batch.
+      const spin = this.movingFixtures.get(f.id)?.moving;
+      const skip = spin?.length ? new Set(spin.map((m) => m.mesh)) : null;
+      // ...taken at REST, or a fixture you have just put down is outlined
+      // where the drop animation had it. See `atRest`.
+      const art = this.fixtureProps.get(f.id);
+      const hull = this.atRest(art, () => buildContour(art, at, mode,
+        skip ? (o) => skip.has(o) : null));
+      if (hull) {
+        hull.position.copy(at);
+        return hull;
+      }
       const m = buildTargetMarker(mode);
       // `fixtureBaseY` and not 0, which is the same correction the art itself
       // got. A frame on the tile is right about everything that owns a cell —
@@ -8056,7 +8804,19 @@ export class Scene {
     // ...and so are the spots, for the same reason one step further out: a wall
     // drawn beside a shelf takes an end away without moving the shelf, and a key
     // blind to that would leave a marker on a tile nobody can stand in.
-    const key = f ? `${f.x},${f.z},${f.rot ?? 0}|${at.map((s) => `${s.x},${s.z}`).join(';')}` : null;
+    //
+    // ...and so is `reflows`, which is the ART's own generation rather than
+    // anything about the fixture. A contour is BUILT OUT OF the fixture's
+    // meshes (see `buildContour`), and a re-flow disposes every one of them and
+    // builds new ones — so a marker held across one is drawing buffers that
+    // have been freed, at wherever the shelf used to stand. Every key in here
+    // describes the layout RECORD, and the record is the one thing a re-flow
+    // can leave identical: buy a shelf across the shop and the unit you have
+    // open has not changed by a single field. What you see is the outline
+    // stranded a few tiles away from the thing it belongs to.
+    const key = f
+      ? `${f.x},${f.z},${f.rot ?? 0}|${at.map((s) => `${s.x},${s.z}`).join(';')}|${this.reflows}`
+      : null;
     if (this.selectedKey === key) return;
     this.selectedKey = key;
     if (this.selectedMarker) {
@@ -8111,7 +8871,10 @@ export class Scene {
    */
   setMarkedSet(name, list) {
     const items = (list ?? []).filter((m) => m?.f);
-    const key = items.map((m) => `${m.f.id}@${m.f.x},${m.f.z},${m.f.rot ?? 0}:${m.mode}`
+    // `reflows` for `setSelectedTarget`'s reason: a contour is made of the
+    // fixture's own meshes, and a re-flow replaces every one of them while
+    // leaving the records these keys are built from untouched.
+    const key = `${this.reflows}/` + items.map((m) => `${m.f.id}@${m.f.x},${m.f.z},${m.f.rot ?? 0}:${m.mode}`
       + `|${(m.spots ?? []).map((s) => `${s.x},${s.z}`).join(';')}`).join('/');
     const held = this.markSets.get(name);
     if (held && held.key === key) return;
@@ -8133,6 +8896,9 @@ export class Scene {
           marker.add(buildWorkSpot(s.role, { x: s.x - m.f.x, z: s.z - m.f.z }, marker.userData.color));
         }
       }
+      // Carried up to the set, because `marksOn` asks the group rather than
+      // walking into it — see `buildContour`.
+      if (marker.userData.mark) group.userData.mark = true;
       group.add(marker);
     }
     this.actorRoot.add(group);
@@ -13913,6 +14679,11 @@ export class Scene {
     // and a hidden one, so a shop with the overlay off pays a compare a frame.
     this.heat.refresh();
     this.animateActors(dt, away);
+    // ...and the camera follows the body that pass has just moved, rather than
+    // the ten-times-a-second one the snapshot named. See `trackEye`. It has to
+    // be here — after the chase and before the pose at the bottom of this
+    // function — or the view is aimed at where the body was a frame ago.
+    this.trackEye();
     // The van and the parked cars. Faster, and for the same reason — see
     // `VEHICLE_CHASE`.
     this.animateVehicles(dt, away);
@@ -14060,8 +14831,21 @@ export class Scene {
       // the only marker on screen while you work through the menu — but it must
       // not read as something waiting to be pressed, which is what the aim
       // marker's beat means.
-      const s = 1 + Math.sin(now / 1000 * 2) * 0.035;
-      this.selectedMarker.userData.ring.scale.setScalar(s);
+      const s = Math.sin(now / 1000 * 2);
+      // A contour has no ring to scale — it is not an object in the scene, it
+      // is a stencil the composite finds an edge in — so the beat is on the
+      // WIDTH instead. `buildTargetMarker` already says an animator has to cope
+      // with `userData.ring` being absent; this is the second thing it is
+      // absent on, and the first that crashed rather than doing nothing.
+      //
+      // A fatter swing than the ring's, because the two are not the same
+      // quantity: 3.5% of a frame drawn a metre across is a couple of pixels,
+      // and 3.5% of an eleven-pixel band is a third of one.
+      if (this.selectedMarker.userData.ring) {
+        this.selectedMarker.userData.ring.scale.setScalar(1 + s * 0.035);
+      } else if (this.selectedMarker.userData.mark) {
+        this.ink.setMarkBeat(1 + s * 0.1);
+      }
     }
     this.animateRipples(now);
     this.animateLandings(now);
@@ -14107,16 +14891,22 @@ export class Scene {
     // separate reads is four chances for half the camera to be gliding while
     // the other half snaps.
     const ease = this.cinema ? CINE_EASE : EASE;
+    // ...said for the frame that actually happened. See `gainFor`: the gains are
+    // quoted per 60Hz frame, and the floors — which are a RATE — scale straight
+    // with the length of the frame rather than compounding.
+    const span = dt * EASE_HZ;
     const dz = this.camZoom - this.ortho.zoom;
     if (dz) {
-      this.ortho.zoom = Math.abs(dz) < 0.002 ? this.camZoom : this.ortho.zoom + dz * ease.zoom;
+      this.ortho.zoom = Math.abs(dz) < 0.002
+        ? this.camZoom
+        : this.ortho.zoom + dz * gainFor(ease.zoom, dt);
       this.ortho.updateProjectionMatrix();
     }
     // The first-person pitch, which is the yaw's opposite number and eases the
     // same way. `tilt` is 1 outside cinema, so this is an assignment there and
     // the branch costs a multiply.
     if (this.fpvPitch !== this.fpvAim) {
-      this.fpvPitch = glide(this.fpvPitch, this.fpvAim, ease.tilt, ease.tiltMin);
+      this.fpvPitch = glide(this.fpvPitch, this.fpvAim, gainFor(ease.tilt, dt), ease.tiltMin * span);
     }
     // Swing round to the target corner, same easing idea as zoom and camLook.
     // A drag has already moved both, so this is a no-op while one is happening.
@@ -14124,7 +14914,7 @@ export class Scene {
     if (da) {
       this.camAngle = Math.abs(da) < 0.0005
         ? this.camYaw
-        : glide(this.camAngle, this.camYaw, ease.yaw, ease.yawMin);
+        : glide(this.camAngle, this.camYaw, gainFor(ease.yaw, dt), ease.yawMin * span);
       this.aimCamera();
     }
     // Readouts follow the eased angle, not the target one, so they turn *with*
@@ -14144,17 +14934,18 @@ export class Scene {
     }
     // The follow, and the one that decides whether this reads as floaty: a
     // lerp alone leaves the camera a fixed distance behind anybody walking. See
-    // `EASE` — with no floor this is exactly the lerp it has always been.
+    // `EASE`, where the floor that fixes that is now on both cameras rather
+    // than only on the recording one.
     this.camAim.copy(this.camTarget).add(this.camPan);
     if (ease.lookMin) {
       GLIDE_V.subVectors(this.camAim, this.camLook);
       const d = GLIDE_V.length();
       if (d > 1e-4) {
-        const step = Math.min(d, Math.max(d * ease.look, ease.lookMin));
+        const step = Math.min(d, Math.max(d * gainFor(ease.look, dt), ease.lookMin * span));
         this.camLook.addScaledVector(GLIDE_V, step / d);
       }
     } else {
-      this.camLook.lerp(this.camAim, ease.look);
+      this.camLook.lerp(this.camAim, gainFor(ease.look, dt));
     }
     // Which lamps get a real light follows the camera, so it belongs here rather
     // than in the layout build. Cheap: it returns immediately until the view has
@@ -14274,6 +15065,7 @@ export class Scene {
     // drawn a second time for a normals buffer. See `Ink.render`.
     this.ink.render(
       this.scene, this.camera, this.camera.position.distanceTo(this.camLook), this.inkNoCrease,
+      this.marksOn(),
     );
     this.drawn();
   }
@@ -14809,6 +15601,37 @@ const ELEVATOR_BOX_TOP_H = 0.035;
  */
 const MACHINE_CAP_TOP = 0.63;
 const ELEVATOR_BASKET_H = MACHINE_CAP_TOP - BELT_TOP - ELEVATOR_BOX_TOP_H;
+/**
+ * How much air the roof leaves over the tallest thing standing under it.
+ *
+ * Derived off the shaft rather than written down, for the reason `CEILING_Y` is
+ * derived off the wall: a lift that grew would otherwise come up through the
+ * roof, and the tell would be a machine poking into a surface only ever seen
+ * from first person — where you are standing under it looking at the wrong side.
+ */
+const ROOF_CLEAR = 0.1;
+/**
+ * Where the ceiling hangs, measured to its UNDERSIDE.
+ *
+ * `CEILING_Y` has been called the ceiling since before there was one — it is
+ * where a hung fitting hangs and where an overhead conveyor cell's model origin
+ * sits — and it is emphatically not where a roof goes. A slab at 2.9 is a slab
+ * UNDER the entire ceiling conveyor network: the ducts, the crates riding them
+ * and the lift baskets all live above that line, so a ceiling hung there hides
+ * every one of them, and hides them in the one view where the ceiling is drawn
+ * at all. What that reads as is an overhead run you paid for and cannot find.
+ *
+ * So the roof clears the lot, and what falls out of that is the CLERESTORY: the
+ * walls stop at 2.1 and this lands near 3.5, which leaves about 1.4 tiles of
+ * open air between them — taller than a person. That band is the feature rather
+ * than the offcut. It is what a warehouse, a supermarket and a station concourse
+ * all actually look like, and it is what puts the ducts in silhouette against
+ * daylight instead of flat against a lid. See docs/roof.md.
+ */
+const ROOF_Y = CEILING_Y + ELEVATOR_BASKET_H + ROOF_CLEAR;
+/** How thick the slab is. Seen edge-on through the clerestory from outside, so
+ *  it is a depth rather than a plane — a roof with no thickness is a sheet. */
+const ROOF_SLAB = 0.12;
 const ELEVATOR_OPENING_BORDER = 0.035;
 const ELEVATOR_OPENING_BORDER_H = 0.018;
 /**
@@ -15389,6 +16212,41 @@ function transitionPosition(state, now) {
   const u = Math.max(0, Math.min(1, (now - state.at) / state.duration));
   const eased = u * u * (3 - 2 * u);
   return state.from + (state.to - state.from) * eased;
+}
+
+/**
+ * A fixture's record with the SIM STATE taken out of it.
+ *
+ * A layout record is not a description of a thing to draw — it is the shop's
+ * own bookkeeping, and most of it moves every tick: a shelf carries its
+ * `stacks` (prices, the day each pile last sold), an appliance carries the
+ * batch it is running, a bed carries when it was sown and a pen carries how
+ * full it is. None of that is drawn by the fixture's own group — stock, crops,
+ * animals and ingredient rows are all props in `actorRoot`, put there by the
+ * snapshot ten times a second — but every one of them is in the record, so a
+ * key built out of the whole thing is a key that has never once matched.
+ *
+ * It is a DENY list rather than an allow list, and the direction is the whole
+ * argument: a field left off an allow list is a fixture that stops redrawing —
+ * silent, wrong, and permanent. A field left off this one is a cache that stops
+ * hitting, which is slow and obvious. So when a new column turns up here, the
+ * safe default is to leave it in the key and only take it out once you know
+ * nothing in the fixture's own art reads it.
+ */
+const ART_IGNORES = new Set([
+  'stacks', 'assigned', 'managed', 'dropped',   // a unit's goods, drawn in actorRoot
+  'contents', 'lines',                          // an appliance's hopper and its batch
+  'plantedAt', 'ready', 'yield',                // a bed's crop
+  'qty', 'filledAt',                            // a pen's herd
+]);
+
+function artFields(f) {
+  let out = '';
+  for (const k of Object.keys(f).sort()) {
+    if (ART_IGNORES.has(k)) continue;
+    out += `${k}=${JSON.stringify(f[k])};`;
+  }
+  return out;
 }
 
 function fixturesIn(L) {

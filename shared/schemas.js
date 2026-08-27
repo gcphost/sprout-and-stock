@@ -257,6 +257,28 @@ const PART = z.object({
    * one renderer knows how to read, rather than a second kind of model.
    */
   tint: z.enum(['chassis', 'trim', 'glow']).nullable().default(null),
+  /**
+   * "This part hangs off a limb."
+   *
+   * A body that walks is four pivots and nothing else — `crowdRig` builds them
+   * for the shared character, `animateActors` writes two rotations to each, and
+   * `emote.js` swings the arms to wave. An authored model had none of that, so
+   * every robot in the game answered `walker: null`: it slid about the shop as
+   * one rigid piece and a wave dipped the whole body forward.
+   *
+   * Naming a bone is the whole of the opt-in. A model with no bone on any part
+   * builds exactly the group it always did, which is every fixture, kit, vehicle
+   * and animal ever authored — and the four names are a closed set for the
+   * reason `BUILD_KINDS` is, since the renderer holds a reference to each by
+   * name and a fifth would validate, look authored and never move.
+   *
+   * WHERE the joint is, is deliberately not authored. An arm hangs down its own
+   * -y from a pivot at the shoulder, so the hinge is the TOP of whatever is on
+   * the bone — derived in `buildModel`, which means a limb redrawn longer stays
+   * hinged where it meets the body instead of swinging about a number somebody
+   * forgot to move.
+   */
+  bone: z.enum(['leftArm', 'rightArm', 'left', 'right']).nullable().default(null),
 });
 
 /**

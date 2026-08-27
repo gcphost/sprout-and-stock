@@ -1035,6 +1035,20 @@ const CAPACITY_PER_TILE = 0.25;
 /** Past this much over capacity, arrivals look in and walk on instead. */
 const TURN_AWAY_AT = 1.35;
 /**
+ * ...and where it stops being packed, which is NOT the same number.
+ *
+ * The turn-away line in the log is said on the way into the state and not per
+ * person, which is right and was worth nothing while the state was read off one
+ * arrival: a shop sitting on the gate lets somebody in, drops out of the state,
+ * turns the next one away, and says it again — four identical lines in as many
+ * seconds, which is the per-person spam the flag exists to prevent arriving
+ * through the flag itself. A door is a Schmitt trigger or it chatters, so
+ * getting back out of it takes a real lull rather than one person leaving:
+ * about 15% of the shop, which a rush refills instantly and an afternoon that
+ * has genuinely eased does not.
+ */
+const TURN_AWAY_QUIET = 1.15;
+/**
  * Where the crush starts being FELT, as a share of capacity.
  *
  * Was 1.0 — dead on the top — which left the whole penalty living in the band
@@ -20771,7 +20785,6 @@ export class Game {
         }
         continue;
       }
-      if (this.turningAway) this.turningAway = false;
 
       // Did this one drive?
       //
@@ -20792,6 +20805,12 @@ export class Game {
       const space = this.freeSpace();
       this.spawnCustomer(null, space && this.rng.next() < DRIVE_SHARE ? space : null);
     }
+
+    // ...and out of the state, which is a fact about the DOOR rather than about
+    // whoever happened to be let in last. Asked once a tick and outside the
+    // arrival loop, or a lull nobody arrives during is a lull the shop never
+    // notices — see `TURN_AWAY_QUIET` for why it is not `TURN_AWAY_AT`.
+    if (this.turningAway && this.doorPressure() < TURN_AWAY_QUIET) this.turningAway = false;
 
     // Eased toward this tick's share, and only on ticks anybody actually tried
     // the door — most ticks nobody does, and folding those in as a share of

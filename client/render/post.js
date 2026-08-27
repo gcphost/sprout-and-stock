@@ -65,7 +65,7 @@
 
 import * as THREE from 'three';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
-import { INK, GRADE, INK_NORMAL_SCALE, SCENE_SAMPLES } from './look.js';
+import { INK, GRADE, INK_NORMAL_SCALE, SCENE_SAMPLES, MARK } from './look.js';
 import { SURROUND_LAYER } from './lights.js';
 
 /** Where a fullscreen pass lives. One quad, one camera, shared. */
@@ -106,6 +106,15 @@ const COMPOSITE = /* glsl */`
   uniform float inkLift;
 
   uniform float exposure, saturation, contrast;
+
+  /* The marking. tMark is a stencil of whatever is pointed at or open, one
+     marker per channel, written by the mask pass in render() below. markOn
+     skips the whole thing — which is most frames, since nothing is marked
+     until the pointer is over something.
+     NO BACKTICKS IN HERE, as above: this is all one template literal. */
+  uniform sampler2D tMark;
+  uniform float markOn, markWide, markThin;
+  uniform vec3 markAimColor, markSelColor, markRazeColor;
 
   const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 
@@ -207,12 +216,64 @@ const COMPOSITE = /* glsl */`
     return 1.0 - step(max(0.15, dc * 0.02), dn - dc);
   }
 
+  /* WHAT YOU ARE POINTING AT, FOUND ON THE SCREEN RATHER THAN IN THE MODEL.
+     A RING AND NOT A DISC, which is what makes twelve taps enough. The mask is
+     a solid region, so "is anything marked within r of me" and "is anything
+     marked at exactly r from me" are the same question for every pixel that is
+     not further than r out: the nearest marked point is at some distance d <= r
+     on some bearing, and one of twelve directions is within fifteen degrees of
+     it, which at this radius lands well inside the region. A disc would be the
+     same answer for thirty-six taps.
+     ...and it is asked OUTSIDE the marked pixels only. The object itself is
+     already drawn — this exists to put a line around it, and painting the
+     region too would be a shelf with a coloured sheet over it. */
+  vec3 nearMark(vec2 uv, float r) {
+    vec3 hit = vec3(0.0);
+    for (int i = 0; i < 12; i++) {
+      float a = float(i) * 0.5235988;
+      hit = max(hit, texture2D(tMark, uv + vec2(cos(a), sin(a)) * r * texel).rgb);
+      /* The inner ring, at half a step round. TWO rings and not one, and the
+         reason is the band's own width: the gap between neighbours on a ring
+         grows with the radius, so at a wide setting twelve taps straddle a
+         SHELF BOARD — four pixels of geometry seen edge-on — and miss it. What
+         that draws is a band that breaks up along the thin parts of a thing
+         while staying solid round its ends, which reads as the mask being
+         wrong rather than as the sampling being coarse. */
+      float b = a + 0.2617994;
+      hit = max(hit, texture2D(tMark, uv + vec2(cos(b), sin(b)) * r * 0.55 * texel).rgb);
+    }
+    return hit;
+  }
+
   void main() {
     vec3 col = texture2D(tScene, vUv).rgb * exposure;
 
     /* ---- the grade ------------------------------------------------------- */
     col = mix(vec3(dot(col, LUMA)), col, saturation);
     col = (col - 0.5) * contrast + 0.5;
+
+    /* ---- what is marked, UNDER the ink ------------------------------------
+       Under, deliberately. The band starts at the object's own edge and runs
+       outward, and the silhouette line is drawn on that same edge — so laid
+       over the top the band would swallow the contour and the shelf would lose
+       the outline every other shelf in the shop still has. Laid first, the ink
+       goes back over its inner edge and what you read is object, line, band,
+       which is the order those three things are actually in.
+       The wide one first and the narrow one over it, or a shelf that is both
+       open and under the pointer shows one marker instead of two. */
+    if (markOn > 0.5) {
+      vec3 me = texture2D(tMark, vUv).rgb;
+      float bare = 1.0 - step(0.5, max(me.r, max(me.g, me.b)));
+      /* Two sweeps and not three: the pointer and the bulldozer are the same
+         sentence with different consequences, so they are never both up and
+         they share a width. Asking for the whole texel back rather than one
+         channel is what lets them come out of one. */
+      vec3 wide = nearMark(vUv, markWide);
+      vec3 thin = nearMark(vUv, markThin);
+      col = mix(col, markSelColor, bare * wide.g);
+      col = mix(col, markAimColor, bare * thin.r);
+      col = mix(col, markRazeColor, bare * thin.b);
+    }
 
     /* ---- the contour, over the top of it ---------------------------------- */
     if (inkAmount > 0.001) {
@@ -324,6 +385,16 @@ export class Ink {
       exposure: { value: GRADE.EXPOSURE },
       saturation: { value: GRADE.SATURATION },
       contrast: { value: GRADE.CONTRAST },
+      /* `blank` for the same reason `tNormal` gets it: with nothing marked the
+         branch is skipped, and this only has to be a bound sampler rather than
+         a meaningful one. */
+      tMark: { value: this.blank },
+      markOn: { value: 0 },
+      markWide: { value: MARK.WIDE },
+      markThin: { value: MARK.THIN },
+      markAimColor: { value: new THREE.Color(MARK.AIM) },
+      markSelColor: { value: new THREE.Color(MARK.SEL) },
+      markRazeColor: { value: new THREE.Color(MARK.RAZE) },
     });
 
     /* three's fragment shader on this file's own vertex shader, which is the
@@ -358,6 +429,24 @@ export class Ink {
    */
   setCrease(on) {
     this.composite.mat.uniforms.creaseInk.value = on ? INK.CREASE_INK : 0;
+  }
+
+  /**
+   * The selection's slow breathe, which is a WIDTH here rather than a scale.
+   *
+   * Every other marker in the game is an object and beats by being scaled. A
+   * contour is not an object — it is an edge the composite finds in a stencil —
+   * so the only thing about it there is to move is how far out the edge is
+   * looked for. Same intent as the ring's: a still outline reads as scenery,
+   * and this one can be the only marker on screen while you work through a
+   * menu.
+   *
+   * Left wherever the last selection put it when nothing is selected, which
+   * costs nothing: with no mask the whole branch is skipped, and the next
+   * selection writes it again on its first frame.
+   */
+  setMarkBeat(k) {
+    this.composite.mat.uniforms.markWide.value = MARK.WIDE * k;
   }
 
   /** Sized in DEVICE pixels — whatever `renderer.getDrawingBufferSize` says. */
@@ -452,6 +541,28 @@ export class Ink {
       depthBuffer: false,
     });
 
+    /**
+     * The contour stencil — which marker covers each pixel, one per channel.
+     *
+     * FULL RES and NEAREST, and both are the same decision. This is the one
+     * thing in the pipeline that is read as a boolean per texel rather than as
+     * a value: the composite asks "is anything marked here", so a filtered tap
+     * on a half-res mask answers a half between two texels and the band's edge
+     * goes soft in a pipeline whose entire subject is a hard line. It costs a
+     * quarter of what the scene target does and is written by a handful of
+     * meshes.
+     *
+     * No depth and no samples. The mask is a silhouette, so nothing in it
+     * occludes anything else in it — see `contourMat` in props.js, which turns
+     * depth off at the other end for the same reason.
+     */
+    this.rtMark = new THREE.WebGLRenderTarget(rw, rh, {
+      type: THREE.UnsignedByteType,
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+      depthBuffer: false,
+    });
+
     const u = this.composite.mat.uniforms;
     u.texel.value.set(1 / rw, 1 / rh);
     u.nTexel.value.set(1 / nw, 1 / nh);
@@ -469,8 +580,14 @@ export class Ink {
    * `noCrease` is whatever gets its OUTLINE but not its interior lines: the
    * crowd, today. See the normals pass below for why that is a saving rather
    * than a compromise.
+   *
+   * `marks` is whether anything in the scene is pointed at or open, handed in
+   * for the reason `inkRef` is — the answer is the caller's, and finding it
+   * here would mean walking the scene graph every frame to learn that nothing
+   * has changed. False is the common case: nothing is marked until the pointer
+   * is over something.
    */
-  render(scene, camera, inkRef, noCrease = null) {
+  render(scene, camera, inkRef, noCrease = null, marks = false) {
     const r = this.renderer;
     const u = this.composite.mat.uniforms;
 
@@ -592,6 +709,51 @@ export class Ink {
     u.tNormal.value = wantsInk ? this.rtNormal.texture : this.blank;
     u.tNormalDepth.value = wantsInk ? this.rtNormal.depthTexture : this.blank;
 
+    /**
+     * 2b — the marking, if anything is marked.
+     *
+     * By LAYER rather than by a scene of its own, which is what keeps this from
+     * being a second copy of where everything is: the contour meshes are the
+     * fixture's own geometry sitting in `actorRoot` with the rest of the
+     * markers, and re-parenting them into a private scene each frame would mean
+     * a second answer to "where is that shelf" that has to be kept in step with
+     * the first. `MARK.LAYER` is off the camera everywhere else, so the main
+     * pass and the normals pass have never seen them.
+     *
+     * Cleared to BLACK and not to the renderer's clear colour: every channel is
+     * a flag, and a sky-coloured background is three flags set on every pixel
+     * of the shop.
+     */
+    const marked = !!marks;
+    if (marked) {
+      const layers = camera.layers.mask;
+      const clear = r.getClearColor(SCRATCH);
+      const alpha = r.getClearAlpha();
+      const shadows = r.shadowMap.enabled;
+      const bg = scene.background;
+      // Off for the duration, and this is not tidiness. A background is painted
+      // whatever the camera's layers say, so the sky would land in the mask as
+      // three flags set on every pixel of the shop — and what the composite
+      // does with a fully marked screen is nothing at all, because the band is
+      // only ever drawn where the mask is BARE. A contour that vanishes the
+      // moment it is switched on, with the marker sitting there correctly.
+      scene.background = null;
+      // Nothing here is lit, so a shadow pass would be a third full draw for a
+      // map nothing samples — the same saving the normals pass takes.
+      r.shadowMap.enabled = false;
+      r.setClearColor(0x000000, 0);
+      camera.layers.set(MARK.LAYER);
+      r.setRenderTarget(this.rtMark);
+      r.clear();
+      r.render(scene, camera);
+      camera.layers.mask = layers;
+      scene.background = bg;
+      r.shadowMap.enabled = shadows;
+      r.setClearColor(clear, alpha);
+    }
+    u.tMark.value = marked ? this.rtMark.texture : this.blank;
+    u.markOn.value = marked ? 1 : 0;
+
     // 3 — the contour and the grade, in one go.
     u.tScene.value = this.rtScene.texture;
     u.tDepth.value = this.rtScene.depthTexture;
@@ -612,7 +774,7 @@ export class Ink {
   }
 
   dispose(targetsOnly = false) {
-    for (const key of ['rtScene', 'rtNormal', 'rtOut']) {
+    for (const key of ['rtScene', 'rtNormal', 'rtOut', 'rtMark']) {
       const rt = this[key];
       if (!rt) continue;
       rt.depthTexture?.dispose();

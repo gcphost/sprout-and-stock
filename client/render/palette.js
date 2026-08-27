@@ -140,6 +140,18 @@ export const PALETTE = {
   floorAlt: '#ddcbb0',
   wall: '#f7f6f4',
   wallTop: '#e4e1dc',
+  /**
+   * The underside of the roof, and it is a shade off the wall rather than the
+   * same colour: the two meet nowhere — a clerestory of open air runs between
+   * them (see `ROOF_Y`) — so matching them would read as the wall having simply
+   * carried on, with a strip of sky punched through it.
+   *
+   * Pale on purpose. It is the largest single flat surface in the game, and
+   * CLAUDE.md's measured floor is 0.20 linear luminance for a surface to carry
+   * a contour at all; a dark soffit is a hole with no line on it, which reads as
+   * the ink pass having stopped working rather than as a colour.
+   */
+  ceiling: '#efece7',
   shelf: '#a8896a',
   shelfTop: '#94775a',
   freezer: '#cfe6ea',

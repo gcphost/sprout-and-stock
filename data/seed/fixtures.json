@@ -14271,8 +14271,8 @@
     "cost": 65,
     "emits": {
       "color": "#ffd7a1",
-      "intensity": 1.1,
-      "range": 4.5
+      "intensity": 0.55,
+      "range": 3.2
     },
     "tags": [
       "lamp"

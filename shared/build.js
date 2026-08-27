@@ -4350,7 +4350,7 @@ function conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping) {
   return null;
 }
 
-export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
+export function canPlace(L, spec, { ignoreId = null, keeping = false, warn: wantWarn = true } = {}) {
   const def = FIXTURES[spec.kind];
   if (!def) return no(`"${spec.kind}" is not something you can build`);
 
@@ -4503,6 +4503,13 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false } = {}) {
     if (!BUILDABLE_OUTDOOR.has(ground)) return no('you can only dig into bare grass');
   }
 
+  // Everything above is physics and decides `ok`. Everything below is a
+  // SENTENCE, and it is by far the more expensive half — `whatThisBlocks`
+  // floods the whole map from the door (twice, when something really is cut
+  // off) and the till branch walks a queue lane. A caller who is not going to
+  // read the string should not pay for it: see `canKeep`, which is asked of
+  // every placement in the shop on every re-flow.
+  if (!wantWarn) return { ok: true };
   const warn = whatThisCosts(L, { ...spec, x, z }, def, { ignoreId });
   return warn ? { ok: true, warn } : { ok: true };
 }
@@ -4590,9 +4597,25 @@ export function canPlaceCleanly(L, spec, opts = {}) {
  * layer further down: a rule written for a caller putting something down, asked
  * of a caller re-applying what is already there. Both times the symptom was a
  * fixture vanishing a tick after you touched something near it.
+ *
+ * ...and it asks for no WARNING, which is where the re-flow's cost was.
+ *
+ * A warning is a sentence for somebody holding a ghost. Nothing re-applying a
+ * shop it already has can act on one — all three callers in `compose` read
+ * `.ok` and nothing else — and computing it is not free: `whatThisBlocks`
+ * floods the entire map from the front door for every placement, and a second
+ * time whenever anything at all is unreachable. A furnished shop is ~160
+ * placements, so a single press of the mouse paid for ~200 whole-map floods and
+ * threw every one of them away. That was 86% of a re-flow, and a re-flow is
+ * what a build press *is* — 46ms of a 49ms stall on a middling shop, growing
+ * with the square of how much you have built.
+ *
+ * Pass `warn: true` if you ever want one back; the option is left open rather
+ * than deleted because the sentence itself is still correct, it simply has no
+ * reader here.
  */
 export function canKeep(L, spec, opts = {}) {
-  return canPlace(L, spec, { ...opts, keeping: true });
+  return canPlace(L, spec, { warn: false, ...opts, keeping: true });
 }
 
 const no = (reason) => ({ ok: false, reason });
