@@ -53,6 +53,7 @@ import { Game } from '../server/sim/index.js';
 import { content, writeContent } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { lotStacks, lotTotal, lotQty, lotHas } from '../shared/lot.js';
+import { suggestedPrice } from '../server/sim/economy.js';
 import { MILESTONES } from '../server/sim/goals.js';
 
 const failures = [];
@@ -196,10 +197,29 @@ function fresh({ jobs = null } = {}) {
   return g;
 }
 
-/** Put stock on a board, with a clock of this sweep's choosing. */
+/**
+ * Put stock on a board, with a clock of this sweep's choosing.
+ *
+ * At the price the SHOP would suggest, which is the one thing in here that is
+ * not this file's to choose. It was a flat `3` — a number with no relation to
+ * anything, and harmless for as long as every assertion was about a clock. It
+ * stopped being harmless the moment section 2 waited for somebody to buy: a
+ * price is judged against `suggestedPrice`, which scales by the SEASON, so a
+ * flat 3 is fair on one item in one season and gouging on the same item three
+ * months later. `groundnuts` — the most-wanted ambient row, which is exactly
+ * why `pull` below picks it — is worth $1.89 in autumn and $1.05 in spring, so
+ * 3 is 159% of fair in the season this was written in and **286%** in the one
+ * the clock happens to be in now. `purchaseChance` returns a hard 0 at that
+ * ratio, so every shopper in the shop walked past the only board in it and the
+ * assertion failed as "nobody bought anything" — which reads as the sale path
+ * being broken rather than as this sweep having overcharged for peanuts.
+ *
+ * Fair by construction is the fix rather than a bigger number, because a
+ * bigger number is the same bug waiting for whoever next edits a `season` tag.
+ */
 function board(g, shelf, item, qty, { soldAgo = 0, stockedAgo = 0 } = {}) {
   const stack = {
-    item_id: item.id, qty, price: 3,
+    item_id: item.id, qty, price: suggestedPrice(item, g.folded(), g.season),
     stockedDay: g.day - stockedAgo,
     soldDay: soldAgo === null ? undefined : g.day - soldAgo,
   };
