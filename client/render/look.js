@@ -134,11 +134,40 @@ export const INK = {
   SIL_WIDTH: 1.4,
   SIL_THRESH: 0.07,
   CREASE_WIDTH: 0.2,
+  /** LOWERING THIS IS THE ONE THING NOT TO TRY. 0.32 was, to catch the shallow
+   *  panel lips a big machine is made of, and what it actually catches first is
+   *  the half-res normal buffer's own quantisation: a flat wall crosses the
+   *  threshold on some texels and not others, so it comes back STIPPLED — a
+   *  dashed line up a surface that has no edge on it at all. It reads as
+   *  clipping rather than as a threshold, and it wrecks the big flat things
+   *  first, which are exactly the things it was lowered to help. */
   CREASE_THRESH: 0.49,
-  /** How dark an interior line is against the outer one. */
-  CREASE_INK: 0.39,
+  /** How dark an interior line is against the outer one. Raised from 0.39: this
+   *  is the one crease dial that adds no new edges, so it cannot stipple — it
+   *  only darkens lines that already qualified. */
+  CREASE_INK: 0.9,
   /** How soft the EDGE of a line is — not how thick. A wide soft line is a grey
-   *  smear; a wide hard one is a brush stroke. Thickness is the sample offset. */
+   *  smear; a wide hard one is a brush stroke. Thickness is the sample offset.
+   *
+   *  ...AND IT IS NOT THE ANSWER TO A JAGGED LINE, WHICH IS WHAT IT LOOKS LIKE
+   *  THE ANSWER TO. It was raised to 0.08 for exactly that and changed nothing
+   *  visible, because softening a threshold only buys partial coverage when the
+   *  value being thresholded VARIES across the edge, and neither detector's does.
+   *  `creaseAt` reads a half-res normals buffer on `NearestFilter`, so across a
+   *  panel lip it answers one of two numbers — ~1.35 at a right angle, ~0 on a
+   *  flat face — and nothing in between however wide the band is. `silAt` reads
+   *  a depth buffer that MSAA resolves with a NEAREST blit, so a pixel is either
+   *  next to the discontinuity or it is not. Both masks are binary per pixel,
+   *  which is a staircase, and SCENE_SAMPLES cannot help: it smooths the COLOUR
+   *  edge, and the line is then painted over it out of a buffer resolved to one
+   *  sample.
+   *  Sampling the detector more finely cannot fix it either — a depth texture is
+   *  not linearly filterable in WebGL2, so a sub-texel offset snaps back to the
+   *  same texel, and whole-texel offsets are a blur of the mask: five times the
+   *  taps for a fatter, softer line, which is the smear this dial is warned
+   *  about arriving by the back door. The staircase is dealt with after the
+   *  fact, on the composed picture, by the FXAA pass in post.js. This stays at
+   *  the hard line it was tuned to. */
   SHARP: 0,
   /** How much thinner a line gets as it goes away. See `inkRef` in post.js:
    *  the reference is the camera's own distance to what it is looking at, and a
@@ -357,13 +386,43 @@ export const SHADOW_NORMAL_BIAS_TEXELS = 2.5;
  */
 const VIEW_KEY = 'sns-view';
 
-function stored() {
+/**
+ * ...and the two lines that read and write that key, for everyone in here.
+ *
+ * `sns-view` is one object with several owners — the camera's pose and the
+ * build mode are written from client/main.js, the look is written here, and the
+ * first-person FOV is written from scene.js — so what matters about both of
+ * these is the half that is easy to leave out: a write is a SPREAD over
+ * whatever is already stored, never a fresh object. main.js's own note says
+ * what the flat write costs, and it says it about this exact key: a save that
+ * named only its own fields would wipe the look every half second the view
+ * moved, "which reads as the look reverting on its own, days later, with
+ * nothing to connect it to".
+ *
+ * Exported so scene.js has no second copy of the try/catch. Storage that is
+ * absent, full or refused answers the fallback and swallows the write, which is
+ * every headless build and every private window — the value still moves in
+ * memory, it simply does not come back tomorrow.
+ */
+export function viewPref(field, fallback) {
   try {
     const raw = JSON.parse(localStorage.getItem(VIEW_KEY) ?? 'null');
-    return raw?.look !== 'off';
+    return raw?.[field] ?? fallback;
   } catch {
-    return true;
+    return fallback;
   }
+}
+
+export function rememberView(field, value) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VIEW_KEY) ?? 'null') ?? {};
+    raw[field] = value;
+    localStorage.setItem(VIEW_KEY, JSON.stringify(raw));
+  } catch { /* private mode, quota, no storage at all — the value still moved */ }
+}
+
+function stored() {
+  return viewPref('look', 'cel') !== 'off';
 }
 
 let on = typeof localStorage === 'undefined' ? true : stored();
@@ -407,11 +466,7 @@ export function setLookOn(want, remember = true) {
   if (next === on) return false;
   on = next;
   if (!remember) return true;
-  try {
-    const raw = JSON.parse(localStorage.getItem(VIEW_KEY) ?? 'null') ?? {};
-    raw.look = on ? 'cel' : 'off';
-    localStorage.setItem(VIEW_KEY, JSON.stringify(raw));
-  } catch { /* private mode, quota, no storage at all — the flag still moved */ }
+  rememberView('look', on ? 'cel' : 'off');
   return true;
 }
 

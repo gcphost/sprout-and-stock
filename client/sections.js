@@ -2620,6 +2620,29 @@ export const SECTIONS = [
     key: '/',
     title: 'Menu',
     /**
+     * ...AND IT IS ONE SIZE, DECLARED, rather than measured off its own rows.
+     *
+     * The panel is anchored at the BOTTOM and grows upward, so the tab strip is
+     * the part that moves furthest: pressing along four tabs of very different
+     * lengths walked the buttons up and down the screen under a pointer that
+     * had not moved. That is the whole complaint, and it is worst here, because
+     * this is the menu whose entire job is to be opened, pressed twice and shut.
+     *
+     * `steady` was tried first and is the wrong tool, which is worth writing
+     * down because it looks like the right one. It holds a panel at its TALLEST
+     * TAB, estimated as a row pitch times a row count — and the estimate is
+     * measured off whichever tab is drawn, so a tab whose rows are a different
+     * shape (this one has a tile grid and three `mid` rows, none of which is a
+     * `.sec-row`) lands somewhere else, and the window still moves. A near miss
+     * is the same bug as a big one when the thing being asked for is *not
+     * moving*. `fixed` never asks what is in a tab, so it cannot answer
+     * differently on one.
+     *
+     * The number lives in the stylesheet with the rest of the panel's shape —
+     * see `#panel.fixed` in client/index.html.
+     */
+    fixed: true,
+    /**
      * The switches and the volumes, and nothing else in this menu.
      *
      * Every other row here is a fixed sentence about a key, so this section
@@ -2656,10 +2679,16 @@ export const SECTIONS = [
     // to be short enough to survive it — an ellipsis mid-word is worse than a
     // blunter phrase. The long version lives in `sub`, which is also the hover.
     //
-    // THREE tabs, and the split is by what a row IS rather than by what it is
-    // about: something you do (the save, the switches), something you look up
-    // (every key in the game), something about the sound — how loud it is, and
-    // who made it, which is one tab because it is one subject. It was
+    // FOUR tabs, and the split is by what a row IS rather than by what it is
+    // about: something you do (the save, the switches, the way out), something
+    // that only changes the picture (the overlays, the corner widgets), something
+    // you look up (every key in the game), something about the sound — how loud
+    // it is, and who made it, which is one tab because it is one subject.
+    //
+    // View is the newest and the one that had to be argued for, because a fourth
+    // tab is a cost: the strip is the promise that these are alternatives, and
+    // one more of them is one more place to look. It earns it by being a
+    // subject rather than an overflow — see the heading below. It was
     // seven, split by topic — Camera and Building are perfectly good headings
     // and hopeless tabs, because "which quarter of the keyboard is this key in"
     // is a question you have to answer before you can look a key up. A tab
@@ -2668,18 +2697,29 @@ export const SECTIONS = [
     // `sep` as the opt-in, so demoting a heading to a plain divider is the
     // whole change — the four are still there, in order, one scroll apart.
     rows: (ui) => [
-      // Which game you are in, what is switched on, and the way out: the only
-      // rows in the menu that DO something. Leaving is here rather than on the
-      // rail because it is the rarest thing you do, and the rail is for what
-      // you reach for from anywhere (see docs/ui-shell.md).
+      /**
+       * THREE NAMED GROUPS, and the names are what makes this a tab rather than
+       * a pile.
+       *
+       * It ran for a long time as one undifferentiated stack — a shop name, a
+       * grid, then three centred slabs — which is readable at four rows and
+       * stops being readable the moment the rows are the same shape as each
+       * other. What a heading buys here is the thing a switch cannot say about
+       * itself: *whose* setting it is. Sound is a fact about you and Surroundings
+       * is a fact about the shop, and until they were under different words the
+       * only way to know that was to press one and go looking.
+       *
+       * Three is also the most this can hold and stay honest, which is the trap
+       * `switchRows` names about "In the corner": a heading over one row costs
+       * more height than the row it names. Each of these has two or three under
+       * it, and each name is true of all of them.
+       */
       { sep: 'Game', icon: ICONS.settings },
+
+      // WHICH SHOP. The name, and who else is in it — one subject, which is why
+      // the co-op row moved up here from the bottom of the tab.
+      { sep: 'This shop' },
       { name: ui.net?.world?.name ?? 'This shop', sub: 'the save you are playing', plain: true },
-      ...switchGrid(ui),
-      // Grouped with the switches rather than down by Credits: it is something
-      // you DO to this shop, which is what the top of this tab is for. It rides
-      // in the save, unlike every tile in the grid above it — see
-      // shared/surrounds.js for why that is the right side of the line.
-      ...surroundRows(ui),
       // Letting somebody in. A row here rather than the floating pill it was,
       // and the argument is docs/ui-shell.md's own: anything offering an action
       // belongs in `#panel`. What settled it is a phone — the pill was pinned
@@ -2690,15 +2730,48 @@ export const SECTIONS = [
       // Absent rather than disabled on a build that cannot host: the server
       // build has nothing to offer, because both people open the same URL, and
       // a greyed row is a promise that something would happen if you were
-      // somewhere else. `coopStatus` answers null there, and `.filter(Boolean)`
-      // on the list below is what makes a row optional.
+      // somewhere else. `coopStatus` answers null there, and the spread is what
+      // makes a row optional — which is also why this group is allowed to be one
+      // row on the desktop build, since the alternative is a heading that comes
+      // and goes with the transport.
       ...(coopStatus(ui.net) ? [{
         icon: ICONS.staff,
         name: coopStatus(ui.net).name,
         sub: coopStatus(ui.net).sub,
-        mid: true,
         run: () => openCoop(ui.net),
       }] : []),
+
+      // WHAT YOU LIKE, which is the one word that is true of all three and of
+      // nothing else on this tab: they persist, they are not in the save, and
+      // every one of them is still set the way you left it in the next shop you
+      // open. See `switchRows`.
+      { sep: 'You' },
+      ...switchRows(ui),
+      // ...and the one of them that is a number rather than a switch, which is
+      // why it is here and not in `switchRows` — that function's name is a
+      // promise about its rows. It is on THIS tab and not View for the line
+      // `switchRows` draws and View's own heading restates: everything on View
+      // is about the next ninety seconds and none of it is remembered, and how
+      // wide the lens is survives leaving the shop the way the tutorial and the
+      // sound do. It is only ever about first person, so it says so — a row
+      // that moves nothing you can see is a row you have to be told the shape
+      // of.
+      ...(ui.scene ? [fovRow(ui)] : []),
+
+      // ...AND THE TWO WAYS OUT, which were already argued to belong together —
+      // "two rows in a stack that both take you off this screen, with the
+      // irreversible one second, is a misread waiting to happen". That pairing
+      // was in a comment; it is a heading now, which is the same fact said where
+      // somebody reading the menu can see it.
+      //
+      // Both are ROWS rather than the centred tiles they were, and that reverses
+      // an argument this file used to make on purpose: a tile was right "because
+      // every other row on this tab that does something is a centred tile with
+      // an inline SVG on it", and that stopped being true when the switches went
+      // back to rows. Two centred grey slabs under six left-aligned rows is two
+      // vocabularies in one short list, and the slabs read as leftovers rather
+      // than as the two things you might have come here to do.
+      { sep: 'Leaving' },
       // The tip jar, on the tab `/` opens on rather than down in Credits with
       // the sound licences. Credits is the honest *home* for it and is `passive`
       // — the one tab the menu key never lands on — so a link put there is a
@@ -2706,43 +2779,76 @@ export const SECTIONS = [
       // be. It is one row, it says what it is, and it is the only row in the
       // game that leaves the game.
       //
-      // ABOVE the way out and never below it: two rows in a stack that both take
-      // you off this screen, with the irreversible one second, is a misread
-      // waiting to happen. See client/links.js for why it is opened rather than
-      // navigated to — this tab is holding a shop.
-      //
-      // `mid` and an ICON rather than an emoji, both for the same reason: every
-      // other row on this tab that does something is a centred tile with an
-      // inline SVG on it, and a left-aligned line with an emoji on it read as a
-      // *label* sitting between two buttons. `ICONS.support` comes through the
-      // generator like the other fifty-four, never a glyph typed in here — a
+      // ABOVE the way out and never below it, which is what the heading is now
+      // also saying. See client/links.js for why it is opened rather than
+      // navigated to — this tab is holding a shop. `ICONS.support` comes through
+      // the generator like the other fifty-four, never a glyph typed in here — a
       // font's emoji is a different drawing on every machine. It was a coffee
       // mug for a day; see client/links.js for why the mug had to go.
       {
         icon: ICONS.support,
         name: SUPPORT_LABEL,
-        // NO `sub`, which makes this the one `mid` row in the menu with nothing
-        // under its name. It has carried two things there and both were wrong:
-        // the URL (a bare domain is a thing to verify rather than a thing to
-        // read) and then a tag line, which is a pitch — and a pitch under a link
-        // whose label already says the whole thing can only argue with somebody
-        // who has not asked. See client/links.js.
-        mid: true,
+        // The caption is about the PRESS and not about the game, which is the
+        // one thing it is allowed to say. It has carried two other things and
+        // both were wrong: the URL (a bare domain is a thing to verify rather
+        // than a thing to read) and a tag line, which is a pitch — and a pitch
+        // under a link whose label already says the whole thing can only argue
+        // with somebody who has not asked. See client/links.js. What is left is
+        // the fact every other row on this tab would want stated about itself:
+        // this one leaves the game, and your shop keeps running behind it.
+        sub: 'opens a page — the shop keeps running',
         run: () => openLink(SUPPORT_URL),
       },
-      // The way out, LAST and full width. It used to sit second, directly under
-      // the name of the shop, on the argument that the shop and the way out of
-      // it are one thought — which is true and puts the one press you can't take
-      // back at the top of the tab you open to turn the music down. It is also
-      // the rarest thing on the tab, and a list is read top down: the switches
-      // are what you came for, so they come first and this closes the tab off.
+      // The way out, LAST. It used to sit second, directly under the name of the
+      // shop, on the argument that the shop and the way out of it are one
+      // thought — which is true and puts the one press you can't take back at
+      // the top of the tab you open to turn the music down. It is also the
+      // rarest thing on the tab, and a list is read top down: the switches are
+      // what you came for, so they come first and this closes the tab off.
       {
         icon: ICONS.close,
         name: 'Leave to menu',
         sub: 'saves, and back to the shop list',
-        mid: true,
         run: () => ui.leaveToMenu(),
       },
+
+      /**
+       * WHAT IS DRAWN ON THE SCREEN, which is a subject and not a leftover.
+       *
+       * A tab rather than a heading, by the same test Sound passes and
+       * Surroundings does not: nothing on here is in the save, nothing on here
+       * touches the shop, and every tile answers one question — what is on the
+       * screen in front of me right now. Turning the demand meter off and
+       * turning the tutorial off are not two versions of one press.
+       *
+       * It is also docs/ui-shell.md's own rule about Building arriving one
+       * panel over. Game started as four switches and collected two corner
+       * widgets, three overlays and a readout, because `...CORNERS` and
+       * `...DEBUGS` are spread lists — so the tab grew by one every time
+       * anybody wired a widget, and nothing anywhere would ever have said so.
+       * At ten tiles it was the only tab in the menu you had to scroll, which
+       * hides its far end behind a gesture nobody makes on a panel that looks
+       * complete. Splitting is what stops the list being unbounded: a new
+       * corner or a new readout lands HERE from now on, and Game stays the
+       * three things that are facts about you rather than about the picture.
+       */
+      { sep: 'View', icon: ICONS.camera },
+      ...viewGrid(ui),
+      // ...and where the shop stands, which is the one row on this tab that
+      // rides in the SAVE — see shared/surrounds.js. It sat with the switches
+      // on the Game tab on the argument that it is something you DO to this
+      // shop, and that is true and is not what the tab strip is sorting by:
+      // what a surround changes is what you can see out of the windows and
+      // nothing else. No shopper, no price and no tile moves. It is a picture,
+      // so it is on the tab for pictures, and it is the one thing here a
+      // screenshot could tell you had changed.
+      //
+      // BELOW the grid rather than above it. Rows under tiles is the order the
+      // whole menu reads in — the small persistent controls, then the list you
+      // choose from — and a `sep` under a grid is a heading doing its job,
+      // where the same heading above one would be a caption for tiles it does
+      // not name.
+      ...surroundRows(ui),
 
       { sep: 'Controls', icon: ICONS.walk },
       { sep: 'Getting about' },
@@ -2818,32 +2924,53 @@ function volRow(ui, bus, icon, name, sub) {
 }
 
 /**
- * EVERY SWITCH IN THE GAME, AS ONE BLOCK.
+ * How wide first person is, as the same stepper.
  *
- * Four things you can turn on and off — the tour, the sound, and each widget in
- * the corner — and they were four full-width rows under two headings. That is a
- * screenful to say four words and four states, on the one tab you open to do
- * something small and leave: "In the corner" was a heading over two switches,
- * which is a heading that costs more height than the thing it names.
+ * `volRow`'s argument about sliders holds word for word — a drag inside a panel
+ * fights the panel's own drag, and the range is seven presses end to end — so
+ * this is the same `stp` markup and the same already-wired `data-act`. What it
+ * is NOT is a copy of `volRow` with a different bus: a volume is a tenth of a
+ * fraction and this is a whole number of degrees with hard ends, and folding
+ * the two into one helper would be a function taking six arguments to save four
+ * lines.
  *
- * So they are tiles (`grid`, see `rowHtml`). A switch is the one control where
- * a row's shape buys nothing: you are not comparing them, you are not reading
- * them, you know which one you want before the panel is up — you want to see
- * that it moved, which a lit tile says as well as a lit row and in a quarter of
- * the space. The caption each row was printing lives in the tile's `title`,
- * which is the only place those words exist now.
+ * The ends and the step come off the scene (`fpvFovRange`) rather than being
+ * typed here, or this stepper walks past a range client/render/scene.js has
+ * since moved and the value comes back clamped one press later — which reads as
+ * the button sticking. Both buttons are `dis`abled at the end they cannot move,
+ * because a press that answers the number it already had is the one state a
+ * stepper can be caught lying in.
  *
- * The corner two are drawn from `CORNERS` rather than written out, so anything
- * wired with `wireCorner` is listed here the day it exists — a widget you could
- * close and that was not on this list would be one nobody could bring back,
- * which is the one way to get this wrong that a player finds before you do.
- *
- * Replay hangs off the corner of its own tile rather than taking a row back.
- * It is the press nobody makes twice, and it starts the tour there and then
- * rather than arming it for the next load: the shop is already in front of you,
- * and a press that quietly changed what happens tomorrow is the same dead press
- * as a switch with nothing behind it.
+ * The caption says the DEFAULT rather than what the number means, and that is
+ * the one thing a lens setting has to offer: there is no right answer, so the
+ * only useful sentence is where to get back to.
  */
+function fovRow(ui) {
+  const { min, max, step, def } = ui.scene.fpvFovRange();
+  const now = ui.scene.fpvFov();
+  const nudge = (d) => () => {
+    ui.scene.setFpvFov(now + d);
+    // At once, like the volumes: this moves nothing on screen unless you happen
+    // to be in first person with the menu open, so the number IS the feedback.
+    ui.paintSection();
+  };
+  const btn = (act, on, label, glyph) => `<button class="rbtn"${on ? '' : ' disabled'} `
+    + `data-act="${act}" aria-label="${label}">${glyph}</button>`;
+  return {
+    icon: ICONS.camera,
+    name: 'First person',
+    sub: now === def
+      ? `How wide the view is with F. ${def}° is the ordinary lens.`
+      : `How wide the view is with F. ${def}° is where it started.`,
+    rule: `<span class="rule"><span class="stp">
+      ${btn('down', now > min, 'narrower first-person view', '−')}
+      <b>${now}°</b>
+      ${btn('up', now < max, 'wider first-person view', '+')}
+    </span></span>`,
+    acts: { down: nudge(-step), up: nudge(step) },
+  };
+}
+
 /**
  * Where the shop stands — one row per surround, the picked one marked.
  *
@@ -2876,43 +3003,133 @@ function surroundRows(ui) {
   ];
 }
 
-function switchGrid(ui) {
+/**
+ * THE SWITCHES THAT ARE ABOUT YOU — and they are ROWS again.
+ *
+ * They were rows, then tiles, and now rows, which is not indecision: each move
+ * was the answer to how much height the tab had. Ten switches under two
+ * headings was a screenful to say ten words, so they became a grid, and the
+ * caption each one had been printing was pushed into the tile's `title` — where
+ * it is a tooltip, which is to say a caption no touchscreen in the world can
+ * read. That was the price, and it was worth paying while height was scarce.
+ *
+ * It is not scarce here any more. Seven of the ten went to `viewGrid` and the
+ * panel took a declared height (`fixed`, see `id: 'help'`), so this tab has
+ * room it cannot give back — and the first thing to spend it on is the words
+ * that already existed and could not be seen. "Off. New shops start with no
+ * tutorial" is the difference between a switch you understand and one you
+ * toggle to find out. The grid is still exactly right on View, where there are
+ * seven of them and the squeeze is still buying something.
+ *
+ * The three that stayed are the ones that survive leaving the shop: facts about
+ * the person, persisted, still true in the next save you open. That is the
+ * line, and it is the one to ask of the next switch anybody adds.
+ *
+ * A row is its own toggle (`run`) with the state SAID rather than only lit —
+ * `picked` is the same yellow the lit tile wore, and index.html's own note says
+ * why that is one colour and not two: "this one is on" and "this one is chosen"
+ * are the same fact. The word beside it is not a belt-and-braces; nothing in
+ * this menu is allowed to rest on colour alone.
+ *
+ * Replay is a button INSIDE the row rather than a fourth row. It is the press
+ * nobody makes twice, and it starts the tour there and then rather than arming
+ * it for the next load: the shop is already in front of you, and a press that
+ * quietly changed what happens tomorrow is the same dead press as a switch with
+ * nothing behind it. `wireRows` stops its click reaching the row, or replaying
+ * the tour would also switch the tour off.
+ */
+function switchRows(ui) {
   const tutOff = tutorOff();
   const soundOff = mix.muted;
+  const sw = (on, row) => ({
+    ...row,
+    picked: on,
+    // `rule` and not `tail` — see `.row .rule .sw` in client/index.html for why
+    // the difference is a legibility rule rather than a slot preference.
+    rule: `<span class="rule"><b class="sw${on ? ' on' : ''}">${on ? 'On' : 'Off'}</b></span>`,
+  });
+  return [
+    sw(!tutOff, {
+      icon: ICONS.help,
+      name: 'Tutorial',
+      sub: tutOff ? 'Off. New shops start with no tutorial.' : 'Shown once in a new shop.',
+      run: () => { setTutorOff(!tutOff); ui.paintSection(); },
+      button: {
+        label: 'Replay',
+        quiet: true,
+        run: () => {
+          // The mark first, then the start. `maybeStart` reads it — so a Replay
+          // that only called `start` would run the tutorial and then be refused
+          // by its own bookkeeping the moment you reloaded mid-way through it.
+          replayTutor(ui.worldId);
+          ui.closePanel();
+          ui.tutor?.maybeStart(ui.worldId);
+        },
+      },
+    }),
+    sw(!soundOff, {
+      icon: soundOff ? ICONS.muted : ICONS.speaker,
+      name: 'Sound',
+      sub: soundOff
+        ? 'Silent. Everything else keeps running.'
+        : 'On. How loud each part is, under the Sound tab.',
+      run: () => { mix.setMuted(!soundOff); ui.paintSection(); },
+    }),
+    // Only in a build that has somewhere to send them. A switch in front of
+    // somebody whose game reports nothing is the "tier that changes no
+    // number" trap wearing a privacy setting, and it is the worse form of it:
+    // what it takes is not money but a promise about them.
+    ...(haveStats() ? [sw(statsOn(), {
+      icon: ICONS.report,
+      name: 'Stats',
+      sub: statsOn()
+        ? 'On. Anonymous play time only — never what you build or buy.'
+        : 'Off. Nothing that could be you is stored.',
+      run: () => { setStats(!statsOn()); ui.paintSection(); },
+    })] : []),
+  ];
+}
+
+/**
+ * EVERYTHING THAT IS ONLY A PICTURE.
+ *
+ * The seven tiles that came off the Game tab, and they belong together for a
+ * reason that is not "they were in the way": not one of them is in the save,
+ * not one of them touches the shop, and every one answers the same question —
+ * what is on the screen in front of me. Close the demand meter and the shop is
+ * the same shop; turn the tutorial off and the next one you open is different.
+ *
+ * The ORDER is the whole of the layout here, because these are four kinds of
+ * thing on one grid and the grid cannot say so: the mode first, then the two
+ * widgets you put away, then the three things drawn on the shop floor, then the
+ * readout. Roughly most-players-first, which is what stands in for the headings
+ * a grid does not have — and it is also what keeps the developer end out of the
+ * way without gating it.
+ *
+ * Both spreads are the point rather than a shortcut. `CORNERS` and `DEBUGS`
+ * mean a widget you can close, or a readout you can turn on, is on this grid
+ * the day it exists — a corner nobody could bring back is the one way to get
+ * this wrong that a player finds before you do. It is also why the tab exists:
+ * a list that grows by itself has to grow somewhere that is not the tab you
+ * open to turn the music down.
+ */
+function viewGrid(ui) {
   return [{
     grid: [
-      {
-        id: 'tutor',
-        icon: ICONS.help,
-        name: 'Tutorial',
-        on: !tutOff,
-        title: tutOff ? 'Off. New shops start with no tutorial.' : 'Shown once in a new shop.',
-        extra: `<button class="gsub" data-act="replay" title="Replay the tutorial"
-          aria-label="Replay the tutorial">${ICONS.play}</button>`,
-      },
-      {
-        id: 'sound',
-        icon: soundOff ? ICONS.muted : ICONS.speaker,
-        name: 'Sound',
-        on: !soundOff,
-        title: soundOff
-          ? 'Silent. Everything else keeps running.'
-          : 'On. How loud each part is, under the music tab.',
-      },
       /**
-       * ...and the one switch on this grid that turns the grid off.
+       * ...and the one switch in the game that turns the screen it is on off.
        *
-       * It is here rather than anywhere else because this is where somebody
-       * looks for "turn a thing off", and it is worth knowing that pressing it
-       * is the last thing that happens on this panel: the HUD it hides includes
-       * the panel it is on, so the tile lights and vanishes in the same frame.
-       * That reads correctly — you asked for the screen to be clear — but it
-       * means the tile can never show its own ON state to anybody, which is why
-       * the way back is printed on the letterbox and not here.
+       * It is worth knowing that pressing it is the last thing that happens on
+       * this panel: the HUD it hides includes the panel it is on, so the tile
+       * lights and vanishes in the same frame. That reads correctly — you asked
+       * for the screen to be clear — but it means the tile can never show its
+       * own ON state to anybody, which is why the way back is printed on the
+       * letterbox and not here.
        *
-       * Not persisted, unlike every other tile in this grid. See
-       * client/cinema.js: this one is a fact about the next ninety seconds
-       * rather than about the person.
+       * Not persisted, unlike the three on the Game tab. See client/cinema.js:
+       * this one is a fact about the next ninety seconds rather than about the
+       * person — which is the same line that put it on this tab rather than
+       * beside the tutorial.
        */
       {
         id: 'cinema',
@@ -2939,17 +3156,16 @@ function switchGrid(ui) {
           ? 'Shown. The floor is tinted by where shoppers actually walk.'
           : 'Hidden. Show where shoppers actually walk.',
       },
-      // The two developer readouts, which until now could only be turned on by
-      // typing in the address bar — see client/debug.js for why that is not a
-      // switch. Drawn off `DEBUGS` rather than written out for the reason
-      // `CORNERS` is: a third readout is on this grid the day it exists.
+      // The developer readouts, which until this grid existed could only be
+      // turned on by typing in the address bar — see client/debug.js for why
+      // that is not a switch.
       //
-      // LAST on the grid, and deliberately not behind any kind of dev gate.
-      // Nothing here can break a shop or spend a penny, they are two small
-      // boxes in two corners, and the alternative — a build flag — is a switch
-      // that is missing on exactly the machine somebody is trying to tell you
-      // is slow. What keeps them out of the way is the order: everything above
-      // is a thing a player came here for.
+      // LAST, and deliberately not behind any kind of dev gate. Nothing here
+      // can break a shop or spend a penny, they are small boxes in the corners,
+      // and the alternative — a build flag — is a switch that is missing on
+      // exactly the machine somebody is trying to tell you is slow. What keeps
+      // them out of the way is the order: everything above is a thing a player
+      // came here for.
       ...DEBUGS.map((d) => ({
         id: `debug:${d.id}`,
         icon: icon(d.icon, ICONS.settings),
@@ -2957,40 +3173,16 @@ function switchGrid(ui) {
         on: debugOn(d.id),
         title: debugOn(d.id) ? d.sub : `Off. ${d.sub}.`,
       })),
-      // Only in a build that has somewhere to send them. A switch in front of
-      // somebody whose game reports nothing is the "tier that changes no
-      // number" trap wearing a privacy setting, and it is the worse form of it:
-      // what it takes is not money but a promise about them.
-      ...(haveStats() ? [{
-        id: 'stats',
-        icon: ICONS.report,
-        name: 'Stats',
-        on: statsOn(),
-        title: statsOn()
-          ? 'On. Anonymous play time only — never what you build or buy.'
-          : 'Off. Nothing that could be you is stored.',
-      }] : []),
     ],
     // Every one repaints at once rather than waiting for the next snapshot: the
-    // honest test of a switch is that it moved, and two of these move something
-    // in the other corner of the screen where you would not see it happen.
+    // honest test of a switch is that it moved, and all of these move something
+    // in another corner of the screen where you would not see it happen.
     acts: {
-      tutor: () => { setTutorOff(!tutOff); ui.paintSection(); },
-      replay: () => {
-        // The mark first, then the start. `maybeStart` reads it — so a Replay
-        // that only called `start` would run the tutorial and then be refused
-        // by its own bookkeeping the moment you reloaded mid-way through it.
-        replayTutor(ui.worldId);
-        ui.closePanel();
-        ui.tutor?.maybeStart(ui.worldId);
-      },
-      sound: () => { mix.setMuted(!soundOff); ui.paintSection(); },
       // Repainted before it goes, like the rest of them: turning cinema OFF
       // from the key leaves this panel open behind it, and a tile still lit for
       // a mode that has ended is the one state this switch can actually be
       // caught lying in.
       cinema: () => { setCinema(!cinemaOn()); ui.paintSection(); },
-      stats: () => { setStats(!statsOn()); ui.paintSection(); },
       footfall: () => ui.toggleFootfall(),
       ...Object.fromEntries(CORNERS.map((c) => [
         `corner:${c.id}`, () => { setOff(c.id, !isOff(c.id)); ui.paintSection(); },

@@ -40,6 +40,9 @@ import { SURROUNDS, isSurround, surroundOf } from '../../shared/surrounds.js';
 import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { difficultyOf } from '../../shared/difficulty.js';
 import { cleanName } from '../../shared/names.js';
+import {
+  isEmote, emoteSeconds, REPLIED, WAVE_REACH, WAVE_BACK_MAX, WAVE_MOOD,
+} from '../../shared/emotes.js';
 import { makeNamer } from './names.js';
 import { stepStaff, syncStaff, breakProgress, carryOf, givenUp, hasHome } from './staff.js';
 import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
@@ -293,9 +296,15 @@ const PLAYER_SPEED = 4.2;      // tiles/sec
  * are covering is visible before you set off. Down here the shop is an aisle at
  * a time, the far wall is the only thing moving, and an ortho view's worth of
  * walking is thirty seconds of corridor — which is a pace nobody would call
- * brisk. It is the FOV as much as the height: at 74° there is very little near
- * the edge of the frame to sweep past you, so the one cue that says how fast
- * you are going is the weakest it ever gets.
+ * brisk. It is the FOV as much as the height: at a wide lens there is very
+ * little near the edge of the frame to sweep past you, so the one cue that says
+ * how fast you are going is the weakest it ever gets.
+ *
+ * That lens is a menu row now (`FPV_FOV` in client/render/scene.js) and this
+ * number is deliberately not derived from it. Walking pace is the server's and
+ * the lens is the client's preference, so tying them would put a figure the sim
+ * reads behind a stepper somebody presses — and narrowing it only ever makes
+ * the reading above truer, so the pace is right at every setting on the row.
  *
  * Sprint is left multiplying the walk rather than being retuned beside it, for
  * the reason it already does: it is a multiplier on however fast you happen to
@@ -3251,6 +3260,10 @@ export class Game {
       players: Object.values(this.players).map((p) => ({
         id: p.id, name: p.name, x: r2(p.x), z: r2(p.z), facing: r2(p.facing),
         carry: p.carry, color: p.color, staff: p.staff ?? null,
+        // What their arms are saying, for as long as they are saying it. Spread
+        // rather than sent as null, so a shop where nobody is waving sends the
+        // frame it always did — see `emoteWire`, which owns the expiry.
+        ...(this.emoteWire(p) ?? {}),
         // The chase, for whoever is running it. Only ever sent for a human —
         // staff have `energy`, which is a different resource on a different
         // clock (see docs/security.md step 3), and sending both would invite
@@ -3400,6 +3413,10 @@ export class Game {
         // somebody who simply finished shopping. Omitted entirely when false,
         // which keeps every frame in an honest shop the size it already was.
         ...(c.stole ? { stole: true } : {}),
+        // ...and whether they are waving back at you. Same field as a player's,
+        // because to the renderer a shopper and a shopkeeper are the same kind
+        // of body with the same two shoulders — see `animateEmote`.
+        ...(this.emoteWire(c) ?? {}),
       })),
       shelves: this.layout.shelves.map((s) => ({
         id: s.id, kind: s.kind,
@@ -7967,6 +7984,145 @@ export class Game {
     const who = by?.staff ? `${by.name} stopped` : 'Stopped';
     this.pushLog(`${who} ${cust.name ?? 'a shoplifter'} — got back ${said}.`);
     return { recovered, said };
+  }
+
+  /**
+   * Say something with your arms.
+   *
+   * The whole verb is two fields on a person and a stamp, and everything about
+   * that is deliberate. It refuses nothing else you are doing — you may wave
+   * while walking, while holding six loaves, with a crate on your shoulder or
+   * out of build mode, because an emote is a pose laid over the arms rather
+   * than a job that owns them (see `animateEmote`, which blends). A guard here
+   * would be a key that works everywhere except the one moment somebody wants
+   * to show a friend the shelf they just built.
+   *
+   * It refuses a kind it does not know rather than narrowing to a wave, which
+   * is `setSurround`'s split exactly: a PRESS has somebody in front of it who
+   * can be told, and silently accepting a typo would be a client that appears
+   * to work and quietly only ever waves.
+   *
+   * Nothing about it is persisted, and nothing may be. `at` is against
+   * `elapsed`, which restarts at zero on every load — the trap this file
+   * documents about `plantedAt` and `yieldedAt` — so a saved stamp would put
+   * the pose in the future and the arm would never come down. It expires in
+   * seconds and lives only in memory, which is the one shape that trap cannot
+   * reach.
+   */
+  emote(id, kind) {
+    const p = this.players[id];
+    if (!p) return err('no such player');
+    if (!isEmote(kind)) return err(`No such emote: ${kind}`);
+    p.emote = { kind, at: this.elapsed };
+    if (kind === REPLIED) this.waveBack(p);
+    return ok({ emote: kind });
+  }
+
+  /**
+   * ...and everybody near enough to have seen it waves back.
+   *
+   * This is the half that makes the gesture worth having: an emote nobody
+   * answers is a thing you do at furniture. Shoppers AND hires, because a crew
+   * that ignored you while the customers waved would read as the staff being
+   * broken rather than as a decision.
+   *
+   * Somebody already mid-emote is left alone. Two waves a second apart would
+   * otherwise restart the pose from the top each time — an arm that jerks back
+   * to the start rather than a person waving — and re-answering is also how a
+   * held key turns a shop into a stadium.
+   *
+   * The stagger is a HASH and never `this.rng`, and this is the one line in
+   * here that could quietly cost money. Every balance number in the game is
+   * downstream of how many times that stream has been called, so drawing a
+   * dither per shopper would move every basket, crop and spawn roll after it —
+   * and two `simulate` runs either side of *adding a wave* would diverge with
+   * nothing in the output to say why. `hash01` costs no draw at all, gives the
+   * same person the same beat every time, and is what the kits already do.
+   *
+   * Somebody in a car is not in the shop (`inACar`), which is this file's own
+   * standing rule about `this.customers`: the approach road is full of people
+   * who have not arrived, and an arm out of a moving windscreen is the shape
+   * that bug takes here.
+   */
+  waveBack(from) {
+    for (const c of Object.values(this.customers)) {
+      if (inACar(c)) continue;
+      this.answerWave(c, from);
+    }
+    for (const s of Object.values(this.players)) {
+      if (s === from || !s.staff) continue;
+      this.answerWave(s, from);
+    }
+  }
+
+  /** One body's answer, or nothing at all. Shared so the two lists cannot drift. */
+  answerWave(who, from) {
+    if (who.emote && this.elapsed - who.emote.at < emoteSeconds(who.emote.kind)) return;
+    if (Math.hypot(who.x - from.x, who.z - from.z) > WAVE_REACH) return;
+    who.emote = {
+      kind: REPLIED,
+      at: this.elapsed + hash01(`${who.id}:wave`) * WAVE_BACK_MAX,
+      // WHO they are answering, so the client can turn them to face a person
+      // rather than to face the camera. It has to come off the wire: two people
+      // share this shop, and a client that assumed "the local player" would
+      // have every shopper in it turn to YOU when they were waved at by
+      // somebody else — which is a whole crowd looking the wrong way, and which
+      // looks exactly like the turn being broken rather than aimed.
+      to: from.id,
+    };
+    /**
+     * ...and being noticed is worth something, once.
+     *
+     * The only thing in the game that moves a shopper's patience upward for
+     * free, which is why every clause of it is a bound — see `WAVE_MOOD` for
+     * the argument. `greeted` is the once, and it is a flag on the SHOPPER
+     * rather than a stamp: a cooldown is still a printer, only slower and one
+     * you would be right to grind, where a flag makes greeting people a thing
+     * you do rather than a thing you farm.
+     *
+     * It is paid HERE rather than in `emote`, and that is the load-bearing bit.
+     * This branch has already decided somebody is close enough, on foot, and
+     * not already mid-wave — so what is paid for is a greeting that visibly
+     * landed. Paying at the press would pay for waving at an empty aisle.
+     *
+     * A hire has no mood at all (they have `energy`, which is a different
+     * resource on a different clock), so the `typeof` is not defensive — it is
+     * what stops this minting a `mood` field on a worker, which `moodAverage`
+     * and `stepMood` would then both find and believe.
+     */
+    if (!who.greeted && typeof who.mood === 'number') {
+      who.greeted = true;
+      who.mood = clamp(who.mood + WAVE_MOOD, 0, 1);
+    }
+  }
+
+  /**
+   * What to put on the wire for one body's arms, and nothing once it is spent.
+   *
+   * The expiry is here rather than on the client for two reasons. A shop full
+   * of people would otherwise go on sending a field about a wave that finished
+   * a minute ago, on every frame, for ever — and a stamp is never cleared
+   * anywhere else, because there is no tick that owns emotes and inventing one
+   * to null a field would be a pass over every person in the shop to do
+   * nothing.
+   *
+   * `at` rides along because the client needs to know when a *new* one started:
+   * two waves running are the same string, so without it the second one is
+   * indistinguishable from the first still being up and the arm simply never
+   * goes again. Rounded like every other number on the wire — two decimals is
+   * a hundredth of a second, which no two presses share.
+   *
+   * A stamp in the future is a shopper who has not got round to waving back
+   * yet (`answerWave`), and it is sent: the client's envelope is 0 until it
+   * starts, so the arm stays down and the beat lands where the shop put it.
+   */
+  emoteWire(who) {
+    const e = who.emote;
+    if (!e || this.elapsed - e.at >= emoteSeconds(e.kind)) return null;
+    // `emoteTo` only for an answer, which is the only emote anybody is aimed
+    // at: one you made yourself is aimed wherever you were already facing, and
+    // sending your own id there would have your body spin to look at itself.
+    return { emote: e.kind, emoteAt: r2(e.at), ...(e.to ? { emoteTo: e.to } : {}) };
   }
 
   /**

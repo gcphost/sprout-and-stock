@@ -13,6 +13,7 @@ import {
 } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import { clockLabel, weekdayLabel } from '../shared/clock.js';
+import { EMOTE_LIST } from '../shared/emotes.js';
 import { pillDrives } from './input.js';
 import {
   buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups, DECK_GROUPS,
@@ -385,6 +386,7 @@ export class UI {
       marquee: document.getElementById('marquee'),
       peek: document.getElementById('peek'),
       prompt: document.getElementById('prompt'),
+      emotes: document.getElementById('emotes'),
       rail: document.getElementById('rail'),
       search: document.getElementById('panel-search'),
       filter: document.getElementById('panel-filter'),
@@ -3343,11 +3345,18 @@ export class UI {
    * moves furthest. Seven fixture upgrades against two for you is a panel that
    * doubles in height on one press.
    *
-   * OPT-IN, per section (`steady`), and the Menu is the argument for that: its
-   * Controls tab is thirty rows of keys, so a rule that applied everywhere would
-   * hold the sound switches at the height of the keyboard reference. It is
-   * worth it where the tabs are the same *kind* of thing at different lengths,
-   * and wrong where one tab is a reference list.
+   * OPT-IN, per section (`steady`), because a tab that is a *reference list*
+   * would otherwise set the height of every tab beside it — thirty rows of keys
+   * standing three sound switches at the height of a keyboard chart.
+   *
+   * The Menu was the argument for that and has since asked for the opposite,
+   * which is worth understanding before reading the flag as a contradiction:
+   * the cap below means "the tallest tab" is never taller than what the panel
+   * can SHOW, so on a section whose longest tab already overflows, all this can
+   * buy is the height that tab was already getting. The question is therefore
+   * not "is the longest tab long" but "would you rather have empty paper on the
+   * short tabs than a strip that moves". For a menu you open, press twice and
+   * shut, you would. See `id: 'help'` in client/sections.js.
    *
    * The pitch is MEASURED off two rows that are on screen rather than written
    * down as a row height — the CSS owns that number, it changed twice this week
@@ -3361,10 +3370,43 @@ export class UI {
    */
   steadyHeight(sec, groups) {
     const body = this.el.panelBody;
+    /**
+     * ...and the other answer, which is not a taller version of this one.
+     *
+     * `fixed` is a DECLARED height in the stylesheet (`#panel.fixed`), and a
+     * section takes it instead of `steady` rather than as well: everything
+     * below is an estimate off a row pitch, and an estimate is exactly what a
+     * window that must not move cannot be built on. The two are one flag's
+     * worth of thinking apart — is the height a measurement of the content, or
+     * a decision about the window.
+     *
+     * The class goes on the panel rather than the body because it is the panel
+     * that is being sized, and it is cleared on every paint of every other
+     * section, or a menu opened after the Menu inherits its size.
+     */
+    this.el.panel.classList.toggle('fixed', !!sec.fixed);
+    if (sec.fixed) { body.style.minHeight = ''; return; }
     if (!sec.steady || !groups) { body.style.minHeight = ''; return; }
-    const drawn = body.querySelectorAll('.sec-row');
-    const pitch = drawn.length >= 2
-      ? drawn[1].offsetTop - drawn[0].offsetTop
+    const drawn = [...body.querySelectorAll('.sec-row')];
+    /**
+     * TWO ROWS WITH NOTHING BETWEEN THEM, which `drawn[0]`/`drawn[1]` is only
+     * while every row in the tab is one.
+     *
+     * A `grid` and a `mid` row are neither of them `.sec-row` — see `rowHtml` —
+     * so on the Menu's Game tab the first two matches have a whole tile grid
+     * standing between them, and the gap that comes back is a grid's height
+     * called a row's. Multiplied by the tallest tab's row count that is a
+     * `min-height` several times what it should be, and the number is DIFFERENT
+     * on each tab, which is the exact jump this function exists to stop —
+     * wearing the fix.
+     *
+     * So: the first pair that are actually siblings. Falling back to the old
+     * reading rather than to nothing, because a tab of one row still wants an
+     * answer and `offsetHeight` is the honest one there.
+     */
+    const pair = drawn.findIndex((el, i) => el.nextElementSibling === drawn[i + 1]);
+    const pitch = pair >= 0
+      ? drawn[pair + 1].offsetTop - drawn[pair].offsetTop
       : (drawn[0]?.offsetHeight ?? 0);
     if (!pitch) { body.style.minHeight = ''; return; }
     // Every tab shows the lead rows too, so they are part of every tab's height
@@ -3614,7 +3656,14 @@ export class UI {
     // a van arrives. Same argument, and the same shape, as `data-entry` on a
     // bar tile. Optional, because most rows have one button and nothing has
     // ever needed to point at it.
-    r.button.tag ? ` data-btn-tag="${r.button.tag}"` : ''}${r.button.danger ? ' class="danger"' : ''}>${r.button.label}</button>`
+    // Three tones, and the third is the reason this is not a boolean. `.row
+    // button` is the big green BUY pill and `danger` is the red one beside it —
+    // both of them shout, correctly, because both spend or destroy something.
+    // `quiet` is for a press that does neither: Replay is a convenience on a
+    // switch row, and in green it was the loudest thing on the tab by a mile,
+    // sitting next to a tutorial nobody was buying.
+    r.button.tag ? ` data-btn-tag="${r.button.tag}"` : ''}${
+    r.button.danger ? ' class="danger"' : r.button.quiet ? ' class="quiet"' : ''}>${r.button.label}</button>`
     // An empty cell under a head, for the rows that have nothing in that
     // column — a made-here item has no standing order and no buy button, and
     // dropping the cells rather than emptying them slides its count and its
@@ -4122,7 +4171,7 @@ export class UI {
     }
   }
 
-  /** The switch. Repaints the panel itself — see `switchGrid` on why. */
+  /** The switch. Repaints the panel itself — see `switchRows` on why. */
   toggleFootfall() {
     const heat = this.scene?.heat;
     if (!heat) return;
@@ -5068,6 +5117,83 @@ export class UI {
    * written and cached beside it, and the frame's own work is arithmetic on
    * numbers we already have.
    */
+  /**
+   * The emote strip, up while V is held.
+   *
+   * Built on the first press and then only shown and hidden. It is four
+   * buttons that never change, so rebuilding it per press would be work for
+   * nothing — and the reason it is not built at boot instead is that most
+   * sessions never press the key, and this is a row of parsed SVG.
+   *
+   * `body.emoting` is what stands the press-hint pill down; see the stylesheet
+   * for why the two cannot both be up.
+   */
+  showEmotes(on) {
+    const el = this.el.emotes;
+    if (!el) return;
+    if (on && !el.childElementCount) this.buildEmotes(el);
+    this.emotesUp = !!on;
+    el.classList.toggle('show', this.emotesUp);
+    document.body.classList.toggle('emoting', this.emotesUp);
+  }
+
+  /** One button per row of `EMOTE_LIST`, in the order the number keys are in. */
+  buildEmotes(el) {
+    EMOTE_LIST.forEach((e, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'rail-btn em-btn';
+      b.title = `${e.label} (${i + 1})`;
+      // `aria-label` as well as the visible word, because the word is the
+      // caption under a mark rather than the whole button — a reader that
+      // stitched the two together would say "hand waving Wave".
+      b.setAttribute('aria-label', e.label);
+      const ico = document.createElement('span');
+      ico.className = 'ico';
+      ico.innerHTML = ICONS[e.icon] ?? '';
+      const lbl = document.createElement('span');
+      lbl.className = 'lbl';
+      lbl.textContent = e.label;
+      // The number, in the corner, exactly as the rail wears its letter. This
+      // row is the only place in the game the emote hotkeys are written down —
+      // they work with the strip down, so without the badge they are four
+      // presses nobody would ever discover.
+      const kb = document.createElement('span');
+      kb.className = 'kb';
+      kb.textContent = String(i + 1);
+      b.append(ico, lbl, kb);
+      // On the way DOWN, which is this file's usual rule and matters here: the
+      // strip disappears with the key, so a click whose button comes up after
+      // the key does would land on nothing.
+      b.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        this.sendEmote(e.id);
+      });
+      el.append(b);
+    });
+  }
+
+  /** Number keys, while the strip is up. False when there is no such row. */
+  pickEmote(n) {
+    const e = EMOTE_LIST[n - 1];
+    if (!e) return false;
+    this.sendEmote(e.id);
+    return true;
+  }
+
+  /**
+   * Say it.
+   *
+   * The strip stays up, on purpose: it is held open by a key, so the press
+   * that shuts it is letting go — and a row that vanished under your finger
+   * would make waving twice two presses of V. Refusals arrive on
+   * `action-result` like every other verb's; there is nothing to say here
+   * about a wave that worked.
+   */
+  sendEmote(kind) {
+    this.net?.send('emote', { kind });
+  }
+
   setPeek(cards) {
     const el = this.el.peek;
     if (!el) return;
@@ -5516,6 +5642,13 @@ export class UI {
   }
 
   showPanel(title, html, scrollKey = title) {
+    // The declared height belongs to a SECTION that asked for one, and this is
+    // the door every other kind of panel comes through — a fixture, an edge, an
+    // item, a worker. Cleared here rather than only in `steadyHeight` because
+    // none of those four calls that function at all, so a shelf opened after the
+    // Menu would otherwise wear the Menu's size. `paintSection` runs this first
+    // and sets the flag afterwards, which is what makes one clear enough.
+    this.el.panel.classList.remove('fixed');
     // Measured BEFORE the swap, off the old content, and only kept when the key
     // says it is the same list. `scrollerOf` because a paned menu scrolls its
     // middle and a plain one scrolls the body — reading the wrong one is a

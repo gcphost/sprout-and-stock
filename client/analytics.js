@@ -15,7 +15,7 @@
 
 const ID = import.meta.env.VITE_SNS_GA ?? '';
 
-/** Whether there is anything to switch on — see `switchGrid` in sections.js. */
+/** Whether there is anything to switch on — see `switchRows` in sections.js. */
 export const haveStats = () => !!ID;
 
 const CHOICE = 'sns-stats';

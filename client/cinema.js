@@ -13,7 +13,7 @@
  * knows what a rail is — every piece of chrome in the game already carries the
  * class that hides it, so a widget added tomorrow is covered on the day it
  * exists, and one that is *not* covered is one that was never HUD in the first
- * place. That is the same argument `switchGrid` makes about `CORNERS`.
+ * place. That is the same argument `viewGrid` makes about `CORNERS`.
  *
  * IT IS NOT REMEMBERED, and that is the only decision in here worth arguing.
  * Every other switch in the game is persisted because it is a fact about the

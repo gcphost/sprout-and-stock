@@ -36,6 +36,7 @@
  */
 
 import * as THREE from 'three';
+import { GLAZING, WAYS } from '../../shared/edges.js';
 
 /**
  * How many emitters get a real light.
@@ -71,43 +72,85 @@ const RESORT_DISTANCE = 1.5;
  * be a purchase that never has a moment of being the thing that saved you.
  *
  * This is one half of "indoors is not outdoors" — the lamp half. The other half
- * is `INDOOR_LIFT` below; what neither of them does yet is let the sun in
- * through a window, which is still the honest version and still docs/building.md.
+ * is THE ROOF below, and the third is `windowsIn`, which is where the day gets
+ * in now.
+ *
+ * It survives the roof, and the reason is worth writing down: with the room
+ * pinned, a lamp no longer *rescues* the building — it sharpens its own corner
+ * at every hour, which is what a lamp does. What the ramp still buys is that a
+ * shop full of fittings is visibly a shop full of fittings after dark and
+ * merely well lit at noon, and that is a purchase having a moment.
  */
 const DAY_FLOOR = 0.25;
 
 /**
- * How much light of its own the inside of the building keeps once the sun is
- * off it.
+ * THE ROOF, and why it is a shadow on the FIELD rather than a lamp in the SHOP.
  *
- * The other half of the note above, and the thing the day cycle was missing: the
- * sun is a single global term, so a shop at dusk was lit exactly like the field
- * behind it. A room is not — it has a ceiling with lights in it, and the ones
- * that are not for sale are the ones nobody thinks about. Without this an unlit
- * shop goes as dark inside as the farm does, which reads in play as the building
- * switching off rather than as evening.
+ * What a room wants is to hold one level all day: the sun never reaches the
+ * inside of a building, so a shop at dusk and a shop at noon are the same room
+ * with the same lights on, and the day is a thing you can see happening through
+ * the door. That was `INDOOR_LIFT` — a scalar, ramped by `1 - daylight`, folded
+ * into the bake — and it was wrong twice.
  *
- * Three things about the shape of it:
+ * It was wrong about **hue**, which is the complaint that started this: the sun
+ * and the fill both go warm at dusk (`SUN_DUSK`, `FILL_DUSK`), so a scalar
+ * handed the room back some of its brightness and left it orange. What a player
+ * reads there is not evening, it is the shop's own colours moving under them, at
+ * exactly the hour the shop is busiest.
  *
- * - It is **ramped by how much daylight there is**, not a floor under it the way
- *   `DAY_FLOOR` is under a lamp. At noon it is exactly zero, or the sun and this
- *   would add up to a shop that glows at midday, and the two ends of the day
- *   have to look different or the cycle has stopped saying anything.
- * - It is **multiplicative on the surface's own colour**, because that is what
- *   the bake already is (`bakeInto`) — so a dark floor design stays proportionally
- *   dark and the lift cannot flatten a room into one grey.
- * - It is **generous on purpose.** docs/building.md's sketch wanted a low floor
- *   so that buying lamps was what kept you trading after tea. Played, that is a
- *   shop you cannot see for two hours a day, so the floor is set where the room
- *   still reads and a lamp *sharpens* its own corner rather than rescuing the
- *   building.
+ * And it was wrong about **which end to push**. Lifting a dark room means a bake
+ * multiplier well above 1 — and a vertex colour cannot hold one. `paintLit`
+ * clamps at 1 under the look, because the toon ramp is already at its top step
+ * and anything past it clips to white rather than brightening. A pin built that
+ * way does not light the shop, it *erases* it, and the tell would have been a
+ * milky white aisle that reads as fog.
  *
- * Its partner outside this file is `ROOM_FILL` in `scene.js`, which is the same
- * lift for the things a bake cannot reach. The two are two approximations of one
- * ceiling and have to move together — see `BAKE_GAIN` for the same warning about
- * the same kind of pair.
+ * So the sky is held at MIDDAY all day — sun, fill and bounce, colour and level
+ * — and the whole of the day cycle moves into the bake as a darkening of
+ * everything OUTDOORS: `outdoor` is `sky(now) / sky(noon)`, per channel, which
+ * is at most 1 and therefore cannot clip. Three things fall out of that, and
+ * they are the reason this shape is worth the rewrite:
+ *
+ * - **Outdoors is untouched, to the byte.** A surface used to be `albedo × sky`;
+ *   it is now `albedo × (sky / skyNoon) × skyNoon`. Every hour, every cell. The
+ *   sunset's colour rides in the ratio, so the field still goes orange and the
+ *   grass still goes dark, and no number in the day cycle has moved.
+ * - **The movers come free.** People, crates and the goods on every shelf are
+ *   lit by the sky rather than by the bake, and the sky is now the same at every
+ *   hour — so a loaf on a shelf at eight in the evening is the loaf that was
+ *   there at noon, with no per-body work and no `roomFill` propping it up. That
+ *   was the hard half of this and it fell out of pointing the correction the
+ *   other way.
+ * - The cost is the mirror of it: a mover OUTDOORS is lit at noon after dark,
+ *   because an ambient light is one number for everything it touches and the
+ *   bake is the only thing here that knows where the walls are. A shopper on the
+ *   road at midnight is brighter than the road. That is the one honest error in
+ *   this file, it is outdoors where almost nothing happens, and it is the same
+ *   error `ROOM_FILL` used to make in the other direction — see the note there.
+ *   If it ever stops being tolerable the fix is per-body, not a number here.
  */
-const INDOOR_LIFT = 0.55;
+
+/**
+ * ...and how bright the room actually sits, as a fraction of the open field at
+ * midday. This is the number to turn.
+ *
+ * Under 1 for two reasons, and the second is the one that would not have been
+ * obvious. A roofed room genuinely IS dimmer than the field outside it at noon,
+ * so this is what makes stepping through the door read as stepping indoors at
+ * every hour rather than only after dark.
+ *
+ * And it is what leaves a lamp something to do. `lit` is unchanged, so a lamp's
+ * baked pool still ramps from a quarter at midday to its full worth after dark —
+ * but it lands on a surface whose brightness no longer moves, so what it is
+ * WORTH is now decided here. Pinned at 1 the room would be as bright as a field
+ * at noon all night, every fitting in the catalogue would be a rounding error
+ * against it, and buying lights would have quietly stopped being a purchase.
+ * Turn this down and lamps matter more; turn it up and the shop reads flatter
+ * and more even. It is deliberately a plain scalar rather than a colour: the
+ * whole complaint that started this was the room's own hue moving, so the roof
+ * has to be the one term in here with no opinion about colour at all.
+ */
+const ROOF_LEVEL = 0.72;
 
 /**
  * The layer the real lamps cannot reach.
@@ -157,6 +200,52 @@ const BAKE_GAIN = 0.9;
 /** Ceiling. Vertex colour multiplies, so nothing stops it going to white. */
 const BAKE_MAX = 0.75;
 
+/**
+ * A WINDOW IS A HOLE IN THE ROOF, which is the only shape it could have here.
+ *
+ * Not a lamp — the room is not short of light, it is short of *sky*. So a pane
+ * hands the cells in front of it a share of the OUTDOOR factor back, and the two
+ * directions fall out of one line without either being written down:
+ *
+ * - At midday the field is 1 and the room is `ROOF_LEVEL`, so a window is a
+ *   genuinely brighter patch of floor along the frontage. That is the sentence
+ *   anybody means by "windows let the light in", and nothing here says it.
+ * - After dark it runs the other way. The field is a fifth of noon, so the same
+ *   pane makes the same strip DIMMER than the shop behind it — the middle of the
+ *   room lit by its own ceiling and the frontage going orange and then blue with
+ *   the sky, which is what a shop looks like from the street at closing time.
+ *
+ * `WINDOW_SHARE` is capped well under 1 because a pane is not a missing wall: at
+ * 1 the cell against the glass would be lit like the field, which is a black hole
+ * in the floor of a lit shop at midnight and reads as a rendering fault. Six
+ * tiles of reach because that is about how far into a shop a frontage carries on
+ * a 45° camera — shorter and it is a stripe nobody reads as daylight, longer and
+ * one pane un-roofs the whole building.
+ */
+const WINDOW_RANGE = 6;
+const WINDOW_SHARE = 0.55;
+
+/**
+ * Which edges let the day in.
+ *
+ * Every glazing, and the two glazed openings — a shopfront door is a pane you
+ * can walk through and a fanlight is a window over a door, and both line up with
+ * the glass either side of them by construction (see `WAY_LOOKS`). Derived from
+ * the two tables rather than written out, because a fifth glazing authored into
+ * `GLAZING` is a window in every other respect and a list here would be the one
+ * place it silently was not.
+ *
+ * A plain doorway is deliberately NOT in it. A hole in a wall does let light
+ * through, and a shop's front door is a hole in a wall that every shop has — so
+ * including them would hand every building in every save a bright patch by the
+ * entrance and make the glass you paid for the thing that changed nothing.
+ * Daylight is what a window is FOR; a doorway is for walking through.
+ */
+const DAYLIT_EDGES = new Set([
+  ...GLAZING.keys(),
+  ...[...WAYS].filter(([, w]) => w.base === 'glazed').map(([k]) => k),
+]);
+
 export class Lights {
   constructor(scene) {
     this.scene = scene;
@@ -165,10 +254,34 @@ export class Lights {
     this.daylight = 1;
     this.spill = 0;
     this.lit = DAY_FLOOR;
-    // What the room is worth to itself right now. 0 at noon, `INDOOR_LIFT` at
-    // night, and 0 for as long as nobody has handed over a mask — a shop with no
-    // layout in it yet is not a room.
-    this.room = 0;
+    /**
+     * What the day does to a surface that is NOT under the roof, per channel —
+     * `sky(now) / sky(noon)`, so 1 at midday and dark and orange at dusk. See
+     * THE ROOF above: this is the whole day cycle for everything the bake
+     * reaches, and it is at most 1 so it can never clip a banded shop to white.
+     */
+    this.outdoor = new THREE.Color(1, 1, 1);
+    /**
+     * Is the day doing anything at all — the cheap test `bakeInto` opens on. 1 at
+     * midday, when the roof has nothing to say and the whole pass can be skipped.
+     */
+    this.roofed = false;
+    /**
+     * The sky as one colour, now and at its best, which is what `outdoor` is a
+     * ratio between. Handed in by `setSky` because `scene.js` owns the day
+     * cycle's constants and two of them move with the look; deriving it here
+     * would be a second opinion about the sun.
+     */
+    this.skyNow = new THREE.Color(1, 1, 1);
+    this.skyRef = new THREE.Color(1, 1, 1);
+    /**
+     * The glass in the walls. Its own list rather than joining `emitters`,
+     * because a window must never take one of the eight: a shopfront is twenty
+     * panes, and a pool aimed at the nearest emitters would spend every light in
+     * the game on a wall — and there is nothing for a real light to do here
+     * anyway, since a window subtracts roof rather than adding brightness.
+     */
+    this.windows = [];
     this.indoor = null;
     this.w = 0;
     this.h = 0;
@@ -228,9 +341,10 @@ export class Lights {
    * rather than tolerated: a wall is lit by the room on one face and by the sky
    * on the other, and this is a per-vertex bake with no idea which face it is
    * looking at, so a wall that took the lift on both would be a shop glowing
-   * through its own brickwork. Walls in fact take theirs from `ROOM_FILL` in
-   * `scene.js`, which is the layer they are on; this comment is here for the
-   * next thing that hangs geometry on an edge and asks this.
+   * through its own brickwork. Walls in fact take theirs from the SKY, which is
+   * held at midday now (see THE ROOF) and therefore lights both faces of every
+   * wall in the shop at the same hour whatever the clock says; this comment is
+   * here for the next thing that hangs geometry on an edge and asks this.
    */
   inside(x, z) {
     if (!this.indoor) return false;
@@ -238,6 +352,34 @@ export class Lights {
     const cz = Math.round(z);
     if (cx < 0 || cz < 0 || cx >= this.w || cz >= this.h) return false;
     return !!this.indoor[cz * this.w + cx];
+  }
+
+  /**
+   * The glass, as flat records — `setEmitters` for something nobody bought.
+   *
+   * Taken from the layout for the same reason the lamps are taken from the
+   * fixtures: a window is a position and a range, and the list outlives every
+   * re-flow that rebuilt the wall it is set in.
+   */
+  setWindows(list) {
+    this.windows = list ?? [];
+  }
+
+  /**
+   * What the sky is worth right now, and what it is worth at its best.
+   *
+   * Two colours rather than a number because the day cycle is a ratio here and
+   * half of what the ratio carries is HUE — the sunset reaches an outdoor
+   * surface through this and through nothing else, now that the sun's own colour
+   * is held at midday. The reference is midday's, so the ratio is never above 1
+   * and a banded shop can never be asked to hold a brightness it has no room
+   * for (see THE ROOF, and `paintLit`).
+   */
+  setSky(now, ref) {
+    if (this.skyNow.equals(now) && this.skyRef.equals(ref)) return;
+    this.skyNow.copy(now);
+    this.skyRef.copy(ref);
+    this.apply();
   }
 
   /** 0 at night, 1 at midday. Drives how much the lamps are worth. */
@@ -276,11 +418,20 @@ export class Lights {
     // the fitting over it dims.
     const lit = DAY_FLOOR + (1 - DAY_FLOOR) * (1 - this.daylight);
     this.lit = lit;
-    // ...and what the room adds to itself at this hour, on the same clock and
-    // for the same reason: the bake and the ambient half in `scene.js` are one
-    // ceiling seen two ways, and a floor that brightened while the walls did not
-    // would read as the light coming from under the shelves.
-    this.room = INDOOR_LIFT * (1 - this.daylight);
+    // ...and what the day is doing to everything the roof does not cover. The
+    // ratio is against midday and clamped there, so it only ever darkens — see
+    // THE ROOF for why that direction is the whole of this file's shape.
+    this.outdoor.setRGB(
+      dayTerm(this.skyNow.r, this.skyRef.r),
+      dayTerm(this.skyNow.g, this.skyRef.g),
+      dayTerm(this.skyNow.b, this.skyRef.b),
+    );
+    // Is the open field doing anything but midday — the cheap test that lets a
+    // point standing OUTSIDE skip the whole question. There is no matching test
+    // for indoors, and there must not be: the roof is a fact about the building
+    // rather than about the hour, so a cell under it is `ROOF_LEVEL` at noon as
+    // much as at midnight.
+    this.roofed = Math.min(this.outdoor.r, this.outdoor.g, this.outdoor.b) < 0.995;
 
     this.pool.forEach((light, i) => {
       const e = this.chosen[i];
@@ -318,11 +469,14 @@ export class Lights {
    * up rather than as lamps.
    */
   bakeInto(color, x, y, z) {
-    // The room's own ceiling, and the reason this can no longer duck out on a
-    // shop with no fittings in it: a building nobody has bought a lamp for is
-    // exactly the one that most needs telling apart from the field outside.
-    const room = this.room > 0 && this.inside(x, z) ? this.room : 0;
-    if (!room && !this.emitters.length) return color;
+    // How much sky this point is standing under — 0 beneath a roof, 1 out in the
+    // field, and a share of the way back beside a window. This is the whole day
+    // cycle for anything the bake reaches, and the reason it can no longer duck
+    // out on a shop with no fittings in it: a building nobody has bought a lamp
+    // for is exactly the one that most needs telling apart from the field
+    // outside.
+    const open = this.openness(x, z);
+    if (open === 1 && !this.roofed && !this.emitters.length) return color;
     let r = 0;
     let g = 0;
     let b = 0;
@@ -336,17 +490,59 @@ export class Lights {
       g += amount * c.g;
       b += amount * c.b;
     }
-    // The lamps are clamped and the room is added on top of the clamp rather
-    // than inside it: `BAKE_MAX` is there to stop a stack of overlapping pools
-    // going white, and the ceiling is not a pool — folding it in would mean a
-    // shop with a lot of fittings in it losing its room light at exactly the
-    // hour both are on.
-    color.r *= 1 + Math.min(r, BAKE_MAX) + room;
-    color.g *= 1 + Math.min(g, BAKE_MAX) + room;
-    color.b *= 1 + Math.min(b, BAKE_MAX) + room;
+    // The sky is a MIX between the roof and the open field, and the lamps are
+    // ADDED on top of whichever of the two this point got. That ordering is the
+    // whole of what makes a lamp behave: it is worth a fifth of the ground it
+    // stands on out in a dark yard and a fraction of a lit shop floor, off one
+    // sum, because the base moved and the lamp did not. `BAKE_MAX` still stops a
+    // stack of overlapping pools going white; the sky half never could, since
+    // neither end of the mix is above 1.
+    color.r *= mix(ROOF_LEVEL, this.outdoor.r, open) + Math.min(r, BAKE_MAX);
+    color.g *= mix(ROOF_LEVEL, this.outdoor.g, open) + Math.min(g, BAKE_MAX);
+    color.b *= mix(ROOF_LEVEL, this.outdoor.b, open) + Math.min(b, BAKE_MAX);
     return color;
   }
+
+  /**
+   * How much sky this point is standing under: 1 outdoors, 0 under the roof, and
+   * a share of the way back to 1 for glass in the wall beside it.
+   *
+   * The window half is the only reason this is not just `inside`. It takes the
+   * NEAREST pane rather than summing them, because the panes of a shopfront are
+   * one window as far as anybody standing in front of it is concerned — summed,
+   * a wall of glass would un-roof the shop in proportion to how finely it had
+   * been divided, so re-glazing a frontage in the four-tile look would light the
+   * aisle differently to the same frontage in eight two-tile ones.
+   */
+  openness(x, z) {
+    if (!this.inside(x, z)) return 1;
+    let best = 0;
+    for (const w of this.windows) {
+      const d2 = (w.x - x) ** 2 + (w.z - z) ** 2;
+      if (d2 >= WINDOW_RANGE * WINDOW_RANGE) continue;
+      const fall = (1 - Math.sqrt(d2) / WINDOW_RANGE) ** 2;
+      if (fall > best) best = fall;
+    }
+    return best * WINDOW_SHARE;
+  }
 }
+
+/**
+ * One channel of the day, as a fraction of what that channel is worth at midday.
+ *
+ * Clamped to 1 at the top, which is the load-bearing half — see THE ROOF. A
+ * ratio that could exceed 1 would ask a vertex colour to hold a brightness it
+ * has no room for, and under the look `paintLit` would clip it to white rather
+ * than draw it. Clamped at the bottom because a look could in principle author a
+ * midday darker than a dusk, and a negative multiplier is a hole.
+ */
+function dayTerm(now, ref) {
+  if (!(ref > 0)) return 1;
+  return Math.max(0, Math.min(1, now / ref));
+}
+
+/** Roof to field, by how much sky a point is standing under. */
+const mix = (roof, field, open) => roof + open * (field - roof);
 
 /**
  * A lamp's colour, cached.
@@ -410,6 +606,43 @@ export function emittersIn(fixtures, pieceOf, ceilingY, signals = null) {
       intensity: (emits.intensity ?? 1) * worth,
       range: emits.range ?? 4,
     });
+  }
+  return out;
+}
+
+/**
+ * Every pane of glass in a layout, as a position on the wall line.
+ *
+ * Read straight off `edgesV`/`edgesH` rather than off anything the sim keeps,
+ * because glass is not a fixture and has no record: a window is a number on a
+ * lattice line and this is the one place that number becomes light. Which
+ * numbers count is `DAYLIT_EDGES`, derived from the two edge tables so a fifth
+ * glazing is a window here the day it is authored.
+ *
+ * The position is the wall's own centre — the lattice line in one axis,
+ * mid-cell in the other, which is `buildWorld`'s convention for the same edge
+ * (see the emit loops there, and keep the two the same: a window drawn on one
+ * line and lighting another is a bright patch beside the glass rather than
+ * through it). No height, because `openness` is a question about a cell and a
+ * pane runs the height of the wall anyway.
+ *
+ * Nothing is deduplicated and nothing is merged. A frontage of eight panes is
+ * eight entries, and that costs nothing precisely because `openness` takes the
+ * NEAREST rather than the sum — see the note there, which is the whole reason
+ * this can stay a flat list.
+ */
+export function windowsIn(L) {
+  const out = [];
+  if (!L) return out;
+  for (let z = 0; z < L.h; z++) {
+    for (let x = 0; x <= L.w; x++) {
+      if (DAYLIT_EDGES.has(L.edgesV?.[z * (L.w + 1) + x] ?? 0)) out.push({ x: x - 0.5, z });
+    }
+  }
+  for (let z = 0; z <= L.h; z++) {
+    for (let x = 0; x < L.w; x++) {
+      if (DAYLIT_EDGES.has(L.edgesH?.[z * L.w + x] ?? 0)) out.push({ x, z: z - 0.5 });
+    }
   }
   return out;
 }

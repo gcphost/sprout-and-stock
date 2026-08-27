@@ -227,6 +227,25 @@ const WANTED = {
   // said nothing about what the money is for, and a drink is not a thing this
   // shop sells. A heart says "back this" in every interface anybody has used.
   support: 'ri:heart-3-fill',
+  /**
+   * The emote strip (`shared/emotes.js`).
+   *
+   * Phosphor rather than Remix, which is this file's split applied to a row
+   * that looks like chrome and is not: these four are the only buttons in the
+   * interface whose subject is your own body standing in the shop. A press
+   * here moves something out there.
+   *
+   * Three of the four are HANDS and the fourth is a pair of notes, and that is
+   * as close to a set as the icon library gets: there is no "person dancing"
+   * at fill weight, and the alternatives (`person-simple-tai-chi`, which reads
+   * as yoga, and `person-arms-spread`, which is the cheer again) are worse
+   * than changing the subject. Notes say what the pose is FOR, which is the
+   * job of a 15px mark.
+   */
+  wave: 'ph:hand-waving-fill',
+  cheer: 'ph:confetti-fill',
+  dance: 'ph:music-notes-fill',
+  point: 'ph:hand-pointing-fill',
 };
 
 const sets = {};

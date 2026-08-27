@@ -1062,6 +1062,85 @@ Thirty sweeps, about a minute:
   that would go there" over ground it laid a moment earlier. One hold per LAYER
   is the fix. It writes nothing at all.
 
+- `verify:emote` guards the first thing one body in the shop ever said to
+  another, and it is the counter-example to this list's usual argument: an emote
+  is the most *visible* feature in the game — an arm goes up, and a screenshot
+  settles it. Everything it must NOT do is invisible, and each of those draws
+  perfectly. Its control is that a shop where nobody has waved sends the frame it
+  always did, asserted as `'emote' in p` rather than as a truthiness test,
+  because the failure is a key that is always present and usually null — bytes
+  about nothing, ten times a second, in a shop of eighty people. Its centrepiece
+  is the STREAM: eight shoppers waving back is eight chances to draw a dither
+  out of `this.rng`, and one of them doing so would make two `simulate` runs
+  either side of *adding a wave* diverge with nothing in the output to say why.
+  So the stagger is `hash01`, which is the kit's own argument, asserted from
+  both ends — the stream is where it was, and the same shopper always gets the
+  same beat. Then: that it STOPS (a pose expired against `elapsed`, or the arm
+  is up for the rest of the save, which is not obviously a bug on a robot); that
+  it reaches the save **not at all**, since a stamp against `elapsed` restarts
+  at zero on every load and would land the pose in the future — the trap
+  `plantedAt`, `yieldedAt`, `bornAt` and `arrivesAt` have each sprung; and that
+  it is a vocabulary, swept over the shared table rather than written out, so a
+  fifth emote is covered the day it exists. Its sharp half is the wave-back, and
+  the sharpness is that **every one of its rules is satisfied by the feature not
+  working at all** — "nobody far away answers", "a dancer is not answered",
+  "somebody mid-wave is not restarted" all pass in a shop where nothing ever
+  waves. So each refusal is PAIRED with the thing it refuses actually happening,
+  in the same shop, in the same breath, including the `inACar` rule arriving for
+  the fifth time as an arm out of a moving windscreen. It authors nothing at
+  all: no content rows, no save, no cleanup.
+  Since a greeting started cheering people up it also guards the only thing in
+  the game that moves a shopper's patience **upward for free**, and every claim
+  about it is a bound rather than a value. `mood` is what a visit's reputation
+  is priced against, so an unbounded greeting is a reputation printer you run by
+  holding a key — and none of it can be looked at, since a shopper who was waved
+  at and one who simply had a good day are the same person leaving the same
+  shop. Its centrepiece is the **once**, asserted across a whole visit rather
+  than across one tick: a flag on the shopper rather than a stopwatch, or the
+  bound is a rate limit you would be right to grind. Then that it is paid where
+  the greeting LANDS (`answerWave`) and not at the press, which is what a
+  too-far and an in-a-car shopper are there to prove — paying in `emote` would
+  pay for waving at an empty aisle, and the mutation that does it fails four
+  assertions at once. Plus the ceiling, since `moodBase` puts a shopper at 1 in
+  a lovely shop and a mood above it prices a sale above its own maximum; that a
+  HIRE is not quietly given a `mood` field, which `moodAverage` and `stepMood`
+  would both find and believe; and that no reputation or cash moves directly.
+  ⚠️ **`simulate` is blind to all of it** — the balance bot never emotes, so a
+  before/after reports no change because nothing waved, which is the instrument
+  being blind rather than the change being free. These assertions are the whole
+  of the guard, and `WAVE_MOOD` carries the argument for the number.
+
+- `verify:face` guards seven boxes on a head, and its argument is the one
+  `verify:emote` makes inverted: a face is about eight pixels in an ordinary
+  frame, so every way of getting it wrong draws as *a face*. A shopper whose
+  brows never move, one whose brows move the wrong way, one who never blinks and
+  one who blinks in perfect time with the other nineteen are all, in a still
+  frame, a small cream-coloured head. Its centrepiece is that the brow angle
+  **flips sign**: the art is authored outer-end-down, which is a faintly
+  concerned resting face, so a scowl has to reverse it and a grin has to FLATTEN
+  it — and the obvious way to write that, one signed term carried through zero,
+  gives a delighted shopper the resting slope twice as steep, which is a
+  *pleading* face worn by everybody having a nice time. It shipped that way and
+  this caught it. Then: that `write` is PURE, recomposing each matrix from the
+  authored numbers rather than adjusting the one it finds — the mutation walks a
+  brow from 0.728 to 0.872 over six hundred frames, which is art that is fine
+  when you look at it and broken when you come back; that the blink happens, and
+  closes, and is rare, since each of those is satisfied by the wrong answer to
+  the other two; that two people never blink on the same frame in a minute; and
+  that nothing leaves the head at any expression, which only ever shows up in a
+  shop already having a bad day. Its control is the pair that says who this is
+  opt-in for: a body with no batch (every hire with authored art — `trim` is
+  WELDED in the mesh path, so there is nothing in there to move an eyebrow of)
+  is untouched and is not even given a signature, and a body with no mood — you,
+  and every hire — is the authored art to the digit, because patience is a
+  shopper's resource and a shopkeeper's face reporting one would be showing a
+  number that does not exist. Plus the one claim that is about a function
+  choosing NOT to run: a matrix vandalised between two frames of an unchanged
+  expression must still be vandalised afterwards, which is the only honest way
+  to observe the early-out that keeps eighty faces free. It writes nothing at
+  all and touches no database — every body it needs it authors in memory, the
+  way `verify:motion` does.
+
 Each of the first twelve found real bugs the day it was written, and so did
 `verify:hot` — two, both of them a list of kinds somebody had written out by
 hand — and so did `verify:orphans`, which is the only one so far written to a
@@ -1169,6 +1248,10 @@ shared/     tags.js       the tag vocabulary + what tags DO
             pieces.js     which catalog row a placed thing is, and its ledger name
             jobs.js       how much of a hire's day there is to hand out, and what
                           a rung adds to it (client and server, same reason)
+            emotes.js     the four things a body can say with its arms, and who
+                          answers a wave. One table, three readers — the server
+                          refuses a kind it does not know, the strip draws a
+                          button a row, the renderer switches on the same ids
             reputation.js the seven things that move the shop's reputation, and
                           the words for them — the sim writes the keys, the Shop
                           report draws them, `simulate` names the worst one
@@ -1185,6 +1268,16 @@ client/     render/       three.js isometric renderer
             render/lights.js  honours `emits`, and caps how many lamps are real
             render/motion.js  the two loops a stage arc cannot say: `drift` and
                               `motion`. Shared by a break and a running appliance
+            render/face.js    the blink, and the brows and mouth that say how a
+                              shopper is doing. Writes `crowdLocals` — which is
+                              per BODY rather than cached per look, and that is
+                              the whole reason one shopper can scowl
+            render/emote.js   four arm poses over the rig every body already has.
+                              Writes only what nothing else writes — `rotation.z`
+                              on the shoulders — and blends into the walk's own
+                              `x`, so a wave lays over a walk instead of stopping
+                              it. A body with no arm rig (an authored hire) gets
+                              the dip instead
 mcp/        server.js     MCP tools, a thin wrapper over server/api.js
 ```
 
@@ -2360,6 +2453,44 @@ what the next step was meant to be.
   the near end of the shop instead of switching the far end off. Also: three's
   falloff makes `intensity` a power, not a brightness — a lamp authored as "1
   over 4 tiles" is invisible until it is scaled by range squared.
+- **A line found in the PICTURE can never be sharp, and no amount of tuning the
+  threshold changes that.** The ink pass reads the finished frame, which is what
+  makes it free for every fixture anybody ever authors — and both of its
+  detectors answer one of two numbers per pixel, so the mask is binary and every
+  diagonal is a staircase. `creaseAt` reads a half-res normals buffer on
+  `NearestFilter`, so across a panel lip it is ~1.35 or ~0 with nothing between;
+  `silAt` reads a depth buffer that MSAA resolves with a NEAREST blit, so a
+  pixel is next to the discontinuity or it is not. `SCENE_SAMPLES` cannot help:
+  it smooths the COLOUR edge, and the line is then painted over it out of a
+  buffer resolved to one sample. Two dead ends were walked before that was
+  understood, and both are written down in `INK.SHARP` because both look like
+  the answer. Widening the smoothstep does nothing to a value that cannot vary.
+  Supersampling the detector does nothing either — a depth texture is not
+  linearly filterable in WebGL2, so a sub-texel offset snaps back to the texel
+  it started in, and whole-texel offsets are a blur of the mask: five times the
+  taps for a fatter, softer line, which is the grey smear the dial is warned
+  about arriving by the back door. FXAA on the composed image is a treatment
+  rather than a fix, and it is there because it leaves the line's WEIGHT alone.
+  The fix is that interior lines stopped being found in the picture at all:
+  `collectEdges` cuts them from the geometry (`EdgesGeometry`, cached against
+  the shared primitive, merged into ONE `LineSegments` for the whole shop, which
+  is `weld`'s argument said about draws) and they are resolved by the same
+  `SCENE_SAMPLES` as every other edge. What that costs is everything the screen
+  pass got free: WebGL ignores `lineWidth`, so there is one weight at every
+  distance and `INK.FADE` has nothing to act on; an edge only exists where an
+  object meets ITSELF, so it can draw no silhouette; and a part that moves takes
+  its lines nowhere, which is why `userData.moving` is skipped. **The two are
+  answers to one question and never two layers** — with both on the drawn line
+  lands underneath the screen one and the whole thing reads as the geometry pass
+  having done nothing, which is exactly what it looked like for one round of
+  testing. So `Ink.setCrease` stands the screen crease down, and the silhouette
+  is untouched either way. The half nobody predicts: the normals buffer had
+  exactly ONE reader, so turning creases off does not trim the ink, it deletes
+  the second full draw of the shop that was the ink's entire cost — `wantsInk`
+  gates on `creaseInk` for that reason and not for tidiness. What it does NOT
+  cover is anything the fixture loop does not build: walls keep whatever the
+  silhouette gives them, and the crowd never had creases anyway, since
+  `inkNoCrease` has held `actorRoot` out of the normals pass since it existed.
 - **A rule written as a boolean over two kinds is silently wrong the day there
   are three.** A unit of shelving could be a shelf or a freezer, so every
   stocking rule in the game was some spelling of
@@ -2716,6 +2847,42 @@ what the next step was meant to be.
   38px button up against a wall across the room. The shape lives in `edgeBands`
   in `palette.js` now and both callers ask for it. Anything that draws a second
   picture of something the game already draws has to derive it, not match it.
+- **…and the mirror of it: some pieces do not read their row AT ALL.** A `lift`
+  has a `fixtures` row with a model on it, a tier ladder, a price and a name,
+  and the renderer never opens the model: the shaft is built in code from the
+  `ELEVATOR_*` geometry in `scene.js`, wearing `CONVEYOR.*` out of `palette.js`.
+  So authoring colour onto that row is a write that succeeds, a model that
+  validates, a `content_version` that bumps, a client that reloads — and a
+  shaft that does not move one shade. **Every signal says it worked.** An hour
+  went into recolouring that row four different ways, and each round came back
+  "still black", which reads as a caching bug or a stale tab rather than as art
+  that was never asked for. The tell that would have ended it in a minute is
+  that the drawn thing had features the row did not: the shaft on screen had
+  rectangular windows and a bezel round its opening, and no part in the model
+  was either. **When a piece will not change, grep the renderer for its kind
+  before touching the row again** — `ELEVATOR_OWNERS` is right there and names
+  three more. The general shape is the one `docs/fixtures.md` is generated to
+  avoid: a catalog row is a *claim* about a piece, and only the code that draws
+  it decides whether the claim is read.
+- **…and a palette entry can be too dark for the INK to have anywhere to go.**
+  `CONVEYOR.frame` was `#4e5865` on a good argument — a machine should key with
+  the run it stands in, now that the pale deck has gone. That is a value
+  decision, and it collided with a pass nobody re-checked: at 0.095 linear
+  luminance a near-black contour has nothing to lay itself on, so the whole
+  conveyor family drew with **no line on it** while the shelves and crates
+  either side read perfectly. What that looks like from a chair is the ink
+  working on two thirds of the shop, which reads as the pass being broken —
+  and every hour of that hour was spent in `look.js` and `post.js`, where
+  nothing was wrong. Structure is pale now (`frame`, `rail`, `track` all moved)
+  and the dark is spent where it is small: `shadow` stays near-black, because a
+  tunnel throat is a hole and a hole that is not dark is a decal. The rule the
+  art has to hold, measured rather than felt: **a surface wants 0.20 linear
+  luminance or more to carry a line, structure sits at 0.6–0.7, and dark is an
+  accent on small parts.** A piece that is 50% dark by surface area is a piece
+  the contour cannot describe. `INK.LIFT` exists for the genuinely near-black
+  and is a rescue, not a substitute — it flips the line *lighter* than the
+  surface, which is a highlight rather than an ink and will never key with the
+  rest of the shop.
 - **A person under the pointer is not the same as a person you pointed at.**
   A hire outranks the fixture behind them, and the argument is that they are a
   third of a tile wide and they move, so landing on one is deliberate. That is

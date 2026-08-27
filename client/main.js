@@ -25,6 +25,7 @@ import { track, shopOpen } from './analytics.js';
 import { Tutor } from './tutor.js';
 import { wireDrag, restorePos } from './panel-drag.js';
 import { wireCorner } from './corner.js';
+import { inkEdges } from './ink-edge.js';
 import { cinemaOn, setCinema, onCinema } from './cinema.js';
 import { debugOn, onDebug } from './debug.js';
 import { mix } from './audio/mix.js';
@@ -203,6 +204,11 @@ music.start();
  * on a slow interval rather than every frame: a track changes about twice in
  * five minutes, and there is nothing else on it to keep up with.
  */
+/* The three big cards get a drawn contour rather than a border. Once, here,
+   because they are static containers in index.html that outlive everything
+   rendered into them — see client/ink-edge.js. */
+inkEdges();
+
 const radio = document.getElementById('radio');
 if (radio) {
   radio.addEventListener('click', (e) => {
@@ -530,6 +536,59 @@ addEventListener('keydown', (e) => {
     return;
   }
 
+  /**
+   * V holds the emote strip open, and a number picks from it.
+   *
+   * Read and returned on BEFORE the menu keys and before the palette's number
+   * row, which is the same precedence Ctrl+Z is given above and for the same
+   * reason: `1`-`4` already mean "the fourth thing on the build bar", and a
+   * press that fired an emote AND armed a shelf would be one key doing two
+   * jobs. While the strip is up it is the strip's.
+   *
+   * The strip is HELD rather than toggled, which is what keeps it out of the
+   * way of a game with a key on nearly every letter: there is no mode to be
+   * stuck in, nothing to remember to close, and letting go is how you say no.
+   * It also makes the click path work without a second thought — a key held
+   * down does not take the mouse, so the row is pressable for exactly as long
+   * as it is on screen.
+   *
+   * A number that names no row is swallowed rather than falling through. Five
+   * emotes' worth of muscle memory against four rows would otherwise arm a
+   * build tool from a strip that has no fifth button, which is a press landing
+   * somewhere you cannot see.
+   */
+  if (k === 'v') ui.showEmotes(true);
+  /**
+   * ...and the number row IS the hotkey, with the strip up or down.
+   *
+   * One mapping rather than two: `2` is Cheer whether or not you are holding V,
+   * so the strip teaches the shortcut instead of being a second way to do the
+   * same thing with different keys. It is the badge on each button (`.kb`) that
+   * makes that learnable — the row is the only place the numbers are written
+   * down.
+   *
+   * With the bar up the numbers belong to the palette, which is the one
+   * precedence question here and is settled the way every other one in this
+   * handler is: the visible mode wins. `ui.emotesUp ||` is what lets you emote
+   * while building, since holding V is you saying which of the two you meant.
+   *
+   * A bare number is the ONE case this file's own `paletteArmed` rule would
+   * normally forbid — a press with no bar on screen to say what it does. It is
+   * allowed here for the reason that rule exists: the trap is an invisible
+   * press that silently changes something (the seed row, which replanted every
+   * bed and said nothing), and an emote is the most visible thing in the game.
+   * The press IS the feedback.
+   *
+   * A number that names no row is swallowed rather than falling through, or
+   * five emotes' worth of muscle memory against four buttons arms a build tool
+   * from a strip that has no fifth one.
+   */
+  if ((ui.emotesUp || !ui.bar) && k >= '1' && k <= '9') {
+    e.preventDefault();
+    ui.pickEmote(Number(k));
+    return;
+  }
+
   // Every menu key is read off the same array the rail draws itself from, so a
   // new section is bound and labelled the moment it exists. Pressing the key of
   // the menu already open shuts it — the key that opened it has to close it.
@@ -568,7 +627,9 @@ addEventListener('keydown', (e) => {
    */
   if (k === 'f') {
     const on = scene.setFirstPerson(!scene.fpv);
-    ui.toast(on ? 'First person. Scroll out or press F to step back.' : 'Back to the shop view.');
+    ui.toast(on
+      ? 'First person. Move the mouse to look, Escape frees it, F steps back.'
+      : 'Back to the shop view.');
   }
   if (k === 'c') setCinema(!cinemaOn());
 
@@ -673,6 +734,7 @@ addEventListener('keyup', (e) => {
   if (up === 'shift') setShift(false);
   if (up === 'control' || up === 'meta') setRaze(false);
   if (up === 'alt') { peekOn = false; ui.setPeek(null); }
+  if (up === 'v') ui.showEmotes(false);
 });
 
 // ...and a key held while the window loses focus never comes up. `keys` has
@@ -683,7 +745,12 @@ addEventListener('keyup', (e) => {
 // worse: it says the next click tears something out.
 // ...and Alt with them, which is the one that most needs it: Alt+Tab is how
 // people leave a window, and it is also how the overlay gets stuck on.
-addEventListener('blur', () => { setShift(false); setRaze(false); peekOn = false; ui.setPeek(null); });
+// ...and the emote strip, which is the same hazard with a row of buttons on it:
+// it is held open by a key, so a window that takes the keyboard away mid-press
+// leaves it up over a shop nobody is emoting in.
+addEventListener('blur', () => {
+  setShift(false); setRaze(false); peekOn = false; ui.setPeek(null); ui.showEmotes(false);
+});
 
 /**
  * TWO MODIFIERS, ONE MEANING EACH.
@@ -884,13 +951,22 @@ addEventListener('pointermove', (e) => {
   // return: where the pointer is and what it has settled on are true whether or
   // not a gesture just ended.
   healLostPress(e);
-  pointer.x = e.clientX;
-  // The lift lives HERE and nowhere else, because this is the one place the
-  // pointer is worked out — a second offset applied by the canvas handler would
-  // be overwritten by this one a moment later (it fires on the way up to the
-  // window), and the ghost would flicker between two tiles as you slid.
-  pointer.y = e.clientY - (drag.aiming ? TOUCH_AIM_LIFT : 0);
-  pointer.onCanvas = e.target === canvas;
+  // WITH THE MOUSE LOCKED, `clientX` IS A GHOST. It is frozen at wherever the
+  // cursor stood when the lock was taken and it keeps arriving on every move,
+  // so this would quietly drag the aim back off the crosshair on the very next
+  // event — `centreAim` sets it once and this would undo it forty times a
+  // second. Everything that positions itself at the pointer (the board tip, the
+  // peek card) reads these two, and `pointerRay` answers the same way for the
+  // same reason. See `grabLook`.
+  if (scene.crosshair) { centreAim(); } else {
+    pointer.x = e.clientX;
+    // The lift lives HERE and nowhere else, because this is the one place the
+    // pointer is worked out — a second offset applied by the canvas handler would
+    // be overwritten by this one a moment later (it fires on the way up to the
+    // window), and the ghost would flicker between two tiles as you slid.
+    pointer.y = e.clientY - (drag.aiming ? TOUCH_AIM_LIFT : 0);
+    pointer.onCanvas = e.target === canvas;
+  }
   // The key handlers own this, and this is the repair: a Shift pressed or let
   // go while another window had the keyboard never reaches them, so the first
   // move of the mouse is where the flag catches up. `setShift` no-ops when it
@@ -2622,6 +2698,181 @@ function stepTurn(anchor, x, y, started) {
 }
 
 // ---------------------------------------------------------------------------
+// Looking around with the mouse taken away — the Pointer Lock
+//
+// Out in the shop the view is something you GRAB: a drag turns it, and letting
+// go is what ends the turn. Inside a head that is the wrong verb. A drag is how
+// you move a thing that is over there, and your own head is not over there —
+// so first person spent every look with a button held down, which is a button
+// held down for the whole of the mode, and the one press you might want to make
+// while looking is the press you cannot make.
+//
+// So the mouse stops being a pointer and becomes the head. Three things follow
+// from that and each of them is a way for this to look broken rather than to be
+// broken.
+//
+// THERE IS NO CURSOR, so there is no aim, so the aim is the CENTRE — one line
+// in `Scene.pointerRay` and a dot on the glass to say where it is. The dot is
+// not decoration: `clientX` goes on arriving, frozen, so without a crosshair the
+// shop would be answering presses at a spot nobody can see.
+//
+// THE LOCK IS NOT OURS TO TAKE. A browser hands it over from inside a gesture
+// and takes it back on Escape without asking, and it will refuse outright for
+// about a second after one of those. So the mode does not depend on holding it:
+// `scene.crosshair` is what everything reads, it follows the lock rather than
+// the mode, and first person with the mouse handed back is exactly the game as
+// it was — the drag still turns your head (`lookBy` is what both call), and a
+// press takes the mouse again. A mode that broke when the lock lapsed would
+// break on the one key every player presses to get out of trouble.
+//
+// AND IT IS A MOUSE'S GESTURE. There is nothing to lock on a touchscreen and
+// nothing to hide, so a finger keeps the drag it has always had.
+// ---------------------------------------------------------------------------
+
+/** Whether there is a mouse here to take. A finger has nothing to lock. */
+const finePointer = () => (globalThis.matchMedia?.('(pointer: fine)').matches ?? true);
+
+/** Whether the mouse is currently the head rather than the pointer. */
+const looking = () => document.pointerLockElement === canvas;
+
+/**
+ * Put the aim in the middle of the canvas, where the crosshair is drawn.
+ *
+ * The rect rather than `innerWidth / 2`, for `pointerRay`'s reason: the canvas
+ * sits under a HUD and inside a rect that moves when the build bar grows, and a
+ * dot drawn at the centre of the *window* over an aim taken at the centre of the
+ * *canvas* is a press that lands a few pixels off what it is ringing.
+ */
+function centreAim() {
+  const r = canvas.getBoundingClientRect();
+  pointer.x = r.left + r.width / 2;
+  pointer.y = r.top + r.height / 2;
+  pointer.onCanvas = true;
+}
+
+/**
+ * Ask for the mouse.
+ *
+ * Every refusal is swallowed on purpose. The browser turns this down for a
+ * second or so after an Escape, when the document has not been engaged, and
+ * whenever it feels like it — and none of those is an error the player can act
+ * on, because the answer to all three is "press again", which is already the
+ * gesture. What must not happen is an unhandled rejection on a key press.
+ */
+function grabLook() {
+  if (!scene.fpv || looking() || !finePointer()) return;
+  try {
+    canvas.requestPointerLock()?.catch?.(lookRefused);
+  } catch (err) { lookRefused(err); }
+}
+
+/**
+ * How many asks in a row have come back no, and the whole of what it is for.
+ *
+ * A press in first person is swallowed to ask for the mouse (see the top of
+ * `pointerdown`), and that is only safe while the asking eventually works. It
+ * does not always: a page in an iframe with no `allow="pointer-lock"`, a
+ * browser where the player has turned it off, an engine that has never
+ * implemented it. Left alone, first person there would be a mode where every
+ * single click is eaten and the shop reads as having frozen — which is worse
+ * than the drag it replaced, and there would be nothing on screen saying why.
+ *
+ * So the second refusal stands the whole thing down: no crosshair was ever set,
+ * so what is left is exactly the game as it was — the drag still turns your
+ * head, the cursor is still yours, and the mode is still first person. One
+ * refusal is forgiven because the commonest one is not a refusal at all: a
+ * browser cools off for about a second after the player has pressed Escape, and
+ * pressing again is the gesture that was always going to work.
+ */
+let lookDenied = 0;
+function lookRefused() {
+  lookDenied += 1;
+  if (lookDenied === 2) ui.toast('This browser will not free the mouse — drag to look around.');
+}
+
+/** Hand it back. Safe to call when we never had it. */
+function dropLook() {
+  if (looking()) document.exitPointerLock();
+}
+
+/**
+ * The one wire between the mode and the mouse, made once — `onCinema`'s shape
+ * and its reason. First person is reached from the F key, from the last notch
+ * of the wheel and from `setFreeRoam` stepping you back out of it, and a lock
+ * grabbed at one of those three is a mode that looks around on some ways in and
+ * not others.
+ */
+scene.onFpv = (on) => { if (on) grabLook(); else dropLook(); };
+
+/**
+ * The look. `mousemove` and not `pointermove`, which is the one compatibility
+ * call in here worth writing down: a locked pointer's `movementX` is the
+ * canonical mouse-event field, every engine delivers it there, and the pointer
+ * event's copy is the one they have disagreed about. Listening to both would be
+ * a view that turns at double speed in whichever browsers send both.
+ *
+ * Nothing is lost by being an event later than the canvas handler: the pose a
+ * pick is answered against is the one `render` last drew through, so who the
+ * pointer has settled on is a frame behind either way.
+ */
+document.addEventListener('mousemove', (e) => {
+  if (!scene.crosshair) return;
+  const dx = e.movementX ?? 0;
+  const dy = e.movementY ?? 0;
+  scene.lookBy(dx, dy);
+  lookEndsPress(dx, dy);
+});
+
+document.addEventListener('pointerlockchange', () => {
+  const on = looking();
+  // The renderer is TOLD, rather than reading the lock itself: see
+  // `Scene.crosshair`. This is the only line that sets it.
+  scene.crosshair = on;
+  document.body.classList.toggle('looking', on);
+  // It worked, so the tally of refusals is about something that is no longer
+  // true. Kept as a run rather than a total, or a long session in and out of
+  // first person eventually stands the mode down over refusals it recovered
+  // from an hour ago.
+  if (on) lookDenied = 0;
+  // The aim jumps to the middle the moment the cursor goes, and comes back to
+  // wherever the cursor reappears on the way out — which the browser puts back
+  // where it was taken from, so there is nothing to restore.
+  if (on) centreAim();
+  else if (scene.fpv) ui.toast('Mouse released. Click the shop to look around again.');
+});
+// A refusal is not a state, so there is nothing to undo — but an unhandled
+// event on `document` is a console full of red in a mode that is working.
+document.addEventListener('pointerlockerror', () => {});
+
+/**
+ * A look does to a half-made press what a turn does: it ends it.
+ *
+ * The rule is `stepTurn`'s and the reason is `stepTurn`'s — an errand is armed
+ * on the way DOWN, at whatever was under the aim then, and the ring winds off
+ * that target rather than off where you are now pointing. So a press left
+ * armed through a look would empty your hands into whatever you happened to
+ * have been facing when you pressed, which is the bug the drag path already
+ * refuses to have. The crosshair does not change that: it moves WITH the head,
+ * and the armed errand does not move with either.
+ *
+ * Distance rather than per axis, and sticky once it fires, both for the reasons
+ * `stepTurn` gives. The slop is what keeps this from firing on the pixel of
+ * movement that comes off a button going down — hold still and the ring still
+ * lands.
+ */
+function lookEndsPress(dx, dy) {
+  const d = Math.hypot(dx, dy);
+  if (spin && !spin.turned) {
+    spin.look = (spin.look ?? 0) + d;
+    if (spin.look >= TAP_SLOP) { spin.turned = true; cancelTrek(spin); release(); }
+  }
+  if (drag.id !== null && !drag.looked && !ringHasPress()) {
+    drag.look = (drag.look ?? 0) + d;
+    if (drag.look >= TAP_SLOP) { drag.looked = true; clearLongPress(); release(); }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Drawing a wall
 //
 // With a wall tool up, a drag draws instead of steering. That is a real mode
@@ -3454,6 +3705,19 @@ canvas.addEventListener('pointerdown', (e) => {
   // somebody to act on, so acting has to outrank watching. Cheap enough to sit
   // above every branch below — it no-ops when there is no cut running.
   scene.releaseCut();
+  // First person with the mouse handed back — Escape, or a lock the browser
+  // turned down on the way in. The press is how you ask for it again, and it is
+  // ONLY that: acting on the shop as well would mean the one gesture that gets
+  // you out of trouble also grabs whatever the cursor happened to be over.
+  //
+  // A refused ask costs this one press and no state, which is why it can be
+  // swallowed at all — the browser's cooling-off after an Escape is about a
+  // second, and the next press is the same gesture again. See `grabLook`.
+  if (scene.fpv && !scene.crosshair && e.pointerType === 'mouse' && finePointer()
+    && lookDenied < 2) {
+    grabLook();
+    return;
+  }
   if (e.button === 2) {
     // Mid-run, the right button takes back the run rather than turning the
     // camera. You are four tiles into a wall you have changed your mind about,
@@ -3762,6 +4026,9 @@ canvas.addEventListener('pointerdown', (e) => {
   drag.aiming = false;
   drag.spun = false;
   drag.travel = 0;
+  // The look's own copy of `spun`, and cleared here with it. See `lookEndsPress`.
+  drag.look = 0;
+  drag.looked = false;
   drag.done = false;
   // Cleared before the arming block below, which is what sets it.
   drag.took = false;
@@ -3770,9 +4037,14 @@ canvas.addEventListener('pointerdown', (e) => {
   // never been asked for at the moment a touch lands — it only ever appeared
   // under a mouse that moved first. Aiming here is what gives the held press
   // something to animate on a phone at all.
-  pointer.x = e.clientX;
-  pointer.y = e.clientY;
-  pointer.onCanvas = true;
+  // ...and with the mouse locked there is no press position either: `clientX` is
+  // the frozen ghost `pointermove` refuses above, and the aim is the crosshair.
+  if (scene.crosshair) centreAim();
+  else {
+    pointer.x = e.clientX;
+    pointer.y = e.clientY;
+    pointer.onCanvas = true;
+  }
   refreshGhost(true);
   // Name the crate on the way DOWN, not on release.
   //
@@ -3947,6 +4219,14 @@ canvas.addEventListener('pointermove', (e) => {
   // copy catches the pointer while it is over a panel, and by the time it runs
   // for a move over the shop the view has already moved.
   if (healLostPress(e)) return;
+  // THE MOUSE IS THE HEAD, and the turn itself is taken on `mousemove` rather
+  // than here — see `grabLook`. What is left for this one is to get out of the
+  // way: everything below is a gesture that moves the pointer somewhere, and
+  // under the lock the pointer does not go anywhere. `clientX` is frozen, so a
+  // drag reads as a press that never moved, the slop is never crossed, and the
+  // camera branch turns the view by nothing on every event for as long as a
+  // button is held.
+  if (scene.crosshair) return;
   if (spin && e.pointerId === spin.id) {
     // ONCE THE WALK HAS STARTED, THE MOUSE IS NOT AN INSTRUCTION.
     //

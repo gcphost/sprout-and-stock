@@ -25,6 +25,7 @@ import {
   buildFootMark,
   buildPadGlyph,
   weld, paintLit, characterMaterial, PERSON_H,
+  collectEdges, buildEdgeLines,
 } from './props.js';
 import { Heat } from './heat.js';
 import { T } from '../../shared/tiles.js';
@@ -40,15 +41,18 @@ import { hash01 } from '../../shared/hash.js';
 // of — see `setFaceGhost`. Everything else in here reads edge kinds as the raw
 // numbers the layout carries, through `EDGE_STYLE`.
 import { E, SOLID, edgeBetween, wayBase } from '../../shared/edges.js';
-import { Lights, emittersIn, BAKED_LAYER, SURROUND_LAYER } from './lights.js';
+import {
+  Lights, emittersIn, windowsIn, BAKED_LAYER, SURROUND_LAYER,
+} from './lights.js';
 import { Ink } from './post.js';
 import { GpuClock } from './gpu-clock.js';
 import {
-  lookOn, setLookOn,
+  lookOn, setLookOn, viewPref, rememberView,
   AMBIENT_NOON, SUN_NOON, BOUNCE_LOOK, SUN_DUSK_LEVEL, AMBIENT_DUSK_LEVEL,
   SKY_TOP, SKY_HORIZON,
   SHADOW_SPAN_MIN, SHADOW_SPAN_STEP, SHADOW_MARGIN,
   SHADOW_BIAS, SHADOW_NORMAL_BIAS_TEXELS, SHADOW_MAP_LOOK,
+  INK,
 } from './look.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
@@ -58,6 +62,8 @@ import {
 import { SIGNAL_NAMES, signalValue } from '../../shared/signals.js';
 import { buildTileGrid, disposeTileGrid } from './tile-grid.js';
 import { buildPastimeProp, animateRest } from './pastime.js';
+import { animateEmote } from './emote.js';
+import { animateFace } from './face.js';
 import { buildLoopingProp, animatePuffs, animateMotion } from './motion.js';
 
 /** How many world tiles fit vertically on screen at 1× zoom. Smaller = closer in. */
@@ -236,8 +242,40 @@ const ZOOM_STEP = 1.12;
  * away — at the ortho default the whole aisle would be — and it cannot be
  * arbitrarily small either, because near/far is what the depth buffer's
  * precision is spent on. 0.06 of a tile is about an inch of shop.
+ *
+ * The FOV is the one number of the four that is SOMEBODY'S, which is why it is
+ * a range and a stored preference rather than a constant. It shipped at 74°,
+ * which is a vertical angle — about 106° across a 16:9 screen — and that is
+ * wide enough that the near edges of the frame stretch: an aisle you are
+ * standing in bows outward, and what that reads as is the shop being drawn
+ * wrong rather than the lens being wide. It also makes a shelf you are walking
+ * up to arrive very fast and then hang there, which is the half people feel and
+ * do not have a word for. 65° is a little under 97° across, which is an
+ * ordinary first-person lens, and the ends of the range are the two honest
+ * extremes: 50 is a rifle scope and 85 is the fisheye back.
+ *
+ * A number and not a switch, because there is no right answer — it is a fact
+ * about the person, the screen and how close they sit to it. So it is stored in
+ * `sns-view` beside the look and the camera pose (see `viewPref`), and never on
+ * the save: two people in one shop do not share a lens, and being handed a
+ * second world does not change how wide you like it.
+ *
+ * `FPV_SPEED` in server/sim/index.js is the one thing downstream of it and is
+ * deliberately NOT re-derived from it. Walking pace is a number the server
+ * knows and this is a preference the client keeps, so tying them would put a
+ * balance figure behind a menu row — and the sentence that made first person
+ * slow (there is very little near the edge of the frame to sweep past you) is
+ * about a wide lens, so a narrower one only ever makes that reading truer.
  */
-const FPV_FOV = 74;
+const FPV_FOV = 65;
+const FPV_FOV_MIN = 50;
+const FPV_FOV_MAX = 85;
+/** Per press of the stepper in the menu. Five degrees is about the smallest
+ *  step you can see one of on your own screen. */
+const FPV_FOV_STEP = 5;
+const storedFov = () => clamp(
+  Math.round(Number(viewPref('fov', FPV_FOV)) || FPV_FOV), FPV_FOV_MIN, FPV_FOV_MAX,
+);
 // Eye height, as a fraction of stature rather than a number — 0.94 is about
 // where a real pair of eyes sits, and it has to be derived for `RING_Y`'s
 // reason twice over: a fixed 0.88 was under the crown of a 0.944 body and would
@@ -1052,16 +1090,21 @@ const AIM_M = new THREE.Matrix4();
 const ORIGIN = new THREE.Vector3();
 
 /**
- * The press ripple: how long it lives, and the radii it travels between.
+ * The press ripple: how long it lives, and the widths it travels between.
  *
  * Short on purpose. This is a receipt for an input, not an effect — long
  * enough to catch out of the corner of your eye while you are already looking
  * somewhere else, short enough that pressing four times in a row does not
  * leave four of them stacked up arguing.
+ *
+ * These are *spans* and not radii, because the mark is a square frame built
+ * unit-sized the way the stamp is: `RIPPLE_TO` is how many tiles across it
+ * finishes. Which is also why the numbers do not look like the ones they
+ * replaced — the old pair drove a radius, so 0.46 was 0.92 of a tile wide.
  */
 const RIPPLE_MS = 420;
-const RIPPLE_FROM = 0.09;
-const RIPPLE_TO = 0.46;
+const RIPPLE_FROM = 0.12;
+const RIPPLE_TO = 0.62;
 
 /** What the press meant, said in colour. Amber matches the aim marker. */
 const RIPPLE_COLORS = { go: '#ffd66b', no: '#e2564a', miss: '#f4efe2' };
@@ -1472,24 +1515,39 @@ const SKY_HORIZON_DUSK = new THREE.Color('#ffe0bf');
 const SKY_HIGH_LOOK = new THREE.Color(SKY_TOP);
 const SKY_HORIZON_HIGH_LOOK = new THREE.Color(SKY_HORIZON);
 const SKY_MID = new THREE.Color();
+/** Scratch for `skyLight`, which runs twice a snapshot and must allocate none. */
+const SKY_MIX = new THREE.Color();
 const SUN_HIGH = new THREE.Color(PALETTE.sunHigh);
 const SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
 const FILL_HIGH = new THREE.Color(PALETTE.fillHigh);
 const FILL_DUSK = new THREE.Color(PALETTE.fillDusk);
 
 /**
- * How much ambient the shop's ceiling is worth to the things that move in it,
- * at midnight. Zero at noon — see `roomFill` in `setupLights` for what it is
- * and `INDOOR_LIFT` in `lights.js` for the half of the same ceiling that is
- * baked into everything standing still.
+ * THE SKY AS ONE COLOUR, and the two shares that make three lights into one.
  *
- * The number is a match to that one rather than a taste: the bake multiplies a
- * surface by `1 + 0.55` at full night, and on a floor under this sun that lands
- * near enough where an extra third of ambient lands. Change either and check
- * both, at dusk, with somebody standing on a shop floor — the failure is not
- * "too dark", it is a person cut out of the ground they are standing on.
+ * `Lights` needs to know what the world's light is worth now against what it is
+ * worth at midday, because that ratio IS the day cycle since the roof — see THE
+ * ROOF in `lights.js`, which is the argument for all of this. The sun and the
+ * bounce are directional and this is a single number per channel, so each is
+ * taken at a share: half, which is about the average Lambert term over the faces
+ * a 45° camera can see, and the two shares only have to be *consistent* rather
+ * than right, since every use of this is a ratio against itself at another hour.
+ *
+ * `spill` is deliberately not in it. That is the shop's own lamps folded into
+ * the ambient, and folding a purchase into the sky would make the ratio — and
+ * therefore how dark the FIELD is at night — a fact about how many lamps you
+ * had bought.
+ *
+ * (This replaced `ROOM_FILL`, which was a flat ambient lift standing in for the
+ * ceiling on everything the bake could not reach. With the sky held at midday
+ * there is nothing left for it to lift: a loaf on a shelf at dusk is lit by the
+ * same sun it was lit by at noon. Its one honest error — that an ambient cannot
+ * tell inside from out — survives it, pointing the other way, and is written
+ * down in THE ROOF.)
  */
-const ROOM_FILL = 0.34;
+const SUN_SHARE = 0.5;
+const BOUNCE_SHARE = 0.5;
+const BOUNCE_TINT = new THREE.Color(0xbcd8ff);
 
 /**
  * A two-pixel-wide canvas is enough for the sky: the browser stretches its
@@ -1660,7 +1718,12 @@ export class Scene {
      * that also poses it.
      */
     this.ortho = new THREE.OrthographicCamera();
-    this.persp = new THREE.PerspectiveCamera(FPV_FOV, 1, FPV_NEAR, FPV_FAR);
+    // Read once, here, rather than on every step into first person: the stored
+    // value is only ever written by `setFpvFov` one line below, so a re-read
+    // would be asking storage what this object already knows — and it would be
+    // the wrong answer on a machine with no storage at all, where the write is
+    // swallowed and the camera is the only thing holding the number.
+    this.persp = new THREE.PerspectiveCamera(storedFov(), 1, FPV_NEAR, FPV_FAR);
     this.camera = this.ortho;
     /** Whether the view is inside somebody's head. See `setFirstPerson`. */
     this.fpv = false;
@@ -1677,6 +1740,25 @@ export class Scene {
      * a class on `<body>`.
      */
     this.cinema = false;
+    /**
+     * Whether the mouse has been taken away from the pointer and given to the
+     * head — the Pointer Lock, set from client/main.js while first person has
+     * it. See `pointerRay`, which is the whole of what it changes in here.
+     *
+     * It is a flag rather than a read of `document.pointerLockElement` for the
+     * reason `cinema` is one: the renderer is handed the fact, so the one place
+     * that owns the gesture owns when it becomes true, and a headless or lab
+     * canvas cannot be locked by something it never asked about.
+     */
+    this.crosshair = false;
+    /**
+     * Called when the view steps into a head or back out of it, with the new
+     * state. One hook, set by client/main.js, because the mouse belongs to the
+     * input layer: `setFirstPerson` is reached from the key, the wheel and
+     * `setFreeRoam`, and a lock grabbed at only one of those three is a mode
+     * that looks around on some ways in and not others.
+     */
+    this.onFpv = null;
     /**
      * Whose body is not being drawn, and who it belongs to.
      *
@@ -1768,7 +1850,34 @@ export class Scene {
     // than built per frame because it is handed to the hottest call in the
     // game, and it is safe to hold because these two roots are made once here
     // and never reassigned: `buildWorld` CLEARS them, it does not replace them.
-    this.inkNoCrease = [this.actorRoot];
+    /**
+     * The drawn creases, as one merged `LineSegments` — see `buildEdgeLines`.
+     *
+     * Its own root beside the other two rather than under `staticRoot`, and the
+     * reason is `inkNoCrease` directly below: that list is handed to the hottest
+     * call in the game and is held rather than rebuilt, which is only safe for a
+     * group made once here. `buildWorld` disposes `staticRoot` wholesale, so a
+     * root under it would be a stale reference on every re-flow. This one is
+     * emptied and refilled by `addFixtureProps` instead, the way the maps beside
+     * it are.
+     *
+     * It is in `inkNoCrease` because the normals pass draws whatever is in the
+     * scene through `MeshNormalMaterial`, and a line has no normals to draw —
+     * so left in, the screen-space crease detector would be reading garbage off
+     * the very lines that exist to replace it.
+     */
+    this.edgeRoot = new THREE.Group();
+    this.scene.add(this.edgeRoot);
+    // On, which is how the shop is drawn. There is no UI for the way back and
+    // there is not going to be one, for `setLook`'s reason: it is a renderer
+    // dial, reachable from the console as `__sns.scene.setEdgeLines(false)`,
+    // and the A/B it exists for is one two people ever want to make.
+    // Through the setter rather than as a field, or the screen-space crease is
+    // left on beside it until something happens to call that — and both
+    // contours on one edge is the state where neither of them is visibly doing
+    // anything. See `Ink.setCrease`.
+    this.setEdgeLines(true);
+    this.inkNoCrease = [this.actorRoot, this.edgeRoot];
     // The crowd's two draws, under `actorRoot` with the bodies they replace —
     // which is also what keeps them out of the ink's normals pass, since that
     // is the group `inkNoCrease` names.
@@ -1895,37 +2004,28 @@ export class Scene {
     // A cool bounce light so shadowed faces aren't muddy. Kept on `this` for
     // the same reason the ambient is: the look scales all three together, and a
     // light nothing holds a reference to is one nothing can scale.
-    const bounce = new THREE.DirectionalLight(0xbcd8ff, 0.32);
+    const bounce = new THREE.DirectionalLight(BOUNCE_TINT.getHex(), 0.32);
     bounce.position.set(-18, 12, -14);
     this.bounce = bounce;
     this.scene.add(bounce);
 
     /**
-     * The shop's own ceiling, for everything a bake cannot reach.
+     * THERE IS NO `roomFill` HERE ANY MORE, and its absence is the feature.
      *
-     * `INDOOR_LIFT` lights the room by folding a lift into the colours of the
-     * things that never move — floor, fixtures, belts. That is most of what you
-     * look at and none of what walks about in it: people, crates, and the goods
-     * standing on every shelf are rebuilt every sync out of colours nothing
-     * baked. Left out they would be silhouettes on a lit floor, which is worse
-     * than the dark room this is fixing.
+     * It was a small warm ambient on layer 0 — the movers, the walls — standing
+     * in for the shop's ceiling on everything the bake could not reach: people,
+     * crates, and the goods on every shelf, all of which are rebuilt every sync
+     * out of colours nothing baked. Without it they were silhouettes on a lit
+     * floor.
      *
-     * Layer 0 is the whole of the aim, and it is a fact about this renderer
-     * rather than a trick: everything static was moved onto `BAKED_LAYER` so the
-     * lamp pool could not light it twice, so what is left on layer 0 is exactly
-     * the movers — plus the walls, which want this anyway, and the apron, which
-     * is why that got moved (see `buildWorld`).
-     *
-     * What it cannot do is tell inside from out. A shopper on the road at dusk
-     * takes the same lift as one at the till, because an ambient light is one
-     * number for everything it touches and the alternative is a layer flag
-     * rewritten per body per frame. It is small, it is warm, and against a farm
-     * that is genuinely dark it reads as somebody standing in the spill from the
-     * shop windows. If that ever stops being true, the honest fix is per-body,
-     * not a bigger number here.
+     * The roof retired it by pointing the day cycle the other way round. The sky
+     * is held at midday and everything OUTDOORS is darkened per cell instead
+     * (see THE ROOF in `lights.js`), so a loaf on a shelf at eight in the evening
+     * is lit by exactly the sun that lit it at noon and there is nothing left to
+     * prop up. Its error survives it, inverted and written down there: a mover
+     * outdoors is lit at midday after dark. Adding a lift back on top of that
+     * would make the one remaining error worse in the one place it shows.
      */
-    this.roomFill = new THREE.AmbientLight(0xffeacd, 0);
-    this.scene.add(this.roomFill);
 
     // The ground is lit by lamps that were added up on the CPU (`bakeInto`), so
     // it sits on a layer the point lights cannot see or it would be lit twice.
@@ -1954,6 +2054,31 @@ export class Scene {
     // Whatever the player has wired up. Everything above is the sky; this is the
     // only light in the scene that anybody had to buy.
     this.lights = new Lights(this.scene);
+  }
+
+  /**
+   * What the world's light is worth at a given hour, as one colour.
+   *
+   * The day cycle's own three terms, summed — the constants are read here rather
+   * than passed in because this is asked at TWO hours per snapshot (now, and
+   * midday) and a caller that had to restate the ramp for each would be the
+   * second opinion about the sun this exists to avoid. See `SUN_SHARE` for the
+   * shares, and THE ROOF in `lights.js` for what the ratio between two of these
+   * is spent on.
+   *
+   * The look moves the noon end of all three, so the reference has to be
+   * recomputed rather than frozen — pressing the style switch changes what
+   * midday IS.
+   */
+  skyLight(daylight, out) {
+    const look = lookOn();
+    const sunI = SUN_DUSK_LEVEL + daylight * ((look ? SUN_NOON : 1.30) - SUN_DUSK_LEVEL);
+    const fillI = AMBIENT_DUSK_LEVEL + daylight * ((look ? AMBIENT_NOON : 0.90) - AMBIENT_DUSK_LEVEL);
+    out.copy(FILL_DUSK).lerp(FILL_HIGH, daylight).multiplyScalar(fillI);
+    SKY_MIX.copy(SUN_DUSK).lerp(SUN_HIGH, daylight).multiplyScalar(sunI * SUN_SHARE);
+    out.add(SKY_MIX);
+    SKY_MIX.copy(BOUNCE_TINT).multiplyScalar((look ? BOUNCE_LOOK : 0.32) * BOUNCE_SHARE);
+    return out.add(SKY_MIX);
   }
 
   /** Keep the painted sky in step with the same day cycle as the sun. */
@@ -2281,17 +2406,7 @@ export class Scene {
     // and the two keys that turn the view stay one pose: `,` and `.` still work
     // in here, and they still turn you a quarter.
     if (this.fpv) {
-      const rad = -dxPx * FPV_LOOK;
-      // With a capture running the turn is a TARGET rather than the drawn
-      // angle, which is the one place cinema changes a gesture instead of a
-      // number: `spinView` writes both on purpose — a drag is the hand's own
-      // easing — and that is right for the hand and wrong for whoever watches
-      // it back, where every twitch of the mouse is in the recording. Setting
-      // `camYaw` alone leaves the ease at the bottom of `render` to chase it,
-      // and `EASE.yaw` is what decides how slowly.
-      if (this.cinema) this.camYaw += rad;
-      else this.spinView(rad);
-      this.tiltView(dyPx * FPV_LOOK);
+      this.lookBy(dxPx, dyPx);
       return this.camPan;
     }
     const upp = (FRUSTUM / this.camZoom) / (this.renderer.domElement.clientHeight || 1);
@@ -2308,6 +2423,39 @@ export class Scene {
     this.camPan.x += rx * across + fx * away;
     this.camPan.z += rz * across + fz * away;
     return this.clampPan();
+  }
+
+  /**
+   * Look around, by a mouse that has moved `dx`/`dy` pixels.
+   *
+   * The one turn first person has, and it takes pixels of MOUSE rather than
+   * pixels of drag on purpose: the two are the same movement told apart only by
+   * whether a button happened to be down, and the sign is already the sign a
+   * mouse-look wants — move right and the head turns right — because a drag in
+   * here was never the "world follows your hand" the ortho view's is. That is
+   * what lets the Pointer Lock and the drag share this rather than each owning
+   * an accumulator, which is `stepTurn`'s argument said one projection over: two
+   * copies are two things that can disagree about which way a head turns, and
+   * each of them feels right on its own.
+   *
+   * `FPV_LOOK` is therefore one sensitivity for both, and it has to stay that
+   * way — a lock that turned at its own rate would be a view that changes speed
+   * the moment you press Escape.
+   */
+  lookBy(dxPx, dyPx) {
+    if (!this.fpv) return this.camYaw;
+    const rad = -dxPx * FPV_LOOK;
+    // With a capture running the turn is a TARGET rather than the drawn
+    // angle, which is the one place cinema changes a gesture instead of a
+    // number: `spinView` writes both on purpose — a drag is the hand's own
+    // easing — and that is right for the hand and wrong for whoever watches
+    // it back, where every twitch of the mouse is in the recording. Setting
+    // `camYaw` alone leaves the ease at the bottom of `render` to chase it,
+    // and `EASE.yaw` is what decides how slowly.
+    if (this.cinema) this.camYaw += rad;
+    else this.spinView(rad);
+    this.tiltView(dyPx * FPV_LOOK);
+    return this.camYaw;
   }
 
   /**
@@ -2382,7 +2530,48 @@ export class Scene {
     } else {
       this.showEye(true);
     }
+    // Last, and after the body is back: the hook takes the mouse away and gives
+    // it back (see `onFpv`), and a lock grabbed while the view still had the old
+    // pose would spend its first frames looking around a camera that is mid-step.
+    this.onFpv?.(this.fpv);
     return this.fpv;
+  }
+
+  /** How wide the lens in there is, in degrees. See `FPV_FOV`. */
+  fpvFov() {
+    return Math.round(this.persp.fov);
+  }
+
+  /** The ends and the step, for whoever draws the control. Asked rather than
+   *  restated in client/sections.js, or the menu's stepper would run past both
+   *  ends of a range this file has since moved. */
+  fpvFovRange() {
+    return { min: FPV_FOV_MIN, max: FPV_FOV_MAX, step: FPV_FOV_STEP, def: FPV_FOV };
+  }
+
+  /**
+   * Set it, and remember it. Answers the degrees it settled on.
+   *
+   * Clamped rather than refused, so a stepper at either end is a press that
+   * does nothing rather than a press that throws — and `paintSection` redraws
+   * off this answer, which is what greys the button out.
+   *
+   * `updateProjectionMatrix` is the whole of applying it, and it has to be said
+   * here as well as in `resize`: the field is a plain number on the camera and
+   * three.js reads the matrix, so a set with no rebuild is a menu row that
+   * moves a number and no pixels — the "tier that changes no number" trap
+   * wearing a lens. Nothing else needs telling. The ortho camera is untouched,
+   * which is why this can be pressed out of first person at all: the change is
+   * waiting the next time you step in, rather than being a mode you have to be
+   * in to reach its own setting.
+   */
+  setFpvFov(deg) {
+    const next = clamp(Math.round(Number(deg) || FPV_FOV), FPV_FOV_MIN, FPV_FOV_MAX);
+    if (next === this.fpvFov()) return next;
+    this.persp.fov = next;
+    this.persp.updateProjectionMatrix();
+    rememberView('fov', next);
+    return next;
   }
 
   /**
@@ -2590,7 +2779,7 @@ export class Scene {
         continue;
       }
       // Out fast and then slower, which is what makes it read as a wave losing
-      // energy rather than as a circle being animated. Fading on a square so
+      // energy rather than as a shape being animated. Fading on a square so
       // most of the life is spent visible and the tail is quick.
       //
       // A stamp is this same curve with `from` above `to`, so "fast then
@@ -3128,6 +3317,13 @@ export class Scene {
     // layout", and the mask moves for the same reason the lamps do — a wall
     // went up, so a cell that was outside is a room now.
     this.lights.setIndoor(L);
+    // ...and where the glass is, which is the other half of the same question.
+    // A window is not a fixture and has no record — it is a number on a lattice
+    // line — so this is read straight off the edges, here, in the one method
+    // that already means "point the lighting at this layout". Same trigger as
+    // the mask for the same reason: a wall went up, so a room that had no window
+    // in it has one.
+    this.lights.setWindows(windowsIn(L));
     const fixtures = fixturesIn(L);
     this.lights.setEmitters(emittersIn(fixtures, (f) => this.pieceOf(f), CEILING_Y, this.signals));
     // Which of them are lamps that watch something, so `syncSignals` can skip
@@ -3293,6 +3489,11 @@ export class Scene {
 
     if (on) {
       this.ink ??= new Ink(this.renderer);
+      // A fresh pass starts with the crease on, whatever the drawn-crease switch
+      // says — so turning the look off and back on while it is set would put
+      // both contours back on the same edges and read as the switch having
+      // forgotten itself.
+      this.ink.setCrease(!this.edgeLines);
     } else {
       this.ink?.dispose();
       this.ink = null;
@@ -3425,12 +3626,12 @@ export class Scene {
     const ground = new THREE.Mesh(groundGeo, this.apronMat);
     ground.receiveShadow = true;
     // Onto the baked layer with every other bit of ground. It is not baked —
-    // there is nothing per-cell about one box the size of the world — but it has
-    // to be off layer 0, because layer 0 is now what `roomFill` lifts at night.
-    // The apron is the outdoor field seen past the last tile, so lifting it
-    // would put a bright band round a dark lawn: the ONE part of this the eye
-    // reliably catches, since the seam is a straight line the length of the map.
-    // What it costs is the lamp pool, which never reached out here anyway.
+    // there is nothing per-cell about one box the size of the world — so the day
+    // reaches it through its own shader instead (`HAZE.day`), which is the same
+    // darkening every outdoor tile gets and is there for the same reason: the
+    // apron is the field seen past the last tile, and a bright band round a dark
+    // lawn is the ONE part of this an eye reliably catches, since the seam is a
+    // straight line the length of the map.
     ground.layers.set(BAKED_LAYER);
     this.staticRoot.add(ground);
 
@@ -3975,6 +4176,12 @@ export class Scene {
     this.signalFixtures.clear();
     this.propBoxes.clear();
     this.bakedProps = [];
+    // The geometry contour, gathered across every fixture and merged into ONE
+    // object at the foot of this method. See `buildEdgeLines`: a line per
+    // fixture is ~1,600 more draws in a furnished shop, which is the cost `weld`
+    // exists to avoid one function along.
+    this.clearEdgeLines();
+    const edges = [];
 
     for (const f of fixturesIn(L)) {
       // A conveyor's slats come out here and are re-laid by `addConveyorSlats`,
@@ -4093,6 +4300,17 @@ export class Scene {
       // ...and off layer 0 with the ground, or the eight real lights would light
       // it a second time and the units near you would flare as you walked.
       prop.traverse((o) => o.layers.set(BAKED_LAYER));
+      // Its creases, in world space, while the prop is standing where it will
+      // stand. BEFORE `land` below, deliberately: that animates a newly-placed
+      // group down onto its tile, so edges cut afterwards would be frozen at
+      // wherever the drop happened to start — a shelf you have just bought
+      // wearing its lines a metre above itself, and only that one.
+      // Anything with `motion` is skipped — a drawn line cannot follow a blade.
+      {
+        const moving = prop.userData.moving?.length
+          ? new Set(prop.userData.moving.map((m) => m.mesh)) : null;
+        collectEdges(prop, edges, { skip: moving ? (o) => moving.has(o) : null });
+      }
       if (landed.has(f.id)) this.land(prop, f.x, f.z);
       // Anything authored with `motion`. Two identical machines side by side
       // would otherwise beat in perfect unison, which reads as one animation
@@ -4127,9 +4345,51 @@ export class Scene {
       }
     }
 
+    // Every fixture's creases, as one object. Built whatever the switch says and
+    // hidden if it is off, because the whole point of the switch is an A/B you
+    // can make while standing still — a version that built on demand would need
+    // a re-flow to answer, and a re-flow is the one thing that changes the
+    // picture you were comparing.
+    const lines = buildEdgeLines(edges, INK.COLOR, INK.AMOUNT);
+    if (lines) {
+      lines.layers.set(BAKED_LAYER);
+      this.edgeRoot.add(lines);
+    }
+    this.edgeRoot.visible = this.edgeLines;
+
     // Lamps are set at the TOP of `buildWorld` now, not here, because the floor
     // is baked with them on the way past — this method runs after the tiles are
     // already coloured. It is the same call against the same layout either way.
+  }
+
+  /**
+   * Drop the merged contour and its geometry.
+   *
+   * The geometry is a fresh merge per re-flow and nothing else holds it, so this
+   * is the one place it can be freed — `disposeGroup` would not do it anyway,
+   * since it looks for `isMesh` and a `LineSegments` is not one. The material is
+   * per-build too (it carries an `onBeforeCompile`), so it goes with it.
+   */
+  clearEdgeLines() {
+    for (const o of [...this.edgeRoot.children]) {
+      o.geometry?.dispose();
+      o.material?.dispose();
+      this.edgeRoot.remove(o);
+    }
+  }
+
+  /**
+   * The switch. See `DEBUGS` in client/debug.js.
+   *
+   * It shows the drawn creases AND stands the screen-space ones down, because
+   * the two are answers to the same question rather than two layers — see
+   * `Ink.setCrease`. With both on the comparison shows nothing at all, which is
+   * exactly what it looked like before this line existed.
+   */
+  setEdgeLines(on) {
+    this.edgeLines = !!on;
+    this.edgeRoot.visible = this.edgeLines;
+    this.ink?.setCrease(!this.edgeLines);
   }
 
   /**
@@ -4379,10 +4639,11 @@ export class Scene {
     this.surroundGroup = group;
     this.surroundGlow = glow;
     this.surroundFree = dispose;
-    // Off layer 0 with every other bit of ground. Layer 0 is what `roomFill`
-    // lifts at night — that is the shop's own ceiling, and a horizon that
-    // brightened when the lamps came on inside the building would be the one
-    // seam in this scene an eye reliably catches.
+    // Off layer 0 with every other bit of ground, and the day reaches it the way
+    // it reaches the apron — through `HAZE.day` in its own shader rather than
+    // through the sky, which is held at midday now. A horizon that never set,
+    // over a lawn that did, would be the one seam in this scene an eye reliably
+    // catches.
     group.traverse((o) => o.layers?.set(BAKED_LAYER));
     // ...except the far band, which needs its own so `Ink` can leave it out of
     // the normals draw. After the traverse, or the sweep above would put it
@@ -4975,6 +5236,11 @@ export class Scene {
   // -------------------------------------------------------------------------
 
   syncState(state, myId) {
+    // Kept for the frame loop rather than only passed on, because one thing in
+    // there has to know which body is YOURS: an emote turns a shopper to face
+    // the camera and must not turn you (see `animateEmote`). It arrives ten
+    // times a second and never changes, so this is a stash rather than state.
+    this.myId = myId;
     /**
      * Whether the world is stopped, which the renderer has to be told rather
      * than able to work out.
@@ -5254,8 +5520,25 @@ export class Scene {
     const sunTop = look ? SUN_NOON : 1.30;
     const fillTop = look ? AMBIENT_NOON : 0.90;
 
-    this.sun.intensity = SUN_DUSK_LEVEL + daylight * (sunTop - SUN_DUSK_LEVEL);
-    this.sun.color.copy(SUN_DUSK).lerp(SUN_HIGH, daylight);
+    /**
+     * THE SKY IS HELD AT MIDDAY — the one line the roof is made of.
+     *
+     * The sun used to ramp its level and swing its hue between here and
+     * `SUN_DUSK`, and the fill with it, which is a correct model of a field and
+     * a wrong one of a building: a room is lit by its ceiling, so a shop at
+     * eight in the evening should be the shop it was at noon and the evening
+     * should be a thing you can see happening through the door.
+     *
+     * So all three are frozen at the top of the day and the whole cycle moves
+     * into the bake, where it is a *darkening* of everything outdoors that knows
+     * where the walls are. Outdoors comes out identical to the byte — the ratio
+     * that darkens a tile is against the very light being held here, so the two
+     * cancel — and indoors simply stops getting dark. See THE ROOF in
+     * `lights.js` for why it has to be this way round rather than the obvious
+     * one, which is `paintLit`'s clamp and is not a tuning problem.
+     */
+    this.sun.intensity = sunTop;
+    this.sun.color.copy(SUN_HIGH);
     this.bounce.intensity = look ? BOUNCE_LOOK : 0.32;
 
     // `spill` is every lamp too far away to be given a real light, folded into
@@ -5263,6 +5546,20 @@ export class Scene {
     // switching the far end off. It only ever lifts the things the bake cannot
     // reach now; the floor already has every one of those lamps in it.
     this.lights.setDaylight(daylight);
+    // ...and what the day is worth against its own best, which is what the bake
+    // spends on everything outdoors. Both halves are computed from the same
+    // function at two hours rather than one being a stored constant, because two
+    // of the three terms move with the look — a reference frozen at boot would
+    // be midday in the OTHER style the moment somebody pressed the switch.
+    this.lights.setSky(
+      this.skyLight(daylight, this._skyNow ??= new THREE.Color()),
+      this.skyLight(1, this._skyRef ??= new THREE.Color()),
+    );
+    // The two outdoor surfaces the bake cannot reach — the apron and the
+    // backdrop — take the same darkening through their own shader. See
+    // `HAZE.day`, which is the whole of why they are not the two brightest
+    // things in a night shot.
+    HAZE.day.value.copy(this.lights.outdoor);
     // The SKY half is what the look turns down, and the spill is added after
     // it: `spill` is the shop's own lamps folded into one number, which is
     // authored content and the one thing in this sum the style has no business
@@ -5280,19 +5577,17 @@ export class Scene {
     // A ceiling rather than a smaller spill, because what spill is FOR still
     // has to happen: a dark shop full of lamps is lifted toward a lit one, it
     // simply cannot be lifted past one. At noon there is nothing to lift.
-    const sky = AMBIENT_DUSK_LEVEL + daylight * (fillTop - AMBIENT_DUSK_LEVEL);
+    //
+    // ...and the fill is held at midday with the other two now, so under the
+    // look the ceiling is the base and `spill` has nowhere left to go. That is
+    // deliberate and it is not a lamp being deleted: every one of those fittings
+    // is still in the bake at full strength, and what `spill` was buying — a
+    // dark room lifted toward a lit one — is what the roof does for nothing.
+    // Off the look it still lifts, exactly as it did.
     this.ambient.intensity = look
-      ? Math.min(sky + this.lights.spill, fillTop)
-      : sky + this.lights.spill;
-    this.ambient.color.copy(FILL_DUSK).lerp(FILL_HIGH, daylight);
-
-    // ...and the shop's own ceiling, on the movers. Same ramp as `INDOOR_LIFT`
-    // and deliberately the same shape — the two are one ceiling approximated
-    // twice, so they have to rise together or a shelf brightens while the loaf
-    // on it does not. Continuously, where the bake steps on the hour: the pool
-    // already glides against that same stepped floor and nobody has ever caught
-    // it, because what an eye reads at dusk is the total rather than the seam.
-    this.roomFill.intensity = ROOM_FILL * (1 - daylight);
+      ? Math.min(fillTop + this.lights.spill, fillTop)
+      : fillTop + this.lights.spill;
+    this.ambient.color.copy(FILL_HIGH);
 
     // The baked half of the same sunset, on the hour. Every lamp in the shop is
     // already in the floor's colours (`bakeInto`), and that sum is only right
@@ -5390,6 +5685,14 @@ export class Scene {
           armLift: 0,
           armDamp: 1,
           kitHand: null,
+          // What their arms are SAYING, which is the one thing about a body
+          // that runs on a clock of its own — see render/emote.js. `emoteSeen`
+          // is the stamp the pose currently up was started from, and it is the
+          // whole of how a second wave is told from the first one still being
+          // up: two waves running are the same string.
+          emote: null,
+          emoteAt: 0,
+          emoteSeen: null,
           // How far this body is currently drawn from where the shop says it
           // is, so that a crowd reads as a crowd — see `CROWD_NUDGE`. Stripped
           // before the chase and added back after it, which is what keeps the
@@ -5427,6 +5730,28 @@ export class Scene {
       // would read as the renderer stuttering. Null for anyone who isn't a
       // shopper — staff and players have no patience to lose.
       rec.anger = a.anger ?? null;
+      // ...and the other end of the same scale, for the same reason. `anger` is
+      // a function of `mood` that bottoms out at zero the moment somebody is
+      // merely content, so it can say how cross a shopper is and cannot say
+      // that one is delighted — which is the half `animateFace` needs and the
+      // flush never did. Null for anybody with no patience to spend.
+      rec.mood = a.mood ?? null;
+
+      // ...and the same stashing again for an emote, with one difference that
+      // is the whole of it: it is taken on a NEW STAMP rather than on every
+      // frame the shop mentions one. The pose runs on the client's own clock
+      // (`animateEmote`) and clears itself when it is spent, so re-taking it
+      // from a snapshot that is still carrying the same wave would put the arm
+      // straight back up. And the shop's expiry is not the client's — a frame
+      // of network is enough to cut the tail off — so the field going away is
+      // deliberately NOT what ends it.
+      if (a.emote && a.emoteAt !== rec.emoteSeen) {
+        rec.emote = a.emote;
+        rec.emoteAt = a.emoteAt;
+        // Who they are answering, if anybody. Null is an emote somebody made
+        // themselves, which is aimed wherever they were already facing.
+        rec.emoteTo = a.emoteTo ?? null;
+      }
 
       // ...and the same stashing, for the same reason, for whether their own
       // moving parts should be running. `job` arrives at 10Hz and a brush that
@@ -6597,6 +6922,23 @@ export class Scene {
    */
   pointerRay(clientX, clientY) {
     const rect = this.renderer.domElement.getBoundingClientRect();
+    // WITH THE MOUSE LOCKED THERE IS NO POINTER, SO EVERY AIM IS THE CENTRE.
+    //
+    // Pointer Lock keeps delivering `clientX`/`clientY` and they are FROZEN at
+    // wherever the cursor stood when the lock was taken — so aiming would go on
+    // working, silently, at a spot on the glass nobody can see and nobody
+    // chose. What you would watch is a shop that hands you the wrong shelf and
+    // never says why, with the highlight sitting obediently on it.
+    //
+    // It is answered here rather than at the forty-odd places a press names a
+    // point, because this is the one function that turns a point into a ray:
+    // the tap, the hold, the hover ring, the crate rummage and the way-through
+    // marker all arrive through it, and a second copy of this decision is a
+    // press that acts on one thing while the ring is drawn round another.
+    if (this.crosshair) {
+      clientX = rect.left + rect.width / 2;
+      clientY = rect.top + rect.height / 2;
+    }
     if (!this._ray) {
       this._ray = new THREE.Raycaster();
       // A raycaster ships enabled on layer 0 only, and the ground now sits on
@@ -8969,7 +9311,7 @@ export class Scene {
     const carrier = this.conveyorSlatParts({ kind: 'belt', tier })[0] ?? null;
     const railColor = carrier?.color ?? CONVEYOR.carrier;
     const glassMat = material(CONVEYOR.glass, GLASS);
-    const frameMat = material(CONVEYOR.frame, 1);
+    const frameMat = material(CONVEYOR.basket, 1);
     const railMat = material(railColor, 1);
     const machineBodyMat = machineRoof ? material(machineRoof.bodyColor, 1) : null;
     const machineTopMat = machineRoof ? material(machineRoof.topColor, 1) : null;
@@ -12860,6 +13202,37 @@ export class Scene {
    * of: there is no `visible` on an instance, so being invisible has to be
    * SAID, every frame, by writing a matrix that covers no pixel.
    */
+  /**
+   * Which way somebody answering a wave should be looking, or null.
+   *
+   * Off the DRAWN positions rather than off the snapshot, because both bodies
+   * are eased toward the shop's answer every frame (`ACTOR_CHASE`) — a heading
+   * computed from where the server last put them would lag the two of them by
+   * up to a tick, which at walking pace is a shopper looking slightly past your
+   * shoulder for the whole wave.
+   *
+   * `Math.atan2(dx, dz)` and not `(dz, dx)`: that is the sim's own spelling of
+   * a facing (see `placeAt`), and it is what `syncActors` writes into
+   * `rotation.y`. The other order is a quarter turn out, which draws as a
+   * shopper waving at whoever is standing to your left.
+   *
+   * Null for anybody who is not answering anybody — an emote you made yourself
+   * is aimed wherever you were already pointing — and null again if the person
+   * they are answering has no body on screen, which is an ordinary state: they
+   * can log out, or be the other player in a shop you have just joined.
+   */
+  facingToward(rec) {
+    if (!rec.emote || !rec.emoteTo) return null;
+    const at = this.players.get(rec.emoteTo);
+    if (!at || at === rec) return null;
+    const dx = at.obj.position.x - rec.obj.position.x;
+    const dz = at.obj.position.z - rec.obj.position.z;
+    // Standing on top of one another has no direction in it, and `atan2(0, 0)`
+    // is 0 — which is a real heading, so it would snap them due north.
+    if (Math.abs(dx) < 1e-4 && Math.abs(dz) < 1e-4) return null;
+    return Math.atan2(dx, dz);
+  }
+
   flushCrowd() {
     let any = false;
     for (const map of [this.players, this.customers]) {
@@ -13576,6 +13949,62 @@ export class Scene {
       // pause button that does not look like it worked.
       if (!this.paused) {
         animateMotion(rec.obj.userData.moving, now / 1000 + rec.phase, rec.working);
+      }
+    }
+    /**
+     * ...and what anybody's arms are saying, which is the one pass that runs
+     * over the shoppers as well.
+     *
+     * AFTER `animateActors` and after the break loop above, and that ordering
+     * is the whole of how it stays cheap: the walk has already written its
+     * counter-swing into the arms and the slump has already settled the body,
+     * so a pose is laid OVER both rather than fighting either. It is also
+     * before `flushCrowd`, which is what puts a batched shopper's boxes where
+     * their pivots now say they are.
+     *
+     * A body answering a wave turns to face THE PERSON who waved
+     * (`emoteTo` → `facingToward`), and everybody else stays exactly as they
+     * were. Squaring up to the camera was the first answer and it is subtly
+     * wrong in a way that reads as broken: the view can be spun a quarter turn
+     * at a time and it is nowhere near where you are standing, so a shopper
+     * waving back would face out of the aisle rather than at you — and from
+     * behind, what is behind one of these robots is a flat panel.
+     *
+     * You are the one body that never turns at all, because your facing is a
+     * thing you steered and spinning it under a keypress would read as the
+     * emote taking the controls off you.
+     *
+     * Stopped time skips it, exactly as the brushes above are skipped and for
+     * the same reason: the shop expires an emote against `elapsed`, which a
+     * paused world never advances, so a pose left running would be an arm that
+     * goes up and stays up until somebody presses play.
+     */
+    /**
+     * ...and the arms and the FACE, which are the two passes that run over the
+     * shoppers as well.
+     *
+     * One loop for both, because they are the same list twice and the second
+     * one is nearly free — `animateFace` quantises, so a body whose expression
+     * has not moved costs an integer compare. Splitting them would be two
+     * walks over every person in the shop, sixty times a second, to save
+     * nothing.
+     *
+     * Stopped time skips both, exactly as the brushes above are skipped. A
+     * paused shop with somebody blinking in it is a pause button that does not
+     * look like it worked — and an emote is expired against `elapsed`, which a
+     * paused world never advances, so a pose left running is an arm that goes
+     * up and stays up until somebody presses play. The expression HOLDS rather
+     * than resetting, which is what a paused face should do: nothing is
+     * written, so what is on screen is the frame time stopped on.
+     */
+    if (!this.paused) {
+      for (const [id, rec] of this.players) {
+        animateEmote(rec, now, id === this.myId ? null : this.facingToward(rec));
+        animateFace(rec, now);
+      }
+      for (const rec of this.customers.values()) {
+        animateEmote(rec, now, this.facingToward(rec));
+        animateFace(rec, now);
       }
     }
     if (this.liftedRing) {
@@ -14396,8 +14825,8 @@ const ELEVATOR_FACE_TRIM_D = 0.018;
 const ELEVATOR_FACE_TRIM_H = 0.035;
 /** The pane in a closed face, and its height is a FRACTION of the wall — a
  *  literal left behind by a taller housing is a porthole in a blank slab. */
-const ELEVATOR_WINDOW_W = 0.44;
-const ELEVATOR_WINDOW_H = ELEVATOR_BASKET_H / 2;
+const ELEVATOR_WINDOW_W = 0.56;
+const ELEVATOR_WINDOW_H = ELEVATOR_BASKET_H * 0.7;
 const ELEVATOR_TRACK_W = 0.26;
 const ELEVATOR_TRACK_H = 0.03;
 const ELEVATOR_PISTON_OUTER = 0.13;

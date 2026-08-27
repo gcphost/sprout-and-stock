@@ -430,6 +430,27 @@ export const ShopRoom = (Base) => class extends Base {
       if (!res.ok) client.send('action-result', res);
     });
 
+    /**
+     * Wave, cheer, dance, point.
+     *
+     * `frozen` like a walk, and for the same reason rather than out of
+     * symmetry: an emote is a couple of seconds measured against `elapsed`,
+     * and a stopped clock never advances it — so a wave started on a paused
+     * shop is an arm that stays up until somebody presses play. A refusal
+     * somebody can read beats a pose that welds itself on.
+     *
+     * The refusal is SENT, unlike `walk-to`'s. That one is silent because the
+     * client only ever asks for a square it has drawn as walkable, so a no is
+     * a disagreement rather than news; this is a bare press with nothing on
+     * screen promising anything, so the one sentence it can be answered with
+     * is worth having.
+     */
+    this.onMessage('emote', (client, m) => {
+      if (this.frozen(client)) return;
+      const res = this.game.emote(client.sessionId, String(m?.kind ?? ''));
+      if (!res.ok) client.send('action-result', res);
+    });
+
     this.onMessage('interact', (client, m) => {
       if (this.frozen(client)) return;
       const res = this.game.interact(client.sessionId, m ?? {});

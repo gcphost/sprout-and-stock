@@ -29,16 +29,42 @@
  * four full-screen bandwidth hits to express arithmetic that fits in one
  * function.
  *
- * The whole file is linear-light until the last line, where it converts to sRGB
- * BY HAND. three only does that conversion for its own materials, and a raw
- * `ShaderMaterial` writing to the canvas gets none of it — skip it and every
- * colour in the game is a slightly different shade with nothing to say why.
+ * ...and then FXAA, which is the ONE thing that could not go in with it, for the
+ * reason everything else could: it is the only step here that needs to see the
+ * finished picture's NEIGHBOURS rather than its own texel.
+ *
+ * What it is for is a staircase the rest of the pipeline cannot touch. MSAA
+ * smooths the colour edge, and the contour is then painted over that edge out of
+ * buffers resolved to one sample — a depth blit is NEAREST, and the normals are
+ * half res on `NearestFilter` — so both ink masks are binary per pixel however
+ * the thresholds are tuned. See `INK.SHARP` in look.js, which is where the two
+ * dead ends are written down: softening the band does nothing to a value that
+ * cannot vary, and supersampling the detector does nothing either, because a
+ * depth texture is not linearly filterable and a sub-texel offset snaps back to
+ * the texel it started in. The steps are in the composed image, so that is where
+ * they are dealt with — and a filter that finds a 1px step and blends across it
+ * is the one treatment that leaves the line's WEIGHT alone, which a blur of the
+ * mask does not.
+ *
+ * three's own FXAA, deliberately, rather than a hand-rolled one: this file is
+ * hand-rolled where the ping-pong would have cost it a depth buffer, and there
+ * is no such argument about a stock implementation of a published algorithm.
+ * It runs on the sRGB side of the conversion because it works on LUMA, which is
+ * a perceptual quantity — fed linear light it would find its edges in the wrong
+ * places and mostly ignore the dark ones, which is where the ink is.
+ *
+ * The whole file is linear-light until the composite's last line, where it
+ * converts to sRGB BY HAND. three only does that conversion for its own
+ * materials, and a raw `ShaderMaterial` writing to the canvas gets none of it —
+ * skip it and every colour in the game is a slightly different shade with
+ * nothing to say why.
  *
  * (No backticks anywhere inside the shader strings below. They are template
  * literals, so a stray one ends the string and the error names a GLSL word.)
  */
 
 import * as THREE from 'three';
+import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { INK, GRADE, INK_NORMAL_SCALE, SCENE_SAMPLES } from './look.js';
 import { SURROUND_LAYER } from './lights.js';
 
@@ -61,6 +87,9 @@ const COMPOSITE = /* glsl */`
   uniform sampler2D tScene;
   uniform sampler2D tDepth;
   uniform sampler2D tNormal;
+  /* The NORMALS pass's own depth, which is the only thing that can say what was
+     not in it. See creaseMask below. */
+  uniform sampler2D tNormalDepth;
   /* The frame's texel, for the depth taps, and the NORMAL BUFFER'S own texel
      for the crease taps. Two, because that buffer is half size — measured in
      the frame's texel a crease offset of 0.2 would mean something different the
@@ -86,10 +115,13 @@ const COMPOSITE = /* glsl */`
      camera has a NEGATIVE near plane — it sits 200 units behind the eye — which
      this handles without knowing: near + d * (far - near) is the distance to
      the fragment either way, and it simply starts below zero. */
-  float viewDist(vec2 uv) {
-    float d = texture2D(tDepth, uv).x;
+  float linearise(float d) {
     if (isOrtho > 0.5) return d * (far - near) + near;
     return (2.0 * near * far) / (far + near - (d * 2.0 - 1.0) * (far - near));
+  }
+
+  float viewDist(vec2 uv) {
+    return linearise(texture2D(tDepth, uv).x);
   }
 
   vec3 readNormal(vec2 uv) {
@@ -150,6 +182,31 @@ const COMPOSITE = /* glsl */`
     return ne;
   }
 
+  /* ...AND WHERE THERE IS NO INTERIOR TO HAVE A LINE IN, WHICH IS NOT A
+     THRESHOLD.
+     Two things are deliberately absent from the normals pass — the crowd
+     (noCrease, for the draw cost) and the far backdrop (its layer, because the
+     haze that dissolves it does not exist under an override material) — and
+     absent does not mean blank: what lands in those texels is whatever stood
+     BEHIND them. So creaseAt reads the shelf through a shopper and lays the
+     shelf's own lip across their face, which is not a wrong line, it is a line
+     belonging to a different object. The silhouette is unaffected and that is
+     what hid it: outlines come from the colour pass's depth, which has
+     everybody in it, so the crowd looked correctly drawn and merely dirty.
+     Comparing the two depths is the whole test — the colour pass sees a body in
+     front, the normals pass sees the shelf — and it costs one tap.
+     THE SLACK IS RELATIVE and it is a floor rather than a tuned value. The
+     normals buffer is half res and the scene's depth is resolved from
+     SCENE_SAMPLES, so the two disagree by a texel's worth along every
+     silhouette however correct both are. Erring large there is free: that band
+     is exactly where the SIL line is drawn, so a crease suppressed inside it was
+     never going to be seen. Erring small is not — it puts the stray lines back
+     on anybody standing close to a wall. */
+  float creaseMask(vec2 uv, float dc) {
+    float dn = linearise(texture2D(tNormalDepth, uv).x);
+    return 1.0 - step(max(0.15, dc * 0.02), dn - dc);
+  }
+
   void main() {
     vec3 col = texture2D(tScene, vUv).rgb * exposure;
 
@@ -174,6 +231,7 @@ const COMPOSITE = /* glsl */`
       float soft = mix(0.015, 0.40, inkSharp);
       float s = smoothstep(silThresh, silThresh + soft, silAt(vUv, silWidth * scale) * 5.0);
       float c = smoothstep(creaseThresh, creaseThresh + soft, creaseAt(vUv, creaseWidth * scale) * 1.35);
+      c *= creaseMask(vUv, dc);
       /* A LINE HAS TO BE DIFFERENT FROM WHAT IT IS DRAWN ON, and inkColor is
          near-black — so on anything darker than the ink there is nothing to
          lay. Below inkLift the line is pushed UP off the surface instead: the
@@ -243,6 +301,10 @@ export class Ink {
       tScene: { value: null },
       tDepth: { value: null },
       tNormal: { value: this.blank },
+      /* `blank` again, and it is never read through: with no ink the whole
+         contour branch is skipped, and this only has to be a bound texture
+         rather than a meaningful one. */
+      tNormalDepth: { value: this.blank },
       texel: { value: new THREE.Vector2() },
       nTexel: { value: new THREE.Vector2() },
       near: { value: 0.5 },
@@ -263,6 +325,39 @@ export class Ink {
       saturation: { value: GRADE.SATURATION },
       contrast: { value: GRADE.CONTRAST },
     });
+
+    /* three's fragment shader on this file's own vertex shader, which is the
+       one substitution worth naming: the stock one multiplies by
+       `projectionMatrix * modelViewMatrix`, and every quad in here is drawn
+       through `QUAD_CAM` where that product is the identity. Writing clip space
+       straight out is the same picture without the matrix upload.
+       `resolution` is FXAA's spelling of a texel — 1/width, 1/height — and not
+       a size, which is the one way to wire this shader up wrong and have it
+       still draw something. */
+    this.fxaa = quad(FXAAShader.fragmentShader, {
+      tDiffuse: { value: null },
+      resolution: { value: new THREE.Vector2() },
+    });
+  }
+
+  /**
+   * Draw the INTERIOR lines, or leave them to somebody else.
+   *
+   * The two contours are not additive and there is no version of this where they
+   * are: `collectEdges` in props.js finds a crease by asking the geometry where
+   * two of its faces meet, and `creaseAt` above finds the same crease by reading
+   * the normals buffer at the same pixel. Both on, the drawn line lands
+   * underneath the screen-space one, and what comes out is the SAME staircase
+   * very slightly darker — which reads as the geometry pass having done nothing.
+   * That is not a bug in either of them; they are two answers to one question.
+   *
+   * So the geometry pass turns this off, and the SILHOUETTE is untouched either
+   * way — an edge only exists where an object meets itself, so nothing in the
+   * geometry can draw the line between a shelf and the sky behind it. See
+   * `buildEdgeLines`.
+   */
+  setCrease(on) {
+    this.composite.mat.uniforms.creaseInk.value = on ? INK.CREASE_INK : 0;
   }
 
   /** Sized in DEVICE pixels — whatever `renderer.getDrawingBufferSize` says. */
@@ -308,8 +403,20 @@ export class Ink {
 
     const nw = Math.max(2, Math.round(rw * INK_NORMAL_SCALE));
     const nh = Math.max(2, Math.round(rh * INK_NORMAL_SCALE));
+    /* A depth TEXTURE here for the same reason the colour target has one, and
+       for one caller: `creaseMask` needs to know what this pass could not see.
+       Half res and unsampled by anything else, so it is a couple of megabytes
+       and no extra draw — the pass was already writing this depth into a
+       renderbuffer it then threw away. */
+    const nDepth = new THREE.DepthTexture(nw, nh, THREE.UnsignedIntType);
+    nDepth.format = THREE.DepthFormat;
+    // Nearest for the same reason the colour attachment below is: a filtered
+    // depth is an average of two surfaces, which is a distance nothing is at.
+    nDepth.minFilter = THREE.NearestFilter;
+    nDepth.magFilter = THREE.NearestFilter;
     this.rtNormal = new THREE.WebGLRenderTarget(nw, nh, {
       type: THREE.UnsignedByteType,
+      depthTexture: nDepth,
       // Nearest, deliberately. The crease offset is a fraction of a texel, so
       // what the detector actually measures is whether the tap fell into the
       // NEXT texel — which is what makes a hair-fine line out of a number
@@ -320,9 +427,35 @@ export class Ink {
       depthBuffer: true,
     });
 
+    /**
+     * Where the composite lands so that FXAA has something to read.
+     *
+     * EIGHT BITS, and it is the one target in this file that wants them. The
+     * argument for half-float on `rtScene` is that it holds LINEAR light, where
+     * a byte spends its code points in the wrong places; this one holds the
+     * finished sRGB picture, which is exactly what eight bits of sRGB were
+     * defined to carry. Half-float here would be two bytes a pixel for a value
+     * that is about to be shown on a display that cannot tell.
+     *
+     * LINEAR filtering, and that is load-bearing rather than a default: FXAA's
+     * whole trick is a tap at a FRACTIONAL offset along the edge it found, and
+     * the blend it wants is the hardware's. On `NearestFilter` that tap snaps
+     * to a neighbour and the filter degrades to swapping one pixel for another
+     * — which is the same staircase one step over, drawn slightly wrong.
+     *
+     * No depth attachment and no samples. Nothing draws geometry into it.
+     */
+    this.rtOut = new THREE.WebGLRenderTarget(rw, rh, {
+      type: THREE.UnsignedByteType,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: false,
+    });
+
     const u = this.composite.mat.uniforms;
     u.texel.value.set(1 / rw, 1 / rh);
     u.nTexel.value.set(1 / nw, 1 / nh);
+    this.fxaa.mat.uniforms.resolution.value.set(1 / rw, 1 / rh);
   }
 
   /**
@@ -346,8 +479,20 @@ export class Ink {
     r.clear();
     r.render(scene, camera);
 
-    // 2 — its normals, but only if anybody is going to read them.
-    const wantsInk = INK.AMOUNT > 0.001;
+    /**
+     * 2 — its normals, but only if anybody is going to read them.
+     *
+     * ...which since `setCrease` is a question with a NEW answer, and it is the
+     * cheapest one in the file. The normals buffer has exactly one reader —
+     * `creaseAt` — because a silhouette comes out of the colour pass's own
+     * depth. So a shop drawing its creases as geometry is a shop where this
+     * whole branch is a second full traversal and draw of the scene for a
+     * texture nothing samples. Skipping it is not a saving on the ink, it is the
+     * ink's entire cost: see the header, where this is named as the real price
+     * of the feature, and `INK_NORMAL_SCALE`, which exists only to make it
+     * affordable.
+     */
+    const wantsInk = INK.AMOUNT > 0.001 && u.creaseInk.value > 0.001;
     if (wantsInk) {
       const bg = scene.background;
       const fog = scene.fog;
@@ -445,8 +590,9 @@ export class Ink {
       r.setClearColor(clear, alpha);
     }
     u.tNormal.value = wantsInk ? this.rtNormal.texture : this.blank;
+    u.tNormalDepth.value = wantsInk ? this.rtNormal.depthTexture : this.blank;
 
-    // 3 — the contour and the grade, in one go, straight at the canvas.
+    // 3 — the contour and the grade, in one go.
     u.tScene.value = this.rtScene.texture;
     u.tDepth.value = this.rtScene.depthTexture;
     u.near.value = camera.near;
@@ -454,13 +600,19 @@ export class Ink {
     u.isOrtho.value = camera.isOrthographicCamera ? 1 : 0;
     u.inkRef.value = inkRef;
 
-    r.setRenderTarget(null);
+    r.setRenderTarget(this.rtOut);
     r.clear();
     r.render(this.composite.scene, QUAD_CAM);
+
+    // 4 — and the staircase off the ink, straight at the canvas.
+    this.fxaa.mat.uniforms.tDiffuse.value = this.rtOut.texture;
+    r.setRenderTarget(null);
+    r.clear();
+    r.render(this.fxaa.scene, QUAD_CAM);
   }
 
   dispose(targetsOnly = false) {
-    for (const key of ['rtScene', 'rtNormal']) {
+    for (const key of ['rtScene', 'rtNormal', 'rtOut']) {
       const rt = this[key];
       if (!rt) continue;
       rt.depthTexture?.dispose();
@@ -474,6 +626,7 @@ export class Ink {
     this.blank.dispose();
     this.normalMat.dispose();
     this.composite.mat.dispose();
+    this.fxaa.mat.dispose();
   }
 }
 

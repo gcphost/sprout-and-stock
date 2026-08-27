@@ -696,22 +696,32 @@ export const CONVEYOR = {
    *  The renderer draws one of these too — the little feed out of a loader's
    *  cabinet — so the pair lives here rather than only in the authored rows,
    *  or a loader stays a slat belt bolted to a track. */
-  track: '#4a525e',
+  track: '#6f7d92',
   carrier: '#7f8d9e',
   /** What a slat used to be. Kept because a `fixtures` row somebody authored
    *  before this could still be wearing bars, and an unmapped colour is worse
    *  than an old-fashioned one. */
   slat: '#8b96a6',
   /** Kerbs, chamfers and straps: the lip of the track. */
-  rail: '#414956',
-  /** A machine's body — a loader's cabinet, a sorter's housing. A shade up from
-   *  the rail so it reads as an object standing in the run rather than as more
-   *  of the run, and dark like everything else the run is made of: these were
-   *  pale grey back when they stood on a pale deck, and once the deck came off
-   *  they were the last of it — a row of light chunks along a dark track, which
-   *  is the same out-of-key complaint the belt itself started with, pointed at
-   *  the machines instead of the ground. The lamp is the bright part. */
-  frame: '#4e5865',
+  rail: '#83909f',
+  /** A machine's body — a loader's cabinet, a sorter's housing, and the WALLS
+   *  OF A LIFT, which is the one that matters and the one nothing says out
+   *  loud: a lift is built here in code (`ELEVATOR_*` in scene.js) rather than
+   *  from its `fixtures` row, so every colour anybody authors onto that row is
+   *  dropped on the floor and the piece goes on drawing whatever this constant
+   *  says. Editing the row looks exactly like editing the row — the write
+   *  succeeds, the model validates, the shaft does not move a shade.
+   *
+   *  It was `#4e5865`, on the argument that a machine should be dark like the
+   *  rest of the run now the pale deck has gone. That is a value decision and
+   *  it collided with the INK: 0.095 linear luminance is inside the band where
+   *  a near-black contour has nothing to lay itself on, so the whole conveyor
+   *  family drew with no line on it while the shelves and crates either side
+   *  read perfectly. What that looks like is the ink working on some of the
+   *  shop and not the rest, which reads as the pass being broken rather than as
+   *  a palette entry being too dark to draw on. Structure is pale now and the
+   *  dark is spent on the track and the throat, which are small. */
+  frame: '#d7dfe8',
   /** Chevrons and the small dark details. Darker than the deck on purpose: on a
    *  pale bed the direction mark is the thing that has to be legible, and it was
    *  authored LIGHTER than its slats back when the deck was nearly black. */
@@ -732,6 +742,13 @@ export const CONVEYOR = {
    *  a grey: a duct has to read as enclosed from across the shop, and the pane
    *  is what says the box inside it is not simply floating. */
   glass: '#d6e9f4',
+  /** A LIFT's basket, and it is a step under `frame` for one reason: a lift is
+   *  nearly all frame. Every other machine breaks that pale up with a glazed
+   *  body, a mid-tone deck and a dark throat, so the same hex that reads as
+   *  structure on a loader reads as a white box on a shaft. Its own key rather
+   *  than darkening `frame`, which the skirt walls and the spur collar also
+   *  wear — those sit against machines that are already correct. */
+  basket: '#c8d0da',
 };
 
 /**

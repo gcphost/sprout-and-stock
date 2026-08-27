@@ -30,6 +30,64 @@
          strength in there reads as two cards butted together, which is what a
          divider exists to say it is not. */
       --crease: rgba(23, 18, 25, .39);
+      /* THE RESTING CONTOUR. `INK.FADE` is 0.29 in client/render/look.js — the
+         shop's own line gets WEAKER on the things you are not up against, so a
+         far shelf is drawn more lightly than the one you are standing at. The
+         chrome borrowed the colour and threw that away, and a flat #171219 on
+         every edge on screen at once is the difference between a drawing and a
+         wireframe: nothing is nearer than anything else, so the line stops
+         ranking and starts fencing.
+         So a card you are not pointing at keeps its contour and does not shout
+         it, and full `--ink-line` is what hover, `.on` and `.armed` step UP to.
+         That is the whole of why no state in this file needs a second mark
+         beside the line to say "this one" — the line itself is the state. */
+      --ink-soft: rgba(23, 18, 25, .66);
+      /* THE ONLY SHADOW LEFT, and it is occlusion rather than a copy of the
+         shape. What was here was `2px 3px 0 var(--ink-line)` on everything down
+         to a 16px badge: a solid black duplicate of the box, offset down and
+         right. That is a sticker lying ON the page rather than an object drawn
+         on it, and it is the single move that made a line-art HUD read as
+         brutalism — the two are otherwise the same recipe, and this is the
+         ingredient that decides which one you get.
+         What a drawing cannot do is say a card is NEARER than the shop, which
+         is a real thing these panels have to say, because they hang over a 3D
+         scene rather than sitting on a page. So: short, soft, warm-dark, never
+         black, and the same at every size — a shadow's length comes off how far
+         a thing is lifted, not off how big it is, which is why the old pair
+         scaled 2px/4px with the card and read as two different lights.
+         ONLY THINGS THAT FLOAT OVER THE WORLD GET ONE. Anything standing on
+         paper — a tile in the build bar, a badge on a button, a pill in a list —
+         gets nothing at all, because two objects on one sheet do not cast on
+         each other, and that rule is most of what "one contour per object"
+         buys back. */
+      --cast: 0 2px 6px rgba(23, 18, 25, .15), 0 8px 22px rgba(23, 18, 25, .09);
+      --cast-sm: 0 1px 3px rgba(23, 18, 25, .16);
+      /* THE BUTTON'S OWN SIDE, and it is not a shadow — which is the whole
+         distinction `--cast` is on the other side of. A cast has an x-offset
+         and belongs to a thing floating over the shop; this has none, sits
+         directly under the face, and is the 2px of THICKNESS that makes a
+         control an object you can push. The press moves the face down onto it
+         (`--press`, the same number) and the side disappears, because it has
+         been closed up.
+         The front door has had exactly this since it was written and it is the
+         one piece of feedback on that screen that never needed defending — see
+         `.wacts button`. It is 3px there and 2px here because its controls are
+         44px tall and the HUD's are 26 to 40: a side is read against the face
+         it belongs to, so a fixed number would be a lip on one screen and a
+         plinth on the other.
+         There is NO transition on it, and that is a rule rather than an
+         omission: a squash that eases is a lag, and what it reads as is the
+         game being slow to answer. */
+      --edge: 0 2px 0 rgba(23, 18, 25, .3);
+      --press: 2px;
+      /* The same side on something under about 24px — a 16px chip with a 2px
+         lip is an eighth of its own height spent on edge, which reads as a
+         bevel rather than as a thing. A small button does not get its own
+         `:active` rule for it: it REDEFINES `--edge` and `--press` on itself,
+         so the one press rule at the foot of this file goes on being the one
+         press rule. */
+      --edge-sm: 0 1px 0 rgba(23, 18, 25, .28);
+      --press-sm: 1px;
       /* ONE CORNER FOR THE WHOLE UI, and the reason it is a token rather than a
          number typed in 136 places is what it replaced: fifteen different radii
          between 3 and 20px, plus 23 capsules and 8 circles, none of which was
@@ -228,27 +286,60 @@
        in — and the alternative is a flat blue rectangle that gets replaced by a
        sky, which reads as the page having navigated. The other half of that
        decision is in client/boot.js: #boot HIDES while #menu is up rather than
-       sitting under it, or the sun and the lattice composite with themselves. */
+       sitting under it, or the sun composites with itself.
+
+       EVERY COLOUR IN HERE IS THE GAME'S, and that is the whole of what it took
+       to stop this reading as a web page with a blue gradient on it. What was
+       here was one flat green band at 34% under a smooth three-stop sky, and
+       neither number was from anywhere: the shop behind this screen is drawn
+       against `SKY_TOP`/`SKY_HORIZON` (client/render/look.js) with a whole
+       stack of land past the fence (`SURROUND_COLORS.country`,
+       client/render/palette.js — a far band, a ridge in two tones, a hedgerow,
+       a dry field, and `PALETTE.grass` for the mown part). So the front door
+       and the shop it opens onto were looking at two different countrysides.
+       They are one now, and the useful consequence is that this cannot go stale
+       against art it is not made of: change the mood of the game in
+       `palette.js` and the door onto it is a copy-paste rather than a guess.
+
+       THE HORIZON IS AN INK LINE, which is the same move as everything else in
+       here — `--ink-line` is where a thing STOPS, and the ground stopping is the
+       largest such edge on the screen. It used to be a soft haze, on the
+       reasoning that two flat colours meeting on a ruled line looks unfinished.
+       That is true of a gradient and exactly backwards for a drawing: what the
+       haze was hiding is the one contour on this screen the shop's own renderer
+       would also have drawn.
+
+       AND THE SKY IS BANDED RATHER THAN RAMPED. Cel shading is flat steps —
+       `BANDS` in look.js — so a smooth vertical ramp behind a cel-shaded game
+       is the one surface on screen not obeying its own rules, and it is the
+       biggest one. Four steps, hard-edged, from the renderer's own two ends.
+
+       No lattice. There was a diamond grid over the lower half, on the argument
+       that the game is built out of tiles — and a tile grid is a fact about the
+       shop's own floor, not about a field, so laying it over the land is the
+       game's plumbing drawn on its scenery. */
     .outdoors {
       position: fixed; inset: 0; overflow: hidden;
       display: grid; place-items: center; padding: 24px 16px;
       background:
-        /* The lawn, hard-edged at the horizon the way a floor meets a wall. */
-        linear-gradient(#8fbf6a 0 100%) bottom / 100% 34% no-repeat,
-        /* Sky, warmer at the bottom where the sun is. */
-        linear-gradient(#bfe2f2 0%, #d8eef7 55%, #eaf3e6 100%);
-    }
-    /* The lattice, and a haze along the horizon so the two do not meet on a
-       ruled line. `::before` rather than a fourth background layer because it
-       has to be able to fade out at the bottom of the screen, and a background
-       cannot mask itself. */
-    .outdoors::before {
-      content: ''; position: fixed; inset: 0; pointer-events: none;
-      background:
-        repeating-linear-gradient(60deg, rgba(255,255,255,.14) 0 1px, transparent 1px 46px),
-        repeating-linear-gradient(-60deg, rgba(255,255,255,.14) 0 1px, transparent 1px 46px);
-      -webkit-mask-image: linear-gradient(transparent 46%, #000 70%);
-      mask-image: linear-gradient(transparent 46%, #000 70%);
+        /* The land, in one hard-stop stack, read from the horizon down. Nothing
+           in it is blurred and nothing overlaps: it is the same set of flat
+           bands the surround builds past the fence, seen from the front. */
+        linear-gradient(
+          #171219 0 2px,   /* where the ground stops */
+          #6f9c72 2px 12%, /* `far` — bluest and dullest, so it sits back */
+          #7fb567 12% 27%, /* `hill` — the ridge, LIGHTER than the lawn, which
+                              is the only depth cue available with no fog */
+          #76a862 27% 31%, /* `hillAlt`, its shaded face */
+          #476b41 31% 34%, /* `hedge` — the darkest thing out there, and the one
+                              band that reads as a line rather than as land */
+          #9a8d5e 34% 56%, /* `ground` — stubble. Deliberately not green: four
+                              green bands is one green field with stripes on */
+          #89b26c 56% 100% /* `PALETTE.grass` — the mown patch you are standing
+                              on, which is what a painted lawn is made of */
+        ) bottom / 100% 38% no-repeat,
+        /* ...and the sky in four steps, off the two ends the shop uses. */
+        linear-gradient(#bfe4f2 0 32%, #cbe8f4 32% 58%, #dbf0f9 58% 80%, #eaf6fb 80% 100%);
     }
     /* Sun, top-left, well out of the way of anything you read. */
     .outdoors::after {
@@ -339,7 +430,27 @@
     /* ---- the front door ---------------------------------------------------
        Pick a shop, or start one. Sits above #boot rather than inside the HUD:
        there is no world behind it yet, so none of the panel system's rules
-       about floating over a live canvas apply. See client/menu.js. */
+       about floating over a live canvas apply. See client/menu.js.
+
+       THE CONTOURS HERE ARE DRAWN, the same as the HUD's — an SVG stroke pushed
+       through `feTurbulence` so the line wanders and changes weight along its
+       own length the way a nib does. See client/ink-edge.js, and `Menu.inkLines`
+       for which elements get one and why size decides it.
+       This screen shipped its ink pass with `box-shadow` rings instead, on the
+       argument that `Menu.render` rebuilds `.menu-box` from `innerHTML` and a
+       drawn line would therefore be minted and binned constantly. The premise
+       was right and the conclusion was wrong: what a rebuild costs is one
+       `<svg>` per host, which `innerHTML` collects, and ONE `ResizeObserver`
+       for the screen, which `inkScope` disconnects at the top of the redraw.
+       What the shortcut cost was the entire point of the exercise. A
+       box-shadow ring is perfectly even, perfectly geometric and identical on
+       all four sides, and eleven of them down a column over a pale sky is not a
+       drawing, it is a wireframe — the brutalism the ink pass exists to escape,
+       arrived at by way of a paragraph explaining why it was fine.
+       So: `.ink-edge` on the paper and the big controls, and a plain inset line
+       left on the two things under 40px, where the wander would be noise rather
+       than a nib. Everything a state used to say in the SHADOW it now says in
+       the STROKE — `--sil-stroke` and `--sil-w` below. */
     /* The PAGE does not scroll; the list of shops does. A browser scrollbar
        down the side of a title screen is the single most web-page thing on it,
        and the game already answers this everywhere else — `wireScroll`, a drag
@@ -367,6 +478,50 @@
        390px phone), and the point of putting this here rather than there is that
        the next row somebody adds must not be able to do the same thing. */
     .menu-box { width: min(440px, 100%); min-width: 0; }
+    /* THE FRONT DOOR'S OWN SIDE, redefined for the whole subtree rather than
+       typed onto each control. `--edge` is 2px at `:root` and says why in its
+       own comment: a side is read against the FACE it belongs to, so a fixed
+       number is a lip on one screen and a plinth on another. The HUD's controls
+       are 26–40px tall and this screen's are 38–44 — so 3px here, which is what
+       every button on it has worn since it was written and is the one piece of
+       feedback on it nobody has ever had to defend.
+       Redefining the token rather than writing `0 3px 0` eleven times is what
+       lets the ONE press rule at the foot of this file press this screen too:
+       `--press` moves the face by exactly the height of the side, so the two can
+       never drift apart, and `.tier` steps both down to the small pair the way
+       any control under ~24px does.
+       It is on `.menu-box` and not on `#menu` deliberately — the loading screen
+       shares `.outdoors` and has no controls on it at all, so a token scoped to
+       the sky would be a promise about a screen that cannot keep it. */
+    .menu-box { --edge: 0 3px 0 rgba(23, 18, 25, .24); --press: 3px; }
+    /* THE CONTOUR IS NOT A SHADOW ON THIS SCREEN, so `--sil` — which every
+       control in the game stores its line in, and which the one press rule at
+       the foot of this file drops back to — is an invisible shadow by default
+       here. That keeps the press rule literally unchanged: `box-shadow:
+       var(--sil), var(--edge)` still draws the side, pressing still closes it
+       up, and the drawn line is a CHILD and sits out the whole exchange.
+       The two controls that do keep an inset line (`.menu-mute`, `.tier`, both
+       under 40px) set `--sil` themselves, so this is a default rather than a
+       claim about everything in here. */
+    .menu-box { --sil: 0 0 0 0 transparent; }
+    /* ...and the three weights of the drawn line, in the two variables the
+       states actually move. Same vocabulary as `--sil`: a RESTING contour is
+       `--ink-soft`, hover and focus bring it up to full `--ink-line`, and "this
+       one" draws it harder. Nothing here is ever a second mark beside the line.
+       Scoped to `.menu-box` rather than added to `.ink-edge rect` itself: the
+       HUD's five hosts have one line each with no states on it, and giving that
+       rule a fallback nobody sets is a knob that reads as configurable. */
+    .menu-box .ink-edge rect {
+      stroke: var(--sil-stroke, var(--ink-soft));
+      stroke-width: var(--sil-w, 1.5);
+      /* The same .12s the fills move on, or a card's line snaps to full
+         strength while its paper is still warming and the two read as two
+         different things happening. */
+      transition: stroke .12s ease, stroke-width .12s ease;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .menu-box .ink-edge rect { transition: none; }
+    }
     /* The well the turntable spins in. Fixed height and `overflow: hidden`,
        because `.wk-turn` is a strip `--n` faces wide that slides sideways —
        without a clipping parent you get twenty-four robots in a row. */
@@ -387,22 +542,59 @@
     .menu-mute {
       position: fixed; bottom: 16px; right: 16px; width: 38px; height: 38px;
       display: grid; place-items: center; font-size: 16px; line-height: 1;
-      border: 1px solid var(--line); border-radius: var(--r); cursor: pointer;
-      background: var(--panel-solid); opacity: .85; z-index: 1;
-      box-shadow: 0 3px 0 rgba(58,49,40,.14);
+      border-radius: var(--r); cursor: pointer; z-index: 1;
+      /* THE CONTOUR AND THE EDGE ARE TWO DIFFERENT MARKS, and this screen is
+         where that is easiest to muddle. `--edge` is the button's SIDE — no
+         x-offset, the press moves the face down onto it, and it is the one bit
+         of feedback that separates a game control from a link with a background
+         on it. That is not the sticker shadow the HUD had, which was a diagonal
+         copy of a card that never moves; see `--cast`. So the edge stays
+         everywhere on this screen and the contour goes on beside it.
+         THE FILL RECEDES AND THE LINE DOES NOT. It used to stand back by
+         dropping the whole element's `opacity` to .85, which is right while a
+         button is a fill and wrong the moment it has a contour: `filter` and
+         `opacity` are applied to the element's WHOLE rendering, box-shadow
+         included, so the one thing being faded was the drawn line — a hover
+         that strengthens the mark, spelled as a rest state that weakens it.
+         `--panel-dim` exists for exactly this and says so. */
+         NO DRAWN LINE, and that is the same call `inkEdges` makes about the
+         40px rail: the wander is in screen pixels, so 2.1px along a 440px card
+         is a line breathing and the same 2.1px round a 38px square is a fifth
+         of a corner — a button somebody sat on rather than one somebody drew.
+         Under about 40px the plain inset line IS the plainer mark. */
+      --sil: inset 0 0 0 1.5px var(--ink-soft);
+      background: var(--panel-dim);
+      box-shadow: var(--sil), var(--edge);
+      transition: background .12s, box-shadow .12s;
     }
-    html.can-hover .menu-mute:hover { opacity: 1; }
-    .menu-mute:active { transform: translateY(3px); box-shadow: none; }
+    html.can-hover .menu-mute:hover {
+      background: var(--panel-solid); --sil: inset 0 0 0 1.5px var(--ink-line);
+    }
     /* A LOGO rather than a heading. Bigger, tighter, and cut out of the sky
-       with a cream keyline and a shadow under it — which is the one thing that
-       stops a big dark word on a pale background reading as an article title.
-       `paint-order` puts the stroke behind the fill so the letterforms keep
-       their weight instead of being eaten from both sides. */
+       with a cream keyline, which is the one thing that stops a big dark word
+       on a pale background reading as an article title. `paint-order` puts the
+       stroke behind the fill so the letterforms keep their weight instead of
+       being eaten from both sides.
+
+       THE WORDMARK IS EXEMPT FROM "NO KEYLINES" AND NOT FROM "NO STICKERS".
+       Those are two rules and it was carrying breaches of both. The keyline
+       stays: it is TYPE ON SKY rather than an object with an edge, there is no
+       paper under it to sit on, and the tagline and the loading screen's line
+       do the same thing for the same reason — cutting a word out of a
+       background is a printing trick, not a drop shadow wearing a colour.
+       The two `drop-shadow`s were the breach. The second was `0 8px 14px`, a
+       blurred cast — and `--cast`'s whole argument is occlusion against the 3D
+       shop, which is not behind this screen; a title casting onto its own sky
+       is a sticker lying on a photograph. That one goes. The first is `0 Npx 0`
+       with NO x-offset, which is the same mark every button on this screen
+       wears: the wordmark's own side, cut out of the sky like the letters are.
+       It stays, recoloured off `--ink-line` so the logo's thickness and a
+       button's are the same dark rather than two browns a shade apart. */
     .menu-box h1 {
       margin: 0; font-size: 44px; font-weight: 800; letter-spacing: -.035em;
       text-align: center; line-height: 1;
       -webkit-text-stroke: 6px #fffcf5; paint-order: stroke fill;
-      filter: drop-shadow(0 3px 0 rgba(58,49,40,.16)) drop-shadow(0 8px 14px rgba(58,49,40,.2));
+      filter: drop-shadow(0 3px 0 rgba(23, 18, 25, .2));
     }
     .menu-box h1 span { color: var(--accent); }
     .menu-tag {
@@ -412,11 +604,25 @@
       -webkit-text-stroke: 4px rgba(255,252,245,.75); paint-order: stroke fill;
     }
 
+    /* NOTHING ON THIS SCREEN CASTS, and this is the first of the four places
+       that had to be told. It wore `--cast-sm` beside its contour, and that
+       token's own comment is the whole argument against it: a cast is the one
+       thing a drawing cannot do, which is say a panel is NEARER THAN THE SHOP —
+       and it is only worth having because the HUD hangs over a live 3D canvas.
+       There is no canvas here. The front door is sky, a lawn and a horizon, all
+       of it drawn in the same flat gradients this field is printed on, so a
+       blur under it is an object casting onto a picture of the outdoors: the
+       exact "sticker on a photograph" the whole pass exists to get rid of.
+       The contour is what says where it stops, and on this screen that is all
+       anything needs. */
     .menu-field {
+      position: relative;
       display: flex; align-items: center; gap: 10px; background: var(--panel);
       border-radius: var(--r); padding: 7px 12px; margin-bottom: 10px;
-      box-shadow: 0 3px 12px rgba(58,49,40,.1);
     }
+    /* A field you are typing in is the thing you are pointing at, which is what
+       the line at full strength means everywhere else in here. */
+    .menu-field:focus-within { --sil-stroke: var(--ink-line); }
     .menu-field span { font-size: 11px; font-weight: 800; opacity: .5; text-transform: uppercase; letter-spacing: .04em; }
     .menu-field input {
       flex: 1; min-width: 0; border: 0; background: none; outline: 0; font: inherit;
@@ -449,12 +655,34 @@
       flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;
       border: 0; font: inherit; cursor: pointer; color: var(--ink); text-align: left;
       border-radius: var(--r); padding: 8px 9px; background: rgba(58,49,40,.06);
-      box-shadow: inset 0 0 0 2px transparent;
+      /* A line even when it is off, which is `.tab`'s rule said on the front
+         door: without one the chosen size is a drawn box and the other two are
+         floating words — one control and two captions, when they are three of
+         the same thing.
+         A CREASE AND NOT A CONTOUR, because it is standing INSIDE `.menu-new`,
+         which is itself a drawn object — the same thing that form says about
+         its fields, and the reason it sets `--line` for its whole subtree.
+         THE SMALL PAIR, and this is the pattern rather than a special case: at
+         30px a 3px side is a tenth of the button's own height spent on edge,
+         which reads as a bevel. So it redefines `--edge`/`--press` on itself
+         and gets no `:active` rule of its own — see `--edge-sm`, which was
+         written for precisely this and is the reason the one press rule at the
+         foot of the file is still one rule. */
+      --sil: inset 0 0 0 1px var(--crease);
+      --edge: var(--edge-sm); --press: var(--press-sm);
+      box-shadow: var(--sil), var(--edge);
+      transition: background .12s, box-shadow .12s;
     }
     .tier b { font-size: 12px; font-weight: 800; line-height: 1.2; }
     .tier span { font-size: 11.5px; font-weight: 700; opacity: .55; }
     html.can-hover .tier:hover { background: rgba(58,49,40,.12); }
-    .tier.on { background: var(--panel); box-shadow: inset 0 0 0 2px var(--good); }
+    /* THE LINE DOUBLED, not a green ring. It was `--good` at 2px, which is a
+       second mark arguing with the contour about one edge — the same call
+       `.tool.on` makes, and for the same reason. The green is not lost, it
+       moves onto the type, in the stepped-down `#3d7238` this file already
+       keeps for a figure on a tint rather than a mark on a panel. */
+    .tier.on { background: var(--panel-solid); --sil: inset 0 0 0 2px var(--ink-line); }
+    .tier.on b { color: #3d7238; }
     .tier.on span { opacity: .8; }
     /* A difficulty is one word with nothing under it, so it is centred — a lone
        label ranged left in a wide button reads as the first line of something
@@ -488,7 +716,13 @@
       width: 100%; height: 42px; border-radius: var(--r); padding: 3px;
       display: grid; place-items: center;
       background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.9), rgba(58,49,40,.055));
-      box-shadow: inset 0 0 0 1px rgba(58,49,40,.06);
+      /* IT KEEPS ITS WELL AND THE PALETTE'S TILES DO NOT, which inverts the
+         comment above and is the right way round. A `.tool` has a contour, so
+         the tile is already the slot; a `.kitem` has nothing — four pictures in
+         a row on a card, over a sky, with no edge anywhere to say where one
+         stops and the next starts. The well is the only thing giving that row a
+         grid, which is precisely the job the palette stopped needing it for. */
+      box-shadow: inset 0 0 0 1px var(--crease);
     }
     .kart svg { width: 100%; height: 100%; display: block; }
     /* One line, and it may not wrap: four tiles across 440px is about 100px
@@ -512,30 +746,44 @@
     .menu-list {
       display: flex; flex-direction: column; gap: 10px; margin: 14px 0 10px;
       overflow-y: auto; min-height: 0; flex: 1;
-      /* The cards lift and cast, so the box needs room either side or the
-         shadow is clipped into a hard vertical line down both edges. */
+      /* The cards have a side under them, so the box needs room either side or
+         the last card's 4px is clipped into a hard line across the bottom. */
       padding: 4px 4px 8px; margin-left: -4px; margin-right: -4px;
       scrollbar-width: none;
     }
     .menu-list::-webkit-scrollbar { display: none; }
-    /* Same 20px fade the panel uses, and the same class names, because it is
-       the same `wireScroll` putting them on. */
-    .menu-list.more-back {
-      mask-image: linear-gradient(180deg, transparent 0, #000 20px);
-      -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 20px);
-    }
-    .menu-list.more-on {
-      mask-image: linear-gradient(0deg, transparent 0, #000 20px);
-      -webkit-mask-image: linear-gradient(0deg, transparent 0, #000 20px);
-    }
-    .menu-list.more-back.more-on {
-      mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
-      -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 20px, #000 calc(100% - 20px), transparent);
-    }
+    /* THE FADE AT EITHER END IS GONE, and it is the one thing in this section
+       removed rather than restated. It was the panel's own 20px mask, put on by
+       the same `wireScroll` and correct there for a reason that does not hold
+       here: `#panel` is a drawn card with edges of its own, so content fading as
+       it reaches one is content going UNDER something. This list has no edges.
+       It is a column of cards on the sky, and the mask took the top 20px of a
+       90px card — a fifth of it — and dissolved the card, its contour and all.
+       A DRAWN LINE THAT FADES OUT SAYS THE OBJECT STOPPED EXISTING, which is
+       the one sentence a contour must never be able to say: the whole claim of
+       the ink pass is that the line is where a thing ends. A card cut at a
+       boundary is honest and a card evaporating is not, and the difference is
+       most visible on exactly the card you are scrolling toward.
+       So the cut is the cut. The classes still land on the element — the
+       scroller puts them on and they now style nothing, which is deliberate:
+       `wireScroll` is shared with the panel and forking it to teach it about
+       this one list would be a second scroller to keep in step. If the "there
+       is more below" signal is missed, the answer is a MARK — something drawn,
+       at the foot of the box, in the line the rest of this screen is drawn in —
+       and not a return to dissolving the thing it is a signal about. */
     .menu-empty {
       font-size: 12px; opacity: .55; text-align: center; padding: 14px 4px; line-height: 1.45;
     }
+    /* A CONTOUR AND NOT A CREASE, which is the one call this strip had wrong.
+       A crease is where two faces of ONE object meet, and every hairline inside
+       a drawn card is that — but `.menu-box` is not a drawn object, it is a
+       column of them standing on the sky with no edge of its own. So this is a
+       thing in its own right and gets the mark that says where a thing stops.
+       It matters more here than on a cream tile: a saturated fill with no line
+       is the one shape on a drawn screen that is only a colour, which is what a
+       toast in somebody else's app looks like. See `.wacts button`. */
     .menu-err {
+      position: relative;
       background: var(--accent); color: #fff; border-radius: var(--r);
       padding: 7px 12px; font-size: 12.5px; font-weight: 700; margin-bottom: 6px;
     }
@@ -543,23 +791,60 @@
        looking at the list that answers it. */
     .menu-err.soft { background: #ffd66b; color: var(--ink); }
 
-    /* A card is a THING sitting on the grass, so it has a thickness: the second
-       shadow is a hard offset with no blur, which is what reads as an object
+    /* A card is a THING sitting on the grass, so it has a thickness: `--card-
+       side` is a hard offset with NO x-offset, which is what reads as an object
        with a side to it rather than a rectangle with a glow under it. Hover
-       lifts it and shortens the base, the way picking something up does. */
+       lifts it and lengthens the side, the way picking something up does. That
+       survives the ink pass and is the reason this screen did not simply take
+       the HUD's rules: a `0 4px 0` under a card is its SIDE, and the sticker bug
+       is a DIAGONAL copy of a card that never moves. Two different marks.
+
+       TWO MARKS, WHERE IT WAS CARRYING THREE. The third was `0 8px 18px`, a
+       blurred cast, and it is gone for the reason `--cast`'s own comment gives:
+       a cast is worth having because it says a panel is nearer than the SHOP,
+       and it is the only thing in this vocabulary a drawing cannot do. There is
+       no shop behind this screen. The sky, the lawn and the horizon are flat
+       gradients on one element, so a blur under a card here is an object
+       casting onto a picture — and a card wearing a contour, a side AND a cast
+       is three answers to one question, which is most of why this screen read
+       as heavy black boxes rather than as things drawn on a sunny afternoon.
+       The card has a line saying where it stops and a side saying it is thick.
+       Nothing else it has to say needs a third mark. */
     .wcard {
+      position: relative;
       background: var(--panel-solid); border-radius: var(--r); padding: 12px 14px 11px;
-      box-shadow: 0 4px 0 rgba(58,49,40,.11), 0 8px 20px rgba(58,49,40,.16);
+      --card-side: 0 4px 0 rgba(23, 18, 25, .16);
+      box-shadow: var(--card-side);
       transition: transform .12s ease, box-shadow .12s ease;
     }
+    /* `--card-side` and not `--edge`, which is not fussiness: the card CONTAINS
+       buttons, custom properties inherit, and a card that redefined `--edge` for
+       its own 4px would hand Play and Delete a 4px side and a 3px press — a
+       button whose face stops a pixel short of its own edge, on every card in
+       the list, with the press rule and the token both entirely correct. */
     html.can-hover .wcard:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 0 rgba(58,49,40,.11), 0 12px 26px rgba(58,49,40,.2);
+      --sil-stroke: var(--ink-line);
+      --card-side: 0 6px 0 rgba(23, 18, 25, .16);
     }
-    /* The shop you were in last, so a family of four save slots opens on yours. */
+    /* The shop you were in last, so a family of four save slots opens on yours.
+       THE LINE STEPPED UP AND THE PAPER WARMED, where it was an amber keyline —
+       which on a card that now has a contour is a second mark arguing with the
+       first about one edge, exactly as `.tool.on` and `.tier.on` describe. The
+       yellow moves into the fill, which is where `.tool.on` keeps it.
+
+       IT IS 2px AND NOT THE FULL DOUBLING, and that is a rule about SIZE rather
+       than an exception to the doubling. "This one" is the line drawn harder,
+       and how much harder is read against the length the line runs: 1.5px
+       becoming 3px on a 74px palette tile is a nib pressed, and the same 3px
+       round a 440px card is a picture frame — which made the mildest fact on
+       the screen, that you played this one most recently, the heaviest object
+       on it. The warm paper is already carrying most of the claim, which is
+       exactly what moving a state's colour into the FILL is for, so the line
+       only has to agree with it rather than shout on its own. */
     .wcard.last {
-      box-shadow: 0 4px 0 rgba(58,49,40,.11), 0 8px 20px rgba(58,49,40,.16),
-        inset 0 0 0 2px #ffd66b;
+      background: linear-gradient(#fffdf6, #fff6df);
+      --sil-stroke: var(--ink-line); --sil-w: 2;
     }
     .wtop { display: flex; align-items: baseline; gap: 8px; }
     .wname { font-size: 16px; font-weight: 800; flex: 1; min-width: 0;
@@ -567,6 +852,7 @@
     .wlive {
       flex: none; background: #d8f0d2; color: #3f7a3c; border-radius: var(--r);
       padding: 1px 8px; font-size: 10px; font-weight: 800;
+      box-shadow: inset 0 0 0 1px var(--crease);
     }
     .wstats { display: flex; gap: 9px; align-items: baseline; margin-top: 2px; font-size: 13px; }
     .wstats b { font-weight: 800; }
@@ -576,10 +862,13 @@
     /* Armed to delete. The card itself changes, not just the button, because a
        list of five cards is scanned by shape — a single word swapped inside one
        of its buttons is exactly the thing a mis-click already wasn't reading. */
-    .wcard.arm {
-      box-shadow: 0 4px 0 rgba(58,49,40,.11), 0 8px 20px rgba(58,49,40,.16),
-        inset 0 0 0 2px var(--accent);
-    }
+    /* THE ONE RING ON THIS SCREEN THAT STAYS A COLOUR, and the split is the one
+       `.tool.armed` draws: doubling the line says "this one", which is the
+       wrong sentence for a press that DESTROYS a shop. Red is not competing
+       with the contour here because it is not the same claim — it is a warning,
+       it lasts four seconds, and it is the only thing on the front door that
+       has ever been red. */
+    .wcard.arm { --sil-stroke: var(--accent); --sil-w: 2; }
 
     /* Two things that take it in turns, stacked in one grid cell so the cell is
        always as big as the biggest of them and swapping which one shows moves
@@ -612,30 +901,76 @@
     .wacts button {
       border: 0; font: inherit; cursor: pointer; border-radius: var(--r);
       padding: 8px 14px; font-size: 13px; font-weight: 800;
-      box-shadow: 0 3px 0 rgba(58,49,40,.18);
-      transition: filter .12s ease;
+      /* A CREASE, AND NOT A DRAWN CONTOUR, which is rule one said about the one
+         place on this screen it is easiest to break: the card these stand in is
+         drawn, so a contour on the button is a second outline a few pixels
+         inside the first — two boxes rather than a thing on a thing, and at
+         34px the wander cannot be read as a nib anyway (see `Menu.inkLines`).
+         A coloured button with no line at all is the other failure — the one
+         shape on a drawn screen that is only a fill — so it keeps a line, at
+         the weight a hairline inside an object is supposed to be. */
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
+      transition: background .12s ease, box-shadow .12s ease;
     }
-    .wacts button:active {
-      transform: translateY(3px); box-shadow: none;
-    }
-    html.can-hover .wacts button:hover { filter: brightness(1.06); }
-    .wplay {
+    /* THE HOVER IS THE LINE COMING UP, and what it replaced was
+       `filter: brightness(1.06)` — which is the same trap `.menu-mute`'s opacity
+       was, and worse for being invisible in the file. `filter` is applied to the
+       element's WHOLE rendering, box-shadow included, so brightening a button
+       brightened its contour: the gesture that means "you are pointing at this"
+       was, on every button on this screen, the one that FADED its drawn line.
+       It reads as the button going soft under the cursor, and nothing in the
+       declaration says a word about lines. Anything on a drawn control that
+       reaches for `filter` or `opacity` is reaching past the mark to the thing
+       the mark is made of. */
+    /* One step, crease to the resting contour — and NOT to full `--ink-line`,
+       which is the weight the card around it wears when you are pointing at it.
+       Hovering a button is hovering the card, so both step at once, and a
+       button that landed on the same weight as its own card would be the second
+       outline this rule just got rid of, arriving on hover. */
+    html.can-hover .wacts button:hover { --sil: inset 0 0 0 1px var(--ink-soft); }
+    /* `.wacts .wplay` and not `.wplay`, which is the steppers' trap in this
+       file's own gotchas said about the front door: a bare class is (0,1,0) and
+       loses to `.wacts button` at (0,1,1) whatever the source order, so Play's
+       darker green edge has never once been drawn — it wore the same brown side
+       as Cancel. Every rule that means "this one button, differently" needs the
+       parent on it. As a `--edge` override the same fact is now structural: a
+       side belongs to the FACE above it, so a green button's is dark green, and
+       redefining the token is the only spelling of that the one press rule at
+       the foot of the file can still close up. */
+    .wacts .wplay {
       background: var(--good); color: #fff; flex: 1;
-      box-shadow: 0 3px 0 #43793f;
+      --edge: 0 3px 0 #3a6b37;
     }
+    /* A lighter green rather than a brightness, for the reason above: this is
+       the one button on the screen whose fill is loud enough that the line
+       coming up would not be read on its own. */
+    html.can-hover .wacts .wplay:hover { background: #67ae62; }
     .wghost { background: rgba(58,49,40,.08); color: var(--ink); }
     html.can-hover .wghost:hover { background: rgba(58,49,40,.16); }
     html.can-hover .wdel:hover { background: var(--accent); color: #fff; }
     .wdel.on { background: var(--accent); color: #fff; }
 
+    /* THE PAPER HAD TO GO OPAQUE, and this is the one fix here that is about
+       colour rather than about marks. It was `rgba(255,252,245,.6)` — cream at
+       60% over a sky that is `#bfe2f2` at the top and `#d8eef7` in the middle,
+       and 40% of that blue coming through a warm white does not read as a pale
+       cream, it reads as BLUE-GREY: the two biggest buttons on the front door
+       were the only things on it made of the sky rather than of paper, with a
+       brown contour round them saying they were paper. `--panel` is the same
+       cream at 94%, which keeps a hint of the place behind it without letting
+       the place decide what colour the button is. */
     .menu-add {
+      position: relative;
       width: 100%; border: 0; font: inherit; cursor: pointer; border-radius: var(--r);
       padding: 11px; font-size: 13.5px; font-weight: 800; color: var(--ink);
-      box-shadow: 0 3px 0 rgba(58,49,40,.14);
-      background: rgba(255,252,245,.6); box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
+      background: var(--panel);
+      box-shadow: var(--sil), var(--edge);
+      transition: background .12s, box-shadow .12s;
     }
-    html.can-hover .menu-add:hover { background: var(--panel-solid); }
-    .menu-add:active { transform: translateY(3px); box-shadow: none; }
+    html.can-hover .menu-add:hover {
+      background: var(--panel-solid); --sil-stroke: var(--ink-line);
+    }
     /* New shop and Join share a row — two thirds to the thing almost everybody
        presses, one third to the thing you press when a friend has sent you a
        code. `flex` rather than a grid so that the row is still one full-width
@@ -644,13 +979,36 @@
     .menu-adds .menu-add { flex: 2; }
     .menu-adds .menu-add.menu-side { flex: 1; }
     /* Join, under an open form. Quieter than the row it comes from — the form
-       above it is what you are being asked, and this is the other door. */
+       above it is what you are being asked, and this is the other door.
+       QUIETER IN SIZE AND IN PAPER, never in `opacity`, which is the third time
+       this section had reached for it: dropping the element to .8 dropped its
+       contour with it, and a drawn line at four fifths is not a quieter object,
+       it is a greyer line — the one thing `--ink-soft` and `--panel-dim` exist
+       to keep apart. So the fill stands back the way the mute button's does and
+       the line stays exactly as dark as every other line on the screen. */
     .menu-adds.menu-alt { margin-top: 8px; }
-    .menu-adds.menu-alt .menu-add { font-size: 12.5px; padding: 9px; opacity: .8; }
-    html.can-hover .menu-adds.menu-alt .menu-add:hover { opacity: 1; }
+    .menu-adds.menu-alt .menu-add {
+      font-size: 12.5px; padding: 9px; background: var(--panel-dim);
+    }
+    html.can-hover .menu-adds.menu-alt .menu-add:hover { background: var(--panel-solid); }
+    /* IT IS THE OTHER CARD ON THIS SCREEN, so it is drawn like the one it is
+       standing above: contour, side, no cast. It had `--cast-sm` and a `.wcard`
+       has a thickness, which is one screen with two answers to "what is a piece
+       of paper lying on the grass" — and the form takes the New shop button's
+       place in the column, so the two are literally never seen apart. */
     .menu-new { background: var(--panel); border-radius: var(--r); padding: 11px 13px;
-                box-shadow: 0 4px 16px rgba(58,49,40,.13); }
-    .menu-new .menu-field { background: rgba(58,49,40,.06); box-shadow: none; }
+                /* EVERY HAIRLINE INSIDE IT IS A CREASE, the same thing `#panel`
+                   says about its own subtree: the form is one object, and the
+                   fields standing in it are recesses rather than cards. */
+                --line: var(--crease);
+                position: relative;
+                box-shadow: 0 4px 0 rgba(23, 18, 25, .16); }
+    /* A CREASE, and therefore not drawn — the fields in here are recesses in one
+       object rather than cards standing on it, which is what `--line` above says
+       for every hairline in the subtree. `Menu.inkLines` picks the name box with
+       a child selector for exactly this: same class, different question. */
+    .menu-new .menu-field { background: rgba(58,49,40,.06); --sil: inset 0 0 0 1px var(--crease); box-shadow: var(--sil); }
+    .menu-new .menu-field:focus-within { --sil: inset 0 0 0 1.5px var(--ink-line); }
     .menu-foot { text-align: center; font-size: 11px; opacity: .5; margin: 12px 0 0; }
     /* The tip jar, and it is a TILE like everything else on this screen. As a
        bare underlined link in `--accent` it was the only hyperlink on a page
@@ -679,14 +1037,35 @@
       border-radius: var(--r); padding: 8px 14px;
       font-size: 12.5px; font-weight: 800; color: var(--ink);
       text-decoration: none; cursor: pointer;
-      background: rgba(255,252,245,.6);
-      box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
+      /* The same pair `.menu-add` carries, because the comment above says this
+         is a TILE like everything else on this screen — including the opaque
+         paper, and for the reason spelled out there: cream at 60% over sky is
+         not a quiet cream, it is a pale blue, and the one thing this button is
+         allowed to be quieter in is WEIGHT. It is quieter already: 12.5px
+         against 13.5, and it does not fill a column. */
+      background: var(--panel);
+      box-shadow: var(--sil), var(--edge);
+      transition: background .12s, box-shadow .12s;
     }
-    .menu-support svg { opacity: .7; }
-    html.can-hover .menu-support:hover { background: var(--panel-solid); }
-    html.can-hover .menu-support:hover svg { opacity: 1; }
-    .menu-support:active { transform: translateY(3px); }
-    .menu-support:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    /* The heart, and NOT the contour. `.ink-edge` is an `<svg>` too and it is a
+       direct child, so a bare `svg` selector — or a `> svg` one — dims the drawn
+       outline to 70% along with the icon, on the one control whose whole job is
+       being findable in a corner of the sky. Worth knowing before styling `svg`
+       anywhere on this screen: every inked element now has one in it. */
+    .menu-support > svg:not(.ink-edge) { opacity: .7; }
+    html.can-hover .menu-support:hover {
+      background: var(--panel-solid); --sil-stroke: var(--ink-line);
+    }
+    html.can-hover .menu-support:hover > svg:not(.ink-edge) { opacity: 1; }
+    /* NO `:active` OF ITS OWN, which is the bug this had rather than a tidy-up.
+       It moved the face down 3px and left the box-shadow alone, so the SIDE
+       stayed where it was — a button pressed into the outline of a hole it had
+       fallen down, which is the exact failure `.menu-mute`'s comment warns
+       about two hundred lines up. The press rule at the foot of the file drops
+       the side and keeps the line, for this and everything else on the screen.
+       Its focus ring goes with it: it was `--accent`, which is the colour this
+       palette keeps for marks and warnings, and it is the only control in the
+       game that ever wore red for "you are here". */
 
     .hud { position: fixed; z-index: 10; }
 
@@ -778,13 +1157,10 @@
       position: relative;
       background: var(--panel); border-radius: var(--r);
       padding: 5px 10px;
-      /* The contour, same pair as `.rail-btn`: 1.5px of `INK.SIL_WIDTH` and a
-         hard offset instead of a blur. See the note there for why an ink pass
-         and a soft drop shadow cannot both be on screen.
-         Only the offset is here — `#sign` runs full bleed down the left edge
-         and would paint the inset line out along its whole height, so the line
-         is an overlay for the reason `#panel::after` gives at length. */
-      box-shadow: 2px 3px 0 var(--ink-line);
+      /* Only the cast is here — `#sign` runs full bleed down the left edge and
+         would paint an inset line out along its whole height, so the contour is
+         an overlay (`.ink-edge`) for the reason the panel gives at length. */
+      box-shadow: var(--cast-sm);
       display: flex; gap: 10px; align-items: center;
       /* THE CARD CLIPS ITS OWN CORNERS, which is what lets the sign be an EDGE
          of it rather than an object sitting inside it. `#sign` cancels the
@@ -823,10 +1199,20 @@
          which puts its rows well clear of the word on their own. */
       min-height: 46px;
     }
-    #stats::after {
-      content: ''; position: absolute; inset: 0; z-index: 2;
-      border-radius: inherit; pointer-events: none;
-      box-shadow: inset 0 0 0 1.5px var(--ink-line);
+    /* THE CONTOUR IS A DRAWN LINE, not a border. One rule for all three cards
+       that get one — see client/ink-edge.js for which, why only three, and why
+       the rect stands back from the edge. `overflow: visible` because the
+       stroke is meant to wander outside the box the svg was given; the hosts
+       that clip are what `INSET` is for. */
+    .ink-edge {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      display: block; pointer-events: none; overflow: visible;
+    }
+    .ink-edge rect {
+      fill: none; stroke: var(--ink-line); stroke-width: 1.5;
+      /* Or a 640px bar 80px tall draws its top eight times heavier than its
+         side, which is a border pretending to be a perspective. */
+      vector-effect: non-scaling-stroke;
     }
     /* NOTHING IN HERE SHRINKS. The card is a fixed readout in a corner, not a
        column of a page, and flex's default is to shrink an item that does not
@@ -1434,7 +1820,7 @@
       position: relative;
       width: var(--corner-w);
       background: var(--panel-dim); border-radius: var(--r); padding: 7px 10px;
-      box-shadow: inset 0 0 0 1.5px var(--ink-line), 2px 3px 0 var(--ink-line);
+      box-shadow: var(--cast-sm);
       transition: background .12s ease;
       cursor: grab; touch-action: none;
     }
@@ -1470,18 +1856,46 @@
        control for a thing you are already looking at. */
     .corner-x {
       position: absolute; top: -6px; right: -6px;
-      width: 17px; height: 17px; padding: 0; border: 0; border-radius: var(--r);
+      /* ABOVE THE WIDGET'S OWN CONTOUR, which is a real z-index rather than a
+         tidy one. The line round `#rci` and `#radio` is a drawn stroke on an
+         overlay now (`.ink-edge`, z-index 2) where it used to be an inset
+         shadow on the element — and an inset shadow paints under its children
+         while an overlay paints over them. So the widget's edge was being drawn
+         straight THROUGH this chip, which reads as the button being broken
+         rather than as two things in the wrong order.
+         Over is also the right answer on its own terms: the chip is stuck on
+         the OUTSIDE of the corner, so the card's line passes behind it the way
+         it would behind anything sitting on top of the card. */
+      z-index: 3;
+      /* 20px AND A 12px MARK, where it was 17 and 9. `ICONS.close` is drawn at
+         `width: 1em`, so the glyph is whatever `font-size` says — and a 9px ✕
+         with 4px of air on every side of it is a smudge on a pale chip rather
+         than a cross, which is exactly what it read as. The mark wants to be
+         most of the button; the button is the target. */
+      width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r);
       display: grid; place-items: center;
       background: var(--panel); color: var(--ink);
-      box-shadow: 0 2px 6px rgba(58,49,40,.22);
-      font-size: 9px; line-height: 0; cursor: pointer;
+      /* ...and its own line, or it is the one object left on either widget that
+         is a fill with no edge — which at 17px on a pale card is a smudge. The
+         small nib, for the reason `--edge-sm` gives. */
+      --sil: inset 0 0 0 1px var(--crease);
+      --edge: var(--edge-sm); --press: var(--press-sm);
+      box-shadow: var(--sil), var(--edge), var(--cast-sm);
+      font-size: 12px; line-height: 0; cursor: pointer;
       opacity: 0; transition: opacity .12s ease, background .1s ease;
     }
+    .corner-x:active { transform: translateY(var(--press)); box-shadow: var(--sil); }
     /* Focus as well, or the button is unreachable by keyboard — it is invisible
        until a pointer is over it, and a pointer is not the only way in. */
+    /* FULL STRENGTH, not 75%. The wash was there when this appeared over a
+       widget you might only be passing across; it appears on hover, which means
+       by the time it is on screen you are already pointing at the thing it
+       belongs to — and three quarters of an opacity on a 20px chip takes the
+       contour with it, so the one thing that says "button" goes grey at exactly
+       the moment somebody is trying to read it. */
     html.can-hover #rci:hover .corner-x, #rci:active .corner-x,
     html.can-hover #radio:hover .corner-x, #radio:active .corner-x,
-    .corner-x:focus-visible { opacity: .75; }
+    .corner-x:focus-visible { opacity: 1; }
     html.can-hover .corner-x:hover { opacity: 1; background: var(--accent, #7a9a5b); color: #fff; }
 
     /* ---- the shop radio ---------------------------------------------------
@@ -1497,7 +1911,7 @@
       position: relative;
       width: var(--corner-w);
       background: var(--panel-dim); border-radius: var(--r); padding: 7px 8px 6px;
-      box-shadow: inset 0 0 0 1.5px var(--ink-line), 2px 3px 0 var(--ink-line);
+      box-shadow: var(--cast-sm);
       transition: background .12s ease;
       cursor: grab; touch-action: none;
     }
@@ -1632,15 +2046,22 @@
       display: flex; gap: 6px; max-width: calc(100vw - 16px); flex-wrap: wrap;
       justify-content: center;
     }
-    /* The contour and the hard offset are one decision, not two.
+    /* The contour and the cast are two decisions, and the old note here said
+       they were one — which is how the whole HUD ended up brutalist.
 
-       An ink pass is COVERAGE rather than light (see `lay` in render/post.js),
-       so nothing behind this button has a soft edge any more — a blurred drop
-       shadow under a drawn shop is the one gesture that says "different piece
-       of software". The stroke is 1.5px because `INK.SIL_WIDTH` is 1.4 screen
+       The CONTOUR is the ink. 1.5px because `INK.SIL_WIDTH` is 1.4 screen
        texels and a 40px card at this scale is the same line read at the same
-       distance; the shadow is an offset SOLID for the same reason the stroke
-       exists.
+       distance, and `--ink-soft` rather than `--ink-line` because the shop's
+       own line fades on what you are not up against.
+
+       The CAST is not ink at all, and pretending it was is the mistake. The
+       reasoning ran: an ink pass is coverage rather than light, so nothing
+       behind this button has a soft edge, so the shadow has to be a hard offset
+       too. It is a good argument and it produces a sticker — a solid black copy
+       of the button lying beside it, which is a thing no drawing has ever had.
+       What the button actually needs to say is that it is nearer than the shop,
+       and the honest way to say that is occlusion: short, soft, warm-dark, and
+       the same on everything at this height. See `--cast-sm`.
 
        Both are `box-shadow` rather than a border, so the button's box is
        untouched and `--nav-h` and the whole bottom stack above it stay where
@@ -1648,17 +2069,20 @@
     .rail-btn {
       position: relative; width: 40px; height: 40px; border: 0; cursor: pointer;
       background: var(--panel); border-radius: var(--r); color: var(--ink);
-      box-shadow: inset 0 0 0 1.5px var(--ink-line), 2px 3px 0 var(--ink-line);
+      --sil: inset 0 0 0 1.5px var(--ink-soft);
+      box-shadow: var(--sil), var(--edge), var(--cast-sm);
       display: grid; place-items: center;
-      font: inherit; transition: background .12s, transform .12s, box-shadow .12s;
+      /* `transform` is deliberately NOT in the transition: it is the press, and
+         a press that eases is a button that answers late. */
+      font: inherit; transition: background .12s, box-shadow .12s;
     }
-    /* Lifting AND lengthening the shadow, or the button slides out from under a
-       mark that stayed put and the hover reads as a misprint rather than a
-       press. */
-    html.can-hover .rail-btn:hover {
-      transform: translate(-1px, -2px);
-      box-shadow: inset 0 0 0 1.5px var(--ink-line), 3px 5px 0 var(--ink-line);
-    }
+    /* THE LINE COMES UP TO FULL STRENGTH, and that is the whole hover. It used
+       to lift the button a couple of pixels and lengthen its shadow, which is
+       the one gesture a sticker can make and a drawing cannot — and in a row of
+       eight it reads as the button falling out of line with its neighbours.
+       A nib pressed harder is what an ink pass has instead, and it is also the
+       only hover in here that costs no layout. */
+    html.can-hover .rail-btn:hover { --sil: inset 0 0 0 1.5px var(--ink-line); }
     /* A click focuses the button, and the browser's own focus ring is a heavy
        blue box in somebody else's colours — on a row of buttons whose whole job
        is to show you which one is lit, a second, louder "this one" that follows
@@ -1691,11 +2115,8 @@
        mark beside it — 1.5px of edge becoming 3px is the same line drawn
        harder, which is what a nib does, and it cannot be mistaken for the
        focus ring the way an inset brown one could. */
-    .rail-btn.on.open {
-      box-shadow: inset 0 0 0 3px var(--ink-line), 2px 3px 0 var(--ink-line);
-    }
-    html.can-hover .rail-btn.on.open:hover {
-      box-shadow: inset 0 0 0 3px var(--ink-line), 3px 5px 0 var(--ink-line);
+    .rail-btn.on.open, html.can-hover .rail-btn.on.open:hover {
+      --sil: inset 0 0 0 3px var(--ink-line);
     }
     .rail-btn .ico { font-size: 18px; line-height: 1; }
     .rail-btn .kb { position: absolute; bottom: 2px; right: 5px; font-size: 8px; font-weight: 800; opacity: .35; }
@@ -1703,13 +2124,17 @@
       position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px;
       border-radius: var(--r); background: var(--accent); color: #fff;
       font-size: 10px; font-weight: 800; display: grid; place-items: center;
-      /* Its own contour, or a red pill on a paper card is the one thing in the
-         row with no line round it — and it is drawn OVER the button's edge, so
-         without one the two colours meet with nothing between them. Thinner
-         than the button's, because the ink pass draws a small object with a
-         thinner line (`INK.FADE`), and 1.5px on a 16px pill is the 40px card's
-         stroke at the 40px card's scale. */
-      box-shadow: inset 0 0 0 1.5px var(--ink-line), 1px 2px 0 var(--ink-line);
+      /* Its own line, or a red pill on a paper card is the one thing in the row
+         with no edge to it — and it is drawn OVER the button's contour, so
+         without one the two colours meet with nothing between them.
+         A CREASE AND NOT A CONTOUR, at 1px. It is drawn on the button rather
+         than beside it, which is the definition of the second thing, and it is
+         16px across: `INK.FADE` draws a small object with a lighter line, and
+         1.5px of near-black round a 16px pill is a quarter of its area spent on
+         edge. It casts nothing for the same reason — it is ON the button, and
+         a badge that dropped a shadow onto the thing it is attached to is the
+         sticker tell in miniature. */
+      box-shadow: inset 0 0 0 1px var(--crease);
     }
     .rail-btn .badge[hidden] { display: none; }
 
@@ -1756,7 +2181,7 @@
       position: absolute; bottom: -4px; left: -4px; min-width: 16px; height: 16px; padding: 0 4px;
       border-radius: var(--r); background: var(--warn); color: #fff;
       font-size: 10px; font-weight: 800; display: grid; place-items: center;
-      box-shadow: inset 0 0 0 1.5px var(--ink-line), 1px 2px 0 var(--ink-line);
+      box-shadow: inset 0 0 0 1px var(--crease);
       transition: background .3s;
     }
     .rail-btn .cargo[hidden] { display: none; }
@@ -2283,9 +2708,12 @@
       background: var(--panel);
       border-radius: var(--r);
       /* One contour, because the panel is ONE object however many boxes are
-         drawn on it — and a deeper offset than the rail's, since the shadow is
-         read against the size of the thing casting it: 2px under a 430px card
-         is a printing slip rather than a card standing off the shop.
+         drawn on it — and the SAME cast as everything else that hangs over the
+         world, where it used to be a deeper offset than the rail's on the
+         reasoning that a shadow is read against the size of the thing casting
+         it. That is backwards: length comes off how far a thing is lifted, so
+         two cards at the same height under one light cast the same shadow, and
+         scaling it with the card is two lights in one room.
 
          EVERY HAIRLINE INSIDE IT IS A CREASE, and this is where that is said —
          once, for the whole subtree. `--line` is redefined rather than the
@@ -2294,7 +2722,7 @@
          supplier) picks it up with no rule of its own, and `--line` goes on
          meaning what it always meant outside. */
       --line: var(--crease);
-      box-shadow: 4px 5px 0 var(--ink-line);
+      box-shadow: var(--cast);
       display: none; flex-direction: column; overflow: hidden;
     }
     /* THE CONTOUR IS DRAWN OVER THE CONTENTS, not on the box.
@@ -2305,16 +2733,37 @@
        line is UNDER them, so three opaque bars paint it out and the shop shows
        a card whose outline stops for 90px and starts again. It reads as the
        header poking out through the wall, which is exactly what it is.
-       So the line goes on an overlay above every sticky bar. `inset: 0` and the
-       radius inherited, or it is a second rectangle very slightly disagreeing
-       with the one it is drawn on; `pointer-events: none` because it covers
-       every control in the panel. */
-    #panel::after {
-      content: ''; position: absolute; inset: 0; z-index: 5;
-      border-radius: inherit; pointer-events: none;
-      box-shadow: inset 0 0 0 1.5px var(--ink-line);
-    }
+       So the line goes on an overlay above every sticky bar — `.ink-edge`,
+       hung by client/ink-edge.js, `pointer-events: none` because it covers
+       every control in the panel. It was a pseudo-element for as long as it was
+       a `box-shadow`; a drawn stroke needs an `<svg>` in it, and a pseudo
+       cannot hold one. */
     #panel.show { display: flex; }
+    /* A POPOVER THAT IS ONE SIZE, for a section that says so (`fixed`, see
+       `steadyHeight`). The Menu is the case: four tabs of wildly different
+       lengths on a window anchored at the BOTTOM, so pressing along the strip
+       walked the buttons up and down the screen under a pointer that had not
+       moved.
+
+       A declared height rather than the measured `min-height` `steady` sets,
+       and the difference is the whole point of having both. `steady` estimates
+       the tallest tab off a row pitch — right where the tabs are the same kind
+       of thing at different lengths, and an ESTIMATE, so a tab whose rows are a
+       different shape lands a few pixels out and the window still moves. This
+       one cannot: it is the same number on every tab because it never asks what
+       is in one.
+
+       Capped by `max-height` above, which is what keeps it honest on a short
+       screen — and the clamp is the same on all four tabs, so it stays fixed
+       whichever way it is resolved. */
+    #panel.fixed {
+      height: min(520px, calc(100vh - var(--nav-top) - var(--build-h) - 20px));
+    }
+    /* ...and the body takes what is left rather than sizing to its own rows, or
+       a short tab draws its list at the top of a tall card with the fade, the
+       sticky bars and the scroll shadow all measured on a box that stops half
+       way down. */
+    #panel.fixed #panel-body { flex: 1 1 auto; min-height: 0; }
     /* The header is also the grab handle: drag to move the panel, double-click
        to give it back to the stylesheet. `touch-action` because without it a
        drag on a touchscreen is a scroll gesture before it is ever a drag. */
@@ -2511,10 +2960,16 @@
          up: everything you can press carries a line. Without it the lit tab is
          a heavy inked panel and the other three are floating words — one
          control and three captions, when they are four of the same thing. */
-      box-shadow: inset 0 0 0 1px var(--crease);
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .tab:hover { opacity: .8; background: rgba(58,49,40,.06); }
-    .tab.on { opacity: 1; background: #ffd66b; box-shadow: inset 0 0 0 1.5px var(--ink-line); }
+    /* THE FILL IS THE STATE, and the line does not move. A lit tab used to gain
+       the yellow AND a step up to a full contour, which is one fact said twice
+       in two vocabularies — and the louder of the two is a black box, so what
+       you read across a row of four is the outline rather than the colour. The
+       yellow is unmissable on its own. */
+    .tab.on { opacity: 1; background: #ffd66b; }
     .tab svg { display: block; }
     /* A section's tab says its own name — see `paintSection`, which is also
        where the argument for it is. A row of glyphs beside a word rather than
@@ -2696,13 +3151,14 @@
       font-size: 8px; font-weight: 800; letter-spacing: .04em;
       text-transform: uppercase; line-height: 1.5;
       opacity: .5; cursor: pointer; transition: opacity .1s, background .1s;
-      box-shadow: inset 0 0 0 1px var(--crease);
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .dtab:hover { opacity: .9; background: rgba(58,49,40,.14); }
     /* The same yellow the icon tab uses for "you are here", because it is the
        same fact one row down — two colours for one state would read as two
        different kinds of selection. */
-    .dtab.on { opacity: 1; background: #ffd66b; box-shadow: inset 0 0 0 1.5px var(--ink-line); }
+    .dtab.on { opacity: 1; background: #ffd66b; }
 
     .tab { position: relative; }
     .tab .tcount {
@@ -2796,7 +3252,8 @@
     .row button {
       border: 0; background: var(--good); color: #fff; border-radius: var(--r);
       padding: 3px 9px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; flex: none;
-      box-shadow: inset 0 0 0 1.5px var(--ink-line), 1px 2px 0 var(--ink-line);
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
     }
     /* Un-ordering, in the slot ordering lives in. `.row button.danger` rather
        than `.danger` alone for the reason the steppers below spell out: a bare
@@ -2804,6 +3261,38 @@
        green as Buy — which is the one pair in this panel that must never look
        alike. */
     .row button.danger { background: var(--accent); }
+    /* ...and the third tone, for a press that neither spends nor destroys. Green
+       is the shop's BUY colour and red is its undo — a Replay button wearing
+       either is a convenience shouting louder than everything it sits beside,
+       which on a tab of six quiet rows is the only thing your eye goes to. Same
+       specificity trick the `.danger` note above spells out. */
+    .row button.quiet {
+      background: rgba(58,49,40,.10); color: var(--ink); font-weight: 600;
+    }
+    html.can-hover .row button.quiet:hover { background: rgba(58,49,40,.18); }
+
+    /* ON or OFF, at the end of a row that is its own switch.
+       In `.rule` rather than in `.have`, and that is not a tidying choice:
+       `.have` is a FIGURE — 10.5px at .6 opacity, right for `day 86 / day 100`
+       — and opacity composites, so a child cannot be less faint than the cell
+       it is in. This word is the only thing telling two switch rows apart for a
+       reader who cannot see the lit yellow behind them, which makes "faint" the
+       one thing it may not be. Nothing in this panel is allowed to rest on
+       colour; see the Shop report's own note.
+
+       The lit pill is the SAME yellow as `.sec-row.picked` and the grid tile,
+       for the reason index.html already gives about those two: "this one is on"
+       and "this one is chosen" are one fact, and two colours for it would read
+       as two kinds of state. */
+    .row .rule .sw {
+      font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+      padding: 2px 7px; border-radius: 999px; line-height: 1.4;
+      background: rgba(58,49,40,.09); color: rgba(58,49,40,.55);
+    }
+    .row .rule .sw.on {
+      background: #ffd66b; color: var(--ink);
+      box-shadow: inset 0 0 0 1px var(--crease);
+    }
     /* The figure at the end of a row — how far along, what a rung costs, how
        much is left. `nowrap` and tabular because the ones that live here are
        fractions of authored units (`day 86 / day 100`): wrapped, a two-line row
@@ -2867,6 +3356,12 @@
       display: grid; place-items: center; flex: none; opacity: .5;
     }
     html.can-hover .row .rbtn:hover { background: rgba(58,49,40,.14); opacity: 1; }
+    /* The end of a range, on the steppers that have one. Faint and inert rather
+       than absent: a nudge that disappeared at the end would move the number
+       under your finger on the press before it, and both buttons on one of
+       these are a pair you aim at rather than two controls. */
+    .row .rbtn:disabled { opacity: .16; cursor: default; }
+    html.can-hover .row .rbtn:disabled:hover { background: transparent; opacity: .16; }
     /* A WORD rather than a nudge. The steppers are 15px squares because they
        sit either side of a number; this one is the whole control, so it has to
        be wide enough to read and sit up like something you press. */
@@ -2955,6 +3450,8 @@
       color: var(--ink); background: rgba(58,49,40,.06);
       border-radius: var(--r); padding: 6px 8px 7px; margin-top: 3px; text-align: center;
       transition: background .1s;
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .midrow:hover { background: rgba(58,49,40,.13); }
     .midtop {
@@ -2998,9 +3495,11 @@
       background: rgba(58,49,40,.06); border-radius: var(--r); padding: 7px 5px 5px;
       display: grid; justify-items: center; gap: 2px; text-align: center;
       opacity: .5; transition: opacity .1s, background .1s;
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .gtile:hover { opacity: .9; background: rgba(58,49,40,.12); }
-    .gtile.on { opacity: 1; background: #fff3d0; box-shadow: inset 0 0 0 2px #ffd66b; }
+    .gtile.on { opacity: 1; background: #fff3d0; --sil: inset 0 0 0 2px var(--ink-line); }
     .gtile .gico { font-size: 15px; line-height: 1; }
     .gtile .gico svg { display: block; width: 1em; height: 1em; }
     /* Wraps rather than ellipsises. A two-word name is the common case here and
@@ -3019,6 +3518,9 @@
       border: 0; padding: 0; border-radius: var(--r); cursor: pointer;
       background: rgba(58,49,40,.10); color: var(--ink);
       display: grid; place-items: center; font-size: 9px; opacity: .45;
+      --sil: inset 0 0 0 1px var(--crease);
+      --edge: var(--edge-sm); --press: var(--press-sm);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .gsub:hover { opacity: 1; background: rgba(58,49,40,.22); }
     .gsub svg { display: block; width: 1em; height: 1em; }
@@ -3504,6 +4006,8 @@
       border: 0; border-radius: var(--r); background: rgba(58,49,40,.07);
       color: var(--ink); font: inherit; font-size: 17px; font-weight: 800;
       line-height: 1; cursor: pointer; display: grid; place-items: center;
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .im-step button:hover { background: rgba(58,49,40,.16); }
     .im-step button:active { background: rgba(58,49,40,.22); }
@@ -3514,6 +4018,8 @@
       flex: none; border: 0; border-radius: var(--r); padding: 0 9px; height: 26px;
       background: rgba(58,49,40,.08); color: var(--ink); font: inherit;
       font-size: 11px; font-weight: 800; opacity: .6; cursor: pointer;
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .im-clear:hover { opacity: 1; background: rgba(58,49,40,.16); }
     /* The one control here that is a state rather than a number. Off is the
@@ -3524,6 +4030,8 @@
       border: 0; border-radius: var(--r); padding: 0 11px; height: 38px;
       background: rgba(58,49,40,.07); color: var(--ink); font: inherit;
       font-size: 14px; cursor: pointer;
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
     }
     .im-tog i { font-style: normal; font-size: 11.5px; font-weight: 800; }
     .im-tog svg { display: block; width: 1em; height: 1em; }
@@ -3686,6 +4194,9 @@
     .fx-price button {
       border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: var(--r);
       width: 22px; height: 22px; font: inherit; font-weight: 800; line-height: 1; cursor: pointer;
+      --sil: inset 0 0 0 1px var(--crease);
+      --edge: var(--edge-sm); --press: var(--press-sm);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .fx-price button:hover { background: rgba(58,49,40,.18); }
     /* Same as `.fx-take:disabled` below and for the same reason — a stepper on a
@@ -3697,6 +4208,9 @@
       border: 0; background: rgba(58,49,40,.09); color: var(--ink); border-radius: var(--r);
       width: 30px; height: 22px; font-size: 12px; cursor: pointer; flex: none;
       display: flex; align-items: center; justify-content: center;
+      --sil: inset 0 0 0 1px var(--crease);
+      --edge: var(--edge-sm); --press: var(--press-sm);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .fx-take:hover { background: rgba(58,49,40,.18); }
     .fx-take:disabled { opacity: .25; cursor: default; background: transparent; }
@@ -3899,28 +4413,38 @@
        to. */
     #build-bar {
       display: flex; flex-direction: column; gap: 5px;
-      /* PAPER, NOT GLASS, AND THAT IS A LOSS TAKEN ON PURPOSE. The blur was the
-         thing that let a 760px bar sit across the bottom of the shop without
-         being a wall, and it is the only place in the UI that SAMPLED the world
-         — which is what makes it impossible to keep here. An ink pass is
-         coverage: a tile that casts a solid black offset onto frosted glass is
-         two lighting models in one strip, and the eye reads the disagreement
-         long before it can name it.
-         The contour is an overlay for the reason `#panel::after` gives —
+      /* GLASS, AND IT WENT AND CAME BACK — which is the useful part, because
+         both of the arguments that took it away are now spent.
+         The first was that a tile casting a solid black offset onto frosted
+         glass is two lighting models in one strip. Gone: no tile casts anything
+         any more (see `--cast`).
+         The second was that a drawn card is opaque — the contour says where an
+         object stops, and something you can see the shelves through has not
+         stopped anywhere. That one turns out to be an argument about the LINE
+         rather than about the fill, and the line is doing its own job now: it
+         is a drawn stroke on an overlay (`.ink-edge`), at full strength,
+         wandering, and it says where the bar stops whatever is behind it.
+         What glass buys back is the thing that was lost on purpose and missed:
+         760px across the bottom of the shop is a WALL at full opacity, and this
+         is the only surface in the game that samples the world it is sitting
+         over. `--panel-glass` is never used without `backdrop-filter` — glass
+         with no blur is a panel you read a shelf through, and the moment
+         somebody paints a dark floor under the bar the labels go with it.
+         The tiles stay opaque. They are objects standing ON the glass, and the
+         one thing a palette must never do is make you squint at the picture of
+         the thing you are buying.
+         The contour is an overlay (`.ink-edge`) for the reason the panel gives —
          `#build-strip` bleeds to the wall with a negative margin and would
          paint an inset line out along the bottom of the bar. */
-      background: var(--panel-solid); border-radius: var(--r); padding: 6px;
+      background: var(--panel-glass); border-radius: var(--r); padding: 6px;
+      backdrop-filter: blur(14px) saturate(1.15);
+      -webkit-backdrop-filter: blur(14px) saturate(1.15);
       --line: var(--crease);
-      box-shadow: 4px 5px 0 var(--ink-line);
+      box-shadow: var(--cast);
       width: min(760px, calc(100vw - 28px));
       /* What the shape card is positioned against. It hangs off the top of this,
          over the world, rather than being a row inside it — see `#build-shapes`. */
       position: relative;
-    }
-    #build-bar::after {
-      content: ''; position: absolute; inset: 0; z-index: 4;
-      border-radius: inherit; pointer-events: none;
-      box-shadow: inset 0 0 0 1.5px var(--ink-line);
     }
 
     /* TIER ONE AND TWO SHARE A ROW. They were two stacked rows, at two different
@@ -3997,6 +4521,9 @@
       font: inherit; font-size: 10.5px; font-weight: 800; color: var(--ink);
       opacity: .45; padding: 3px 9px; white-space: nowrap;
       transition: opacity .1s, background .1s, box-shadow .1s;
+      --sil: inset 0 0 0 1px var(--crease);
+      --edge: var(--edge-sm); --press: var(--press-sm);
+      box-shadow: var(--sil), var(--edge);
     }
     #build-deck svg { width: 13px; height: 13px; flex: none; }
     html.can-hover #build-deck button:hover { opacity: .82; background: rgba(58,49,40,.06); }
@@ -4006,7 +4533,7 @@
        — one vocabulary for "this is where you are" across the whole bar. */
     #build-deck button.on {
       opacity: 1; background: linear-gradient(#fffdf8, #f3ead9);
-      box-shadow: 0 1px 3px rgba(58,49,40,.18), inset 0 0 0 1px rgba(58,49,40,.1);
+      --sil: inset 0 0 0 1.5px var(--ink-line);
     }
     /* ...and overhead wears a colour on top of it, so which of the two is lit
        reads without reading the word. Deliberately NOT `--accent`, which is the
@@ -4024,14 +4551,25 @@
       border: 0; border-radius: var(--r); background: transparent; cursor: pointer;
       font: inherit; color: var(--ink); opacity: .5; padding: 5px 8px;
       white-space: nowrap; transition: opacity .1s, background .1s, box-shadow .1s;
+      /* A LINE EVEN WHEN IT IS OFF, which is `.tab`'s rule and was written
+         about this row before it was true of it: without one the open tab is a
+         drawn card and the other five are floating glyphs — one control and
+         five captions, when they are six of the same thing. */
+      --sil: inset 0 0 0 1px var(--crease);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .cat:hover { opacity: .85; background: rgba(58,49,40,.06); }
     /* The open tab is a raised card, not a grey wash. It is the one thing on the
        bar that says where you are, and at .5-versus-1 opacity it was saying it
        about as loudly as the four that aren't. */
+    /* The line at full strength, which is what "you are here" is spelled as
+       everywhere else on this bar (`.tool:hover`, `.rail-btn.on.open`). It was
+       a blurred `0 1px 3px` and a 10% ring, both of which predate the ink pass
+       — a soft shadow under a drawn card is the disagreement `--cast` exists to
+       settle, and a 10% ring beside a contour is two marks on one edge. */
     .cat.on {
       opacity: 1; background: linear-gradient(#fffdf8, #f3ead9);
-      box-shadow: 0 1px 3px rgba(58,49,40,.18), inset 0 0 0 1px rgba(58,49,40,.1);
+      --sil: inset 0 0 0 1.5px var(--ink-line);
     }
     .cat .ico { font-size: 15px; line-height: 1; }
     /* An inactive tab is its icon; the open one wears its name. Five labels
@@ -4051,11 +4589,16 @@
       padding-left: 8px; border-left: 1px solid var(--line);
     }
     #build-subs[hidden] { display: none; }
-        .subcat {
+    .subcat {
       display: flex; align-items: center; gap: 4px;
       border: 0; border-radius: var(--r); background: transparent; cursor: pointer;
       font: inherit; font-size: 10.5px; font-weight: 700; color: var(--ink);
       opacity: .45; padding: 3px 10px; white-space: nowrap; transition: opacity .1s, background .1s;
+      /* Its own row's version of the rule above, one notch down: these are
+         chips rather than cards, so the side is the small one. */
+      --sil: inset 0 0 0 1px var(--crease);
+      --edge: var(--edge-sm); --press: var(--press-sm);
+      box-shadow: var(--sil), var(--edge);
     }
     html.can-hover .subcat:hover { opacity: .8; background: rgba(58,49,40,.06); }
     .subcat.on { opacity: 1; background: rgba(58,49,40,.09); }
@@ -4139,7 +4682,11 @@
       display: grid; place-items: center; cursor: pointer;
       border: 0; border-radius: var(--r); font: inherit; font-size: 14px; line-height: 1;
       color: var(--ink); background: linear-gradient(#fffdf8, #f1e8d6);
-      box-shadow: inset 0 0 0 1.5px var(--ink-line), 1px 2px 0 var(--ink-line);
+      /* One of the three things in the bar that genuinely does float — it hangs
+         over the strip and the tiles run underneath it — so it keeps a cast
+         where the tiles it covers get none. */
+      --sil: inset 0 0 0 1px var(--ink-soft);
+      box-shadow: var(--sil), var(--edge), var(--cast-sm);
       opacity: .92; transition: opacity .1s, transform .1s;
     }
     html.can-hover .nudge:hover { opacity: 1; transform: translateY(calc(-50% - 3px)) scale(1.08); }
@@ -4235,17 +4782,30 @@
          The line is a variable because EIGHT states rewrite this shadow —
          hover, on, armed, poor, off and the three pairs of those — and a
          contour spelled eight times is a contour that will be seven places
-         after the next change. Each state composes `--sil` with its own lift
-         rather than restating it. */
-      --sil: inset 0 0 0 1.5px var(--ink-line);
+         after the next change.
+
+         IT CASTS NOTHING. There used to be a `--lift` here as well, a solid
+         black copy of the tile offset down and right, and a strip of twelve of
+         them is where that treatment did the most damage: at 74px a tile is
+         mostly edge already, and twelve shadows falling on the paper they are
+         printed on is a sheet of stickers rather than a row of things drawn on
+         a bar. The tile is ON the bar. The bar casts; the tile does not.
+         So the LINE is the whole hierarchy — resting is `--ink-soft`, hover is
+         the same line at full strength, and a state that means "this one" is
+         that line doubled. Three weights of one mark, which is what a nib has,
+         and no state needs a colour or a shadow or a lift to say what it is. */
+      --sil: inset 0 0 0 1.5px var(--ink-soft);
       --sil2: inset 0 0 0 3px var(--ink-line);
-      --lift: 2px 3px 0 var(--ink-line);
       background: #fffcf5;
-      box-shadow: var(--sil), var(--lift);
-      transition: transform .09s, box-shadow .09s, background .09s;
+      box-shadow: var(--sil), var(--edge);
+      transition: box-shadow .09s, background .09s;
     }
-    html.can-hover .tool:hover { transform: translateY(-2px); box-shadow: var(--sil), 3px 5px 0 var(--ink-line); }
-    .tool:active { transform: translateY(0); }
+    /* EVERY STATE SETS `--sil` AND NEVER `box-shadow`, which is what lets one
+       `:active` rule at the foot of this file press all eight of them: it drops
+       the side and keeps whatever contour the tile happens to be wearing. A
+       state that restated the whole shadow would have to restate the side too,
+       and the first one to forget is a tile that cannot be pressed. */
+    html.can-hover .tool:hover { --sil: inset 0 0 0 1.5px var(--ink-line); }
     /* A HOLD, filling up. One tile asks for one (`bar.js`): the shape card on
        anything that comes in several shapes. Drawn rather than merely allowed,
        since a hold with nothing happening is indistinguishable from a press
@@ -4276,8 +4836,7 @@
        whole reason the colours have to stay told apart. */
     .tool.on {
       background: linear-gradient(#ffe6a8, #ffd66b);
-      box-shadow: var(--sil2), var(--lift);
-      transform: translateY(-2px);
+      --sil: var(--sil2);
     }
     /* ASKING TWICE, AND THE ONLY STATE ON THIS STRIP THAT RUNS OUT.
        The armed hire tile (`UI.armHire`): one press from a machine on lease, and
@@ -4297,11 +4856,12 @@
        build ghost has always made in the same colour.
 
        A RING AND A TINT, not the solid fill Let go uses. That is a 15px glyph in
-       a square and this is a picture of the bot you are about to lease standing
-       in a lit well — the same call `.tool.on` makes about a wooden shelf, since
-       a block of colour behind either turns both to mud. The well is lit rather
-       than left alone so the colour reaches the middle of the tile instead of
-       only going round the outside of it.
+       a square and this is a picture of the bot you are about to lease, and a
+       block of colour behind either turns both to mud. The tint used to be
+       painted into the WELL as well as onto the tile, so the colour reached the
+       middle instead of only going round the outside — the well is gone (see
+       `.tool .ico`) and the tile's own gradient does that unaided now, which is
+       what taking the recess out bought.
 
        TWO GREENS, and the split is the one CLAUDE.md's contrast note draws: a
        2px rule is a MARK, which `--good` clears against this ground at 3.4:1,
@@ -4316,17 +4876,14 @@
        rather than left alone. */
     .tool.armed {
       background: linear-gradient(#f4faf1, #ddefd8);
-      box-shadow: var(--sil2), var(--lift);
-      transform: translateY(-2px);
+      --sil: var(--sil2);
     }
     /* Hover would otherwise take the ring off — `html.can-hover .tool:hover` is
        the more specific selector, which is why `.tool.on.poor` has a twin of
        this rule two blocks down and for exactly this reason. */
     html.can-hover .tool.armed:hover {
-      box-shadow: var(--sil2), var(--lift);
-      transform: translateY(-2px);
+      --sil: var(--sil2);
     }
-    .tool.armed .ico { background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.94), rgba(90,163,86,.16)); }
     .tool.armed .nm { color: #3d7238; }
     /* The question, where the price was. Loud on purpose: it is the one line on
        the tile that says what the NEXT press does, and the price it replaced is
@@ -4355,29 +4912,38 @@
     .tool .key {
       position: absolute; top: 3px; left: 4px; z-index: 1;
       font-size: 8.5px; font-weight: 800; line-height: 12px; min-width: 12px; height: 12px;
-      border-radius: var(--r); color: rgba(58,49,40,.55);
-      background: rgba(58,49,40,.07); box-shadow: inset 0 0 0 1px var(--ink-line);
+      color: rgba(58,49,40,.5);
     }
-    .tool.on .key { color: rgba(58,49,40,.72); background: rgba(255,255,255,.5); }
+    .tool.on .key { color: rgba(58,49,40,.72); }
     /* How many are already standing in the shop. Opposite corner to the key,
        because they are answers to different questions and both are one glyph. */
+    /* A NUMBER, NOT A BADGE. It was cream on 58% brown with a line round it,
+       which is the darkest thing on the whole strip — so how many shelves you
+       already own was the loudest mark on a button whose job is showing you the
+       shelf. It is the quiet answer to a question nobody asked yet; the key
+       opposite it is set at the same weight for the same reason, and neither
+       needs a ground now that the art underneath them has no well to be lost
+       against. */
     .tool .have {
       position: absolute; top: 3px; right: 4px; z-index: 1;
       font-size: 8.5px; font-weight: 800; line-height: 13px; min-width: 13px; height: 13px;
-      border-radius: var(--r); color: #fffcf5; background: rgba(58,49,40,.58);
-      box-shadow: inset 0 0 0 1px var(--ink-line);
+      color: rgba(58,49,40,.62);
       font-variant-numeric: tabular-nums;
     }
-    /* The well the thing stands in. It is what makes a row of art read as a row
-       of *slots* — without it every button is a picture floating on cream and
-       the strip has no grid to it. */
+    /* NO WELL. It was a filled, lined recess for the art to stand in, on the
+       argument that it is what makes a row of art read as a row of SLOTS —
+       without it every button is a picture floating on cream and the strip has
+       no grid to it. That argument was written when the tile had no edge of its
+       own. It has one now: the tile IS the slot, and a lined box 6px inside a
+       lined box is the same claim made twice, at which point you read the boxes
+       instead of the shelving they are drawn round.
+       What is left is the size, which is the half that was doing the work —
+       every tile reserves the same 38px whatever its art, so the names and the
+       prices line up across the strip. */
     .tool .ico {
       font-size: 19px; line-height: 1; display: grid; place-items: center;
-      width: 100%; height: 38px; border-radius: var(--r);
-      background: #f4ecdc;
-      box-shadow: inset 0 0 0 1.5px var(--ink-line);
+      width: 100%; height: 38px;
     }
-    .tool.on .ico { background: radial-gradient(120% 100% at 50% 18%, rgba(255,255,255,.92), rgba(160,110,20,.14)); }
     /* Art gets the well; a glyph is a category rather than a thing, so it stays
        small and centred instead of being blown up to fill one. */
     .tool .ico.art { padding: 3px; }
@@ -4406,7 +4972,7 @@
        is wrong with a shelf on the ceiling, and shouting it would say the one
        thing that is not true. The whole tile fades instead, price included. */
     .tool.poor, .tool.off { cursor: not-allowed; }
-    html.can-hover .tool.poor:hover, html.can-hover .tool.off:hover { transform: none; box-shadow: var(--sil), var(--lift); }
+    html.can-hover .tool.poor:hover, html.can-hover .tool.off:hover { --sil: inset 0 0 0 1.5px var(--ink-soft); }
     .tool.poor .ico, .tool.off .ico { opacity: .34; filter: grayscale(1); }
     .tool.poor .nm, .tool.off .nm { opacity: .45; }
     .tool.off .cost, .tool.off .have { opacity: .4; }
@@ -4414,16 +4980,14 @@
     /* Armed and unaffordable keeps its ring — see above — so the well under the
        art must not be greyed back to nothing against it. */
     html.can-hover .tool.on.poor:hover, html.can-hover .tool.on.poor {
-      box-shadow: var(--sil2), var(--lift);
-      transform: translateY(-2px);
+      --sil: var(--sil2);
     }
     /* ...and the same for a hire you armed and then could not afford, which is a
        state you reach by standing still: a van is paid for while the tile waits.
        The ring stays for the four seconds it has left — the question is still
        open, and the answer to it is now no. */
     html.can-hover .tool.armed.poor:hover, html.can-hover .tool.armed.poor {
-      box-shadow: var(--sil2), var(--lift);
-      transform: translateY(-2px);
+      --sil: var(--sil2);
     }
 
     /* THE BUILD STRIP IS TILES. A picture, a short name, how many you already
@@ -4510,7 +5074,7 @@
       height: 10px; padding: 0 2px; border-radius: var(--r);
       font-size: 9px; font-weight: 800; line-height: 10px;
       color: rgba(58,49,40,.62); background: rgba(255,253,248,.8);
-      box-shadow: inset 0 0 0 1px var(--ink-line);
+      box-shadow: inset 0 0 0 1px var(--crease);
     }
     html.can-hover #build:not(.browse) .tool:hover .more, html.can-hover #build:not(.browse) .tool.on .more {
       color: rgba(58,49,40,.85); background: rgba(255,255,255,.95);
@@ -4530,7 +5094,7 @@
       height: 10px; padding: 0 2px; border-radius: var(--r);
       font-size: 8.5px; font-weight: 800; line-height: 10px; opacity: 1;
       color: rgba(58,49,40,.62); background: rgba(255,253,248,.8);
-      box-shadow: inset 0 0 0 1px var(--ink-line);
+      box-shadow: inset 0 0 0 1px var(--crease);
     }
     #build:not(.browse) .tool.warn .cost { color: var(--accent); }
     #build:not(.browse) .tool.poor .cost { color: var(--accent); opacity: 1; }
@@ -4540,7 +5104,7 @@
        keeps the old flat button. Art does not: a hire IS drawn, and their well
        has to be the same fixed height every other slot's is or the button
        changes height with the drawing in it. */
-    #build.browse .tool .ico:not(.art) { background: none; box-shadow: none; height: auto; }
+    #build.browse .tool .ico:not(.art) { height: auto; }
     /* A ROSTER ENTRY MUST NOT RESIZE ITSELF. Its note is what that person is
        doing right now — "on the till", then "carrying 4x tomato", then "off for
        a break" — so a button sized to its own text is one that grows and
@@ -4565,7 +5129,7 @@
        down the left of the whole bar rather than between anything. */
     #build-tools .run {
       flex: none; display: flex; align-items: center; justify-content: center;
-      width: 15px; padding-left: 5px; border-left: 1px solid var(--ink-line);
+      width: 15px; padding-left: 5px; border-left: 1px solid var(--crease);
     }
     #build-tools .run:first-child { border-left: 0; padding-left: 0; }
     #build-tools .run i {
@@ -4622,12 +5186,16 @@
       position: absolute; bottom: calc(100% + 8px); left: 0;
       display: flex; flex-direction: column; align-items: stretch; gap: 2px;
       width: 186px; max-width: calc(100vw - 40px);
-      /* Paper, because the bar it hangs off is (see `#build-bar`) and because
-         it is MADE of `.tool`s — a column of inked plates standing on frosted
-         glass is the disagreement the bar just stopped having, two inches
-         higher up the screen. */
+      /* Paper, and it stays paper now that the bar under it is glass again.
+         The old note here said it was paper BECAUSE the bar was, and that half
+         is dead; what survives is the other half, which was always the real
+         reason — it is a LIST you read, 186px wide, hanging over the middle of
+         the shop rather than over the bottom edge of it. The bar can be glass
+         because it is a strip along the bottom and the alternative is a wall.
+         A card of six lines of type has no such problem and gains nothing but a
+         busier ground behind the words. */
       background: var(--panel-solid); border-radius: var(--r); padding: 5px;
-      box-shadow: inset 0 0 0 1.5px var(--ink-line), 4px 5px 0 var(--ink-line);
+      box-shadow: var(--cast);
     }
     #build-shapes[hidden] { display: none; }
     /* One row per shape: its picture on the left, its name beside it, both hard
@@ -4712,7 +5280,46 @@
        `#log` is deliberately not in here any more — see its own rule. These two
        are things you read *while pressing something*, so they have to move with
        the bar; the feed is not. */
-    #carry, #prompt { bottom: calc(var(--nav-top) + var(--build-h) + 8px); }
+    #carry, #prompt, #emotes { bottom: calc(var(--nav-top) + var(--build-h) + 8px); }
+
+    /* ---- the emote strip ---------------------------------------------------
+       Held up by V, gone on the release. It sits exactly where `#prompt` does
+       and TAKES ITS PLACE (`body.emoting #prompt`) rather than stacking above
+       it, because the two answer the same question — "what would a press do
+       right now" — and the pill's answer is about a press you are not making
+       while you are holding this open. Two captions in one spot is the shop
+       telling you two different things about the same hand.
+
+       Buttons rather than a row of glyphs, and clickable rather than only
+       keyed, because the gesture is HOLD-then-choose: the key that opens the
+       strip is not the key that picks from it, and a mouse is already free.
+       They wear `.rail-btn` so a strip that appears for a second is in the
+       same hand as everything else on screen — a second button design is the
+       mixed-weight bug the icon script's header is about, wearing CSS. */
+    #emotes {
+      left: 50%; transform: translate(-50%, 8px); opacity: 0;
+      display: flex; gap: 6px; pointer-events: none;
+      transition: opacity .12s, transform .12s;
+    }
+    /* Fast, and faster than the pill's .14s on purpose: this is up for as long
+       as a key is down, so an entrance you can watch is one that is still
+       arriving when somebody has already pressed 1. */
+    #emotes.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+    body.emoting #prompt { display: none; }
+    /* The name under the mark. A row of four hands is not self-explanatory —
+       `point` and `wave` are the same hand at 18px — and this is the one strip
+       in the game nobody has ever seen before, so it says what each one is
+       until it doesn't have to. */
+    #emotes .em-btn { width: 52px; height: 52px; grid-template-rows: auto auto; gap: 1px; }
+    /* The rail's own badge, moved off the corner: a 52px button with a caption
+       across the bottom has no corner left, so the number sits top-right where
+       nothing else is. Same size, same weight, same opacity — it is the same
+       mark saying the same thing. */
+    #emotes .em-btn .kb { bottom: auto; top: 3px; right: 4px; }
+    #emotes .em-btn .lbl {
+      font-size: 8.5px; font-weight: 800; letter-spacing: .03em;
+      text-transform: uppercase; opacity: .55;
+    }
     /* ...and on a phone the two of them STACK, because there the pill is not a
        caption in the middle of the screen — its rows are buttons, so it is a
        full-width block at exactly the height the carry card sits at, and it drew
@@ -4897,6 +5504,32 @@
       border-radius: var(--r);
     }
     #marquee.show { display: block; }
+
+    /* ---- the crosshair ----------------------------------------------------
+       Only ever up while the mouse has been taken away (`body.looking`, set by
+       the Pointer Lock — see `grabLook` in client/main.js), and it is the whole
+       reason that lock is safe: with no cursor, every press aims at the middle
+       of the canvas, and a middle nobody can see is a shop answering presses at
+       a spot the player never chose.
+
+       A RING RATHER THAN CROSS HAIRS, and small. This is a shop, not a shooter
+       — the thing the dot does is say which shelf a press would open, which is
+       the job the hover ring already does out in the world, so it is drawn as
+       the smallest possible member of that family rather than as a weapon
+       sight. Two colours, dark over light: the aim sits over grass, cream
+       flooring, a lit freezer and a black conveyor throat, and a single ink
+       disappears into at least one of them.
+
+       `pointer-events: none` is load-bearing rather than tidy. It sits exactly
+       where every press lands. */
+    #reticle {
+      display: none;
+      left: 50%; top: 50%; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px;
+      border-radius: 50%; pointer-events: none;
+      background: rgba(58,49,40,.85);
+      box-shadow: 0 0 0 1.5px rgba(255,252,244,.75);
+    }
+    body.looking #reticle { display: block; }
 
     /* ---- the award card ---------------------------------------------------
        The one thing on screen that is allowed to look like a game rather than
@@ -5755,9 +6388,144 @@
       #season, .spark { display: none; }
       .rows { grid-template-columns: auto auto; }
     }
+
+    /* ---- THE PRESS -------------------------------------------------------
+       One rule for every control in the HUD, and it has to be the LAST thing in
+       this file. `:active` on a bare class is (0,1,1) at best, which ties with
+       the rules it is overriding — so what decides it is source order, and a
+       press written next to the button it presses would be beaten by the next
+       state anybody adds under it. Everything it presses stores its own contour
+       in `--sil` and never in `box-shadow`, so this drops the SIDE and keeps
+       whatever line the control is wearing: lit, armed, open, hovered, all of
+       them press the same way and none of them has a rule here.
+
+       `transform` and not `margin-top`: the strip is measured for `--build-h`
+       and the rail sets `--nav-h`, so a press that moved a box would move the
+       whole bottom stack of the HUD by 2px every time you clicked anything.
+
+       A tile you cannot buy does not press. That is the point of `not-allowed`
+       — the refusal is in `bar.js` and the button is still there to be asked
+       why, but it must not answer a click with the animation that means yes. */
+    .tool:active,
+    .rail-btn:active,
+    .tab:active,
+    .dtab:active,
+    .row button:active,
+    .midrow:active,
+    .gtile:active,
+    .gsub:active,
+    .im-step button:active,
+    .im-clear:active,
+    .im-tog:active,
+    .fx-price button:active,
+    .cat:active,
+    .subcat:active,
+    #build-deck button:active,
+    .fx-take:active,
+    /* AND THE FRONT DOOR, which used to have four `:active` rules of its own
+       scattered through its own section — one per control, each restating the
+       whole box-shadow, and one of them (`.menu-support`) forgetting to drop the
+       side at all. They are gone. This screen redefines `--edge` and `--press`
+       on `.menu-box` and stores every contour in `--sil`, which is the whole of
+       what it takes to join in: the same rule presses a 30px size button, a 38px
+       mute and a 44px Play, and none of the states any of them wears — hovered,
+       lit, armed, focused — needs a line here.
+       `.wacts button` and not `.wplay`: at (0,2,1) it beats the (0,2,0) of
+       `.wacts .wplay`, which is the specificity trap that section already
+       documents, so Play presses like everything else without a rule of its
+       own. The CARDS are deliberately absent — a card is not a control, and a
+       list that squashed under the cursor would be a shop you can push. */
+    .tier:active,
+    .menu-mute:active,
+    .menu-add:active,
+    .menu-support:active,
+    .wacts button:active {
+      transform: translateY(var(--press));
+      box-shadow: var(--sil);
+    }
+    /* It carries its own centring transform, so the press is added to it rather
+       than replacing it — the 3px is the nudge sitting off the strip's midline,
+       and a press that forgot it would jump the chip half its own height. */
+    .nudge:active {
+      transform: translateY(calc(-50% - 3px + var(--press)));
+      box-shadow: var(--sil);
+    }
+    .tool.poor:active, .tool.off:active,
+    .fx-take:disabled:active, .fx-price button:disabled:active {
+      transform: none;
+      box-shadow: var(--sil), var(--edge);
+    }
+
+    /* ---- AND THE RING THAT ISN'T OURS ------------------------------------
+       `.rail-btn` has had this since it was written and says why at length: the
+       browser's own focus ring is a heavy blue box in somebody else's colours,
+       and on a row whose entire job is showing you which one is lit, a second
+       and louder "this one" following the last thing you pressed is worse than
+       no state at all. Every control that grew a press in this pass has the
+       same problem and none of them had the same answer — a mouse click focuses
+       a `<button>`, so pressing the Building tab left a blue rectangle round it
+       that had nothing to do with the tab being open.
+       `:focus-visible` and not `:focus`, so a mouse leaves nothing behind and
+       Tab still shows you where you are; `--ink` rather than the lit yellow,
+       and OUTSIDE the control, where its own state lives on the inside. */
+    .tab:focus, .dtab:focus, .tool:focus, .midrow:focus, .gtile:focus,
+    .gsub:focus, .im-step button:focus, .im-clear:focus, .im-tog:focus,
+    .fx-price button:focus, .fx-take:focus, .row button:focus, .nudge:focus,
+    .shape:focus, .tier:focus, .cat:focus, .subcat:focus,
+    .menu-mute:focus, .menu-add:focus, .menu-support:focus, .wacts button:focus,
+    .corner-x:focus { outline: none; }
+    .tab:focus-visible, .dtab:focus-visible, .tool:focus-visible,
+    .midrow:focus-visible, .gtile:focus-visible, .gsub:focus-visible,
+    .im-step button:focus-visible, .im-clear:focus-visible, .im-tog:focus-visible,
+    .fx-price button:focus-visible, .fx-take:focus-visible,
+    .row button:focus-visible, .nudge:focus-visible, .shape:focus-visible,
+    .tier:focus-visible, .cat:focus-visible, .subcat:focus-visible,
+    #build-deck button:focus-visible, .corner-x:focus-visible,
+    /* The front door's four, which had between them one ring and it was in
+       `--accent`. Everything else on that screen answered a keyboard with the
+       browser's blue box — including the tip jar, an `<a>` that leaves the page
+       with an unsaved shop behind it, which is the one press on the front door
+       most worth being sure about before you send it. */
+    .menu-mute:focus-visible, .menu-add:focus-visible,
+    .menu-support:focus-visible, .wacts button:focus-visible {
+      outline: 2px solid var(--ink); outline-offset: 2px;
+    }
   </style>
 </head>
 <body>
+  <!-- THE NIB. Two filters, because one is a texture: a single shape of wobble
+       repeated on every card on screen reads as a pattern, which is the thing a
+       drawn line exists not to be. See client/ink-edge.js for which card gets
+       which, and for why only three of them get one at all.
+       `baseFrequency` is what decides whether this is a hand or a tremor — low
+       enough and the line simply bows, high enough and it is a hairy mess. The
+       `scale` is how far it may wander, and it must stay under `INSET` in that
+       file or the wander clips against the two cards that hide their overflow.
+       Kept out of the stylesheet because a filter is markup, and inline in the
+       page rather than in a file because the CSP allows no external fetch and a
+       data-URI filter cannot be referenced by `url(#id)`. -->
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <filter id="rough-a" x="-6%" y="-20%" width="112%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.028" numOctaves="3" seed="4" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2.1" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="rough-b" x="-6%" y="-20%" width="112%" height="140%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.032" numOctaves="3" seed="19" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="1.9" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <!-- The small nib, for the two 146px corner widgets. Same wander at that
+         width is a third of a corner and reads as a card somebody sat on — a
+         higher `baseFrequency` and half the `scale`, so the line still breathes
+         without leaving the box it is drawing. -->
+    <filter id="rough-c" x="-8%" y="-24%" width="116%" height="148%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="3" seed="11" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="1.2" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="rough-d" x="-8%" y="-24%" width="116%" height="148%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.055" numOctaves="3" seed="27" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="1.1" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </svg>
   <canvas id="game"></canvas>
   <div id="edge" aria-hidden="true"></div>
   <!-- The loading screen. Static markup rather than something `boot.js` builds,
@@ -5877,7 +6645,13 @@
        the drag happens in, and a quad in the world would shear with the camera
        and stop being the shape your hand made. -->
   <div id="marquee" class="hud"></div>
+  <div id="reticle" class="hud" aria-hidden="true"></div>
   <div id="prompt" class="hud"></div>
+  <!-- The four things you can say with your arms, while V is held. Filled once
+       on the first press out of `shared/emotes.js` — see `showEmotes` — rather
+       than written out here, so a fifth emote is one line in that file and
+       reaches the strip, the number keys and the renderer together. -->
+  <div id="emotes" class="hud" role="group" aria-label="Emotes"></div>
   <div id="boardtip" class="hud"></div>
   <!-- Every unit's card at once, while Alt is held. Its own layer rather than
        cards parented to anything, because they are pinned to the WORLD: each is

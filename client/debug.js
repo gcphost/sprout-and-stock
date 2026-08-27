@@ -11,8 +11,10 @@
  * had the readout up to look at. "It feels chunky here" is a report you get by
  * standing somewhere; a reload puts you back at the door.
  *
- * So they are switches like every other switch, on the Menu's own grid beside
- * the tour and the sound. Three things about this file:
+ * So they are switches like every other switch, on the Menu's View tab — the
+ * tab for everything that is only a picture, which is what these are. They sat
+ * beside the tour and the sound until that grid reached ten tiles and split;
+ * see `viewGrid` in client/sections.js. Three things about this file:
  *
  * The **URL still works**, and is read once at load. Every note written about
  * `?perf` and `?tiles` — in this repo and in a chat log somebody keeps — stays

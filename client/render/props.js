@@ -679,8 +679,15 @@ export function characterParts(color, { hat = null, variant = '', varied = false
    *
    * The whites are the point. Two dark dots is a button-eyed toy; a panel of
    * sclera with a pupil sitting proud of it is a face. Brows are what make it
-   * capable of an expression at all, so they are here even though nothing
-   * animates them yet.
+   * capable of an expression at all, and `face` below is what finally asks
+   * them to — see render/face.js.
+   *
+   * The seven indices are handed back for the reason `head` is: in the batch
+   * there is no mesh to give anybody, so a caller that wants to move an eyebrow
+   * gets the SLOT it lives in. They are collected as they are authored rather
+   * than counted afterwards, because a part inserted above this block would
+   * silently shift every hardcoded index by one and what that draws is a
+   * shopper blinking with their hair.
    *
    * Order within the group is not what puts a fringe over an eye or a nose over
    * a face — these are opaque boxes and the depth buffer settles it, so what
@@ -688,13 +695,17 @@ export function characterParts(color, { hat = null, variant = '', varied = false
    * below READ as though they were layered.
    */
   const trim = sink('body', 'trim');
+  const face = { eyes: [], pupils: [], brows: [], mouth: -1 };
   for (const s of [-1, 1]) {
-    part(trim, '#fdfaf4', [0.058, 0.062, 0.02], [s * 0.058, 0.672, 0.132], { shadow: false });
-    part(trim, '#2b323b', [0.032, 0.038, 0.02], [s * 0.060, 0.670, 0.142], { shadow: false });
-    part(trim, '#6d5a4a', [0.062, 0.015, 0.02],
-      [s * 0.060, 0.716, 0.136], { shadow: false, rot: [0, 0, s * -0.16] });
+    face.eyes.push(
+      part(trim, '#fdfaf4', [0.058, 0.062, 0.02], [s * 0.058, 0.672, 0.132], { shadow: false }));
+    face.pupils.push(
+      part(trim, '#2b323b', [0.032, 0.038, 0.02], [s * 0.060, 0.670, 0.142], { shadow: false }));
+    face.brows.push(
+      part(trim, '#6d5a4a', [0.062, 0.015, 0.02],
+        [s * 0.060, 0.716, 0.136], { shadow: false, rot: [0, 0, s * -0.16] }));
   }
-  part(trim, '#95604f', [0.062, 0.018, 0.02], [0, 0.606, 0.134], { shadow: false });
+  face.mouth = part(trim, '#95604f', [0.062, 0.018, 0.02], [0, 0.606, 0.134], { shadow: false });
 
   /*
    * Hair, which is the whole silhouette.
@@ -861,8 +872,10 @@ export function characterParts(color, { hat = null, variant = '', varied = false
   }
   // `head` is an INDEX rather than a mesh, because in the batch there is no
   // mesh to hand back — `animateMoods` recolours one instance. The mesh path
-  // turns it back into an object below.
-  return { scale, parts, bones, head };
+  // turns it back into an object below. `face` is six more of the same, and
+  // only the batch can use them: the mesh path WELDS `trim` into a single
+  // object, so there is nothing left in there to move an eyebrow of.
+  return { scale, parts, bones, head, face };
 }
 
 /**
@@ -2456,13 +2469,18 @@ export function buildEdgeArrow(color = 0x7cc46a) {
  * caller each frame; this only builds the shape.
  */
 export function buildRipple(color = '#ffd66b') {
+  // A square rather than a disc, for the reason `buildStamp` gives: what you
+  // pressed is a TILE, and the ground it spreads over is a grid of them, so a
+  // circle is the one shape on this floor that agrees with nothing under it.
+  //
   // Thin-walled, so scaling it up reads as a wave spreading rather than as a
-  // disc growing. The geometry is unit-sized and the scale does the work —
-  // which also means the wall thickness is a *proportion*, so shrinking the
-  // ripple thins the line by the same factor. This is 0.28 of the radius
-  // rather than 0.14 because the ripple was halved after it was first drawn,
-  // and halving it again in weight turned "smaller" into "fainter".
-  return groundFlash(new THREE.RingGeometry(0.72, 1, 40), color);
+  // block growing. The geometry is unit-sized — one span is one tile, the same
+  // convention the stamp uses, which is what makes `RIPPLE_TO` readable as a
+  // width. The wall thickness is therefore a *proportion*, so shrinking the
+  // ripple thins the line by the same factor: 0.16 of the half-span rather than
+  // the stamp's 0.1, because this one ends up well under a tile across and
+  // shrinking it again in weight turns "smaller" into "fainter".
+  return groundFlash(new THREE.ShapeGeometry(frameShape(0.5, 0.16)), color);
 }
 
 /**
@@ -2492,15 +2510,21 @@ export function buildStamp(color = '#7cc46a') {
  * mine" as well, which is why it takes the player's own colour rather than one
  * highlight colour for everybody.
  *
- * Two rings rather than one, and the pale outer one is the half that does the
+ * Two frames rather than one, and the pale outer one is the half that does the
  * work: the shop floor is cream and every player colour is a mid tone, so a
- * single ring vanishes against pale ground exactly where a shop is brightest.
+ * single frame vanishes against pale ground exactly where a shop is brightest.
  * The white sits under the colour like a sticker's border, so there is always
  * an edge whatever it is standing on.
  *
+ * Square, for the reason the stamp and the press ripple are: this floor is a
+ * grid, every mark on it that means anything is tile-shaped, and a disc is the
+ * one outline down here that lines up with nothing around it. It is also what
+ * lets it be SMALLER without going faint — a square set inside a tile still
+ * reaches the corners a circle of the same footprint gives away.
+ *
  * `depthTest` stays ON, unlike the ripple's — this one is permanent, and a
- * permanent mark that ignores depth is a ring drawn on top of every shelf you
- * walk behind. `depthWrite` is off so the two rings do not z-fight each other.
+ * permanent mark that ignores depth is a mark drawn on top of every shelf you
+ * walk behind. `depthWrite` is off so the two frames do not z-fight each other.
  *
  * ...and THAT is what decides the height, which is the whole of why the first
  * version of this was invisible. Ground is not a plane: every tile kind is a
@@ -2528,17 +2552,23 @@ export function buildFootMark(color = '#5b8ff9') {
     return m;
   };
   // The outer edge is the body's own footprint plus a little — big enough to
-  // read as a ring around them rather than as a hoop they are wearing, small
+  // read as a frame around them rather than as a box they are wearing, small
   // enough that two people stood at one counter do not overlap. Thin, because
   // this is a thing you notice rather than a thing you look at: it is answering
   // "which of these is me" for somebody who is reading the SHOP, so a heavy
-  // ring wins that question by becoming the loudest object on the floor.
-  ring(new THREE.RingGeometry(0.35, 0.44, 40), '#ffffff', 0.22, 3);
-  ring(new THREE.RingGeometry(0.37, 0.42, 40), color, 0.5, 4);
+  // mark wins that question by becoming the loudest object on the floor.
+  //
+  // 0.68 across, where the ring it replaced was 0.88: the corners still reach
+  // about as far as that ring's edge did, so the mark holds its size on the
+  // diagonal while giving back the width that made it the biggest thing on the
+  // tile. The colour frame nests strictly inside the white one, leaving a pale
+  // edge on both sides of it.
+  ring(new THREE.ShapeGeometry(frameShape(0.34, 0.045)), '#ffffff', 0.22, 3);
+  ring(new THREE.ShapeGeometry(frameShape(0.33, 0.025)), color, 0.5, 4);
   // ...and a wash inside it, which is what makes the person read as lit from
-  // below rather than as standing in a drawn circle. Very faint on purpose: any
+  // below rather than as standing in a drawn square. Very faint on purpose: any
   // stronger and it fights the shadow that is also under them.
-  ring(new THREE.CircleGeometry(0.37, 32), color, 0.07, 2);
+  ring(new THREE.PlaneGeometry(0.59, 0.59), color, 0.07, 2);
   g.position.y = 0.095;
   return g;
 }
@@ -3086,6 +3116,116 @@ export function weld(group, keep = null) {
   }
   for (const s of loose) out.add(s);
   return out;
+}
+
+/* ------------------------------------------------------- the other ink pass */
+
+/**
+ * THE CONTOUR AS GEOMETRY, WHICH IS THE THING THE SCREEN-SPACE ONE CAN NEVER BE.
+ *
+ * `client/render/post.js` finds lines by reading the finished picture, which is
+ * why every fixture in the game gets them for nothing and why they can never be
+ * sharp: both of its detectors answer one of two numbers per pixel, so the mask
+ * is binary and a diagonal comes out as a staircase. See `INK.SHARP` in look.js
+ * for the two dead ends — a softer threshold and a supersampled detector — and
+ * why FXAA is a treatment rather than a fix.
+ *
+ * A line that is GEOMETRY has none of that problem, because it is drawn with the
+ * shop and resolved by the same `SCENE_SAMPLES` every other edge is. What it
+ * costs instead is everything the post pass gets free:
+ *
+ *   - **One weight, for ever.** WebGL ignores `lineWidth` — every line is one
+ *     device pixel whatever the material says — so `INK.FADE` has nothing to act
+ *     on and a shelf at the back of the shop is drawn as heavily as the one you
+ *     are standing at. That is the opposite of what look.js tuned.
+ *   - **Creases only.** An edge exists where two of an object's own faces meet,
+ *     so this cannot draw a silhouette against the sky, and it says nothing
+ *     about one object standing in front of another.
+ *   - **Static only.** A blade that spins takes its lines with it and these do
+ *     not move, so anything in `userData.moving` is skipped — a machine with a
+ *     drawn line lying where its blade used to be is worse than one with none.
+ *
+ * So it is not a replacement and is not offered as one. What it is is the half
+ * of the drawing that a still frame shows worst: the panel lips of a big flat
+ * machine, which are exactly the creases the half-res normals buffer quantises.
+ *
+ * ONE MERGED `LineSegments` FOR THE WHOLE SHOP, which is the only reason this is
+ * affordable at all. `weld` makes the same argument two functions up: the cost
+ * is per OBJECT rather than per triangle, and a line per fixture in a furnished
+ * shop is ~1,600 more draws. Collected in WORLD space during the fixture loop
+ * and merged once at the end, so a stocked shop pays one.
+ *
+ * `EdgesGeometry` is cached against the geometry it was cut from. Every box in
+ * the game is the same shared `GEO.box` behind a scale, so a shop of two
+ * thousand parts asks for the edges of a cube once.
+ */
+const EDGE_CACHE = new Map();
+
+/**
+ * Collect one group's edges into `out`, already in world space.
+ *
+ * `angle` is the crease threshold in degrees — below it two faces are treated as
+ * one surface and no line is drawn between them. 24 is chosen against the art
+ * rather than by eye: nothing in this game is smooth-shaded, so the only edges
+ * under that are the facets of a cylinder, and a barrel wearing every one of its
+ * own facets as a hard line reads as a cog.
+ */
+export function collectEdges(group, out, { angle = 24, skip = null } = {}) {
+  group.updateMatrixWorld(true);
+  group.traverse((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    // A part that moves on its own would leave its lines behind. See above.
+    if (skip && skip(o)) return;
+    // Glass, and the same call `buildModel` makes about its shadow: a door you
+    // can see through has no business laying down a solid black rectangle. The
+    // FRAME round it is opaque and keeps its lines.
+    if (o.material?.transparent && (o.material.opacity ?? 1) < 0.9) return;
+    let edges = EDGE_CACHE.get(o.geometry.uuid);
+    if (!edges) {
+      edges = new THREE.EdgesGeometry(o.geometry, angle);
+      EDGE_CACHE.set(o.geometry.uuid, edges);
+    }
+    out.push(edges.clone().applyMatrix4(o.matrixWorld));
+  });
+}
+
+/**
+ * Fold everything `collectEdges` gathered into the one object that draws it.
+ *
+ * `depthWrite` is off and the depth TEST is on, which is the pair that makes
+ * this read as a line on a solid thing rather than as a wireframe: the far
+ * edges of a box are behind its own front faces and fail the test, so a shelf
+ * does not show you its own back corners.
+ *
+ * ...and the nudge is what stops that pair stippling. An edge sits exactly on
+ * the boundary of the faces it belongs to, so at the silhouette the line and
+ * the surface are at the SAME depth and which one wins is down to whatever the
+ * rasteriser rounds to — which is a line that is drawn for eleven pixels, gone
+ * for three, and back for nine. It reads as a dashed line somebody authored.
+ * A constant fraction of `w` in clip space is the standard answer and is the
+ * one that survives an ortho camera, where a fixed epsilon in view space would
+ * be worth a different number of depth units at each end of the shop.
+ * `polygonOffset` is the usual tool and is no use here: WebGL only implements
+ * `POLYGON_OFFSET_FILL`, so three sets the flag and nothing happens to a line.
+ */
+export function buildEdgeLines(geometries, color, opacity) {
+  if (!geometries.length) return null;
+  const merged = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries, false);
+  if (merged !== geometries[0]) geometries.forEach((g) => g.dispose());
+  if (!merged) return null;
+  const mat = new THREE.LineBasicMaterial({
+    color: new THREE.Color(color),
+    transparent: opacity < 1,
+    opacity,
+    depthWrite: false,
+  });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <project_vertex>',
+      '#include <project_vertex>\n  gl_Position.z -= 0.0006 * gl_Position.w;',
+    );
+  };
+  return new THREE.LineSegments(merged, mat);
 }
 
 /** Free the GPU memory a prop group holds. Materials are shared — don't dispose those. */

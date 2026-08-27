@@ -592,7 +592,7 @@ export async function showJoin({ name, code } = {}) {
  * corner is a promise about a screen size, and there is no corner left on a
  * phone that nothing else has claimed.
  *
- * So the button is a row in the Menu (`switchGrid` in client/sections.js) and
+ * So the button is a row in the Menu (the Game tab in client/sections.js) and
  * this keeps only the half that cannot live there: the peer count, which the
  * transport reports and nothing else hears. Counting joins where the button is
  * drawn is how the old pill came to claim a friend was connected for the rest

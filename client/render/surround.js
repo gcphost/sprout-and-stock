@@ -204,6 +204,26 @@ export const HAZE = {
   color: { value: new THREE.Color('#cfe9f5') },
   span: { value: new THREE.Vector4(0, 0, 1, 1) },
   /**
+   * WHAT THE DAY IS DOING TO THE GROUND — `Lights.outdoor`, per channel.
+   *
+   * The two things this file draws are the only outdoor surfaces in the game
+   * that are not baked: the apron is one box the size of the world, and the
+   * backdrop is instanced bands standing well outside every cell there is. So
+   * neither can take the day the way a tile does (see THE ROOF in lights.js —
+   * the sky itself is held at midday now, and everything outdoors is darkened
+   * per cell instead), and without this they would be the two things in the shot
+   * still lit at noon after dark: a bright field beyond the last dark tile, and
+   * a horizon that never sets. Both are straight lines the length of the map,
+   * which is the one kind of seam an eye catches every time.
+   *
+   * Multiplied in BEFORE the haze, because it is a fact about the surface's
+   * light rather than about the air between it and the eye — and the air is
+   * already the sky (`HAZE.color` is repainted by `updateSky`), so a ground that
+   * darkens into an evening sky is a sunset and one that darkened after being
+   * mixed with it would be a grey card laid over the horizon.
+   */
+  day: { value: new THREE.Color(1, 1, 1) },
+  /**
    * WHICH WAY THE CAMERA IS, AND HOW MUCH IT MINDS — `(dirX, dirZ, strength)`.
    *
    * A ring surrounds the lot, so a quarter of it is always on the camera's side
@@ -353,6 +373,7 @@ function hazed(color, own, sink = SINK_NEAR, grain = false) {
     shader.uniforms.uHaze = HAZE.color;
     shader.uniforms.uSpan = HAZE.span;
     shader.uniforms.uNear = HAZE.near;
+    shader.uniforms.uDay = HAZE.day;
     shader.vertexShader = inject(
       `varying vec3 vSurWorld;
        uniform vec4 uSpan;
@@ -401,9 +422,16 @@ function hazed(color, own, sink = SINK_NEAR, grain = false) {
       uniform vec3 uHaze;
       uniform vec4 uSpan;
       uniform vec3 uNear;
+      uniform vec3 uDay;
       ${shader.fragmentShader}`,
       '#include <colorspace_fragment>',
       `{
+         // THE DAY, first of the three -- see HAZE.day. It is at most 1 on every
+         // channel, so it can only ever take light away, which is what keeps it
+         // out of the clipping argument paintLit has with the toon ramp. (No
+         // backticks in here: this block is inside a template literal, and one
+         // ends the string mid-shader for a syntax error four lines further on.)
+         gl_FragColor.rgb *= uDay;
          ${grain ? `{
            /**
             * THE GRAIN, and it goes in BEFORE the haze on purpose: it is a fact
