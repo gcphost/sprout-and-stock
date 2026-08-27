@@ -623,6 +623,26 @@ export const FixtureSchema = z.object({
   kind: slug.optional(),
   name: z.string().min(1).max(48),
   /**
+   * WHERE THE ART HANGS FROM, for the one anchor a model cannot say about
+   * itself: the head of the wall.
+   *
+   * Everything else in the game stands on the ground it is standing on, and a
+   * model authored in absolute heights says all of that perfectly well. An
+   * awning does not — it is bolted to a building, so the number it wants is
+   * whatever `WALL_H` is today, and a model that names one is a canopy floating
+   * under the fascia the next time the walls grow. Which is what happened, and
+   * what it reads as is the awning being the wrong size rather than a constant
+   * having moved out from under it.
+   *
+   * It is a LOOK and nothing else: the renderer stands the model's own top on
+   * that line and no rule, price or placement test has heard of it. On the piece
+   * rather than on the kind, because a decoration on the floor and one on the
+   * wall play by identical build rules — see `prop-floor`.
+   *
+   * Null is every row ever authored, and null is the floor.
+   */
+  hangs: z.enum(['head']).nullable().default(null),
+  /**
    * Staged by tier: stage 1 is what you buy, the last stage is fully upgraded.
    * An unstaged model just means every tier looks the same.
    *

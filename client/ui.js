@@ -4177,10 +4177,11 @@ export class UI {
     const town = Math.round(state.catchment ?? 0);
     const here = Math.round(state.inShop ?? 0);
     const room = state.room ?? null;
-    // What share of the town walks in. It is `reputation × world events`, which
-    // is the answer to "does rep decide how many people come" — it decides
-    // nothing else, and it is the only percentage on this panel that is a rate
-    // rather than a level, hence a second line rather than a fourth bar.
+    // What share of the town walks in. `reputation × world events`, times the
+    // share of those who can get through the door — see `pull` in the snapshot,
+    // which is where the second half was added and why. It is the only
+    // percentage on this panel that is a rate rather than a level, hence a
+    // second line rather than a fourth bar.
     const share = Math.round((state.pull ?? 0) * 100);
     const townKey = `${here}/${room}/${town}/${share}`;
     if (townKey !== this._town) {
@@ -4195,8 +4196,9 @@ export class UI {
       // On the element rather than in the markup, because the sentence names
       // the numbers — see `tip.js`, which adopts any `title` in the HUD.
       this.el.town.title = `${here} in the shop${room ? `, which holds about ${room}` : ''}. `
-        + `${town} people are within reach and your reputation brings ${share}% of them in — `
-        + 'milestones, parking, charm and a better address all grow the town';
+        + `${town} people are within reach and ${share}% of them get in — `
+        + 'reputation and world events decide how many come, and how full you are '
+        + 'decides how many of those get through the door';
     }
     this.setGauges(state);
 

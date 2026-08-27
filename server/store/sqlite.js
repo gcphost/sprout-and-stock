@@ -428,6 +428,13 @@ const ADDED_COLUMNS = [
   // palette it has always been — which is the same claim the schema default
   // makes, and it has to be made in both places for the reason above.
   ['fixtures', 'sort', 'REAL NOT NULL DEFAULT 0'],
+  // Where a piece's art hangs from. 'null' is the floor, which is every row ever
+  // authored and every kind but one — the same claim the schema default makes,
+  // and it has to be made in both places for the reason `steal_chance` gives
+  // above. Stored as the string 'null' rather than as SQL NULL because that is
+  // how this table already spells an absent enum (see `archetypes.look`), and a
+  // column that spelled it the other way would need its own reader.
+  ['fixtures', 'hangs', "TEXT NOT NULL DEFAULT 'null'"],
 ];
 
 function addLateColumns(handle) {
@@ -491,7 +498,7 @@ const JSON_FIELDS = {
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
-  fixtures: ['model', 'work', 'body', 'tiers', 'variants', 'emits', 'sfx', 'surface', 'yields', 'produces', 'tags'],
+  fixtures: ['model', 'work', 'body', 'tiers', 'variants', 'emits', 'sfx', 'surface', 'yields', 'produces', 'tags', 'hangs'],
   workers: ['tags', 'model', 'tiers', 'jobs'],
   pastimes: ['buys', 'tags', 'model'],
   skins: ['slots', 'extras', 'tags'],

@@ -560,9 +560,34 @@ const clamp01 = (v) => Math.min(Math.max(v, 0), 1);
 const TINT = new THREE.Color();
 const DUMMY = new THREE.Object3D();
 
-/** An instanced backdrop mesh: hazed material, per-instance colour, unpickable. */
+/**
+ * An instanced backdrop mesh: hazed material, per-instance colour, unpickable.
+ *
+ * WHITE, BECAUSE `instanceColor` MULTIPLIES THE MATERIAL'S OWN COLOUR. Same
+ * three.js trap the shop's floor cells hit (see `addFloor` in scene.js) and the
+ * same arithmetic: every instance below is written by `put`, which sets an
+ * ABSOLUTE colour off `SURROUND_COLORS` — a hill tone, a roof, a parapet — so a
+ * material carrying one of those as well draws the whole backdrop at roughly
+ * colour SQUARED.
+ *
+ * It is severe here in a way it is not on near-white shop floor, because these
+ * are mid tones: `#8f96a3`, the city block, comes out `#4e5666`, and then three
+ * bands with `SHADOW_FLOOR` at 0.22 put every face that is not facing the sun
+ * on the dark step of THAT. What the skyline draws as is near-black cut-outs at
+ * noon — so the failure reads as the backdrop art being unfinished rather than
+ * as the renderer applying the palette twice.
+ *
+ * The tell is in `SURROUND_COLORS` itself: the ridge is authored LIGHTER than
+ * the ground it stands on, deliberately and with the reason written next to it,
+ * and the apron is the one surface in here that is NOT instanced — so it takes
+ * its colour once. Squared, every hill in the game was darker than the field in
+ * front of it, which is the exact thing that note says not to do.
+ *
+ * `color` is kept in the signature because it is what says which band a batch
+ * is; the colour that reaches the screen is the per-instance one.
+ */
 function batch(geo, color, count, own, sink = SINK_NEAR) {
-  const mesh = new THREE.InstancedMesh(geo, hazed(color, own, sink), count);
+  const mesh = new THREE.InstancedMesh(geo, hazed(0xffffff, own, sink), count);
   mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
   mesh.castShadow = false;
   mesh.receiveShadow = false;

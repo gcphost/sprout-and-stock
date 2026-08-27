@@ -6865,14 +6865,106 @@ let lastFrame = performance.now();
  *
  * Frame time as well as fps, and the two are not the same claim: fps averages
  * away the hitch that is actually being complained about, so the WORST frame in
- * each window is printed beside the mean. Draw calls and triangles come off
- * `renderer.info`, which is the difference between "this machine is slow" and
- * "this shop is heavy" — and `render.calls` is per frame, reset by three on
- * every draw, so it is read rather than accumulated.
+ * each window is printed beside the mean, with `jank` counting how many frames
+ * missed. Draw calls and triangles come off `renderer.info`, which is the
+ * difference between "this machine is slow" and "this shop is heavy".
+ *
+ * Four lines now, and each one exists to separate two diagnoses the line above
+ * it folds together:
+ *
+ *   - **fps / cap** — a capped rate is a saving, not a stall. See `JANK_SLACK`.
+ *   - **cpu / gpu against the budget** — which half of the machine is busy, and
+ *     whether either of them is. The budget is the cap rather than a constant,
+ *     and the verdict at the end of the line is the whole reason the numbers are
+ *     worth printing at all: see `HEADROOM`.
+ *   - **draws / tris / objs** — how heavy the shop is, and `objs` is the one
+ *     that catches a batched crowd: two draw calls, eleven hundred objects for
+ *     `projectObject` to walk twice a frame.
+ *   - **geo / tex / prog** — the numbers that only mean anything over time. Flat
+ *     is healthy; climbing on a shop standing still is a leak.
+ *
+ * `render.calls` used to be read straight off `info` after the frame, which was
+ * a measurement of the ink pass's composite quad rather than of the shop — see
+ * `info.autoReset` in scene.js for the whole of that.
  */
-const perf = { at: 0, frames: 0, worst: 0, el: null };
+const perf = { at: 0, frames: 0, worst: 0, jank: 0, cpu: 0, draws: 0, tris: 0, el: null };
 
-function stepPerf(now, ms) {
+/**
+ * ...AND HOW MUCH OF THAT TIME WAS OURS, WHICH THE FRAME INTERVAL CANNOT SAY.
+ *
+ * `render` returns when the last draw is *submitted*, not when it is done, so
+ * the gap to the next frame is our JS plus the driver's queue plus the
+ * compositor plus a vsync — and a readout that showed only the gap was equally
+ * consistent with three unrelated diagnoses. CPU is measured here (the frame
+ * body, top of `loop` to after `scene.render`) and GPU comes off `scene.gpuClock`.
+ * Together they say which half to fix; apart, neither does.
+ */
+function endPerf(started) {
+  if (perf.el) perf.cpu = Math.max(perf.cpu, performance.now() - started);
+}
+
+/**
+ * ...AND THE FRAME RATE HAS A CEILING THAT IS OFTEN THE WHOLE ANSWER.
+ *
+ * The loop caps itself at `DRAW_HZ`, and drops to `PAUSED_HZ` on a stopped shop
+ * nobody is touching — so a paused game reads *10 fps, 100.0ms, worst 100.1ms*,
+ * which is three alarming numbers describing a saving working exactly as
+ * designed. That is the readout at its worst: not wrong, but pointed at
+ * something nobody asked about, and indistinguishable at a glance from a shop
+ * that has fallen over. Printing the cap beside the rate is the fix, and `jank`
+ * is counted against the cap rather than against a fixed 30fps for the same
+ * reason — every frame of a deliberate 10Hz would otherwise be a dropped one.
+ */
+const JANK_SLACK = 1.6;
+
+/**
+ * WHAT THE NUMBERS ARE SUPPOSED TO BE, which is the question a profiler that
+ * only prints measurements leaves you holding.
+ *
+ * There is no absolute good figure for either half, and looking one up is the
+ * wrong instinct: the budget is not a property of the machine, it is `1000 / hz`
+ * — the cap the loop set for itself. At `DRAW_HZ` that is 25ms, and while the
+ * shop is stopped it is 100. So the same 40ms frame is a disaster in play and a
+ * third of the budget on a paused shop, and no constant written down here could
+ * tell those apart. It is derived per window instead.
+ *
+ * THE TWO HALVES DO NOT ADD UP, and that is the part worth knowing before
+ * reading the line. CPU and GPU are pipelined — while the driver chews on frame
+ * N the tab is already building N+1 — so the frame is bound by `max(cpu, gpu)`
+ * and never by their sum. Adding them is the natural mistake and it reports a
+ * comfortable frame as an overrun.
+ *
+ * `HEADROOM` is what separates "fits" from "fits today". A frame is not sized by
+ * its mean: the shadow map is a second full draw of the shop on a cadence, a
+ * re-flow rebuilds the world mid-frame, and a busy evening is a thousand more
+ * objects than a quiet morning. Sitting at 95% of budget means every one of
+ * those is a dropped frame, so the bar for "there is room here" is well under
+ * the line rather than on it.
+ *
+ * ...and the fourth answer is the one nothing else in the readout can give:
+ * NEITHER. If the frame is long and both halves are short, the time is going
+ * somewhere that is not this page — a throttled background tab, the window
+ * compositor, another process on the GPU — and every hour spent optimising our
+ * two numbers would move nothing. That case used to be invisible, and it is the
+ * one that wastes the most time, because the shop genuinely is slow and
+ * everything you can see about it looks fine.
+ */
+const HEADROOM = 0.6;
+
+function boundName(cpu, gpu, frame, budget) {
+  const head = Math.max(cpu, gpu ?? 0);
+  // Idling at the cap on purpose — the healthy state, and the one that looks
+  // alarming because `frame` sits exactly on the budget by construction.
+  if (head < budget * HEADROOM && frame <= budget * 1.25) return 'at cap, room to spare';
+  // The frame is long and neither of ours accounts for it.
+  if (frame > budget * 1.25 && head < frame * 0.6) return 'stalled elsewhere';
+  // With no timer query there is only one number, so the honest answer names
+  // what was measured rather than implying the other half was ruled out.
+  if (gpu == null) return cpu > budget * HEADROOM ? 'cpu busy (gpu unknown)' : 'gpu unknown';
+  return gpu > cpu ? 'gpu bound' : 'cpu bound';
+}
+
+function stepPerf(now, ms, hz) {
   if (!debugOn('perf')) return;
   if (!perf.el) {
     // The window starts here rather than at zero, or the first thing the
@@ -6894,16 +6986,49 @@ function stepPerf(now, ms) {
   }
   perf.frames += 1;
   perf.worst = Math.max(perf.worst, ms);
+  if (ms > (1000 / hz) * JANK_SLACK) perf.jank += 1;
+  // The MAX over the window rather than the last frame, and that is about the
+  // shadow cadence rather than about caution: the shadow map is a second full
+  // draw of the shop and it runs every `SHADOW_EVERY` frames, so consecutive
+  // frames genuinely differ by hundreds of calls. Sampling one of them at 4Hz
+  // would print whichever it happened to land on, and the figure would flicker
+  // between two right answers — which reads as an unstable shop. The expensive
+  // frame is the one worth knowing, and it pairs with `worst` above.
+  const info = scene.renderer?.info;
+  perf.draws = Math.max(perf.draws, info?.render?.calls ?? 0);
+  perf.tris = Math.max(perf.tris, info?.render?.triangles ?? 0);
   if (now - perf.at < 250) return;
   const fps = Math.round((perf.frames * 1000) / (now - perf.at));
-  const info = scene.renderer?.info;
-  perf.el.textContent = `${fps} fps  ${(1000 / Math.max(1, fps)).toFixed(1)}ms`
-    + `  worst ${perf.worst.toFixed(1)}ms\n`
-    + `${info?.render?.calls ?? 0} draws  ${((info?.render?.triangles ?? 0) / 1000).toFixed(0)}k tris`
+  const clock = scene.gpuClock;
+  // `null` and never 0 when nothing can answer — see gpu-clock.js. A zero reads
+  // as "the GPU is idle", which is the opposite of "nobody can tell you", and it
+  // would send somebody optimising the half of the frame that was already fine.
+  const gpuMs = clock?.available ? clock.ms : null;
+  const frame = 1000 / Math.max(1, fps);
+  // The budget is the loop's own cap rather than a constant — see `HEADROOM`.
+  const budget = 1000 / hz;
+  perf.el.textContent = `${fps} fps / ${hz} cap  frame ${frame.toFixed(1)}ms`
+    + `  worst ${perf.worst.toFixed(1)}\n`
+    + `cpu ${perf.cpu.toFixed(1)}  gpu ${gpuMs == null ? '-' : gpuMs.toFixed(1)}`
+    + `  of ${budget.toFixed(1)}ms  ${boundName(perf.cpu, gpuMs, frame, budget)}`
+    + `  jank ${perf.jank}/${perf.frames}\n`
+    + `${perf.draws} draws  ${(perf.tris / 1000).toFixed(0)}k tris`
+    + `  ${scene.objectCount?.() ?? 0} objs\n`
+    // The three that only mean anything over TIME. Each is a resource three.js
+    // frees on `dispose` and on nothing else, so a shop standing still with any
+    // of them climbing is a leak — which is how the sprite labels were losing a
+    // canvas, a texture and a material on every sale, invisible in every other
+    // number here because the frame cost of a leak is nil until it is fatal.
+    + `geo ${info?.memory?.geometries ?? 0}  tex ${info?.memory?.textures ?? 0}`
+    + `  prog ${scene.renderer?.info?.programs?.length ?? 0}`
     + `  dpr ${scene.renderer?.getPixelRatio?.().toFixed(2) ?? '?'}`;
   perf.at = now;
   perf.frames = 0;
   perf.worst = 0;
+  perf.jank = 0;
+  perf.cpu = 0;
+  perf.draws = 0;
+  perf.tris = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -7139,7 +7264,9 @@ function loop() {
   }
   lastDraw = now;
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
-  stepPerf(now, now - lastFrame);
+  // `hz` as well as the interval: the cap is most of the answer on a stopped
+  // shop, where 10fps is the saving rather than a stall. See `JANK_SLACK`.
+  stepPerf(now, now - lastFrame, hz);
   stepTileRead();
   lastFrame = now;
   restoreView();
@@ -7186,6 +7313,10 @@ function loop() {
     ? (performance.now() - drag.pressedAt) / LONG_PRESS_MS
     : null);
   scene.render();
+  // After the draw and before `saveView`, which touches localStorage on its own
+  // cadence: what is being measured is the frame, and a write that happens once
+  // every few seconds would land on one window as a spike belonging to nothing.
+  endPerf(now);
   saveView(now);
   requestAnimationFrame(loop);
 }

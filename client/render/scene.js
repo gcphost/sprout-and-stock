@@ -42,6 +42,7 @@ import { hash01 } from '../../shared/hash.js';
 import { E, SOLID, edgeBetween, wayBase } from '../../shared/edges.js';
 import { Lights, emittersIn, BAKED_LAYER, SURROUND_LAYER } from './lights.js';
 import { Ink } from './post.js';
+import { GpuClock } from './gpu-clock.js';
 import {
   lookOn, setLookOn,
   AMBIENT_NOON, SUN_NOON, BOUNCE_LOOK, SUN_DUSK_LEVEL, AMBIENT_DUSK_LEVEL,
@@ -1187,6 +1188,43 @@ const VEHICLE_TURN = 5;
 const ACTOR_CHASE = 4.3;
 
 /**
+ * How far a drawn body is shoved off the tile the shop put it on, so that two
+ * people standing in one place read as two people.
+ *
+ * **This is a look and never a rule**, which is the whole of why it is here
+ * rather than in `stepCustomers`. The sim already routes around a crowd —
+ * `CROWD` in server/sim/pathing.js charges a step per body — and that is a
+ * *planning* surcharge: a route is decided once and walked over many ticks, so
+ * it breaks a tie at a corner and says nothing whatever about two bodies
+ * occupying the same square on the way. Saying it in the sim instead would mean
+ * pushing people off their own paths, which is `followPath` fighting a shove,
+ * a body squeezed through a wall, a queue that jitters in its slots, and a
+ * conservation question in every one of them. None of that buys a single pixel
+ * over doing it where the pixels are. So the shop's answer to where anybody is
+ * standing is untouched to the float — `pathTo`, `queueSlot`, `measureOccupancy`
+ * and `crowdTiles` all go on reading exactly what they read before — and the
+ * renderer draws them not inside one another.
+ *
+ * The nudge is computed off the CHASED positions rather than off the drawn ones,
+ * which is the one decision in here that is not obvious and is what makes it
+ * stable. Read back off what was drawn, the offset feeds itself: two bodies
+ * pushed apart are further apart next frame, so the push relaxes, so they close
+ * again — a shimmer at whatever frequency the ease happens to ring at, on a
+ * shop floor full of people. Off the chase it is a pure function of where the
+ * shop says everybody is, the pair splits one overlap evenly between them, and
+ * there is nothing for it to oscillate against.
+ *
+ * `CROWD_NUDGE` is the cap, and it is small on purpose: a fifth of a tile is
+ * about half a shopper's width, which is enough to tell two bodies apart from
+ * this camera and far too little to put anybody inside a shelf. It is a cap
+ * rather than the push itself — the push is however much of the overlap is
+ * theirs to fix, and this only stops a pile of six from flinging its outer
+ * members across the aisle.
+ */
+const CROWD_NUDGE = 0.2;
+const CROWD_EASE = 8;
+
+/**
  * How long a gap between two frames means you were NOT HERE, rather than that
  * one frame was slow.
  *
@@ -1546,6 +1584,37 @@ export class Scene {
      * biggest lever and the only one that costs nothing visible.
      */
     this.renderer.shadowMap.autoUpdate = false;
+    /**
+     * ...AND THE DRAW COUNTERS HAD TO STOP RESETTING THEMSELVES, WHICH IS WHY
+     * THE PERF READOUT SPENT ITS WHOLE LIFE REPORTING THE WRONG NUMBER.
+     *
+     * `info.render` is cleared at the top of every `renderer.render()` call, so
+     * what it holds afterwards is the last call's totals rather than the frame's
+     * — which was true and harmless for exactly as long as a frame was one call.
+     * The ink pass made it three: the colour draw, the normals draw, and a
+     * fullscreen composite quad. The quad is last, so `1 draws  0k tris` is what
+     * the readout printed on every machine, in every shop, however heavy — a
+     * perfectly accurate measurement of the blit.
+     *
+     * It is the worst shape a broken instrument can have, because it is not
+     * obviously broken. It is a plausible small number, it moves (the quad is
+     * genuinely there), and the whole point of those two figures is telling
+     * "this machine is slow" from "this shop is heavy" — so the one readout that
+     * could have answered that question always answered "the shop is empty".
+     *
+     * Turned off here and reset once per frame in `render`, so the numbers are
+     * the frame's. Note what that folds in: the SHADOW pass counts too, and it
+     * runs on a cadence (`SHADOW_EVERY`), so consecutive frames differ by a
+     * whole second draw of the shop. The readout takes the max over its window
+     * for that reason — see `stepPerf`.
+     */
+    this.renderer.info.autoReset = false;
+    /**
+     * The other half of the frame, and the one the CPU cannot see. Constructed
+     * unconditionally and inert when the extension is missing — see gpu-clock.js
+     * for why it must never report a zero.
+     */
+    this.gpuClock = new GpuClock(this.renderer);
     this.shadowTick = 0;
     // How far the furthest-moved body has travelled since the map was last
     // drawn. See `SHADOW_SLIP`: the cadence is a floor now rather than a rule,
@@ -3455,9 +3524,21 @@ export class Scene {
       // the tile's own colour, so a design deleted out of the catalog leaves
       // plain shop floor rather than a black hole.
       const surface = piece ? surfaceOf(this.catalog.pieces ?? [], piece, style.color) : null;
-      const base = surface?.color ?? style.color;
-
-      const mesh = new THREE.InstancedMesh(box, material(base), slabs.length);
+      // WHITE, BECAUSE `instanceColor` MULTIPLIES THE MATERIAL'S OWN COLOUR.
+      //
+      // Every cell below sets an ABSOLUTE colour — `patternColor` resolves the
+      // base or the accent and jitters it, `bakeInto` adds the lamps — so a
+      // material carrying `base` as well means the ground is drawn at roughly
+      // colour SQUARED. It is invisible on everything this was tuned against:
+      // marble and shop floor are near-white, and near-white squared is still
+      // near-white. It is severe on anything saturated — `#b4906c` oak comes
+      // out `#7f512e`, a dark red-brown — so the failure reads as the FLOOR
+      // DESIGN being dark rather than as the renderer applying it twice, and
+      // the darker you author to fix it the worse it gets.
+      //
+      // The tell is `addStripes` below: it has no `instanceColor`, so its bars
+      // are single-applied and therefore lighter than the cell they lie on.
+      const mesh = new THREE.InstancedMesh(box, material(0xffffff), slabs.length);
       mesh.castShadow = height > 0.2;
       mesh.receiveShadow = true;
       mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(slabs.length * 3), 3);
@@ -4062,6 +4143,24 @@ export class Scene {
    */
   fixtureBaseY(f) {
     if (FIXTURES[f.kind]?.at === 'ceiling') return CEILING_Y;
+    // A piece may HANG OFF THE WALL HEAD, which is the one anchor an authored
+    // model cannot express and the one that has to move when the building does.
+    // An awning is the case: its art was drawn with its top flush under a wall
+    // that stood at 1.4, so raising `WALL_H` left a canopy floating most of a
+    // metre below the fascia it is supposed to be bolted to — which reads as the
+    // awning being the wrong size, exactly as the ghost and the eye height did.
+    //
+    // It is the model's own TOP that lands on the line rather than its origin,
+    // which is what makes it cost no content: the art is already drawn top-down
+    // from wherever it used to hang, so nothing had to be re-authored and a
+    // second design of one is drawn however its author likes and still bolts on
+    // straight. `hangs` is a field on the PIECE and not on the kind — a
+    // decoration standing on the floor and one hung off the wall are the same
+    // build rules, the same price and the same everything else.
+    if (this.pieceOf(f)?.hangs === 'head') {
+      const top = modelBounds(partsAt(this.fixtureModel(f), this.fixtureT(f))).top;
+      return EDGE_STYLE[E.WALL].h - top;
+    }
     // ...and a conveyor cell hangs because of its PLACEMENT rather than its
     // kind, which is the whole of what a second storey is. A belt, a loader, a
     // sorter and a tunnel mouth are one kind each on either deck — four ceiling
@@ -5291,6 +5390,12 @@ export class Scene {
           armLift: 0,
           armDamp: 1,
           kitHand: null,
+          // How far this body is currently drawn from where the shop says it
+          // is, so that a crowd reads as a crowd — see `CROWD_NUDGE`. Stripped
+          // before the chase and added back after it, which is what keeps the
+          // chase arithmetic reading the shop's answer rather than its own.
+          ox: 0,
+          oz: 0,
         };
         this.actorRoot.add(obj);
         map.set(a.id, rec);
@@ -5995,13 +6100,24 @@ export class Scene {
   animateActors(dt, snap = false) {
     const move = snap ? 1 : 1 - Math.exp(-dt * ACTOR_CHASE);
     let slip = 0;
+    // Reused rather than rebuilt, the way `EDGE_V` is: this runs every frame
+    // over every body in the shop, and the list is the input to both the
+    // bucketing and the second pass below.
+    const live = this.crowdList ??= [];
+    live.length = 0;
     for (const map of [this.players, this.customers, this.animals]) {
       for (const rec of map.values()) {
         if (rec?.tx === undefined) continue;
-        const dx = (rec.tx - rec.obj.position.x) * move;
-        const dz = (rec.tz - rec.obj.position.z) * move;
-        rec.obj.position.x += dx;
-        rec.obj.position.z += dz;
+        live.push(rec);
+        // Last frame's nudge comes off first, so what the chase eases is the
+        // position the SHOP put them at. Chasing the drawn position instead
+        // would have the offset compound into the thing it is measured from.
+        const ax = rec.obj.position.x - rec.ox;
+        const az = rec.obj.position.z - rec.oz;
+        const dx = (rec.tx - ax) * move;
+        const dz = (rec.tz - az) * move;
+        rec.obj.position.x = ax + dx;
+        rec.obj.position.z = az + dz;
         if (rec.walker) {
           // `dx`/`dz` are the body movement we actually drew this frame, not a
           // snapshot guess. That keeps the feet planted when the body has
@@ -6026,23 +6142,132 @@ export class Scene {
           rec.walker.leftArm.rotation.x = -swing * 0.72 * damp - rec.armPose;
           rec.walker.rightArm.rotation.x = swing * 0.72 * damp - rec.armPose;
         }
-        // ...and whatever is standing on the floor under them comes along. Set
-        // rather than eased again: it is already following an eased position,
-        // and a second chase on top of it is a ring that lags its own feet.
-        if (rec.foot) {
-          rec.foot.position.x = rec.obj.position.x;
-          rec.foot.position.z = rec.obj.position.z;
-        }
         // The furthest anybody went, not the sum: a shadow map is one map, and
         // it is redrawn for the one body that outran it. Adding them up would
         // put a busy shop over the line with nobody having moved a pixel.
         slip = Math.max(slip, Math.abs(dx), Math.abs(dz));
       }
     }
+    // The nudge goes on afterwards, off the positions the chase has just
+    // settled on — which is also where `foot` gets set, since a ring drawn
+    // under where somebody would have stood is a ring beside their feet.
     // Accumulated rather than compared, because the frames this is asked about
     // are the ones where the map was NOT redrawn — a body creeping a fifth of a
     // texel a frame is still a body a texel out of place five frames later.
-    this.shadowSlip += slip;
+    this.shadowSlip += Math.max(slip, this.separateActors(live, dt, snap));
+  }
+
+  /**
+   * Hold drawn bodies out of one another, and put each one's floor mark under
+   * its feet.
+   *
+   * The argument for doing this at all, and for doing it here rather than in the
+   * sim, is `CROWD_NUDGE`. What is left is how it is made cheap and how it is
+   * kept from drawing anybody somewhere they could not stand.
+   *
+   * Bucketed by tile, because the alternative is every body against every other
+   * one and a busy evening is eighty of them — six thousand pairs a frame to
+   * find the dozen that are actually touching. The buckets are kept between
+   * frames and emptied rather than dropped, so a steady shop allocates nothing:
+   * there are only ever as many of them as there are tiles with somebody on.
+   *
+   * Two bodies at *exactly* the same point have no direction to be pushed
+   * apart along, and the tempting fix — a random axis — is the one thing that
+   * cannot be used, because it is redrawn sixty times a second and what it reads
+   * as is two people vibrating. `phase` is already on the record, already
+   * hashed off the id, and already there for this class of problem (it is what
+   * stops two hires breathing in time), so the pair separates along a heading
+   * that is the same every frame and different per person.
+   *
+   * And the nudge may not put anybody through a wall. A shove that stays on the
+   * body's own tile is always allowed — it cannot leave a square it is already
+   * standing in — and one that crosses into a neighbouring tile has to land on
+   * ground somebody could walk on, or it is dropped and they simply overlap for
+   * as long as they are stood in a doorway. Overlapping for a moment is the
+   * failure this whole pass exists to reduce; a shopper drawn inside a freezer
+   * is a worse one, and at a fifth of a tile the two cases are told apart by one
+   * lookup on the tiles the body is not already on.
+   *
+   * @returns {number} the furthest any body was moved by the nudge, for the
+   *   shadow map — a slide sideways moves a shadow exactly as a walk does.
+   */
+  separateActors(live, dt, snap) {
+    const cells = this.crowdCells ??= new Map();
+    for (const bucket of cells.values()) bucket.length = 0;
+
+    const L = this.storeLayout;
+    const key = (x, z) => (Math.round(z) + 1) * 4096 + Math.round(x) + 1;
+    for (const rec of live) {
+      const k = key(rec.obj.position.x, rec.obj.position.z);
+      const bucket = cells.get(k);
+      if (bucket) bucket.push(rec);
+      else cells.set(k, [rec]);
+    }
+
+    const ease = snap ? 1 : Math.min(1, dt * CROWD_EASE);
+    let slip = 0;
+    for (const rec of live) {
+      const ax = rec.obj.position.x;
+      const az = rec.obj.position.z;
+      let px = 0;
+      let pz = 0;
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const bucket = cells.get(key(ax + dx, az + dz));
+          if (!bucket) continue;
+          for (const other of bucket) {
+            if (other === rec) continue;
+            const want = rec.halfW + other.halfW;
+            let ox = ax - other.obj.position.x;
+            let oz = az - other.obj.position.z;
+            let d = Math.hypot(ox, oz);
+            if (d >= want) continue;
+            if (d < 1e-4) {
+              // Stood in exactly the same spot. See `phase` above.
+              ox = Math.cos(rec.phase);
+              oz = Math.sin(rec.phase);
+              d = 1;
+            }
+            // Half of the overlap: the other body is in this same loop and
+            // takes the other half, so a pair separates without either of them
+            // having to know that.
+            const push = (want - d) / 2;
+            px += (ox / d) * push;
+            pz += (oz / d) * push;
+          }
+        }
+      }
+
+      const mag = Math.hypot(px, pz);
+      if (mag > CROWD_NUDGE) {
+        px = (px / mag) * CROWD_NUDGE;
+        pz = (pz / mag) * CROWD_NUDGE;
+      }
+
+      const wasX = rec.ox;
+      const wasZ = rec.oz;
+      let nx = rec.ox + (px - rec.ox) * ease;
+      let nz = rec.oz + (pz - rec.oz) * ease;
+      if (L) {
+        const tx = Math.round(ax + nx);
+        const tz = Math.round(az + nz);
+        if ((tx !== Math.round(ax) || tz !== Math.round(az))
+          && !isWalkableTile(L, tx, tz)) {
+          nx = 0;
+          nz = 0;
+        }
+      }
+      rec.ox = nx;
+      rec.oz = nz;
+      rec.obj.position.x = ax + nx;
+      rec.obj.position.z = az + nz;
+      if (rec.foot) {
+        rec.foot.position.x = rec.obj.position.x;
+        rec.foot.position.z = rec.obj.position.z;
+      }
+      slip = Math.max(slip, Math.abs(nx - wasX), Math.abs(nz - wasZ));
+    }
+    return slip;
   }
 
   animateVehicles(dt, snap = false) {
@@ -6631,15 +6856,29 @@ export class Scene {
     // day a wall changes thickness, and the drift is invisible: a ghost buried
     // inside the wall simply stops showing up.
     const t = EDGE_STYLE[E.WALL].t;
+    // ...and HOW TALL it is comes off the boundary it is a face of, for exactly
+    // the reason the thickness above already does — said in that comment and
+    // then not done. It was 1.05, which matched no wall the game has ever built
+    // and matched the one it was written against least of all once `WALL_H` grew:
+    // a brush covering three fifths of what it paints reads as the tool only
+    // reaching part way up, which is a bug report about the brush rather than
+    // about a stale number. A face is the whole face.
+    const L = this.storeLayout;
+    const heightAt = (f) => {
+      const kind = (f.o === 'v' ? L.edgesV?.[f.z * (L.w + 1) + f.x] : L.edgesH?.[f.z * L.w + f.x])
+        ?? E.NONE;
+      return (EDGE_STYLE[kind] ?? EDGE_STYLE[E.WALL]).h;
+    };
     for (const f of faces) {
       const mesh = new THREE.Mesh(geo, material(colour, 0.55));
       const off = f.s * (t / 2 + 0.03);
+      const h = heightAt(f);
       if (f.o === 'v') {
-        mesh.position.set(f.x - 0.5 + off, 0.55, f.z);
-        mesh.scale.set(0.05, 1.05, 0.96);
+        mesh.position.set(f.x - 0.5 + off, h / 2, f.z);
+        mesh.scale.set(0.05, h, 0.96);
       } else {
-        mesh.position.set(f.x, 0.55, f.z - 0.5 + off);
-        mesh.scale.set(0.96, 1.05, 0.05);
+        mesh.position.set(f.x, h / 2, f.z - 0.5 + off);
+        mesh.scale.set(0.96, h, 0.05);
       }
       group.add(mesh);
     }
@@ -13575,8 +13814,17 @@ export class Scene {
     const draw = stale || this.shadowDirty || this.shadowSlip > shadowSlipFor(texel);
     if (draw) { this.shadowSlip = 0; this.shadowDirty = false; }
     this.renderer.shadowMap.needsUpdate = draw;
+    // The frame's draws start HERE — everything above is sync work that issues
+    // nothing — so this is where the counters are cleared and the GPU's own
+    // stopwatch is started. Both are wrapped round every path out of this
+    // function, which is what `drawn` is for: there are two, and the early one
+    // is the branch nobody has on (no ink), so a reset written after the `if`
+    // would be right in testing and wrong in the game.
+    this.renderer.info.reset();
+    this.gpuClock.begin();
     if (!this.ink) {
       this.renderer.render(this.scene, this.camera);
+      this.drawn();
       return;
     }
     // Everything the ink is drawn against is the same frame the game would have
@@ -13598,6 +13846,45 @@ export class Scene {
     this.ink.render(
       this.scene, this.camera, this.camera.position.distanceTo(this.camLook), this.inkNoCrease,
     );
+    this.drawn();
+  }
+
+  /**
+   * The far end of the frame's drawing, and the only place the GPU timer may be
+   * closed: a query left open is one the context carries until it dies, and it
+   * refuses the next `beginQuery` outright — so an early return that skipped
+   * this would not lose one sample, it would turn the clock off for the session.
+   *
+   * The poll comes after the close deliberately. See gpu-clock.js: asking for a
+   * result the GPU has not reached stalls the CPU until it does, so the earliest
+   * honest question is on a later frame, and putting the two calls in this order
+   * makes that structural rather than something to remember.
+   */
+  drawn() {
+    this.gpuClock.end();
+    this.gpuClock.poll();
+  }
+
+  /**
+   * How many objects are in the tree, which is the number `projectObject` walks
+   * — every frame, and a second time for the normals pass.
+   *
+   * It is the honest measure of "this shop is heavy" in a way draw calls are
+   * not: the crowd batch draws 54 shoppers in two calls and still puts ~1,100
+   * objects in the graph for three.js to walk, cull and matrix-update, which is
+   * exactly the cost `inkNoCrease` was introduced to dodge. A shop where draws
+   * are flat and this number is climbing is a shop leaking groups.
+   *
+   * Walked rather than counted incrementally, because a counter maintained by
+   * hand across every `add` and `remove` in a 13k-line file is a counter that is
+   * wrong within a week — and being wrong is worse than being absent, since the
+   * whole use of the figure is watching it not move. It is called four times a
+   * second by the readout and nowhere else.
+   */
+  objectCount() {
+    let n = 0;
+    this.scene.traverse(() => { n += 1; });
+    return n;
   }
 
   /**

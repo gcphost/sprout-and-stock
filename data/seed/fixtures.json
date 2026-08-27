@@ -181,7 +181,8 @@
     "signal": null,
     "sort": 38,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "aisle-sign",
@@ -341,7 +342,8 @@
     "signal": null,
     "sort": 37,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "arm",
@@ -1889,7 +1891,8 @@
     "signal": null,
     "sort": 29,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "asphalt",
@@ -1916,7 +1919,7 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#4b4d51",
+      "color": "#9296a0",
       "accent": null,
       "pattern": "plain",
       "bars": null,
@@ -1931,7 +1934,8 @@
     "signal": null,
     "sort": -2,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "awning",
@@ -2161,7 +2165,8 @@
     "signal": null,
     "sort": 22,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": "head"
   },
   {
     "id": "bakery-case",
@@ -2421,7 +2426,8 @@
     "signal": null,
     "sort": 28,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "barrel",
@@ -2557,7 +2563,8 @@
     "signal": null,
     "sort": 32,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "basket-stack",
@@ -2739,7 +2746,8 @@
     "signal": null,
     "sort": 24,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "bay-tree",
@@ -2899,7 +2907,8 @@
     "signal": null,
     "sort": 56,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "beehive",
@@ -4085,7 +4094,8 @@
       "qty": 4,
       "every": 3.2
     },
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "belt",
@@ -4601,7 +4611,8 @@
     "signal": null,
     "sort": 30,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "bike-rack",
@@ -4809,7 +4820,8 @@
     "signal": null,
     "sort": 31,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "bin",
@@ -4991,7 +5003,8 @@
     "signal": null,
     "sort": 18,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "bistro-set",
@@ -5247,7 +5260,8 @@
     "signal": null,
     "sort": 28,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "bollard-light",
@@ -5387,7 +5401,8 @@
     "signal": null,
     "sort": 50,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "break-room",
@@ -5429,7 +5444,8 @@
     "signal": null,
     "sort": 23,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "brick-paving",
@@ -5456,8 +5472,8 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#a35e49",
-      "accent": "#8b4e3c",
+      "color": "#c08e7c",
+      "accent": "#b48575",
       "pattern": "planks",
       "bars": null,
       "density": null,
@@ -5471,7 +5487,8 @@
     "signal": null,
     "sort": -7,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "bunting",
@@ -5653,7 +5670,8 @@
     "signal": null,
     "sort": 19,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "car-park",
@@ -5695,7 +5713,8 @@
     "signal": null,
     "sort": 6,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "cattle-pen",
@@ -6700,7 +6719,8 @@
           "tint": null
         }
       ]
-    }
+    },
+    "hangs": null
   },
   {
     "id": "ceiling-fan",
@@ -6900,7 +6920,8 @@
     "signal": null,
     "sort": 42,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "chandelier",
@@ -7208,7 +7229,8 @@
     "signal": null,
     "sort": 41,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "checkout",
@@ -8279,7 +8301,8 @@
     "signal": null,
     "sort": 19,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "chequer-tile",
@@ -8307,7 +8330,7 @@
     "tags": [],
     "surface": {
       "color": "#e6e2d8",
-      "accent": "#4a4a52",
+      "accent": "#9b9ba4",
       "pattern": "checker",
       "bars": null,
       "density": null,
@@ -8321,7 +8344,8 @@
     "signal": null,
     "sort": -11,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "christmas-tree",
@@ -8558,7 +8582,8 @@
     "signal": null,
     "sort": 55,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "clay-paviors",
@@ -8585,8 +8610,8 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#ab5238",
-      "accent": "#cabfae",
+      "color": "#c9917a",
+      "accent": "#bd8873",
       "pattern": "brick",
       "bars": null,
       "density": null,
@@ -8600,7 +8625,8 @@
     "signal": null,
     "sort": -9,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "cobblestone",
@@ -8627,8 +8653,8 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#8d8478",
-      "accent": "#786f64",
+      "color": "#a8a094",
+      "accent": "#9e968b",
       "pattern": "checker",
       "bars": null,
       "density": null,
@@ -8642,7 +8668,8 @@
     "signal": null,
     "sort": -10,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "cold-rack",
@@ -10098,7 +10125,8 @@
     "signal": null,
     "sort": 21,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "column-pier",
@@ -10232,7 +10260,8 @@
     "signal": null,
     "sort": 21,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "column-plain",
@@ -10414,7 +10443,8 @@
     "signal": null,
     "sort": 18,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "column-post",
@@ -10572,7 +10602,8 @@
     "signal": null,
     "sort": 23,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "cooler",
@@ -11905,7 +11936,8 @@
     "signal": null,
     "sort": 25,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "dairy-shed",
@@ -12841,7 +12873,8 @@
           "tint": null
         }
       ]
-    }
+    },
+    "hangs": null
   },
   {
     "id": "dark-oak-boards",
@@ -12868,8 +12901,8 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#7a5334",
-      "accent": "#63422a",
+      "color": "#b4906c",
+      "accent": "#a98766",
       "pattern": "planks",
       "bars": null,
       "density": null,
@@ -12883,7 +12916,8 @@
     "signal": null,
     "sort": -8,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "deli-counter",
@@ -13095,7 +13129,8 @@
     "signal": null,
     "sort": 24,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "dirt-bare",
@@ -13137,7 +13172,8 @@
     "signal": null,
     "sort": -17,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "dirt-dust",
@@ -13179,7 +13215,8 @@
     "signal": null,
     "sort": -18,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "dirt-mud",
@@ -13221,7 +13258,8 @@
     "signal": null,
     "sort": -15,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "dirt-packed",
@@ -13263,7 +13301,8 @@
     "signal": null,
     "sort": -16,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "dirt-rut",
@@ -13305,7 +13344,8 @@
     "signal": null,
     "sort": -14,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "entrance-mat",
@@ -13391,7 +13431,8 @@
     "signal": null,
     "sort": 25,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "floor-lamp",
@@ -13531,7 +13572,8 @@
     "signal": null,
     "sort": 46,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "freezer",
@@ -20187,7 +20229,8 @@
     "signal": null,
     "sort": 23,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "gondola",
@@ -20965,7 +21008,8 @@
     "signal": null,
     "sort": 27,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "grass-burnt",
@@ -21007,7 +21051,8 @@
     "signal": null,
     "sort": -9,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "grass-clover",
@@ -21049,7 +21094,8 @@
     "signal": null,
     "sort": -5,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "grass-dead",
@@ -21091,7 +21137,8 @@
     "signal": null,
     "sort": -8,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "grass-long",
@@ -21133,7 +21180,8 @@
     "signal": null,
     "sort": -6,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "grass-moss",
@@ -21175,7 +21223,8 @@
     "signal": null,
     "sort": -4,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "grass-patchy",
@@ -21217,7 +21266,8 @@
     "signal": null,
     "sort": -7,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "grass-wildflower",
@@ -21259,7 +21309,8 @@
     "signal": null,
     "sort": -3,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "gravel-track",
@@ -21301,7 +21352,8 @@
     "signal": null,
     "sort": 9,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "hanging-basket",
@@ -21509,7 +21561,8 @@
     "signal": null,
     "sort": 57,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "hanging-clock",
@@ -21781,7 +21834,8 @@
     "signal": "time",
     "sort": 35,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "hen-house",
@@ -22907,7 +22961,8 @@
           "tint": null
         }
       ]
-    }
+    },
+    "hangs": null
   },
   {
     "id": "hot-counter",
@@ -23617,7 +23672,8 @@
     "signal": null,
     "sort": 20,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "lamp-post",
@@ -23781,7 +23837,8 @@
     "signal": null,
     "sort": 43,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "land-bark",
@@ -23823,7 +23880,8 @@
     "signal": null,
     "sort": -10,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "land-gravel",
@@ -23865,7 +23923,8 @@
     "signal": null,
     "sort": -11,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "land-sand",
@@ -23907,7 +23966,8 @@
     "signal": null,
     "sort": -12,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "land-weeds",
@@ -23949,7 +24009,8 @@
     "signal": null,
     "sort": -13,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "lawn-meadow",
@@ -23982,7 +24043,8 @@
     "signal": null,
     "sort": 0,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "lawn-mown",
@@ -24024,7 +24086,8 @@
     "signal": null,
     "sort": 2,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "lawn-scrub",
@@ -24066,7 +24129,8 @@
     "signal": null,
     "sort": -2,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "lawn-turf",
@@ -24108,7 +24172,8 @@
     "signal": null,
     "sort": -1,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "lift",
@@ -24556,7 +24621,8 @@
     "signal": null,
     "sort": 26,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "loading-bay",
@@ -24598,7 +24664,8 @@
     "signal": null,
     "sort": 25,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "marble-tile",
@@ -24640,7 +24707,8 @@
     "signal": null,
     "sort": -15,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "money-tree",
@@ -24875,7 +24943,8 @@
     "signal": null,
     "sort": 54,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "mosaic-tile",
@@ -24902,8 +24971,8 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#38707f",
-      "accent": "#ded9cc",
+      "color": "#88b4be",
+      "accent": "#80a9b3",
       "pattern": "tiles",
       "bars": null,
       "density": null,
@@ -24917,7 +24986,8 @@
     "signal": null,
     "sort": -13,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "oak-parquet",
@@ -24944,8 +25014,8 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#b98b4e",
-      "accent": "#96692f",
+      "color": "#c3a786",
+      "accent": "#b79d7e",
       "pattern": "checker",
       "bars": null,
       "density": null,
@@ -24959,7 +25029,8 @@
     "signal": null,
     "sort": -14,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "open-chiller",
@@ -26316,7 +26387,8 @@
     "signal": null,
     "sort": 22,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "open-sign",
@@ -28004,7 +28076,8 @@
     "signal": "open",
     "sort": 36,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "oxblood-lino",
@@ -28031,7 +28104,7 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#8c3f3a",
+      "color": "#c48c85",
       "accent": null,
       "pattern": "plain",
       "bars": null,
@@ -28046,7 +28119,8 @@
     "signal": null,
     "sort": 0,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "packer",
@@ -29280,7 +29354,8 @@
     "signal": null,
     "sort": 27.5,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paddock-grazing",
@@ -29322,7 +29397,8 @@
     "signal": null,
     "sort": 2,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paddock-yard",
@@ -29364,7 +29440,8 @@
     "signal": null,
     "sort": 1,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-brick",
@@ -29406,7 +29483,8 @@
     "signal": null,
     "sort": -10,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-brick-blue",
@@ -29448,7 +29526,8 @@
     "signal": null,
     "sort": -11,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-brick-stock",
@@ -29490,7 +29569,8 @@
     "signal": null,
     "sort": -9,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-brick-white",
@@ -29532,7 +29612,8 @@
     "signal": null,
     "sort": -8,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-buttermilk",
@@ -29574,7 +29655,8 @@
     "signal": null,
     "sort": -1,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-charcoal",
@@ -29616,7 +29698,8 @@
     "signal": null,
     "sort": -5,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-cream",
@@ -29654,7 +29737,8 @@
     "signal": null,
     "sort": 0,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-navy",
@@ -29696,7 +29780,8 @@
     "signal": null,
     "sort": -6,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-ochre",
@@ -29738,7 +29823,8 @@
     "signal": null,
     "sort": -3,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-rose",
@@ -29780,7 +29866,8 @@
     "signal": null,
     "sort": -4,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-sage",
@@ -29822,7 +29909,8 @@
     "signal": null,
     "sort": -2,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-subway",
@@ -29864,7 +29952,8 @@
     "signal": null,
     "sort": -15,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-teal",
@@ -29906,7 +29995,8 @@
     "signal": null,
     "sort": -7,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-tile",
@@ -29948,7 +30038,8 @@
     "signal": null,
     "sort": -12,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-tile-cobalt",
@@ -29990,7 +30081,8 @@
     "signal": null,
     "sort": -14,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-tile-green",
@@ -30032,7 +30124,8 @@
     "signal": null,
     "sort": -13,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paint-white",
@@ -30074,7 +30167,8 @@
     "signal": null,
     "sort": 2,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "pallet-rack",
@@ -31862,7 +31956,8 @@
     "signal": null,
     "sort": 26,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "panel-light",
@@ -31954,7 +32049,8 @@
     "signal": null,
     "sort": 44,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paper-lantern",
@@ -32070,7 +32166,8 @@
     "signal": null,
     "sort": 49,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "parasol",
@@ -32206,7 +32303,8 @@
     "signal": null,
     "sort": 30,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "park-bench",
@@ -32414,7 +32512,8 @@
     "signal": null,
     "sort": 29,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paving-path",
@@ -32456,7 +32555,8 @@
     "signal": null,
     "sort": 8,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "paving-slabs",
@@ -32498,7 +32598,8 @@
     "signal": null,
     "sort": -4,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "pendant-lamp",
@@ -32614,7 +32715,8 @@
     "signal": null,
     "sort": 47,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "pig-pen",
@@ -33504,7 +33606,8 @@
           "tint": null
         }
       ]
-    }
+    },
+    "hangs": null
   },
   {
     "id": "pine-boards",
@@ -33531,8 +33634,8 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#c09a63",
-      "accent": "#a8834f",
+      "color": "#b49c78",
+      "accent": "#a99371",
       "pattern": "planks",
       "bars": null,
       "density": null,
@@ -33546,7 +33649,8 @@
     "signal": null,
     "sort": -5,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "plot",
@@ -34003,7 +34107,8 @@
     "signal": null,
     "sort": 10,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "potted-fern",
@@ -34187,7 +34292,8 @@
     "signal": null,
     "sort": 60,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "poultry-run",
@@ -34939,7 +35045,8 @@
           "tint": null
         }
       ]
-    }
+    },
+    "hangs": null
   },
   {
     "id": "poured-concrete",
@@ -34981,7 +35088,8 @@
     "signal": null,
     "sort": -3,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "produce-table",
@@ -35519,7 +35627,8 @@
     "signal": null,
     "sort": 29,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "rug-runner",
@@ -35629,7 +35738,8 @@
     "signal": null,
     "sort": 20,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "sage-lino",
@@ -35656,7 +35766,7 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#7d9878",
+      "color": "#9db594",
       "accent": null,
       "pattern": "plain",
       "bars": null,
@@ -35671,7 +35781,8 @@
     "signal": null,
     "sort": -1,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "shelf",
@@ -39769,7 +39880,8 @@
     "signal": null,
     "sort": 30,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "shop-floor",
@@ -39810,7 +39922,8 @@
     "signal": null,
     "sort": 2,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "slate-flags",
@@ -39837,8 +39950,8 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#5c626b",
-      "accent": "#4a4f57",
+      "color": "#949aa4",
+      "accent": "#8b919a",
       "pattern": "planks",
       "bars": null,
       "density": null,
@@ -39852,7 +39965,8 @@
     "signal": null,
     "sort": -16,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "sorter",
@@ -41410,7 +41524,8 @@
     "signal": null,
     "sort": 28,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "station",
@@ -72929,7 +73044,8 @@
     "signal": null,
     "sort": 0,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "steel-deck",
@@ -72971,7 +73087,8 @@
     "signal": null,
     "sort": -6,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "stockroom-floor",
@@ -73013,7 +73130,8 @@
     "signal": null,
     "sort": 24,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "string-lights",
@@ -73177,7 +73295,8 @@
     "signal": null,
     "sort": 48,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "tarmac-road",
@@ -73219,7 +73338,8 @@
     "signal": null,
     "sort": 10,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "terracotta-planter",
@@ -73379,7 +73499,8 @@
     "signal": null,
     "sort": 58,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "terracotta-tile",
@@ -73406,8 +73527,8 @@
     "emits": null,
     "tags": [],
     "surface": {
-      "color": "#c2724a",
-      "accent": "#a75f3d",
+      "color": "#cf9a80",
+      "accent": "#c39178",
       "pattern": "checker",
       "bars": null,
       "density": null,
@@ -73421,7 +73542,8 @@
     "signal": null,
     "sort": -12,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "tube-light",
@@ -73561,7 +73683,8 @@
     "signal": null,
     "sort": 45,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "turkey-pen",
@@ -74244,7 +74367,8 @@
           "tint": null
         }
       ]
-    }
+    },
+    "hangs": null
   },
   {
     "id": "under",
@@ -75624,7 +75748,8 @@
     "signal": null,
     "sort": 27,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "window-box",
@@ -75856,7 +75981,8 @@
     "signal": null,
     "sort": 59,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   },
   {
     "id": "zebra-crossing",
@@ -75898,6 +76024,7 @@
     "signal": null,
     "sort": 7,
     "produces": null,
-    "body": null
+    "body": null,
+    "hangs": null
   }
 ]

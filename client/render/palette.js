@@ -165,23 +165,11 @@ export const PALETTE = {
   railing: '#79808a',
   railingRail: '#a5abb3',
   door: '#f2f1ee',
-  // The JOINERY round a way through: a jamb at each end of the opening and the
-  // slice of lintel sat on them. It carries its own colour for the hedge's and
-  // the railing's reason — a band with one is left bare by `buildEdges` — and
-  // here that is the whole point rather than a side effect: a doorway is a
-  // HOLE, so what says "there is a door here" is the frame, and a frame that
-  // took the wall's finish would vanish again the moment somebody painted the
-  // frontage the colour of the trim.
-  //
-  // WARM AND LIGHT, and that is a fact about the post pass rather than about
-  // taste. `BANDS` is 3 (look.js), so the value ramp is collapsed to three
-  // steps and a mid grey does not read as a mid grey — it falls to the bottom
-  // band and draws as a near-black slab. Which is what a first pass at this in
-  // the building's own cool near-grey (#6f7986) did: painted timber authored,
-  // bollards rendered. So it sits a step under the wall rather than most of the
-  // way to the ink, and it is warm, which is the one axis left to tell it from
-  // the wall once lightness has been spent.
-  doorFrame: '#c9bcab',
+  // No `doorFrame`. The JOINERY round a way through — a jamb at each end of the
+  // opening and the slice of lintel sat on them — is the WALL's colour a shade
+  // off it, and it is derived from `wall` rather than authored beside it, so the
+  // painted case and the unpainted one cannot drift apart. See `DOOR_FRAME`,
+  // which needs `frameTint` and therefore lives further down this file.
   // A strip curtain: milky PVC on a metal rail. Deliberately opaque rather than
   // glass — the alpha band in `edgeBands` is one shared value (`GLASS`, 0.35),
   // which on something the size of a wall reads as an absence, and the thing
@@ -1204,16 +1192,24 @@ const FRAME_HEAD = 0.09;
  * decision.
  *
  * So it takes the finish, one step down, and the step is what keeps this from
- * being the same sentence as "no frame at all". `-0.16` is `patternColor`'s own
- * default accent, which is the same distance a surface's second colour sits from
- * its first — so a painted frame is exactly as legible against its wall as a
- * chequer is against its floor, whatever colour the wall is painted.
+ * being the same sentence as "no frame at all".
  *
- * Down rather than up because that is the direction the unpainted pair already
- * runs (`doorFrame` is about this far under `PALETTE.wall`), so painting a shop
- * white leaves the frontage roughly where it started instead of inverting it.
+ * A HAIR under, and that is the number that has moved. It was `-0.16` —
+ * `patternColor`'s own default accent, on the argument that a frame should be
+ * exactly as legible against its wall as a chequer is against its floor. That
+ * is the right distance for two colours lying side by side on a floor and too
+ * far for joinery: at this camera a sixth of the wall's value is a dark surround
+ * standing in a pale frontage, which reads as a different material bolted on
+ * rather than as the wall's own reveal. The frame wants to be the wall, a shade
+ * off it, which is what painted joinery actually looks like.
+ *
+ * Down rather than up because a wall is the palest thing in the building — the
+ * shop ships at `#f7f6f4`, so there is no lighter left to go and a frame that
+ * tried would be white on white, i.e. no frame. Down by this little is the
+ * lighter answer in practice: it lands a long way above where the old warm tan
+ * sat, in the wall's own neutral rather than beside it.
  */
-const FRAME_SHADE = -0.16;
+const FRAME_SHADE = -0.06;
 
 /**
  * ...and it takes EITHER SPELLING OF A COLOUR, which is the one thing about this
@@ -1234,6 +1230,23 @@ export function frameTint(color) {
     | (clamp8(((color >> 8) & 255) * f) << 8)
     | clamp8((color & 255) * f);
 }
+
+/**
+ * ...and with NO paint on the wall at all, which is the same sentence said about
+ * the colour the shop ships in.
+ *
+ * Derived rather than authored, and that is the whole of what this line is for.
+ * It used to be its own hex — a warm tan sat a sixth under the wall, with a
+ * comment defending the warmth as "the one axis left to tell it from the wall
+ * once lightness has been spent". Which was true of a frame that dark and is the
+ * argument for a frame that dark: the two halves of one decision were an
+ * authored colour and a multiplier, agreeing by hand, and only one of them moved
+ * when either was retuned. So a painted frontage and an unpainted one drew the
+ * same joinery in two different hues, and the unpainted one was the odd one —
+ * warm surround, cool wall, in a family whose whole claim is that a frame is
+ * part of the wall it is set in.
+ */
+const DOOR_FRAME = frameTint(PALETTE.wall);
 
 /**
  * A roller shutter that is UP, and the three numbers that say so.
@@ -1350,9 +1363,11 @@ export function edgeBands(style) {
     // runs deck to head line and the head slice is cut out of the lintel, so
     // nothing in this family moved a millimetre when the frame went in.
     //
-    // They carry their own colour, which keeps the finish tool off them — you
-    // paint a wall, and the frame set in it is the thing that goes on saying
-    // where the door is whatever colour you paint round it.
+    // They carry a colour, which is what keeps `buildEdges` from laying the
+    // wall's own band under them — but not a colour of their OWN, the way a
+    // hedge or a railing does. It is the wall a shade off (`DOOR_FRAME`), and
+    // `trim` is the flag that lets the finish tool through anyway: paint the
+    // frontage and the frame turns with it, one step behind. See `FRAME_SHADE`.
     //
     // ...and where there is NO masonry over the opening to take a slice out of,
     // the head member hangs UNDER the glass instead. Which is the shopfront
@@ -1375,7 +1390,7 @@ export function edgeBands(style) {
     const jambs = style.frame ? [-1, 1].map((s) => ({
       y0: GROUND_LINE,
       y1: head - rail,
-      color: PALETTE.doorFrame,
+      color: DOOR_FRAME,
       off: s * (0.5 - FRAME_JAMB / 2),
       len: FRAME_JAMB,
       jamb: s,
@@ -1415,10 +1430,10 @@ export function edgeBands(style) {
         ...(sill > head ? [{
           y0: head,
           y1: sill,
-          ...(style.frame ? { color: PALETTE.doorFrame, trim: true } : {}),
+          ...(style.frame ? { color: DOOR_FRAME, trim: true } : {}),
         }] : []),
         // ...or the rail hung under the pane, where there was no bar to be it.
-        ...(rail ? [{ y0: head - rail, y1: head, color: PALETTE.doorFrame, trim: true }] : []),
+        ...(rail ? [{ y0: head - rail, y1: head, color: DOOR_FRAME, trim: true }] : []),
         ...(cap > sill ? [{ y0: sill, y1: cap, alpha: GLASS }] : []),
         { y0: 0, y1: GROUND_LINE + (style.mark ? 0.03 : 0), color: style.mark },
         ...jambs,
@@ -1433,7 +1448,7 @@ export function edgeBands(style) {
     const soffit = style.frame ? Math.min(style.h, head + FRAME_HEAD) : head;
     return [
       ...(soffit > head
-        ? [{ y0: head, y1: soffit, color: PALETTE.doorFrame, trim: true }] : []),
+        ? [{ y0: head, y1: soffit, color: DOOR_FRAME, trim: true }] : []),
       // The header runs from the head line to whatever the wall came to, so it
       // is the LINTEL that grows with the wall and never the hole — see
       // `HEAD_ROOM`. One band either way, so a taller shop cost nothing here.
@@ -1663,7 +1678,18 @@ export function jitter(hex, amount, seed) {
   return (r << 16) | (g << 8) | b;
 }
 
-const clamp8 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+/**
+ * A channel, back into 0..255.
+ *
+ * A `function` rather than the `const` arrow it was, and that is not a style
+ * preference: `DOOR_FRAME` is a colour DERIVED at module load rather than
+ * authored, so it runs `shade` — which runs this — four hundred lines above
+ * where this sits in the file. An arrow is in its temporal dead zone up there,
+ * and what that costs is not one bad colour: the throw is at import, so the
+ * renderer never loads and the screen is black. Anything else in here that
+ * wants to derive a constant from another one has the same problem.
+ */
+function clamp8(v) { return Math.max(0, Math.min(255, Math.round(v))); }
 
 /**
  * What colour one cell of a laid floor is.

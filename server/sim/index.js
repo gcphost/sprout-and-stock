@@ -1035,6 +1035,39 @@ const TURN_AWAY_AT = 1.35;
  */
 const CROWD_FROM = 0.7;
 /**
+ * How far round themselves a shopper feels the crush, and why the crush is a
+ * fact about a PLACE rather than about the building.
+ *
+ * `occupancy` is a building-wide average, and an average is structurally unable
+ * to say the one thing anybody actually complains about: that this aisle is
+ * jammed while the far end of the shop is empty. A big shop makes it worse
+ * rather than better, because every extension raises the divisor — so the way
+ * to stop your two aisles being unbearable was to floor a room nobody stands
+ * in. It also cannot be seen coming: the only way to find out a shop does not
+ * handle fifty people is to have fifty people in it, at which point the answer
+ * arrives as a reputation slide two days later.
+ *
+ * So the crush is measured round each shopper, over the same two numbers the
+ * building-wide one uses. `CROWD_REACH` is the neighbourhood and 2 is set the
+ * way `TRAFFIC_REACH` is: it has to be able to tell one aisle from the next.
+ * Shelving in this game stands one and two tiles apart, so at 2 a shopper feels
+ * the people sharing their aisle and not the ones in the one over.
+ *
+ * The room in that neighbourhood is its **walkable** tiles times
+ * `CAPACITY_PER_TILE`, which is where the whole design sits. In open floor
+ * about thirteen cells are in reach, so there is a little over three people's
+ * worth of room and a small group is comfortable. In a one-wide aisle between
+ * two runs of shelving most of those cells are units, the room is nearer one
+ * person, and a second body beside you is already a crush. That is the sentence
+ * the average could never say — *how much room you have is where you are
+ * standing* — and it falls out of the tiles rather than out of a new rule.
+ *
+ * Deliberately the same shape as `occupancy`: a ratio against what the place
+ * holds, so `CROWD_FROM` and `ANNOY_CROWD` go on meaning what they meant and
+ * the term is comparable to the one it replaces.
+ */
+const CROWD_REACH = 2;
+/**
  * How much of the floor may be under boxes before anybody minds.
  *
  * Not zero, and that is the whole of the number. A working shop always has
@@ -1054,6 +1087,27 @@ const MESS_FROM = 0.1;
  * uncomfortable had no lasting consequence at all.
  */
 const CROWD_REP_RATE = 0.0015;
+/**
+ * ...and what a shop somebody could not get INTO does, on the same terms — per
+ * second, per whole multiple over `TURN_AWAY_AT`. See `stepTurnedRep` for why
+ * this stopped being a charge per person.
+ *
+ * Twice the crush rate, and the order matters rather than the number: being
+ * turned away is worse than being squashed, because the squashed at least got
+ * their shopping. Both are small next to a storm-out, which is somebody who
+ * gave you a go and gave up.
+ */
+const TURNED_REP_RATE = 0.003;
+/**
+ * How fast that share follows what is happening at the door, per second.
+ *
+ * Slow on purpose. Arrivals are sparse and lumpy, so the raw share swings
+ * between 0 and 1 tick to tick whatever the shop is doing — this is what turns
+ * that into "how hard is it to get in here lately", which is the thing being
+ * charged for. A tenth per second is a couple of in-game minutes to cross the
+ * range, which is about as long as a rush lasts.
+ */
+const TURNED_SHARE_EASE = 0.1;
 
 /** Visibly unhappy below the first, ready to walk out below the second. */
 const MOOD_ANNOYED = 0.5;
@@ -3043,9 +3097,29 @@ export class Game {
       // sentences that a single "9 / 51" was quietly inviting you to confuse.
       // A headcount rather than the ratio the sim runs on — see `shopCapacity`.
       room: Number.isFinite(this.capacity) ? Math.round(this.capacity) : null,
+      /**
+       * What share of the town you actually GET — reputation and world events,
+       * times the share of them who can get through the door.
+       *
+       * The second half is new and the HUD is what asked for it. `pull` alone
+       * is what footfall *aims* at, which was a complete answer while the door
+       * effectively never closed: capacity sat far above anything reputation
+       * could deliver, so everybody `pull` sent did in fact walk in. With an
+       * honest capacity that stopped being true and the readout became a claim
+       * the shop was contradicting on the same screen — "83 town · 100%" over a
+       * building holding 21, with two thirds of that hundred per cent looking
+       * in and walking on. Right about the town's appetite, wrong about your
+       * trade, and the one number a player reads as "how much of the town am I
+       * getting".
+       *
+       * `turnedShare` is the eased share bouncing off the door — see
+       * `stepTurnedRep`, which charges reputation on the same figure, so the
+       * bar and the slide it explains cannot disagree. A shop refusing nobody
+       * reads exactly as it always did, which is every shop until this one.
+       */
       pull: round2(pull({
         reputation: this.reputation, folded: this.folded(), floor: this.town.pullFloor,
-      })),
+      }) * (1 - (this.turnedShare ?? 0))),
       /**
        * ...and where a bad week bottoms out, which is what makes the reputation
        * bar able to have a colour at all.
@@ -4114,7 +4188,15 @@ export class Game {
     // answer is a property of the shop rather than of any of them. Same shape
     // `occupancy` has had since the crush existed.
     this.mess = this.measureMess();
+    // ...and where those bodies actually are, which is the one of these three
+    // that is NOT a property of the shop — see `crowdTiles`. Built here rather
+    // than per reader because both readers are per-body loops over the same
+    // populations, and nothing moves between them.
+    this.crowd = this.crowdTiles();
     this.stepCrowdRep(dt);
+    // Its pair, and beside it for the same reason: both are facts about how
+    // full the shop is this tick, and both read a number worked out just above.
+    this.stepTurnedRep(dt);
     this.stepCustomers(dt, c, folded);
     this.stepSpawning(dt, c, folded);
     stepStaff(this, dt);
@@ -19684,6 +19766,57 @@ export class Game {
   }
 
   /**
+   * ...and the same, for the people who never got in.
+   *
+   * This was a flat charge per head, taken in `stepSpawning` on the tick
+   * somebody was turned away, and it was right for as long as the door
+   * effectively never closed. The moment capacity became an honest measure of
+   * the floor it started firing constantly, and a per-head charge against a
+   * crowd the TOWN decides the size of is not a rule, it is a multiplier on how
+   * popular you are: measured over two and a half in-game minutes, a shop at
+   * 0.95 fell to 0.41 — and to 0.10 with three times the town through exactly
+   * the same door. Nothing about the shop had changed. It had simply been
+   * noticed by more people.
+   *
+   * That is backwards twice over. Reputation is what the town thinks of you,
+   * and the share of it that walks up to a full shop is the same share whether
+   * the town is eighty or eight hundred — so the cost of being full is a fact
+   * about the shop, not a tally of who happened to try the door. And a rule
+   * that scales with footfall while footfall scales with reputation is a
+   * spiral, which is why it settles at a floor rather than at a level: the shop
+   * stops being punished only once nobody wants to come.
+   *
+   * So it is charged by the second, exactly as the crush above is. A bigger
+   * town costs what a smaller one costs, being full is a condition rather than
+   * a body count, and the answer to a town that has outgrown you is a bigger
+   * shop instead of a reputation you cannot defend.
+   *
+   * What it is charged ON is the one thing here that had to be found by
+   * measuring. The obvious reading — how far `doorPressure` is over
+   * `TURN_AWAY_AT`, which is the crush term said about the door — is **always
+   * about zero**, because the door is the thing holding it there: a gate that
+   * refuses people exactly as fast as it must to keep the pressure at the cap
+   * never lets the pressure off the cap. That version shipped for one probe and
+   * read as a penalty that did not exist — eight hundred and fifty people
+   * bounced off a shop sitting at a reputation of 1.000.
+   *
+   * The signal is the SHARE that bounced — turned away over everybody who
+   * tried, which is what the per-head count was standing in for all along. It
+   * is bounded at one however big the town gets, it is zero for a shop refusing
+   * nobody, and it says the thing worth hearing: not "your shop is full", which
+   * every good shop is, but "half the people who wanted you could not get in".
+   * Eased rather than read raw (`stepSpawning`), because arrivals land in ones
+   * and twos on scattered ticks — the instantaneous share is 0 or 1 and nothing
+   * between, and a reputation charged on that is charged on a coin toss.
+   */
+  stepTurnedRep(dt) {
+    if (!this.isOpen()) return;
+    const share = this.turnedShare ?? 0;
+    if (share <= 0) return;
+    this.moveRep(-TURNED_REP_RATE * share * dt, R.TURNED);
+  }
+
+  /**
    * How many people are actually in the shop right now.
    *
    * Its own method because two different questions ask it and they are not the
@@ -19768,6 +19901,41 @@ export class Game {
   }
 
   /**
+   * How full the shop is ABOUT to be — everyone in it plus everyone on their
+   * way, over what it holds. What the door is decided on.
+   *
+   * `occupancy` cannot answer this and it took a shop of sixty-four people to
+   * see why. It counts bodies that have arrived, and arriving takes a walk in
+   * from beyond the edge of the world — twenty or thirty seconds of it, on foot
+   * or by car. A popular shop spawns two people a second, so between the
+   * moment somebody is let through and the moment they are first counted, forty
+   * more are let through on the strength of a headcount none of them are in
+   * yet. The gate then slams shut, they all arrive at once, and the shop holds
+   * three times what it said it could — while `turnedAway` climbs the whole
+   * time, because the rule was working and was simply reading a number that is
+   * always about half a minute stale.
+   *
+   * What it reads as is the cap being ignored: the HUD says 64 of 21, nothing
+   * is broken, and every single arrival passed a check that said there was
+   * room. It is `inACar`'s trap for the sixth time — `this.customers` holds
+   * people who are not in the shop — except that here it is the *other*
+   * direction that bites. Every other reader had to be taught to stop counting
+   * somebody who has not arrived; the door is the one that has to start.
+   *
+   * `DEPART` is the only state left out, and that is the whole of the
+   * difference from `customersInside`: somebody driving away is neither here
+   * nor coming. Anyone LEAVING on foot is still a body on the floor, and
+   * anybody still ON the approach is a body the shop has already agreed to.
+   */
+  doorPressure() {
+    const capacity = this.capacity ?? this.shopCapacity();
+    if (!(capacity > 0)) return Infinity;
+    let coming = 0;
+    for (const cu of Object.values(this.customers)) if (cu.state !== 'DEPART') coming++;
+    return coming / capacity;
+  }
+
+  /**
    * How many people this shop comfortably holds.
    *
    * Its own verb because it is a HEADCOUNT and the thing the sim runs on is a
@@ -19826,7 +19994,7 @@ export class Game {
     if (!indoor) return Infinity;
     let tiles = 0;
     for (let i = 0; i < w * h; i++) if (indoor[i] && !blocked?.[i]) tiles++;
-    if (!this.shellBreached()) return tiles * CAPACITY_PER_TILE;
+    if (!this.shellBreached()) return this.shoppingRoom();
 
     // The stamped footprint, which is floor by construction (`generateLayout`
     // stamps the whole shell) — so `blocked` is the same and only question the
@@ -19842,6 +20010,94 @@ export class Game {
     // Never smaller than what the walls do still close in: a shop can be
     // breached at the front and have a sealed stockroom bigger than the rect.
     return Math.max(tiles, rect) * CAPACITY_PER_TILE;
+  }
+
+  /**
+   * How many people the shop holds, worked out from the FLOOR PLAN and nothing
+   * else — no shoppers required.
+   *
+   * This is the number the flat count above could not give, and the gap it
+   * closes is not accuracy, it is *when the answer arrives*. Every tile counted
+   * the same quarter of a person whether it was a metre of open floor or a slot
+   * between two runs of shelving, so the only way to discover that a shop does
+   * not handle fifty people was to put fifty people in it — and by then the
+   * answer comes back as a reputation slide two days later, pointing at nothing.
+   * Worse, the flat count rewarded the wrong move twice over: flooring a room
+   * nobody stands in raised capacity, and so did leaving your aisles narrow,
+   * because a cramped tile and an open one were the same tile.
+   *
+   * Two things are asked of every cell, and both are facts about the building.
+   *
+   * **How much elbow room is at it** — `roomNear`, already computed for
+   * `localCrush`, as a share of what an unobstructed cell has around it. A tile
+   * in the middle of an empty floor scores 1 and contributes exactly the
+   * `CAPACITY_PER_TILE` it always did, which is what keeps this from being a
+   * silent rebalance of every open-plan shop in existence. A tile in a one-wide
+   * aisle has most of its neighbourhood taken by the units on either side and
+   * contributes a fraction of a person, which is the sentence the whole thing
+   * exists to say: *two aisles do not hold fifty people.*
+   *
+   * **And whether anybody would ever stand on it** — within `CROWD_REACH` of a
+   * unit or a till, which is where shopping happens. A stockroom, a kitchen
+   * floor, the run of empty floor between your last shelf and the far wall: all
+   * of it is walkable, none of it is where a customer goes, and counting it was
+   * how a shop could be judged roomy on the strength of a space that never has
+   * anybody in it. `service` is what says whether the shelves are worth coming
+   * for; this says whether there is anywhere to stand while you look at them.
+   *
+   * Cached on the layout OBJECT, `roomNear`'s reason exactly — it is a fact
+   * about walls and shelving, so it moves on a re-flow and never between two.
+   * Shelves are counted whether or not they have anything on them, which is
+   * what makes that cache legal: how much room an aisle has is not a question
+   * about today's delivery.
+   */
+  shoppingRoom() {
+    if (this.shopRoomAt === this.layout) return this.shopRoomVal;
+    const { w, h, indoor, blocked } = this.layout;
+    const near = this.roomNear();
+    // What a cell with nothing round it scores, so the weight below is a share
+    // rather than a raw count — and an open floor comes out at exactly the flat
+    // number this replaces. Derived from the same disc `roomNear` walks rather
+    // than written down, or the two drift and every shop silently regrades.
+    let open = 0;
+    for (let dz = -CROWD_REACH; dz <= CROWD_REACH; dz++) {
+      for (let dx = -CROWD_REACH; dx <= CROWD_REACH; dx++) {
+        if (dx * dx + dz * dz <= CROWD_REACH * CROWD_REACH) open++;
+      }
+    }
+    open *= CAPACITY_PER_TILE;
+
+    // Where the shopping is. Marked out once over the units rather than asked
+    // per cell, because the cells outnumber the fixtures by two orders of
+    // magnitude and the question is the same one either way round.
+    const used = new Uint8Array(w * h);
+    const mark = (x, z) => {
+      const ax = Math.round(x);
+      const az = Math.round(z);
+      for (let dz = -CROWD_REACH; dz <= CROWD_REACH; dz++) {
+        for (let dx = -CROWD_REACH; dx <= CROWD_REACH; dx++) {
+          if (dx * dx + dz * dz > CROWD_REACH * CROWD_REACH) continue;
+          const nx = ax + dx;
+          const nz = az + dz;
+          if (nx < 0 || nz < 0 || nx >= w || nz >= h) continue;
+          used[nz * w + nx] = 1;
+        }
+      }
+    };
+    for (const s of this.layout.shelves ?? []) mark(s.x, s.z);
+    for (const t of this.layout.checkouts ?? []) mark(t.x, t.z);
+
+    let room = 0;
+    for (let i = 0; i < w * h; i++) {
+      if (!used[i] || !indoor[i] || blocked?.[i]) continue;
+      room += CAPACITY_PER_TILE * Math.min(1, near[i] / open);
+    }
+    this.shopRoomAt = this.layout;
+    // A shop with shelving always has somewhere to stand, and a zero here is a
+    // divide by nothing in `measureOccupancy` — one shopper reads as infinitely
+    // over capacity and the whole town is turned away at the door.
+    this.shopRoomVal = Math.max(room, CAPACITY_PER_TILE);
+    return this.shopRoomVal;
   }
 
   /**
@@ -19891,10 +20147,20 @@ export class Game {
    * `Set`, for the same reason. And **everybody rather than shoppers only** — see
    * `CROWD` in pathing.js, which is where the argument for all of that lives.
    *
-   * Built per call, exactly as the clutter set is and for the reason `pathTo`
-   * gives: a route is planned once and followed for many ticks, so a map cached
-   * on the tick would be a snapshot of a snapshot. It is walked once per route
-   * rather than once per step, over the two populations that use the shop floor.
+   * Built once a TICK rather than once per route, which is the one way it
+   * differs from the clutter set beside it. That used to be the other way round
+   * on the argument that a cached map is a snapshot of a snapshot — true of a
+   * map kept across ticks, and not true of this one, because within a tick
+   * nobody has moved and the two answers are the same answer. What it was
+   * costing is that `leaveShop` re-paths the whole queue after every sale, so a
+   * busy till rebuilt this a dozen times over one tick to get a dozen identical
+   * maps. And it is now read by `localCrush` as well, which is a per-body loop:
+   * built per call it would be rebuilt once per shopper per tick, which is the
+   * whole population squared.
+   *
+   * `self` is subtracted by the caller rather than skipped here (see `pathTo`),
+   * because the exclusion is the one thing about it that is per-reader and the
+   * map is shared.
    *
    * `inACar` is the membership test, for the fifth time and for CLAUDE.md's
    * stated reason: `this.customers` holds people who are still on the approach
@@ -19902,14 +20168,11 @@ export class Game {
    * round. Livestock are left out on the same argument pointed the other way —
    * a paddock is not the shop floor, and a hen is not why anybody is queueing.
    *
-   * `self` is excluded, or everybody pays a tile to leave the spot they are
-   * standing on.
    */
-  crowdTiles(self = null) {
+  crowdTiles() {
     const { w } = this.layout;
     const out = new Map();
     const add = (e) => {
-      if (e === self) return;
       const i = Math.round(e.z) * w + Math.round(e.x);
       out.set(i, (out.get(i) ?? 0) + 1);
     };
@@ -19918,6 +20181,133 @@ export class Game {
     // and a body in an aisle is a body in the way whoever it belongs to.
     for (const p of Object.values(this.players)) add(p);
     return out;
+  }
+
+  /**
+   * How many people there is room for within `CROWD_REACH` of each tile.
+   *
+   * The half of the local crush that is about the SHOP rather than about who is
+   * standing in it, and therefore the half that can be worked out once and kept.
+   * It is a fact about walls and shelving, so it changes on a re-flow and never
+   * between two of them — cached for the reason `spotScore`'s map is: build
+   * mode re-flows on every wall segment of a drag, and a map re-cut per tick
+   * would cost a sweep of the grid twenty times a second to answer a question
+   * whose answer did not move. Keyed on the layout OBJECT, which is
+   * `parkCache`'s argument exactly: `regenerateLayout` replaces `this.layout`
+   * and `this.walk` together, so holding the object we measured is holding the
+   * grid we measured it against.
+   *
+   * Indoors and unblocked, which is `floorRoom`'s test exactly — the same
+   * quarter of a person per tile, asked of thirteen cells instead of the whole
+   * building. Outdoor tiles are left out rather than counted as open ground: a
+   * shopper stood in a doorway would otherwise have the whole car park as
+   * elbow room, and the queue at the door is the one place a crush most needs
+   * saying.
+   *
+   * Never zero. A tile with nothing walkable around it is one somebody is
+   * standing on, so the room is at least their own square — and a zero here is
+   * a division that hands every reader `Infinity`, which is the whole town
+   * storming out of a shop for standing in its own doorway.
+   */
+  roomNear() {
+    if (this.roomNearAt === this.layout && this.roomNearMap) return this.roomNearMap;
+    const { w, h, indoor, blocked } = this.layout;
+    const out = new Float32Array(w * h);
+    // No mask at all is `floorRoom`'s `Infinity` said locally: a shop with no
+    // notion of indoors has no notion of being full either, and a zero divisor
+    // here would put the whole town on the pavement instead.
+    if (!indoor) {
+      out.fill(Infinity);
+      this.roomNearAt = this.layout;
+      this.roomNearMap = out;
+      return out;
+    }
+    for (let z = 0; z < h; z++) {
+      for (let x = 0; x < w; x++) {
+        let tiles = 0;
+        for (let dz = -CROWD_REACH; dz <= CROWD_REACH; dz++) {
+          for (let dx = -CROWD_REACH; dx <= CROWD_REACH; dx++) {
+            // Round rather than square, or the corners of the box reach a tile
+            // and a half further than the sides and an aisle measures wider
+            // along its own length than across it.
+            if (dx * dx + dz * dz > CROWD_REACH * CROWD_REACH) continue;
+            const nx = x + dx;
+            const nz = z + dz;
+            if (nx < 0 || nz < 0 || nx >= w || nz >= h) continue;
+            const i = nz * w + nx;
+            if (indoor?.[i] && !blocked?.[i]) tiles++;
+          }
+        }
+        out[z * w + x] = Math.max(tiles, 1) * CAPACITY_PER_TILE;
+      }
+    }
+    this.roomNearAt = this.layout;
+    this.roomNearMap = out;
+    return out;
+  }
+
+  /**
+   * How packed it is where THIS shopper is standing, as a share of what that
+   * spot holds. The local answer to `occupancy`, and the same 0..N ratio, so
+   * `CROWD_FROM` and `ANNOY_CROWD` go on meaning what they meant.
+   *
+   * The argument for measuring it here rather than building-wide is at
+   * `CROWD_REACH`. What is left is the queue, which is the one case where
+   * bodies standing close together is the shop working rather than the shop
+   * failing: a line is people in a row by definition, and `ANNOY_LINE` already
+   * charges for every second of standing in one. Counted in full, waiting to
+   * pay would be billed twice for the same wait — and the shop it would punish
+   * hardest is the one with a busy till, which is the shop you were trying to
+   * build.
+   *
+   * So somebody in a line does not count the rest of THEIR line. Everybody
+   * else counts it in full, which is the half worth keeping: a queue backed up
+   * across an aisle is a genuine pile-up for the people trying to get past it,
+   * and to them it is not a queue, it is a wall of shoppers.
+   */
+  localCrush(cust) {
+    const crowd = this.crowd;
+    if (!crowd) return 0;
+    const { w, h } = this.layout;
+    const cx = Math.round(cust.x);
+    const cz = Math.round(cust.z);
+    /**
+     * Off the grid entirely, which is not a guard against something unlikely —
+     * it is the ordinary state of a shopper who has not arrived. They walk in
+     * from beyond the edge of the world (see `pathTo`'s `from`), so `x` is
+     * negative or past `w` for the whole approach.
+     *
+     * Left out, the index does not fail, it WRAPS: `z * w + x` with a negative
+     * x is a real cell on the row above, so somebody out on the road reads the
+     * crush of a random aisle. And past the end of the row it falls off the
+     * `Float32Array`, which answers `undefined` — so the divide is NaN, the
+     * annoyance is NaN, the mood is NaN, and `mood > 0` is false. Every shopper
+     * in the shop storms out on the tick they are asked about, which reads as
+     * the shop having no customers at all rather than as an index.
+     *
+     * `stepMood` returns before this for `ENTER` and `LEAVE`, so nothing today
+     * reaches it with an off-grid body — which is exactly why it is written
+     * down rather than left to that.
+     */
+    if (cx < 0 || cz < 0 || cx >= w || cz >= h) return 0;
+    // Their own line, so it can be taken back off the count below. Null for
+    // anybody not in one, which is most of the shop.
+    const line = cust.till ? this.queueTiles(cust.till) : null;
+    let bodies = 0;
+    for (let dz = -CROWD_REACH; dz <= CROWD_REACH; dz++) {
+      for (let dx = -CROWD_REACH; dx <= CROWD_REACH; dx++) {
+        if (dx * dx + dz * dz > CROWD_REACH * CROWD_REACH) continue;
+        const nx = cx + dx;
+        const nz = cz + dz;
+        if (nx < 0 || nz < 0 || nx >= w || nz >= h) continue;
+        const i = nz * w + nx;
+        if (line?.has(i)) continue;
+        bodies += crowd.get(i) ?? 0;
+      }
+    }
+    // Never their own body: standing somewhere does not make it crowded.
+    bodies = Math.max(0, bodies - (line?.has(cz * w + cx) ? 0 : 1));
+    return bodies / this.roomNear()[cz * w + cx];
   }
 
   /**
@@ -20195,16 +20585,28 @@ export class Game {
       pullFloor: this.town.pullFloor,
     });
     this.spawnAccumulator += (rate / 60) * dt;
+    // How many tried the door this tick and how many bounced, which is what
+    // `stepTurnedRep` is charged on — see there for why it is a share rather
+    // than a count, and why it is eased.
+    let tried = 0;
+    let bounced = 0;
     while (this.spawnAccumulator >= 1) {
       this.spawnAccumulator -= 1;
+      tried++;
 
       // Full. They look in, see it, and go somewhere else — which is the whole
       // point: footfall used to keep pushing people at a shop that could not
       // serve them, and the only thing that ever pushed back was reputation
       // three days later. This is the same loop, closed on the same tick.
-      if (this.occupancy > TURN_AWAY_AT) {
+      // What is coming rather than what has arrived — see `doorPressure`. Asked
+      // per arrival rather than once per tick, because the whole failure was a
+      // stale count and every pass of this loop lets somebody else in.
+      if (this.doorPressure() > TURN_AWAY_AT) {
         this.stats.turnedAway++;
-        this.moveRep(-0.005, R.TURNED);
+        bounced++;
+        // The tally is per head and the reputation is NOT — see
+        // `stepTurnedRep`, which charges it by the second the way the crush is
+        // charged.
         // Logged on the way in and out of the state rather than per person, or
         // a busy hour buries every other line in the log.
         if (!this.turningAway) {
@@ -20233,6 +20635,16 @@ export class Game {
       // ordinary arrival this game has always had.
       const space = this.freeSpace();
       this.spawnCustomer(null, space && this.rng.next() < DRIVE_SHARE ? space : null);
+    }
+
+    // Eased toward this tick's share, and only on ticks anybody actually tried
+    // the door — most ticks nobody does, and folding those in as a share of
+    // zero would read the shop as never turning anyone away. It holds its last
+    // answer instead, which is what "the share of people who cannot get in" is
+    // a statement about: the shop, not this tenth of a second.
+    if (tried) {
+      const k = Math.min(1, dt * TURNED_SHARE_EASE);
+      this.turnedShare = (this.turnedShare ?? 0) + (bounced / tried - (this.turnedShare ?? 0)) * k;
     }
   }
 
@@ -20863,9 +21275,28 @@ export class Game {
     // somebody is going to *walk* is planned, and every other `findPath` caller
     // in the game is asking whether a place can be reached at all.
     const shopper = !!entity.archetype_id;
+    // The tick's map, borrowed rather than rebuilt — see `crowdTiles`. Nobody
+    // pays for their OWN body, or every route opens by charging a tile to leave
+    // the spot you are standing on. Taken off and put back around the call
+    // instead of skipped inside the build, because the map is shared and the
+    // exclusion is the one part of it that is per-reader. Absent on the tick a
+    // world is created, before `step` has run once.
+    // Off-grid is guarded for `localCrush`'s reason and not its consequence:
+    // a shopper walking in from beyond the edge has a negative `x`, and
+    // `z * w + x` WRAPS onto the row above rather than failing — so the body
+    // taken off the map would be somebody else's, in an aisle, and put back a
+    // line later. Harmless here because it is symmetric, and a cell that reads
+    // one shopper light for one search is not.
+    const crowd = this.crowd ?? null;
+    const ex = Math.round(entity.x);
+    const ez = Math.round(entity.z);
+    const onGrid = ex >= 0 && ez >= 0 && ex < this.layout.w && ez < this.layout.h;
+    const mine = crowd && onGrid ? ez * this.layout.w + ex : -1;
+    const had = crowd?.get(mine) ?? 0;
+    if (had) crowd.set(mine, had - 1);
     const path = findPath(this.walk, this.layout, from ?? entity, goal,
-      { shopper, clutter: shopper ? this.clutterTiles() : null,
-        crowd: this.crowdTiles(entity) });
+      { shopper, clutter: shopper ? this.clutterTiles() : null, crowd });
+    if (had) crowd.set(mine, had);
     entity.path = path ?? [];
     if (path && from) entity.path.unshift({ x: from.x, z: from.z });
     return path !== null;
@@ -21155,8 +21586,13 @@ export class Game {
     // `till` is set the moment a slot is claimed, so walking up the line costs
     // the same as standing in it.
     if (cust.till) annoy += ANNOY_LINE;
-    // Everyone inside pays for the crush, whatever they're doing.
-    if (this.occupancy > CROWD_FROM) annoy += ANNOY_CROWD * (this.occupancy - CROWD_FROM);
+    // Everyone inside pays for the crush, whatever they're doing — but for the
+    // crush WHERE THEY ARE, which is not the same number as the shop's. See
+    // `CROWD_REACH`: `occupancy` is a building-wide average and an average
+    // cannot say that this aisle is jammed while the far end is empty, which is
+    // the only version of being crowded anybody has ever minded.
+    const crush = this.localCrush(cust);
+    if (crush > CROWD_FROM) annoy += ANNOY_CROWD * (crush - CROWD_FROM);
     // ...and the state of the place. Same shape as the crush and for the same
     // reason: everybody inside pays it whatever they are doing, because it is a
     // fact about the room rather than about their errand.
@@ -21491,6 +21927,37 @@ export class Game {
   /** Where this till's line stands, `lane[0]` being the serving spot itself. */
   laneOf(till) {
     return this.lanes?.get(till.id) ?? [till.serveAt];
+  }
+
+  /**
+   * The same lane as tile indices, for `localCrush` to take back off its count.
+   *
+   * Cached beside `this.lanes` and thrown away with it, because it is the same
+   * fact in a second shape and two answers to one question is how a queue comes
+   * to be forgiven on a lane it no longer stands in.
+   *
+   * The WHOLE lane rather than the part of it anybody is standing on. Somebody
+   * on a queue's tiles is a queuer to a near-certainty, and asking which of them
+   * hold a place would be a walk over the line per queued shopper per tick to
+   * separate two populations that are the same people.
+   */
+  queueTiles(till) {
+    if (this.laneTilesAt !== this.lanes) {
+      this.laneTilesAt = this.lanes;
+      this.laneTiles = new Map();
+    }
+    let set = this.laneTiles.get(till.id);
+    if (!set) {
+      const { w } = this.layout;
+      // `laneOf` falls back to `[till.serveAt]`, and a till built without one
+      // makes that a list holding `undefined` — a shape no other reader of a
+      // lane meets, because they all index it rather than walking it.
+      set = new Set(this.laneOf(till)
+        .filter(Boolean)
+        .map((c) => Math.round(c.z) * w + Math.round(c.x)));
+      this.laneTiles.set(till.id, set);
+    }
+    return set;
   }
 
   /**

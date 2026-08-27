@@ -46,7 +46,7 @@ export const DEBUGS = [
     id: 'perf',
     icon: 'quick',
     name: 'Frame clock',
-    sub: 'fps, the worst frame, draws and triangles — bottom left',
+    sub: 'fps against the cap, cpu against gpu, draws and objects — bottom left',
   },
   {
     id: 'tiles',
