@@ -145,6 +145,53 @@ export const INK = {
    *  constant there is what put every line in the lab on the minimum clamp. */
   FADE: 0.29,
   COLOR: '#171219',
+  /**
+   * ...AND THE ONE PLACE A FIXED INK COLOUR HAS NOTHING TO SAY, WHICH IS THE
+   * DARK.
+   *
+   * `COLOR` is very nearly black, which is the right ink for everything this
+   * was tuned against: a shop interior is lit, its surfaces are pale, and a
+   * near-black line on a cream floor is a drawing. It stops being an ink at all
+   * the moment the thing under it is darker than the line is — at which point
+   * the pass is spending its whole budget laying black onto black, and the
+   * failure is not a faint line, it is NO line, on the objects whose shape the
+   * contour is the only thing describing.
+   *
+   * The dusk skyline is where it shows and it is not an edge case. `BANDS = 3`
+   * with `SHADOW_FLOOR` at 0.22 puts every backlit surface on one dark step, so
+   * a city block at last light lands at about a fifth of a mid-grey — and every
+   * block lands on the SAME step, so the ink is the only thing left that could
+   * separate one from the next. Black on black: the skyline collapses into a
+   * single flat silhouette, and the only edges you can still see are the ones
+   * where a lighter block happens to overlap a darker one. What that reads as
+   * is unfinished backdrop art rather than as a line that could not be drawn.
+   *
+   * So below `LIFT` the ink is pushed UP off the surface instead of down into
+   * it — the line becomes the surface's own colour plus this much luminance,
+   * which keeps its hue and is what a pen on dark paper does. It is a floor on
+   * CONTRAST rather than a second colour, so there is no second ink to author
+   * and nothing to keep in step with `COLOR`.
+   *
+   * It is deliberately narrow. The band it acts over is `LIFT * 0.5` to
+   * `LIFT * 2.0` in linear luminance, which lets go well below the shop's own
+   * shelving (~0.28) — so nothing in a lit shop moves by a pixel, and this is a
+   * rule about the dark rather than a softening of the ink everywhere. Widen it
+   * and you are greying out the lines on the furniture to fix the horizon.
+   *
+   * 0.14 WAS TRIED AND READS AS JAGGED, which is worth writing down because the
+   * failure does not look like the cause. The band's top is LIFT * 2.0, so 0.14
+   * puts it at 0.28 — and the shop's own shelving sits at about 0.26, i.e.
+   * INSIDE it. Two things then happen to the furniture at once: its lines start
+   * mixing toward the surface they are drawn on, so they weaken; and because
+   * `BANDS = 3` makes shading a step rather than a ramp, neighbouring pixels of
+   * one shelf can land either side of the smoothstep and get visibly different
+   * inks. A line that changes weight along its own length reads as aliasing,
+   * so the symptom is "the edges went jagged" and the cause is a threshold three
+   * files away being nudged. The ceiling on this number is set by the DARKEST
+   * thing in the shop that still wants a hard line — check what is at
+   * `LIFT * 2.0` before raising it.
+   */
+  LIFT: 0.1,
 };
 
 /* -------------------------------------------------------------------- grade */
@@ -184,6 +231,21 @@ export const INK_NORMAL_SCALE = 0.5;
  * rough rather than as MSAA having quietly gone away. WebGL2 resolves the depth
  * buffer along with the colour, which is what makes it usable at all here: the
  * silhouette pass reads that depth.
+ *
+ * FOUR, and it was tried at two and put back, which is worth writing down
+ * because the arithmetic argues for two and the screen does not. Timed with
+ * `EXT_disjoint_timer_query` on a half-screen retina window, 4x to 2x is 8.0ms
+ * of GPU to 7.0 — an eighth, the smallest dial in the whole pass — while the
+ * pixel count is worth more than half. So on cost alone this looks like free
+ * money, and it is not: this is the ONLY thing in the pipeline fighting a
+ * stair-step, the shop is all long straight diagonals at a fixed camera pitch,
+ * and a shelf edge is exactly the case that shows it. Dropped to two alongside
+ * a lower `PIXEL_BUDGET` the aisles came back visibly ragged.
+ *
+ * The lesson is the ordering rather than the number: spend the resolution
+ * budget before the sample budget. Pixels are worth more per millisecond, and
+ * an eighth of the pass is a cheap price for the one knob that decides whether
+ * an edge is a line or a staircase.
  */
 export const SCENE_SAMPLES = 4;
 

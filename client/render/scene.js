@@ -8,10 +8,11 @@
  */
 
 import * as THREE from 'three';
-import { PALETTE, TILE_STYLE, PAD_MARK, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, SURROUND_COLORS, conveyorAccent, bondOf, brickBond, edgeBands, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
+import { PALETTE, TILE_STYLE, PAD_MARK, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, SURROUND_COLORS, conveyorAccent, bondOf, brickBond, edgeBands, frameTint, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
 import { buildSurround, apronMaterial, surroundGround, HAZE } from './surround.js';
 import { surroundOf, DEFAULT_SURROUND } from '../../shared/surrounds.js';
 import {
+  characterParts, crowdRig, crowdLocals, crowdExtent, crowdBatchAssets,
   buildModel, buildCharacter, buildStack, buildShelfGoods, shelfShow,
   buildBubble, buildCashDrop, buildVehicle,
   buildStationBays,
@@ -23,7 +24,7 @@ import {
   buildStamp,
   buildFootMark,
   buildPadGlyph,
-  weld, paintLit, characterMaterial,
+  weld, paintLit, characterMaterial, PERSON_H,
 } from './props.js';
 import { Heat } from './heat.js';
 import { T } from '../../shared/tiles.js';
@@ -67,7 +68,12 @@ const FRUSTUM = 17;
  * `unproject` already folds zoom into the inverse projection, which is why
  * pickTile and pickFixture keep working at any zoom without knowing it exists.
  */
-const RING_Y = 1.2;           // charge ring height — just clear of a head at 0.96
+// The charge ring, floated clear of a crown. Off `PERSON_H` rather than a
+// number matched to a head once: it was 1.2 against a head that stood at 0.96,
+// and the day everybody grew that same 1.2 would have been drawn through their
+// faces. The clearance is what is authored here; how tall they are is not this
+// file's fact.
+const RING_Y = PERSON_H + 0.26;
 
 /**
  * How high up whoever the camera is riding on it actually AIMS.
@@ -231,7 +237,12 @@ const ZOOM_STEP = 1.12;
  * precision is spent on. 0.06 of a tile is about an inch of shop.
  */
 const FPV_FOV = 74;
-const FPV_Y = 0.88;
+// Eye height, as a fraction of stature rather than a number — 0.94 is about
+// where a real pair of eyes sits, and it has to be derived for `RING_Y`'s
+// reason twice over: a fixed 0.88 was under the crown of a 0.944 body and would
+// have left first person at chest height on a 1.28 one, which is the complaint
+// that produced `PERSON_H` in the first place.
+const FPV_Y = PERSON_H * 0.94;
 const FPV_NEAR = 0.06;
 const FPV_FAR = 400;
 /**
@@ -447,6 +458,10 @@ function plainBlock(look) {
  * that covers every angle.
  */
 function bodyExtent(obj) {
+  // A batched body has no meshes to measure, so it carries the answer instead —
+  // computed off the part list by the same corner-by-corner arithmetic this
+  // does, which is why the two agree to the float. See `crowdExtent`.
+  if (obj.userData.crowd) return obj.userData.crowd.extent;
   const box = new THREE.Box3().setFromObject(obj);
   if (box.isEmpty()) return { footY: 0, headY: 1.5, halfW: 0.34 };
   return {
@@ -455,6 +470,117 @@ function bodyExtent(obj) {
     halfW: Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 0.3) / 2,
   };
 }
+
+/**
+ * THE CROWD, as two draws instead of six hundred.
+ *
+ * A shopper is twenty boxes — torso, four limb segments, a head, a face, hair,
+ * a beard — and `weld` already got that down to seven meshes by merging what
+ * shares a colour. Seven is the floor for a welded body, because the four limbs
+ * pivot independently and the head's colour is flushed per shopper, and seven
+ * times eighty people is most of what this renderer spends its frame on: 645 of
+ * the 1,392 meshes in `actorRoot` on a busy evening, each one walked, frustum
+ * tested, and submitted as its own draw call, twice over once the shadow pass
+ * has had its turn.
+ *
+ * Every one of those boxes is the SAME BOX. So they stop being meshes: one unit
+ * geometry, one instance per part, a matrix and a colour each, and the whole
+ * crowd is two draw calls — one for what casts a shadow and one for what does
+ * not, which is the only axis `castShadow` cannot express per instance.
+ *
+ * The skeleton stays real (`crowdRig`), and that is what keeps the change
+ * cheap: `animateActors` still writes four rotations, a basket still hangs off
+ * a `hold` group, `animateRest` still tilts the root. Five empty groups per
+ * person, nothing on them to draw.
+ *
+ * `frustumCulled` is OFF, deliberately. One instanced mesh spans the whole
+ * shop, so its bounding sphere covers everything and culling it is a decision
+ * about the entire crowd at once — always wrong in one direction or the other,
+ * and it costs a sphere test to get there. Per-instance culling is what the
+ * batch traded away, and it was worth it: only 11% of shoppers are off screen
+ * at play zoom, measured, so the culling this replaces was rejecting almost
+ * nothing for a test per mesh per pass.
+ *
+ * Slots are handed out one part at a time from a free list rather than in
+ * contiguous runs per person. A shop is a churn — somebody leaves every few
+ * seconds — and contiguous blocks fragment under that until a new shopper
+ * cannot be placed in a batch that is mostly empty.
+ */
+class CrowdBatch {
+  constructor(cap) {
+    const { geometry, material: mat } = crowdBatchAssets();
+    this.cap = cap;
+    this.mesh = {
+      cast: new THREE.InstancedMesh(geometry, mat, cap),
+      flat: new THREE.InstancedMesh(geometry, mat, cap),
+    };
+    this.mesh.cast.castShadow = true;
+    this.mesh.flat.castShadow = false;
+    for (const which of ['cast', 'flat']) {
+      const im = this.mesh[which];
+      im.receiveShadow = true;
+      im.frustumCulled = false;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      // Nothing is drawn until somebody claims a slot. `count` tracks the high
+      // water mark rather than the live population, because the instances below
+      // it are a free list with holes in — a hole is parked at zero scale.
+      im.count = 0;
+    }
+    this.free = { cast: [], flat: [] };
+    this.top = { cast: 0, flat: 0 };
+  }
+
+  /** A slot per part, or null if the batch is full — see `Scene.crowdBody`. */
+  claim(parts) {
+    const out = new Array(parts.length);
+    const taken = [];
+    for (let i = 0; i < parts.length; i++) {
+      const which = parts[i].shadow ? 'cast' : 'flat';
+      let slot;
+      if (this.free[which].length) slot = this.free[which].pop();
+      else if (this.top[which] < this.cap) slot = this.top[which]++;
+      else { this.giveBack(parts, out, i); return null; }
+      out[i] = slot;
+      taken.push(which);
+      this.mesh[which].count = Math.max(this.mesh[which].count, slot + 1);
+    }
+    return out;
+  }
+
+  giveBack(parts, slots, upTo = slots.length) {
+    for (let i = 0; i < upTo; i++) {
+      if (slots[i] == null) continue;
+      const which = parts[i].shadow ? 'cast' : 'flat';
+      this.hide(which, slots[i]);
+      this.free[which].push(slots[i]);
+    }
+  }
+
+  setMatrix(which, slot, m) { this.mesh[which].setMatrixAt(slot, m); }
+
+  setColour(which, slot, c) { this.mesh[which].setColorAt(slot, c); }
+
+  /** A slot nobody is standing in, parked where it cannot be seen. */
+  hide(which, slot) { this.mesh[which].setMatrixAt(slot, HIDDEN_M4); }
+
+  flush() {
+    for (const which of ['cast', 'flat']) {
+      const im = this.mesh[which];
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    }
+  }
+}
+
+/** How many boxes the crowd may draw at once. ~20 a body, so 200-odd people. */
+const CROWD_CAP = 4096;
+
+/** Where an unused instance is parked: scaled to nothing, so it covers no pixel. */
+const HIDDEN_M4 = new THREE.Matrix4().makeScale(0, 0, 0);
+
+/** Scratch for the per-part compose, which runs thousands of times a frame. */
+const CROWD_M4 = new THREE.Matrix4();
+const CROWD_COL = new THREE.Color();
 
 /** Pixels from a point to a line segment — the pointer to a projected spine. */
 function distToSegment(px, py, ax, ay, bx, by) {
@@ -548,6 +674,35 @@ function plantSpots(count, seed = 0) {
  * near dpr 1.6 rather than 2, which is a third fewer pixels through every one of
  * the passes above. This is the dial for that whole family of cost: raise it for
  * sharpness, lower it if a machine is struggling.
+ *
+ * ...and it came down again to 1.6MP, this time against a MEASUREMENT of the
+ * thing the paragraph above could only reason about. `EXT_disjoint_timer_query`
+ * gives the GPU's own elapsed time per frame, which is the number none of the
+ * profiling in here could see — and on a half-screen retina window at 2.5MP a
+ * frame was 8.0ms of GPU against a 25ms budget, a third of it, with the shop
+ * standing still. The same frame at dpr 1.0 was 3.65ms. Every other dial tried
+ * was smaller: 4x MSAA down to 2x is 8.0 -> 7.0, MSAA off altogether is 4.9,
+ * and the half-float target down to a byte one is 4.9 -> 4.7, which is noise.
+ *
+ * So the cost is PIXELS and it always was — which is what the paragraph above
+ * says, and the reason it is worth restating is that the two obvious-looking
+ * knobs in this file (the sample count and the buffer format) are the two that
+ * barely move.
+ *
+ * IT STAYS AT 2.5MP, and the attempt to lower it is written down because the
+ * measurement says to and the screen says not to. 1.6MP was tried: dpr lands on
+ * 1.28, GPU falls to 5.1ms, and the long diagonals this shop is made of — a
+ * shelf edge, the lip of a counter — come back visibly stepped. 2.0MP was tried
+ * next and could not be told from 2.5 at all: 8.44ms against 8.04, which is
+ * inside the noise between two page loads, so it was paying real sharpness for
+ * a saving that could not be demonstrated.
+ *
+ * The general shape, and it is why this is a comment rather than a smaller
+ * number: GPU cost here is close to LINEAR in pixels and so is the sharpness,
+ * so there is no efficient point on this dial to find — every millisecond taken
+ * off comes straight out of the one part of the frame anybody looks at. Tune it
+ * against a screenshot of an aisle, never against a millisecond, and go and
+ * find the cost somewhere that is not the picture.
  */
 const PIXEL_BUDGET = 2.5e6;
 
@@ -1540,6 +1695,16 @@ export class Scene {
     this.staticRoot = new THREE.Group();
     this.actorRoot = new THREE.Group();
     this.scene.add(this.staticRoot, this.actorRoot);
+    // What the ink outlines but does not crease — see `render`. Held rather
+    // than built per frame because it is handed to the hottest call in the
+    // game, and it is safe to hold because these two roots are made once here
+    // and never reassigned: `buildWorld` CLEARS them, it does not replace them.
+    this.inkNoCrease = [this.actorRoot];
+    // The crowd's two draws, under `actorRoot` with the bodies they replace —
+    // which is also what keeps them out of the ink's normals pass, since that
+    // is the group `inkNoCrease` names.
+    this.crowd = new CrowdBatch(CROWD_CAP);
+    this.actorRoot.add(this.crowd.mesh.cast, this.crowd.mesh.flat);
 
     // Where the shoppers have been. Its own root beside those two, and never
     // under `staticRoot`, which `buildWorld` disposes wholesale: a fortnight of
@@ -4315,13 +4480,37 @@ export class Scene {
       return isPartition(vertical, x, z) ? FACE_IN : '';
     };
 
+    // What is on a given boundary. Up here rather than beside the door pier pass
+    // below, because `emit` asks them too — see the jamb test. Both clamp, which
+    // the pier pass did at each call site instead: `edgesH` is one flat row per
+    // z, so a bare `x - 1` at the west wall is not out of bounds, it is the far
+    // END of the row above, and a neighbour test written that way answers about
+    // a wall on the other side of the building.
+    const verticalAt = (x, z) => (z < 0 || z >= L.h ? 0 : L.edgesV?.[z * (L.w + 1) + x] ?? 0);
+    const horizontalAt = (x, z) => (x < 0 || x >= L.w ? 0 : L.edgesH?.[z * L.w + x] ?? 0);
+
     const emit = (kind, vertical, cx, cz, x, z) => {
       const style = EDGE_STYLE[kind];
       if (!style) return;
       const dir = style.out ? outward(vertical, x, z) : 1;
       const face = faceOf(vertical, x, z);
       const bands = edgeBands(style);
-      for (const band of bands) push(kind, vertical, { cx, cz, dir, face, ...band });
+      // A run of doorway is ONE opening — which is what the door pier pass below
+      // has always said about the masonry, and the frame owes the same answer.
+      // So a jamb stands where the run ENDS: the band names which side of its
+      // cell it is on (`jamb`, see `FRAME_JAMB` in palette.js) and the boundary
+      // that way decides whether it is drawn at all. Lined cell by cell instead,
+      // a wide entrance draws as a rank of posts standing in the way in.
+      //
+      // The test is "is that one framed too" rather than "is it the same kind",
+      // so a shopfront door beside a plain one is one opening with one frame
+      // round it — which is what it looks like from a chair.
+      const framedOn = (s) => !!EDGE_STYLE[
+        vertical ? verticalAt(x, z + s) : horizontalAt(x + s, z)]?.frame;
+      for (const band of bands) {
+        if (band.jamb && framedOn(band.jamb)) continue;
+        push(kind, vertical, { cx, cz, dir, face, ...band });
+      }
 
       // ...and the finish on either side of it, as a skin over the bands that
       // are wall. Two things are deliberately left bare. GLASS, because paint on
@@ -4331,18 +4520,39 @@ export class Scene {
       // threshold under a signed doorway: that stripe is the only thing on
       // screen saying who a door is for, and a finish that covered it would
       // delete the one visible half of a feature that is otherwise invisible.
+      //
+      // The FRAME is the exception to that second rule, and it is the one thing
+      // in here that carries a colour and still takes the brush — see
+      // `frameTint`. A doorway's joinery is set in the wall rather than standing
+      // beside it like a hedge, so a frontage where the header turned and the
+      // frame stayed put reads as the paint not having reached rather than as a
+      // decision. It goes on a step down from whatever the wall became, which is
+      // what keeps it a frame afterwards.
       for (const side of [-1, 1]) {
         const surface = paintOn(vertical ? 'v' : 'h', x, z, side);
         if (!surface) continue;
         for (const band of bands) {
-          if (band.alpha !== undefined || band.color) continue;
+          if (band.alpha !== undefined) continue;
+          if (band.color && !band.trim) continue;
+          // A jamb the run swallowed has no skin either — otherwise the finish
+          // draws the post back on in the middle of the opening, which is the
+          // bug this pass was written to remove wearing the paint tool.
+          if (band.jamb && framedOn(band.jamb)) continue;
           // The pattern is read at the band's own height rather than per cell,
           // because a wall repeats UP as well as along: `patternColor` takes two
           // coordinates and the second one here is the course, not the row.
+          const tone = patternColor(surface, vertical ? z : x, Math.round(band.y0 * 8));
           push(kind, vertical, {
             cx, cz, dir, face, y0: band.y0, y1: band.y1, skin: side,
-            color: patternColor(surface, vertical ? z : x, Math.round(band.y0 * 8)),
+            // A frame member covers PART of its cell — a jamb is a short band
+            // that happens to be tall — so its skin has to be told the same, or
+            // painting the wall lays a slab of finish across the way through.
+            off: band.off, len: band.len,
+            color: band.trim ? frameTint(tone) : tone,
           });
+          // Joinery takes the colour and never the COURSES: brick laid over a
+          // jamb is a frame built out of masonry, which is an arch.
+          if (band.trim) continue;
           // ...and the bricks on top of it, which is the third pattern that is
           // geometry rather than a colour (`stripes` and `tufts` are the other
           // two, and the argument is identical): a cell is a metre and a half,
@@ -4397,8 +4607,6 @@ export class Scene {
      */
     const doorCorners = [];
     const isDoor = (kind) => wayBase(kind) === 'door';
-    const verticalAt = (x, z) => L.edgesV?.[z * (L.w + 1) + x] ?? 0;
-    const horizontalAt = (x, z) => L.edgesH?.[z * L.w + x] ?? 0;
 
     /**
      * The cap on each edge stops at its lattice point. At a right-angle join,
@@ -4704,7 +4912,7 @@ export class Scene {
       // `syncActors`' `onBuild` and `markUnder`.
       (rec, p) => this.markUnder(rec, p));
     this.syncActors(state.customers, this.customers,
-      (c) => buildCharacter(c.color, { variant: c.id, varied: true, look: c.look ?? null }));
+      (c) => this.crowdBody(c.color, { variant: c.id, varied: true, look: c.look ?? null }));
     // ...and the animals, keyed by which piece they came out of so that
     // redrawing a hen over MCP restages every hen in the shop — `syncActors`'
     // own `keyOf`, doing here exactly what it does for a promoted hire.
@@ -5037,6 +5245,7 @@ export class Scene {
         // of which happen while somebody is stood in the shop. Left behind it
         // is a ring on the floor with nobody in it, and another one every time.
         this.dropFoot(rec);
+        this.dropCrowd(rec);
         map.delete(a.id);
         rec = null;
       }
@@ -5173,6 +5382,7 @@ export class Scene {
       if (!seen.has(id)) {
         this.actorRoot.remove(rec.obj);
         this.dropFoot(rec);
+        this.dropCrowd(rec);
         // The one sweep in this file that used to drop an actor without freeing
         // it. Mostly cheap — a body is shared `GEO` shapes — but not always:
         // whatever `syncHaul` hung on them is a `buildPallet`, and a pallet
@@ -5196,9 +5406,48 @@ export class Scene {
    * Everyone else keeps the built-in character: a shopper is not authored
    * content, and the one in the white hat is you.
    */
+  /**
+   * One of the built-in bodies, drawn out of the crowd batch.
+   *
+   * Every generic character in the shop comes through here — the shoppers, you,
+   * and any hire whose kind has no authored model. An AUTHORED robot does not:
+   * `buildModel` draws arbitrary art with its own skins and tier stages, which
+   * is not a pile of unit boxes and cannot be instanced. There are a dozen of
+   * those and eighty of these, so the split falls where the cost is.
+   *
+   * The fallback is the whole mesh body, unchanged. A batch that is full hands
+   * back null and the eighty-first shopper is drawn the old way — a frame
+   * slower, and correct, which is the right way round for a cap. It is also
+   * what makes `CROWD_CAP` a tuning number rather than a limit on the game.
+   */
+  crowdBody(color, opts) {
+    const desc = characterParts(color, opts);
+    const slots = this.crowd.claim(desc.parts);
+    if (!slots) return buildCharacter(color, opts);
+    const g = crowdRig(desc);
+    g.userData.crowd = {
+      desc, slots, locals: crowdLocals(desc), extent: crowdExtent(desc),
+    };
+    // The colours are fixed for the life of the body and written once. The head
+    // is the one exception — `animateMoods` flushes it as somebody gets cross —
+    // and it is written through the same call, so there is no second path.
+    desc.parts.forEach((p, i) => {
+      this.crowd.setColour(p.shadow ? 'cast' : 'flat', slots[i], CROWD_COL.set(p.colour));
+    });
+    return g;
+  }
+
+  /** Give a batched body's slots back. Paired with `dropFoot` at both teardowns. */
+  dropCrowd(rec) {
+    const c = rec?.obj?.userData?.crowd;
+    if (!c) return;
+    this.crowd.giveBack(c.desc.parts, c.slots);
+    rec.obj.userData.crowd = null;
+  }
+
   buildActor(p) {
     const kind = p.staff ? this.catalog.workers?.[p.staff] : null;
-    if (!kind?.model) return buildCharacter(p.color, { hat: '#ffffff', variant: p.id });
+    if (!kind?.model) return this.crowdBody(p.color, { hat: '#ffffff', variant: p.id });
     // A skin is worn, not owned: it is looked up per HIRE rather than per kind,
     // which is the whole reason two stockers can be told apart. An id naming a
     // skin that has since been deleted resolves to nothing and draws the bot as
@@ -10670,9 +10919,22 @@ export class Scene {
    * would be a lie: "this seals the shop" is true of the run, not of any one
    * piece of it.
    */
-  setEdgeGhost(segs, state) {
+  setEdgeGhost(segs, state, kind = null) {
+    // What the ghost is ABOUT, which is not always what you are holding. A build
+    // preview is the armed tool and says so; `aim` and the bulldozer are pointed
+    // at something that is already there and have no tool to name, so the
+    // boundary answers for itself. A wall's ghost and a fence's differ by more
+    // than a colour, and lighting up a gate at wall height is the same lie as
+    // previewing one.
+    const at = (s) => {
+      const L = this.storeLayout;
+      if (!L) return E.NONE;
+      return (s.o === 'v' ? L.edgesV?.[s.z * (L.w + 1) + s.x] : L.edgesH?.[s.z * L.w + s.x])
+        ?? E.NONE;
+    };
+    const shown = segs?.length ? (kind ?? at(segs[0])) : null;
     const key = segs?.length
-      ? `${state}:${segs[0].o}:${segs[0].x},${segs[0].z}:${segs.length}`
+      ? `${state}:${shown}:${segs[0].o}:${segs[0].x},${segs[0].z}:${segs.length}`
       : null;
     if (key === this.edgeGhostKey) return;
     this.edgeGhostKey = key;
@@ -10691,6 +10953,21 @@ export class Scene {
     // not existing rather than as the highlight missing.
     const colour = state === 'aim' ? '#ffd66b'
       : state === 'no' ? '#e2564a' : (state === 'warn' ? '#e8a33d' : '#7cc46a');
+    // HOW BIG THE GHOST IS COMES OFF THE KIND, and this is `client/thumb.js`'s
+    // rule about the palette button said about the preview: a picture of a thing
+    // has to come from the thing. It was 1.2 tall and 0.22 thick, hand-matched to
+    // a wall the day it was written and never again — so raising `WALL_H` left
+    // every wall preview in the game short by nearly half, which reads as the
+    // ghost being a different feature from the wall rather than as a stale
+    // number. And it was wrong in the other direction for the whole catalog
+    // besides: a fence is 0.5 tall, so a boundary tool previewed a slab more than
+    // twice the height of what it builds.
+    const style = EDGE_STYLE[shown] ?? EDGE_STYLE[E.WALL];
+    // A hair fatter than the real thing, which is the one number here that is
+    // not the wall's own: the `aim` state lights up an edge that is ALREADY
+    // there, and a ghost at exactly its thickness is two coplanar faces fighting
+    // over the depth buffer — the highlight would flicker as the camera turned.
+    const t = style.t + 0.05;
     const group = new THREE.Group();
     const geo = new THREE.BoxGeometry(1, 1, 1);
     for (const s of segs) {
@@ -10698,11 +10975,11 @@ export class Scene {
       // Same centring the real edge renderer uses: a vertical segment sits on
       // the lattice line in x and spans the cell in z, and the other way round.
       if (s.o === 'v') {
-        mesh.position.set(s.x - 0.5, 0.6, s.z);
-        mesh.scale.set(0.22, 1.2, 1);
+        mesh.position.set(s.x - 0.5, style.h / 2, s.z);
+        mesh.scale.set(t, style.h, 1);
       } else {
-        mesh.position.set(s.x, 0.6, s.z - 0.5);
-        mesh.scale.set(1, 1.2, 0.22);
+        mesh.position.set(s.x, style.h / 2, s.z - 0.5);
+        mesh.scale.set(1, style.h, t);
       }
       group.add(mesh);
     }
@@ -12325,14 +12602,69 @@ export class Scene {
    * `skin` rather than `head`, because the chin is part of the face: flushing
    * one of the two is a rash. `head` is kept for anything still asking.
    */
+  /**
+   * Every batched body's boxes into their instance buffers, once a frame.
+   *
+   * Last thing before the draw, and that ordering is the whole of it: the walk
+   * rig is four rotations `animateActors` writes, the slump is a tilt
+   * `animateRest` writes, and the position is eased by the chase — so a flush
+   * taken any earlier is drawing where everybody was on the previous frame,
+   * which reads as the crowd lagging a step behind its own feet.
+   *
+   * `updateMatrixWorld` is called per body rather than left to the renderer,
+   * because the matrices are wanted HERE, before three has walked anything. It
+   * is the same work either way — the rig is five empty groups.
+   *
+   * A body whose `visible` is false is parked rather than skipped. `showEye`
+   * turns your own body off in first person, and an instance left where it was
+   * would leave a headless shopper standing in the aisle you are looking out
+   * of: there is no `visible` on an instance, so being invisible has to be
+   * SAID, every frame, by writing a matrix that covers no pixel.
+   */
+  flushCrowd() {
+    let any = false;
+    for (const map of [this.players, this.customers]) {
+      for (const rec of map.values()) {
+        const c = rec.obj?.userData?.crowd;
+        if (!c) continue;
+        any = true;
+        const hidden = !rec.obj.visible;
+        rec.obj.updateMatrixWorld(true);
+        const pivots = rec.obj.userData.pivots;
+        for (let i = 0; i < c.desc.parts.length; i++) {
+          const p = c.desc.parts[i];
+          const which = p.shadow ? 'cast' : 'flat';
+          if (hidden) { this.crowd.hide(which, c.slots[i]); continue; }
+          const parent = p.bone === 'body' ? rec.obj : pivots.get(p.bone).pivot;
+          CROWD_M4.multiplyMatrices(parent.matrixWorld, c.locals[i]);
+          this.crowd.setMatrix(which, c.slots[i], CROWD_M4);
+        }
+      }
+    }
+    if (any) this.crowd.flush();
+  }
+
   animateMoods(now) {
     const t = now / 1000;
     for (const rec of this.customers.values()) {
       const anger = rec.anger;
       if (anger == null) continue;
-      const skin = rec.obj.userData.skin ?? [rec.obj.userData.head].filter(Boolean);
-      const mat = characterMaterial(faceColor(anger));
-      for (const m of skin) m.material = mat;
+      const c = rec.obj.userData.crowd;
+      if (c) {
+        // The same flush, said to an instance. A batched body has no head mesh
+        // whose material could be swapped — `crowdRig` leaves `skin` empty for
+        // exactly this reason — so the colour goes straight at the slot the
+        // head was given. One write against the old path's material swap, and
+        // it cannot tint anything else: an instance colour belongs to the
+        // instance, where `characterMaterial` is a cache shared shop-wide.
+        const head = c.desc.parts[c.desc.head];
+        this.crowd.setColour(head.shadow ? 'cast' : 'flat', c.slots[c.desc.head],
+          CROWD_COL.set(faceColor(anger)));
+      } else {
+        const skin = rec.obj.userData.skin ?? [rec.obj.userData.head].filter(Boolean);
+        const mat = characterMaterial(faceColor(anger));
+        for (const m of skin) m.material = mat;
+      }
       rec.obj.rotation.z = anger > 0 ? Math.sin(t * 34 + rec.phase) * 0.1 * anger : 0;
     }
   }
@@ -12886,21 +13218,47 @@ export class Scene {
    */
   fadeBubbles() {
     const zoom = this.legible(BUBBLE_VIEW_FULL, BUBBLE_VIEW_GONE);
-    const near = (obj, at) => {
+    const scale = (obj, at) => {
       const p = at.position;
-      obj.scale.setScalar(zoom && this.nearness(p.x, p.z, BUBBLE_NEAR, BUBBLE_FAR) * zoom);
+      const s = zoom && this.nearness(p.x, p.z, BUBBLE_NEAR, BUBBLE_FAR) * zoom;
+      obj.scale.setScalar(s);
+      return s;
     };
-    for (const rec of this.wantBubbles?.values() ?? []) near(rec.obj, rec.obj);
+    /**
+     * ...and where nothing else owns the flag, a bubble faded to NOTHING stops
+     * being DRAWN rather than being drawn at nothing.
+     *
+     * A zero scale is invisible and costs exactly what a full-size one costs:
+     * three walks the object, frustum-tests every mesh in it and submits the
+     * draw, and the triangles are merely degenerate by the time the GPU sees
+     * them. So the fade above was buying the look of a thought receding and
+     * none of the saving — and it is invisible in the one way that matters,
+     * because what you would be checking for is already not on screen. Measured
+     * on a day-425 shop at 2pm with 80 shoppers in it: every actor bubble in
+     * the building was at zero, 103 meshes, 7% of everything in `actorRoot`,
+     * drawn every frame for nobody. `visible` is the one flag `projectObject`
+     * short-circuits on, so this drops the walk along with the draw.
+     *
+     * `wantBubbles` is deliberately NOT in here and is the reason this is a
+     * second helper rather than two more lines in the first: `syncWants` owns
+     * that field, hides a bubble whose fixture has gone, and a frame loop
+     * setting it back to true would draw a readout over a shelf that is not
+     * there. See `BUBBLE_NEAR`, which says so. The threshold matches the shelf
+     * tags' own (`lit > 0.02`) rather than testing zero, because `nearness`
+     * eases and the last hundredth of a bubble is not a bubble.
+     */
+    const fade = (obj, at) => { obj.visible = scale(obj, at) > 0.02; };
+    for (const rec of this.wantBubbles?.values() ?? []) scale(rec.obj, rec.obj);
     for (const map of this.actorMaps()) {
       for (const rec of map.values()) {
-        if (rec.bubble) near(rec.bubble, rec.obj);
+        if (rec.bubble) fade(rec.bubble, rec.obj);
       }
     }
     for (const rec of this.plotProps.values()) {
-      if (rec.bubble) near(rec.bubble, rec.overlay);
+      if (rec.bubble) fade(rec.bubble, rec.overlay);
     }
     for (const rec of this.penProps.values()) {
-      if (rec.bubble) near(rec.bubble, rec.overlay);
+      if (rec.bubble) fade(rec.bubble, rec.overlay);
     }
   }
 
@@ -13211,6 +13569,8 @@ export class Scene {
     // has the argument.
     // The tick is stepped whatever happens, or the cadence would only ever
     // count the frames the drift rule had already declined.
+    this.flushCrowd();
+
     const stale = (this.shadowTick++ % SHADOW_EVERY) === 0;
     const draw = stale || this.shadowDirty || this.shadowSlip > shadowSlipFor(texel);
     if (draw) { this.shadowSlip = 0; this.shadowDirty = false; }
@@ -13230,7 +13590,14 @@ export class Scene {
     // fades against. Not `camera.position.length()`: that is a distance from
     // the world origin, so in a shop built at (22, 17) it would thin every line
     // in the game as you walked north.
-    this.ink.render(this.scene, this.camera, this.camera.position.distanceTo(this.camLook));
+    // `actorRoot` is everybody who walks — you, the crew, the shoppers, and
+    // what they are carrying. It gets its outline and not its creases, which is
+    // the one thing in the frame whose cost grows with how well the shop is
+    // doing: a busy evening is ~1,100 more objects in the tree, walked and
+    // drawn a second time for a normals buffer. See `Ink.render`.
+    this.ink.render(
+      this.scene, this.camera, this.camera.position.distanceTo(this.camLook), this.inkNoCrease,
+    );
   }
 
   /**
@@ -13653,9 +14020,12 @@ const WALL_GHOST_REACH = 4;
  * besides — see the note on `tufts` and `onBeforeCompile`. Shrinking is per
  * object, costs nothing, and reads as the thought receding.
  *
- * ...and it may never write `visible`, because `syncWants` owns that field: it
- * hides a bubble whose fixture has gone, ten times a second, and a frame loop
- * setting it back to true would draw a readout over a shelf that is not there.
+ * ...and it may never write `visible` FOR A SHELF'S BUBBLE, because `syncWants`
+ * owns that field: it hides a bubble whose fixture has gone, ten times a
+ * second, and a frame loop setting it back to true would draw a readout over a
+ * shelf that is not there. Every other bubble — a shopper's, a bed's, a pen's —
+ * has no second writer, so `fadeBubbles` does hide those once they have shrunk
+ * to nothing, and the split between its two helpers is exactly this sentence.
  */
 const BUBBLE_NEAR = 7;
 const BUBBLE_FAR = 11;

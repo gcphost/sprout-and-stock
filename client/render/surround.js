@@ -324,7 +324,30 @@ function sinkGLSL(world, sink) {
        }`;
 }
 
-function hazed(color, own, sink = SINK_NEAR) {
+/**
+ * ★ HOW MUCH ONE CELL OF THE APRON DIFFERS FROM THE NEXT.
+ *
+ * The lot's ground is drawn cell by cell with a per-cell colour (`jitter` in
+ * palette.js, 0.05 there), and the apron is ONE PLANE 320 tiles across with a
+ * single colour on it. Side by side that is not a subtle difference: the shop's
+ * land has grain and the world outside it is a painted backdrop, so the join
+ * reads as a hard ring round the property — which looks like the apron being
+ * unfinished rather than like two different meshes, and it is the last thing in
+ * frame that still says "backdrop".
+ *
+ * It has to be procedural rather than per-instance because the apron is a
+ * single quad: there are no cells to colour. `floor(world.xz)` recovers the
+ * same tile grid the shop is drawn on, so the two grains line up across the
+ * boundary instead of being two different noises meeting.
+ *
+ * MULTIPLICATIVE IN LINEAR, where the lot's is additive in sRGB, and they are
+ * not the same arithmetic — this is matched by eye at play zoom rather than
+ * copied, because the injection point has to sit before the sRGB encode (see
+ * the haze note below for why that is forced).
+ */
+const APRON_GRAIN = 0.09;
+
+function hazed(color, own, sink = SINK_NEAR, grain = false) {
   const m = material(color).clone();
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uHaze = HAZE.color;
@@ -381,6 +404,26 @@ function hazed(color, own, sink = SINK_NEAR) {
       ${shader.fragmentShader}`,
       '#include <colorspace_fragment>',
       `{
+         ${grain ? `{
+           /**
+            * THE GRAIN, and it goes in BEFORE the haze on purpose: it is a fact
+            * about the ground rather than about the air, so it has to be the
+            * thing the distance dissolves rather than something laid on top of
+            * the dissolve. Applied after, the far field keeps its speckle while
+            * turning into sky, which is a horizon with grit in it.
+            *
+            * FADED BY THE DERIVATIVE, which is the half that is not decoration.
+            * This is a 320-tile plane seen at a shallow angle, so out near the
+            * horizon one pixel covers many cells and a per-cell hash sampled
+            * there is white noise -- it shimmers as the camera moves, which is
+            * far worse than the flatness being fixed. fwidth says how much
+            * world the pixel spans; once that reaches a cell the grain is gone.
+            */
+           vec2 cell = floor(vSurWorld.xz);
+           float g = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
+           float aa = clamp(1.0 - max(fwidth(vSurWorld.x), fwidth(vSurWorld.z)), 0.0, 1.0);
+           gl_FragColor.rgb *= 1.0 + (g - 0.5) * ${APRON_GRAIN.toFixed(3)} * aa;
+         }` : ''}
          /**
           * HOW FAR AWAY FROM THE VIEWER, not how far from the lot.
           *
@@ -420,7 +463,7 @@ function hazed(color, own, sink = SINK_NEAR) {
   // every backdrop material there will ever be.
   // The distance is baked into the source, so it has to be part of the key —
   // one program per band rather than one for the file.
-  m.customProgramCacheKey = () => `surround-haze-${sink}`;
+  m.customProgramCacheKey = () => `surround-haze-${sink}-${grain ? 'g' : 'p'}`;
   own.push(m);
   return m;
 }
@@ -1420,5 +1463,5 @@ export function surroundGround(id) {
  * out of the world.
  */
 export function apronMaterial(color) {
-  return hazed(color, [], 0);
+  return hazed(color, [], 0, true);
 }

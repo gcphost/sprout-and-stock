@@ -1172,7 +1172,7 @@ function refreshGhost(force = false) {
     // `openAtPointer`, one tap, the menu — which is where "and who is it for"
     // and "and where is the glass" have always lived.
     const verdict = canPlaceEdges(scene.storeLayout, [seg], edgeKind);
-    scene.setEdgeGhost([seg], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no');
+    scene.setEdgeGhost([seg], verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no', edgeKind);
     ui.setBuildVerdict(verdict);
     scene.setAimTarget(null);
     ui.setBoardTip(null, null);
@@ -2784,7 +2784,7 @@ function showEdgeDrag(cx, cy) {
   if (!segs.length) { scene.setEdgeGhost(null, null); return null; }
   const verdict = canPlaceEdges(scene.storeLayout, segs, edgeDrag.kind);
   const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
-  scene.setEdgeGhost(segs, state);
+  scene.setEdgeGhost(segs, state, edgeDrag.kind);
   ui.setBuildVerdict(verdict);
   // `to` is where the POINTER is, not the tail of the run — the same
   // distinction `showFloorDrag` makes about its far corner, and the wall drag

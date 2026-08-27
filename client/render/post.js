@@ -74,6 +74,7 @@ const COMPOSITE = /* glsl */`
   uniform float silWidth, silThresh;
   uniform float creaseWidth, creaseThresh, creaseInk;
   uniform vec3 inkColor;
+  uniform float inkLift;
 
   uniform float exposure, saturation, contrast;
 
@@ -173,7 +174,19 @@ const COMPOSITE = /* glsl */`
       float soft = mix(0.015, 0.40, inkSharp);
       float s = smoothstep(silThresh, silThresh + soft, silAt(vUv, silWidth * scale) * 5.0);
       float c = smoothstep(creaseThresh, creaseThresh + soft, creaseAt(vUv, creaseWidth * scale) * 1.35);
-      col = lay(col, inkColor, max(s, c * creaseInk) * inkAmount);
+      /* A LINE HAS TO BE DIFFERENT FROM WHAT IT IS DRAWN ON, and inkColor is
+         near-black — so on anything darker than the ink there is nothing to
+         lay. Below inkLift the line is pushed UP off the surface instead: the
+         surface's own colour plus that much luminance, so it keeps the hue and
+         reads the way a pen does on dark paper. See INK.LIFT in look.js for why
+         the dusk skyline is what this is about. The band is narrow on purpose —
+         a lit shop is far above it and does not move at all.
+         NO BACKTICKS IN HERE: this whole shader is one template literal, so a
+         quoted identifier in a comment ends the string. */
+      float lum = dot(col, LUMA);
+      float dark = 1.0 - smoothstep(inkLift * 0.5, inkLift * 2.0, lum);
+      vec3 ink = mix(inkColor, col + vec3(inkLift), dark);
+      col = lay(col, ink, max(s, c * creaseInk) * inkAmount);
     }
 
     gl_FragColor = vec4(toSRGB(col), 1.0);
@@ -245,6 +258,7 @@ export class Ink {
       creaseThresh: { value: INK.CREASE_THRESH },
       creaseInk: { value: INK.CREASE_INK },
       inkColor: { value: new THREE.Color(INK.COLOR) },
+      inkLift: { value: INK.LIFT },
       exposure: { value: GRADE.EXPOSURE },
       saturation: { value: GRADE.SATURATION },
       contrast: { value: GRADE.CONTRAST },
@@ -318,8 +332,12 @@ export class Ink {
    * rather than derived — `camera.position.length()` is a distance from the
    * world origin, which in a shop that is not built at the origin is a number
    * that changes as you walk across your own floor. See the fade above.
+   *
+   * `noCrease` is whatever gets its OUTLINE but not its interior lines: the
+   * crowd, today. See the normals pass below for why that is a saving rather
+   * than a compromise.
    */
-  render(scene, camera, inkRef) {
+  render(scene, camera, inkRef, noCrease = null) {
     const r = this.renderer;
     const u = this.composite.mat.uniforms;
 
@@ -339,6 +357,57 @@ export class Ink {
       scene.background = null;
       scene.fog = null;
       scene.overrideMaterial = this.normalMat;
+      /**
+       * ...and NOTHING HAS MOVED since the draw above, so the matrices are
+       * already right.
+       *
+       * `render` walks the whole graph and recomputes `matrixWorld` for every
+       * object in it unless told otherwise, and this pass is the same scene,
+       * from the same camera, microseconds later — so left alone it is a second
+       * full traversal of a tree that cannot have changed, once per frame, for
+       * an answer identical to the one it threw away.
+       *
+       * Measured on a day-420 shop at 5pm — 1,640 objects, 34-59 shoppers —
+       * `updateMatrixWorld` fell 6.9% -> 3.8% of the tab and `multiplyMatrices`
+       * 4.2% -> 2.6%, which is about 4.7% of a saturated main thread for two
+       * lines.
+       *
+       * It is restored below rather than left off, and that is the whole care
+       * needed: the flag belongs to the SCENE, not to this pass, so a `render`
+       * that threw between here and there would leave every later frame drawing
+       * against matrices nobody updates — which is not a crash, it is furniture
+       * that stops following the shop it is standing in, and it would arrive
+       * looking like a re-flow bug days from here.
+       */
+      const autoMatrix = scene.matrixWorldAutoUpdate;
+      scene.matrixWorldAutoUpdate = false;
+      /**
+       * ...and THE CROWD IS OUT OF IT, which is the whole cost of this pass in
+       * a shop that is busy.
+       *
+       * A silhouette comes from `tDepth`, which is the colour pass's own depth
+       * buffer — so anything dropped here keeps the line round the outside of
+       * it and loses only the creases INSIDE it: the seam where an arm meets a
+       * torso. At `INK_NORMAL_SCALE` a shopper is a few dozen texels tall and
+       * those seams are mostly under one of them already, so what is being
+       * given up is a line that was barely resolving. The shop itself — every
+       * shelf, wall, machine and crate — is untouched and creases exactly as it
+       * did, which is where the drawing actually reads.
+       *
+       * `visible = false` rather than a layer, and that is the load-bearing
+       * half. `projectObject` recurses into an object's children whether or not
+       * its LAYER passes, so a layer would skip the draws and still walk all
+       * ~1,100 objects a crowd puts in the tree; `visible` short-circuits the
+       * recursion, so this drops the walk and the draws together. Measured on a
+       * day-421 shop at 5pm with 54 shoppers in it: `projectObject` 7.5% ->
+       * 2.8%, `renderObject` 5.3% -> 2.9%, and the tab went from saturated to
+       * 55% idle.
+       *
+       * Restored below, for the reason the matrix flag above is: these are
+       * fields on somebody else's scene graph, and one left set is a crowd that
+       * never draws again.
+       */
+      if (noCrease) for (const o of noCrease) o.visible = false;
       /**
        * ...and the far backdrop comes OUT, because this pass cannot see what
        * that band actually looks like.
@@ -366,6 +435,8 @@ export class Ink {
       r.setRenderTarget(this.rtNormal);
       r.clear();
       r.render(scene, camera);
+      if (noCrease) for (const o of noCrease) o.visible = true;
+      scene.matrixWorldAutoUpdate = autoMatrix;
       camera.layers.enable(SURROUND_LAYER);
       scene.overrideMaterial = null;
       scene.background = bg;

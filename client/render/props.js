@@ -452,9 +452,89 @@ function characterVariant(seed) {
  * material to flush it, and a head merged into the torso would take the body
  * red with it.
  */
-export function buildCharacter(color, { hat = null, variant = '', varied = false, look = null } = {}) {
-  const g = new THREE.Group();
+export function buildCharacter(color, opts = {}) {
+  return assembleCharacter(characterParts(color, opts));
+}
+
+/**
+ * The same person, as a LIST OF BOXES rather than as a scene graph.
+ *
+ * Every part of a character is a box — torso, limbs, head, eyes, hair, beard,
+ * glasses — which is what makes a crowd batchable at all: one geometry, one
+ * draw, a matrix and a colour per box. `Scene.Crowd` writes that; this says
+ * what to write.
+ *
+ * It is the SAME function that builds the mesh version, and that is the whole
+ * point of the shape rather than a tidiness. Ten hair styles, four beards and a
+ * face are 280 lines of authored numbers, and a second copy of them for the
+ * batch would be a crowd that slowly stops matching the fallback — a bug with
+ * no error in it, found by somebody noticing that the person in first person
+ * has different eyebrows. So `part()` is the one funnel every box already went
+ * through, and all it does now is push a description instead of a mesh. Not a
+ * line of the authoring below moved.
+ *
+ * A `sink` is what a Group was: somewhere to put boxes. It carries the BONE it
+ * rides (the body, or one of the four limb pivots) and whether the boxes in it
+ * may be welded together in the mesh path — the head may not, because
+ * `animateMoods` flushes it by swapping its material, and a head merged into
+ * its own eyebrows would take them red with it.
+ */
+/**
+ * HOW TALL A PERSON IS, crown to floor, in tiles. Everybody: you, the crew and
+ * the crowd.
+ *
+ * The one number, because everything else about a body's size is a ratio hung
+ * off it — a build, the jitter, the ring over a head, first person's eye. It was
+ * not a number at all until the walls grew: the scale line below read `1.18` and
+ * the top of a head landed wherever the authored boxes happened to put it
+ * (0.944), which is fine while nothing it stands next to moves and is exactly
+ * the trap `setEdgeGhost` fell into on the same day. `WALL_H` went to 2.1 and
+ * `HEAD_ROOM` stayed at 1.6, so a shopper walked through a doorway more than
+ * half again their own height — and what that reads as is a shop built for
+ * giants, or, in first person, being a child in one.
+ *
+ * 1.18 is 74% of the way through an opening (`HEAD_ROOM`, 1.6), against about
+ * 86% for a real person and a real door — so this is most of the way back
+ * rather than all of it, and WHAT SETS THE CEILING IS HAIR. A body is not the
+ * tallest thing about a person: the `tall` build wearing a mohawk stands 1.45x
+ * a regular one bare, so the figure that has to clear a lintel is that one and
+ * not this. At 1.28 — which is where the honest 80% landed, and which is within
+ * a hair of the 1.32 `HEAD_ROOM`'s own note has claimed a character stands at
+ * since before either was a constant — a mohawk came through the header at 1.71
+ * and the shop read as having been built wrong. Raise this and check the same
+ * pair, or the bug is one shopper in seventy, only in a doorway.
+ *
+ * Short of the door is right anyway: the crowd is read at a glance from across
+ * the room, and a head that nearly touches every lintel it passes under reads as
+ * *cramped* rather than as correct. This is a shop, and headroom you can see is
+ * part of what makes it one.
+ *
+ * `PERSON_ART_H` is the envelope every box below is authored inside and is a
+ * MEASUREMENT rather than a choice — the head's top face sits exactly there. Move
+ * a hat above it and this is the line that has to know.
+ *
+ * `PERSON_STRETCH` is the look: a shade taller than the boxes are drawn, kept
+ * separate so growing everybody preserves the proportion rather than squashing
+ * it. Both axes scale together — a person is bigger, not stretched — which is
+ * also what keeps a crate on a shoulder the right size for the shoulder.
+ */
+export const PERSON_H = 1.18;
+const PERSON_ART_H = 0.8;
+const PERSON_STRETCH = 1.18;
+const PERSON_SIZE = PERSON_H / (PERSON_ART_H * PERSON_STRETCH);
+
+export function characterParts(color, { hat = null, variant = '', varied = false, look = null } = {}) {
   const variation = characterVariant(variant || color);
+  const parts = [];
+  const bones = [];
+  // Somewhere to put boxes, which is all a Group ever was here. `weld` is the
+  // batch it merges into in the mesh path, and `null` means "on its own".
+  const sink = (bone, weldId) => ({ bone, weldId });
+  const bone = (name, pivot, hold = null) => {
+    bones.push({ name, pivot, hold });
+    return sink(name, `limb:${name}`);
+  };
+  const body = sink('body', null);
 
   const build = BUILDS[look?.build] ?? BUILDS.regular;
   /*
@@ -469,16 +549,18 @@ export function buildCharacter(color, { hat = null, variant = '', varied = false
    * over a head (`RING_Y`) is placed against a fixed envelope.
    */
   const jitter = varied ? 0.96 + (variation % 5) * 0.02 : 1;
-  g.scale.set(build.w * jitter, 1.18 * build.h * jitter, build.w * jitter);
+  const size = jitter * PERSON_SIZE;
+  const scale = [build.w * size, PERSON_STRETCH * build.h * size, build.w * size];
 
-  const part = (into, colour, scale, position, { shadow = true, rot = null } = {}) => {
-    const mesh = new THREE.Mesh(CHARACTER_GEO.box, characterMaterial(colour));
-    mesh.scale.set(...scale);
-    mesh.position.set(...position);
-    if (rot) mesh.rotation.set(...rot);
-    mesh.castShadow = shadow;
-    into.add(mesh);
-    return mesh;
+  // One box. Same four arguments it has always taken, and `into` is a sink
+  // where it used to be a Group — which is why nothing below this line changed.
+  const part = (into, colour, boxScale, position, { shadow = true, rot = null } = {}) => {
+    const i = parts.length;
+    parts.push({
+      bone: into.bone, weldId: into.weldId,
+      colour, scale: boxScale, position, rot: rot ?? null, shadow,
+    });
+    return i;
   };
 
   /*
@@ -516,10 +598,9 @@ export function buildCharacter(color, { hat = null, variant = '', varied = false
    * Welded: `weld` bakes the hue into the vertices, so a multi-colour group is
    * still one mesh and none of the banding below costs a draw.
    */
-  const torso = new THREE.Group();
+  const torso = sink('body', 'torso');
   part(torso, trouser, [0.33 * build.belly, 0.15, 0.23], [0, 0.325, 0]);
   part(torso, color, [0.38 * build.shoulder, 0.17, 0.25], [0, 0.465, 0.005]);
-  g.add(weld(torso));
 
   /*
    * An arm is a pivot at the shoulder with two boxes hanging off it, and a
@@ -538,47 +619,29 @@ export function buildCharacter(color, { hat = null, variant = '', varied = false
    * through his own chest.
    */
   const armX = 0.19 * build.shoulder + 0.03;
-  const arm = (x) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, 0.50, 0.01);
-    const limb = new THREE.Group();
+  const arm = (x, name) => {
+    const limb = bone(name, [x, 0.50, 0.01], [-x, -0.50, -0.01]);
     // Sleeve, then hand. The arm wants to be a stub against that much body,
     // not a limb that reaches anything.
     part(limb, color, [0.095, 0.155, 0.11], [0, -0.07, 0]);
     part(limb, FACE_CALM, [0.09, 0.075, 0.10], [0, -0.183, 0.004]);
-    pivot.add(weld(limb));
-    const hold = new THREE.Group();
-    hold.position.set(-x, -0.50, -0.01);
-    pivot.add(hold);
-    g.add(pivot);
-    return { pivot, hold };
   };
-  const left = arm(-armX);
-  const right = arm(armX);
+  arm(-armX, 'leftArm');
+  arm(armX, 'rightArm');
   // Two tiny hip pivots are the rest of the walk rig. They are built once with
   // the body, then the renderer only writes four rotations while somebody
   // moves — no skinned mesh, cloning or scene traversal per frame.
-  const leg = (x) => {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, 0.28, 0.01);
-    const limb = new THREE.Group();
+  const leg = (x, name) => {
+    const limb = bone(name, [x, 0.28, 0.01]);
     // Trouser, then shoe. A bare thigh was the other half of the noodle read,
     // and it is the worse half: legs are what a crowd is seen THROUGH at this
     // camera, so forty shoppers meant eighty cream posts on the shop floor.
     part(limb, trouser, [0.125, 0.21, 0.135], [0, -0.105, 0]);
     part(limb, shoe, [0.145, 0.065, 0.185],
       [x < 0 ? 0.008 : -0.008, -0.238, 0.022]);
-    pivot.add(weld(limb));
-    g.add(pivot);
-    return pivot;
   };
-  g.userData.walker = {
-    left: leg(-0.10),
-    right: leg(0.10),
-    leftArm: left.pivot,
-    rightArm: right.pivot,
-  };
-  g.userData.hold = { left: left.hold, right: right.hold };
+  leg(-0.10, 'left');
+  leg(0.10, 'right');
 
   /*
    * A cube head sat straight on the shoulders. No neck, and no jowl either —
@@ -590,9 +653,7 @@ export function buildCharacter(color, { hat = null, variant = '', varied = false
    * this material. `skin` stays a LIST because that is what the caller reads
    * and a future face part may want to flush with it.
    */
-  const head = part(g, FACE_CALM, [0.26, 0.21, 0.24], [0, 0.655, 0.01]);
-  g.userData.head = head;
-  g.userData.skin = [head];
+  const head = part(body, FACE_CALM, [0.26, 0.21, 0.24], [0, 0.655, 0.01]);
 
   /*
    * Everything that decorates the head, welded into ONE non-casting mesh.
@@ -626,7 +687,7 @@ export function buildCharacter(color, { hat = null, variant = '', varied = false
    * decides is the z each one is authored at. Worth saying because the parts
    * below READ as though they were layered.
    */
-  const trim = new THREE.Group();
+  const trim = sink('body', 'trim');
   for (const s of [-1, 1]) {
     part(trim, '#fdfaf4', [0.058, 0.062, 0.02], [s * 0.058, 0.672, 0.132], { shadow: false });
     part(trim, '#2b323b', [0.032, 0.038, 0.02], [s * 0.060, 0.670, 0.142], { shadow: false });
@@ -798,9 +859,213 @@ export function buildCharacter(color, { hat = null, variant = '', varied = false
   } else if (worn === 'nose') {
     part(trim, '#d8392f', [0.055, 0.055, 0.045], [0, 0.641, 0.146], { shadow: false });
   }
-  g.add(weld(trim));
+  // `head` is an INDEX rather than a mesh, because in the batch there is no
+  // mesh to hand back — `animateMoods` recolours one instance. The mesh path
+  // turns it back into an object below.
+  return { scale, parts, bones, head };
+}
 
+/**
+ * The description, as the scene graph it has always been.
+ *
+ * This is the fallback and it is not dead code: it draws you in first person,
+ * anybody whose kind has no authored model, and every character the palette
+ * and the roster tiles draw at thumbnail size. It is also what the batch is
+ * checked against — the two must agree, which is why they share the authoring
+ * above rather than the output.
+ *
+ * The welds are the same welds, and so is what is left out of them: parts sharing
+ * a `weldId` merge, `null` stands alone. Which is the head, for the reason
+ * `characterParts` gives.
+ */
+function assembleCharacter({ scale, parts, bones, head }) {
+  const g = new THREE.Group();
+  g.scale.set(...scale);
+
+  const pivots = new Map();
+  for (const b of bones) {
+    const pivot = new THREE.Group();
+    pivot.position.set(...b.pivot);
+    g.add(pivot);
+    const rec = { pivot, hold: null };
+    if (b.hold) {
+      const hold = new THREE.Group();
+      hold.position.set(...b.hold);
+      pivot.add(hold);
+      rec.hold = hold;
+    }
+    pivots.set(b.name, rec);
+  }
+
+  const groups = new Map();
+  const parentOf = (bone) => (bone === 'body' ? g : pivots.get(bone).pivot);
+  let headMesh = null;
+  parts.forEach((p, i) => {
+    const mesh = new THREE.Mesh(CHARACTER_GEO.box, characterMaterial(p.colour));
+    mesh.scale.set(...p.scale);
+    mesh.position.set(...p.position);
+    if (p.rot) mesh.rotation.set(...p.rot);
+    mesh.castShadow = p.shadow;
+    if (i === head) headMesh = mesh;
+    if (p.weldId == null) { parentOf(p.bone).add(mesh); return; }
+    let grp = groups.get(p.weldId);
+    if (!grp) { grp = { bone: p.bone, g: new THREE.Group() }; groups.set(p.weldId, grp); }
+    grp.g.add(mesh);
+  });
+  for (const { bone, g: grp } of groups.values()) parentOf(bone).add(weld(grp));
+
+  g.userData.walker = {
+    left: pivots.get('left').pivot,
+    right: pivots.get('right').pivot,
+    leftArm: pivots.get('leftArm').pivot,
+    rightArm: pivots.get('rightArm').pivot,
+  };
+  g.userData.hold = { left: pivots.get('leftArm').hold, right: pivots.get('rightArm').hold };
+  g.userData.head = headMesh;
+  g.userData.skin = [headMesh];
   return g;
+}
+
+/**
+ * The same rig with NO MESHES IN IT — the half of a body that has to be objects.
+ *
+ * A crowd is drawn out of one instanced batch (`CrowdBatch` in scene.js), so a
+ * shopper's twenty boxes stop being twenty meshes in the scene graph. What
+ * cannot stop being objects is the skeleton, and the reason is that the rest of
+ * the renderer holds references INTO it: `animateActors` writes four pivot
+ * rotations to run the walk, `syncKit` and `syncCarry` parent a basket or an
+ * armful onto a `hold` group so it swings with the shoulder, and `animateRest`
+ * tilts the root. Those are five objects a person, against twenty meshes plus
+ * their groups — and the five cost nothing to draw, because there is nothing on
+ * them to draw.
+ *
+ * `head` and `skin` are deliberately EMPTY rather than absent. `animateMoods`
+ * flushes a face by swapping the head mesh's material, and there is no head
+ * mesh here — the batch owns that colour and is written directly. An empty list
+ * is what makes the old loop a no-op instead of a crash, and the mood is
+ * applied by the caller that knows about the batch.
+ */
+export function crowdRig({ scale, bones }) {
+  const g = new THREE.Group();
+  g.scale.set(...scale);
+  const pivots = new Map();
+  for (const b of bones) {
+    const pivot = new THREE.Group();
+    pivot.position.set(...b.pivot);
+    g.add(pivot);
+    let hold = null;
+    if (b.hold) {
+      hold = new THREE.Group();
+      hold.position.set(...b.hold);
+      pivot.add(hold);
+    }
+    pivots.set(b.name, { pivot, hold });
+  }
+  g.userData.walker = {
+    left: pivots.get('left').pivot,
+    right: pivots.get('right').pivot,
+    leftArm: pivots.get('leftArm').pivot,
+    rightArm: pivots.get('rightArm').pivot,
+  };
+  g.userData.hold = { left: pivots.get('leftArm').hold, right: pivots.get('rightArm').hold };
+  g.userData.head = null;
+  g.userData.skin = [];
+  g.userData.pivots = pivots;
+  return g;
+}
+
+/**
+ * Where each box sits relative to the body, once, so the batch never rebuilds it.
+ *
+ * A part's place is fixed for the life of the character — only the BONE it
+ * hangs off moves — so the matrix from the bone's space to the box is computed
+ * here and multiplied by the bone's world matrix every frame. That is one
+ * multiply per box per frame against composing position, rotation and scale
+ * from scratch three thousand times a second.
+ */
+export function crowdLocals({ parts }) {
+  return parts.map((p) => {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    if (p.rot) q.setFromEuler(new THREE.Euler(...p.rot));
+    m.compose(
+      new THREE.Vector3(...p.position), q, new THREE.Vector3(...p.scale),
+    );
+    return m;
+  });
+}
+
+/**
+ * How big the body is, measured off the DESCRIPTION rather than off meshes.
+ *
+ * `bodyExtent` in scene.js does this with `Box3.setFromObject`, which needs
+ * something to be in the scene graph — and a batched body deliberately has
+ * nothing. It is the same box by construction: every corner of every part
+ * through that part's own matrix, which is what `setFromObject` does, so a
+ * rotated fringe or a tilted hair spike widens it exactly as it did.
+ *
+ * It matters more than it looks. `pickPerson` aims at this: `halfW` is the grab
+ * radius and `footY`/`headY` are the spine it measures the pointer against, so
+ * a body that reported the fallback box would be a shopper who is harder to
+ * click on the fatter they are.
+ */
+export function crowdExtent({ scale, parts, bones }) {
+  const pivotOf = (name) => (name === 'body'
+    ? [0, 0, 0]
+    : (bones.find((b) => b.name === name)?.pivot ?? [0, 0, 0]));
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  for (const p of parts) {
+    const o = pivotOf(p.bone);
+    if (p.rot) q.setFromEuler(new THREE.Euler(...p.rot)); else q.identity();
+    m.compose(
+      new THREE.Vector3(o[0] + p.position[0], o[1] + p.position[1], o[2] + p.position[2]),
+      q, new THREE.Vector3(...p.scale),
+    );
+    for (let i = 0; i < 8; i++) {
+      v.set((i & 1 ? 0.5 : -0.5), (i & 2 ? 0.5 : -0.5), (i & 4 ? 0.5 : -0.5))
+        .applyMatrix4(m)
+        .multiply(new THREE.Vector3(...scale));
+      box.expandByPoint(v);
+    }
+  }
+  return {
+    footY: Math.min(box.min.y, 0),
+    headY: Math.max(box.max.y, 0.4),
+    halfW: Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 0.3) / 2,
+  };
+}
+
+/**
+ * The one geometry and the one material every batched body is drawn with.
+ *
+ * A unit box, because every part of a character already is one — that is what
+ * makes this batchable at all rather than a rewrite of the art.
+ *
+ * The white `color` attribute is the non-obvious half and it is a three.js
+ * trap: an instance colour is folded into `vColor` in the vertex shader only
+ * when `USE_INSTANCING_COLOR` is defined, but `color_fragment` multiplies
+ * `diffuseColor` by `vColor` only under `USE_COLOR` — which comes from
+ * `vertexColors`. So an InstancedMesh with `setColorAt` and no vertex colours
+ * draws every instance BLACK, and one with `vertexColors` and no `color`
+ * attribute reads a missing attribute as zero and draws black as well. White
+ * vertices plus `vertexColors` is what makes `vColor` land on 1.0 and the
+ * instance colour be the whole of it.
+ *
+ * `batchMaterial` is reused rather than cloned by hand so a batched body shades
+ * identically to a welded prop — it is the same cache, keyed on the same
+ * shading properties.
+ */
+let crowdAssets = null;
+export function crowdBatchAssets() {
+  if (!crowdAssets) {
+    const geometry = CHARACTER_GEO.box.clone();
+    fillColor(geometry, new THREE.Color(1, 1, 1));
+    crowdAssets = { geometry, material: batchMaterial(characterMaterial('#ffffff')) };
+  }
+  return crowdAssets;
 }
 
 /**

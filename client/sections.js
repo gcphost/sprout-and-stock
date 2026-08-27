@@ -820,7 +820,51 @@ export const BUILD_TOOLS = [
  * exactly the same call on the server, which is what stops the palette offering
  * something the server would then refuse.
  */
+/**
+ * ...and it is CACHED, because the answer is a constant and the question is
+ * asked three hundred times a second.
+ *
+ * Five methods on `ui` resolve a tool by walking this list — `armedTool`,
+ * `groundForTool`, `faceForTool`, `edgeKindForTool`, `syncBuildTool` — and
+ * between them the pointer, the ghost and the hotbar ask on every frame and
+ * every mouse move. Profiled on a day-420 shop at 5pm that came to 316 calls a
+ * second and 52ms of every second rebuilding the palette, WITH THE PALETTE
+ * SHUT: the whole catalogue filtered once per kind and `artForTool` run over
+ * every piece in it, to hand back the list it handed back last frame.
+ *
+ * The key is everything the body reads and nothing else — the two catalogue
+ * arrays by identity, since `content` hands over fresh ones when a row is
+ * authored, and the chosen variants by VALUE, because `pieceVariant` is written
+ * a key at a time (`ui.js`) and so its identity never changes. Reading the
+ * state rather than being told about it is the load-bearing half: a version
+ * counter somebody has to remember to bump is a palette that silently stops
+ * showing the shape you just picked, which reads as the shape picker not
+ * working.
+ *
+ * The array is shared, so nobody may write to it. `buildGroups` is the one
+ * caller that builds on an entry and it spreads (`{ ...t }`); everything else
+ * does `.find`.
+ */
+let toolCache = null;
+
 export function buildTools(ui) {
+  const rows = ui?.catalog?.fixtures ?? [];
+  const ups = ui?.catalog?.upgrades ?? [];
+  const variants = ui?.pieceVariant ?? {};
+  // Cheap next to the rebuild it guards: one entry per piece somebody has
+  // chosen a shape for, which is a handful, against filtering the whole
+  // catalogue once per kind.
+  let vsig = '';
+  for (const k of Object.keys(variants)) vsig += `${k}=${variants[k]};`;
+  if (toolCache && toolCache.rows === rows && toolCache.ups === ups && toolCache.vsig === vsig) {
+    return toolCache.out;
+  }
+  const out = computeBuildTools(ui);
+  toolCache = { rows, ups, vsig, out };
+  return out;
+}
+
+function computeBuildTools(ui) {
   const rows = ui?.catalog?.fixtures ?? [];
   const pieces = [];
   for (const kind of Object.keys(KIND_TOOLS)) {

@@ -1,17 +1,84 @@
 /**
  * THE LOOK.
  *
- * Soft, saturated, flat-shaded pastels — the "tiny isometric shop" aesthetic.
- * Every colour in the game comes from here or from an item's own `model` JSON,
- * so changing the mood of the whole game is a one-file edit.
+ * Soft, flat-shaded pastels — the "tiny isometric shop" aesthetic. Every colour
+ * in the game comes from here or from an item's own `model` JSON, so changing
+ * the mood of the whole game is a one-file edit.
+ *
+ * THE ARCHITECTURE IS THE QUIET HALF, AND THAT IS A MEASUREMENT RATHER THAN A
+ * TASTE. Colour is how a board of apples is told from a board of carrots across
+ * the shop (see `GRADE.SATURATION` in look.js, which is only ever allowed to go
+ * up) — so the goods are the loud thing and everything they stand on is not.
+ * Counted: the 103 seeded items carry 304 colours at a median saturation of
+ * 51%, and 202 of those 304 sit in hue 0–60, because food is warm. This file
+ * has to be the ground that leaves them somewhere to be loud.
+ *
+ * It was not, and the way it failed is worth writing down because nothing in a
+ * screenshot says it. The shop's own surfaces were warm too — floor at 65%
+ * saturation on hue 40, which is MORE saturated than the median thing standing
+ * on it — so the whole frame was one hue family and the goods had nothing to be
+ * warmer than. What that reads as is a nice render that never quite becomes a
+ * picture, and the instinct it provokes is to reach for the grade, which makes
+ * it worse: turning everything up keeps the gap exactly where it was.
+ *
+ * The cel pass is what made it urgent. `BANDS = 3` deliberately collapses the
+ * value ramp, so lightness stops being available to separate one surface from
+ * another and hue has to carry nearly all of it — and there was only one hue
+ * doing the carrying.
+ *
+ * So the rule, for anything added here: **the shop is lower-chroma than the
+ * stock, and the GROUND is still warm.** Wood sits around 22–32% saturation at
+ * hue ~30, walls and the smaller pads around 14–24% at hue ~38, and every
+ * near-grey in the building is anchored COOL at hue ~215 rather than drifting —
+ * road, park and railing each used to pick their own hue at 7–8% saturation,
+ * which is three greys that disagree, and under banding three greys that
+ * disagree is what reads as mud. Nature (grass, hedge, paddock) and the cold
+ * fixtures (freezer, counter) keep their chroma: they are the counterweight,
+ * not the ground.
+ *
+ * THE FLOOR IS THE EXCEPTION AND IT IS THE WHOLE LESSON. It was cut to 31% with
+ * everything else and put back to 46%, which is still well under the 51% median
+ * of the goods but a long way above the walls. The reason is that almost every
+ * fixture in the shop is grey ALREADY — shelving, appliances, conveyors and
+ * machines carry their own colours on their content rows, and those rows are
+ * cool. So the architecture in this file is not what the eye actually reads as
+ * the shop: the floor is the only large warm surface in frame, and taking its
+ * chroma out did not open a gap, it left grey fixtures on grey ground under
+ * grey walls with the goods as the only colour anywhere. Correctly diagnosed
+ * and applied to the wrong surface — it read as a warehouse.
+ *
+ * What the frame wants is THREE layers rather than two: warm ground, cool
+ * fixtures, saturated stock. The gap this file is responsible for is the one
+ * between the floor and the goods standing on it, and the one between the floor
+ * and the machinery bolted to it — not a uniform march downward. Before cutting
+ * chroma anywhere here again, check what colour the CONTENT rows are: a surface
+ * whose neighbours are already grey has no gap to open.
+ *
+ * Lightness is preserved exactly wherever this was applied. Every value below
+ * that moved changed hue and saturation only, so nothing about which surface
+ * reads as lighter than which — the thing the shadow rig and `SHADOW_FLOOR` are
+ * tuned against — moved with it.
  */
 
 import { T } from '../../shared/tiles.js';
 import { E } from '../../shared/edges.js';
 
 export const PALETTE = {
-  grass: '#8ec96b',
-  grassAlt: '#82bd60',
+  /**
+   * THE LAWN, WHICH IS THE LARGEST SINGLE COLOUR ANYBODY EVER SEES.
+   *
+   * It was the loudest thing in the frame and nothing about it had changed —
+   * what changed is everything else. Quieting the shop's own surfaces left a
+   * saturated mid-green covering half the screen as the one thing still shouting,
+   * and `GRADE.SATURATION` at 1.22 is applied to it too, so it arrived on screen
+   * louder than the goods it is supposed to sit behind. Goods are small and the
+   * lawn is enormous, which is the whole argument: the same saturation reads as
+   * a highlight at the size of a tomato and as a wall of colour at the size of a
+   * field, so a big surface has to be lower-chroma than a small one to weigh the
+   * same. Down from 47% to 31%, a touch darker, hue untouched.
+   */
+  grass: '#89b26c',
+  grassAlt: '#7fa762',
   soil: '#a8763f',
   soilDark: '#8d6234',
   /** Broken, workable soil — darker and damper than the rough ground. */
@@ -42,19 +109,19 @@ export const PALETTE = {
    * these that drifted far enough apart to do it by colour would be putting the
    * rectangle back.
    */
-  bay: '#ddd3bd',
-  bayPlank: '#a8865c',
+  bay: '#d8cfc0',
+  bayPlank: '#9e8266',
   /** The drop-off pad, where you park an armful. Half a step warmer than the
    *  bay, which is a hint rather than the answer — see above. */
-  drop: '#e6d6b4',
+  drop: '#ddd1bb',
   /** The break area: the one pad that is normally indoors, so it is the closest
    *  of the three to plain floor. */
-  break: '#eadcc4',
+  break: '#e3dac9',
   /** The car park: cold tarmac, and the darkest ground in the game on purpose.
    *  It is the one piece of hardstanding a customer sees before the shop, so it
    *  should read as the front of the building rather than as more of the back
    *  of it — the two yard pads are deliberately warm and light. */
-  park: '#79808c',
+  park: '#76808f',
   /** The paddock: the one pad that is not hardstanding at all. Grazed grass —
    *  greener and duller than the lawn beside it, which is the whole read. The
    *  four pads above are pale and warm because they are concrete you put things
@@ -64,24 +131,24 @@ export const PALETTE = {
    *  thing you drive on and the pad is the thing you stand on. Near-neutral on
    *  purpose — it is the longest run of one colour anybody will paint, so a
    *  road with any character in it would read as a stripe across the map. */
-  road: '#5f646d',
+  road: '#5c6470',
   /** Last-resort bodywork — see `VEHICLE_LOOK`. Nothing on the road normally
    *  wears it: a vehicle row carries its own `color`, and its `model` carries
    *  the colours that actually get drawn. */
   vehicle: '#c9d1d9',
-  floor: '#f0ddb8',
-  floorAlt: '#e8d2a8',
-  wall: '#fbf8f0',
-  wallTop: '#eae5d6',
-  shelf: '#b8875a',
-  shelfTop: '#a2764c',
+  floor: '#e8dac0',
+  floorAlt: '#ddcbb0',
+  wall: '#f7f6f4',
+  wallTop: '#e4e1dc',
+  shelf: '#a8896a',
+  shelfTop: '#94775a',
   freezer: '#cfe6ea',
   counter: '#7fd4c8',
   station: '#9aa4b0',
   stationTop: '#cfd8e3',
   counterTop: '#66c2b5',
-  path: '#d9cbb0',
-  fence: '#c99a63',
+  path: '#d5c9b4',
+  fence: '#b89674',
   // A hedge, and the one boundary that carries its OWN colour on its band —
   // which is what keeps paint off it, by the rule in `buildEdges` that a band
   // with a colour already on it is left bare. Nobody paints a hedge. Two greens
@@ -95,9 +162,26 @@ export const PALETTE = {
   // colour for the hedge's reason — you paint a railing in practice, and the
   // finish tool paints a WALL FACE, which is a surface a rail simply has not
   // got.
-  railing: '#8a8579',
-  railingRail: '#b6b0a2',
-  door: '#f6f3ea',
+  railing: '#79808a',
+  railingRail: '#a5abb3',
+  door: '#f2f1ee',
+  // The JOINERY round a way through: a jamb at each end of the opening and the
+  // slice of lintel sat on them. It carries its own colour for the hedge's and
+  // the railing's reason — a band with one is left bare by `buildEdges` — and
+  // here that is the whole point rather than a side effect: a doorway is a
+  // HOLE, so what says "there is a door here" is the frame, and a frame that
+  // took the wall's finish would vanish again the moment somebody painted the
+  // frontage the colour of the trim.
+  //
+  // WARM AND LIGHT, and that is a fact about the post pass rather than about
+  // taste. `BANDS` is 3 (look.js), so the value ramp is collapsed to three
+  // steps and a mid grey does not read as a mid grey — it falls to the bottom
+  // band and draws as a near-black slab. Which is what a first pass at this in
+  // the building's own cool near-grey (#6f7986) did: painted timber authored,
+  // bollards rendered. So it sits a step under the wall rather than most of the
+  // way to the ink, and it is warm, which is the one axis left to tell it from
+  // the wall once lightness has been spent.
+  doorFrame: '#c9bcab',
   // A strip curtain: milky PVC on a metal rail. Deliberately opaque rather than
   // glass — the alpha band in `edgeBands` is one shared value (`GLASS`, 0.35),
   // which on something the size of a wall reads as an absence, and the thing
@@ -826,9 +910,16 @@ export const WASTE_LOOK = {
  * that stayed white when somebody restyled the wall.
  */
 const EDGE_BASE = {
-  // A doorway is a gap you can walk through: a header spanning the opening and
-  // a threshold underfoot, with nothing in between.
-  door: { color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.17, opening: true },
+  // A doorway is a gap you can walk through: a header spanning the opening, a
+  // threshold underfoot, and the joinery lining the hole — see `FRAME_JAMB`.
+  door: {
+    color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.17,
+    opening: true, frame: true,
+  },
+  // A gate is the one opening with no frame on it, and that is a fact about
+  // what it is cut in rather than an omission: a gate is a gap in a FENCE half a
+  // tile tall, so its head is at 0.34 and a lined jamb would be a post as tall
+  // as the panel beside it. What tells you where a gate is, is the fence.
   gate: { color: PALETTE.fence, h: 0.5, t: 0.14, opening: true },
   // ...and a curtain is the other way up: strips hanging from a rail, with the
   // gap at the BOTTOM rather than in the middle. `drop` is where they stop, and
@@ -878,17 +969,24 @@ const EDGE_BASE = {
   // in a run of high windows and the strip carries straight through it.
   glazedDoor: {
     color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.17,
-    opening: true, transom: true, bar: TRANSOM_BAR,
+    opening: true, transom: true, frame: true, bar: TRANSOM_BAR,
   },
   // ...and `shopfront` is the same doorway with the same glass over it and the
-  // joinery taken out: no bar under the pane, and a frame thinner than the
+  // joinery slimmed down: no bar under the pane, and a frame thinner than the
   // masonry beside it (0.13 against 0.17). That is the whole of it, and it is
   // the whole of it on purpose — the pane runs from the head to the lintel in
   // one piece and lines up with the shopfront glazing either side, so a run of
   // frontage with one of these in the middle draws as a single band of glass.
+  //
+  // It keeps its JAMBS, and it is the piece that needed them most: a doorway is
+  // a hole, and a hole cut in a wall of glass in the wall's own colour has
+  // nothing round it to be a hole in. What it does not get is a head slice,
+  // because there is no masonry over it to take one — the glass starts on the
+  // head line. So the frame here is two posts under one unbroken pane, which is
+  // what a modern shopfront entrance is.
   shopDoor: {
     color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.13,
-    opening: true, transom: true,
+    opening: true, transom: true, frame: true,
   },
   // A boundary. One base for all four looks, because every fact the sim has about
   // them is shared — see `FENCING`, shared/edges.js. Each look overrides only
@@ -1048,6 +1146,96 @@ const CURTAIN_STRIPS = 6;
 const CURTAIN_DUTY = 0.86;
 
 /**
+ * A DOOR FRAME: how wide the jambs are, and how much of the lintel sits on them.
+ *
+ * A way through is drawn as an absence — a header over a threshold with nothing
+ * in between — and that is a fine description of a doorway and a poor picture of
+ * one. Set in a plain wall it is legible enough, because the hole is darker than
+ * the masonry either side. Set in a SHOPFRONT it is not: the frontage is glass
+ * at a third opacity in the wall's own colour, so the pane, the wall and the gap
+ * are three shades of the same pale, and the entrance to the shop was the one
+ * thing on the front of the building you could not find. Which reads as the door
+ * not having been built rather than as art that is out.
+ *
+ * So the frame is what is added, and it is added the way the roller door's
+ * tracks are: `off`/`len` bands running UP the cell rather than across it, so a
+ * jamb is a short band that happens to be tall and the renderer learns nothing.
+ * `FRAME_JAMB` is a hair narrower than `SHUTTER_TRACK` for the same argument
+ * that sets that one — wide enough to see from across the shop, narrow enough
+ * that the opening still reads as one.
+ *
+ * WHERE IT DIFFERS FROM THE SHUTTER'S TRACK IS THE ONLY INTERESTING PART, AND
+ * IT WENT IN BACKWARDS FIRST. A track is drawn inside its own cell on purpose —
+ * a roller door is gear, each cell has its own roll, so a two-cell bay is
+ * honestly a pair of shutters. A doorway is the opposite claim: it is a HOLE,
+ * and scene.js has said so since before there was a frame ("a doorway has no
+ * jambs along its span"), which is why a run of them is spanned by one
+ * continuous header with a pier only where two of them turn a corner. Lined
+ * cell by cell, a three-cell shopfront entrance came out as four posts standing
+ * in the gap — and at this camera, in the frame's own colour, what that draws
+ * is not a wide door with mullions, it is a rank of bollards across the way in.
+ * So a jamb stands at the END of a RUN, which is a fact about the neighbours and
+ * therefore not a fact this file can know: the band says which side it is on and
+ * `buildEdges` drops the ones with another framed opening beyond them.
+ *
+ * `FRAME_HEAD` is a slice off the BOTTOM of the header rather than a band added
+ * under it, and that distinction is the whole care needed here. Every height in
+ * this family is spoken for — the head line is a fact about the person walking
+ * through (`HEAD_ROOM`), and a fanlight's glass starts exactly where a high
+ * window's does (`GLASS_HEAD`, `TRANSOM_BAR`) so that a run of frontage with a
+ * door in the middle draws as one strip. A lintel band that pushed either of
+ * those up by its own thickness would put a two-centimetre step in a header,
+ * which reads as a wall that has been built badly. Splitting the masonry that is
+ * already there moves nothing at all: the hole stops where it stopped and only
+ * the colour of its soffit changed.
+ */
+const FRAME_JAMB = 0.1;
+const FRAME_HEAD = 0.09;
+
+/**
+ * What a frame looks like once somebody has PAINTED the wall it is set in.
+ *
+ * The hedge and the railing carry their own colours to keep the finish tool off
+ * them, and the frame borrowed that rule and should not have. A hedge is a
+ * planting and a railing is not a wall face; a door frame is joinery set in the
+ * wall, and every real shopfront paints the two together. Left bare it read as
+ * the paint having failed to reach — you paint the frontage, the header over the
+ * glass turns and the frame does not, which points at the brush rather than at a
+ * decision.
+ *
+ * So it takes the finish, one step down, and the step is what keeps this from
+ * being the same sentence as "no frame at all". `-0.16` is `patternColor`'s own
+ * default accent, which is the same distance a surface's second colour sits from
+ * its first — so a painted frame is exactly as legible against its wall as a
+ * chequer is against its floor, whatever colour the wall is painted.
+ *
+ * Down rather than up because that is the direction the unpainted pair already
+ * runs (`doorFrame` is about this far under `PALETTE.wall`), so painting a shop
+ * white leaves the frontage roughly where it started instead of inverting it.
+ */
+const FRAME_SHADE = -0.16;
+
+/**
+ * ...and it takes EITHER SPELLING OF A COLOUR, which is the one thing about this
+ * seam worth knowing.
+ *
+ * Colour is a hex string nearly everywhere in this file and a packed int coming
+ * out of `patternColor`, because `jitter` packs on the way past — and the caller
+ * that matters here is the paint pass, so the natural-looking `shade(tone, ...)`
+ * throws on the string method. What that costs is not one bad frame: `addEdges`
+ * lays every boundary in the building in a single pass, so one throw inside it
+ * is a shop with NO WALLS AT ALL, and the only thing on screen pointing at the
+ * door frame is that the door frame is missing along with everything else.
+ */
+export function frameTint(color) {
+  if (typeof color === 'string') return shade(color, FRAME_SHADE);
+  const f = 1 + FRAME_SHADE;
+  return (clamp8(((color >> 16) & 255) * f) << 16)
+    | (clamp8(((color >> 8) & 255) * f) << 8)
+    | clamp8((color & 255) * f);
+}
+
+/**
  * A roller shutter that is UP, and the three numbers that say so.
  *
  * The picture has to carry the whole claim on its own, because nothing else
@@ -1155,6 +1343,44 @@ export function edgeBands(style) {
   // one and nothing downstream had to learn a second shape.
   if (style.opening) {
     const head = headOf(style);
+    // The JOINERY lining the hole: a jamb up each side of it, and — where there
+    // is masonry over the opening to take one — the bottom slice of the header
+    // sat on them. See `FRAME_JAMB` for why an absence needed drawing at all,
+    // and note that both halves come off heights that already existed: the jamb
+    // runs deck to head line and the head slice is cut out of the lintel, so
+    // nothing in this family moved a millimetre when the frame went in.
+    //
+    // They carry their own colour, which keeps the finish tool off them — you
+    // paint a wall, and the frame set in it is the thing that goes on saying
+    // where the door is whatever colour you paint round it.
+    //
+    // ...and where there is NO masonry over the opening to take a slice out of,
+    // the head member hangs UNDER the glass instead. Which is the shopfront
+    // door: its pane starts on the head line, so there is nothing above the hole
+    // to colour, and a frame that answered "no rail then" drew a sheet of glass
+    // sitting on air between two posts. Downward rather than upward, because
+    // every height above the head line in this family is spoken for — the pane
+    // starts exactly where a high window's strip starts (`GLASS_HEAD`), so a
+    // rail that pushed it up by its own thickness would put a step in a run of
+    // frontage that is meant to draw as one band of glass. And it is honest
+    // besides: this is the DOOR's top rail, and a door's top rail is under the
+    // opening head rather than over it.
+    const rail = style.frame && style.transom && !style.bar ? FRAME_HEAD : 0;
+    // `jamb` is which END of the cell this one stands at, and it is the whole
+    // reason the band carries a field nothing here reads: a run of doorway is
+    // ONE opening, so the jambs between its cells have to go. That cannot be
+    // decided in this file — an edge does not know its neighbours — so the band
+    // says which side it is and `buildEdges` drops it when the cell that way is
+    // another framed opening. See the jamb pass in scene.js.
+    const jambs = style.frame ? [-1, 1].map((s) => ({
+      y0: GROUND_LINE,
+      y1: head - rail,
+      color: PALETTE.doorFrame,
+      off: s * (0.5 - FRAME_JAMB / 2),
+      len: FRAME_JAMB,
+      jamb: s,
+      trim: true,
+    })) : [];
     // GLAZED, which is the same opening with the masonry over it replaced by a
     // pane — see `EDGE_BASE.glazedDoor`. Built out of the plain doorway's bands
     // rather than beside them, for the reason the shutter's and the arch's are:
@@ -1180,16 +1406,38 @@ export function edgeBands(style) {
       const sill = Math.min(cap, head + (style.bar ?? 0));
       return [
         { y0: cap, y1: style.h },
-        ...(sill > head ? [{ y0: head, y1: sill }] : []),
+        // The bar IS this family's head slice — it is already a solid member sat
+        // on the head line, so a framed one is the same band in the frame's own
+        // colour rather than a second one under it. Which is what keeps the
+        // fanlight starting where a high window's strip starts: add a slice here
+        // and the glass over every glazed door in the shop steps up out of line
+        // with the glazing either side of it.
+        ...(sill > head ? [{
+          y0: head,
+          y1: sill,
+          ...(style.frame ? { color: PALETTE.doorFrame, trim: true } : {}),
+        }] : []),
+        // ...or the rail hung under the pane, where there was no bar to be it.
+        ...(rail ? [{ y0: head - rail, y1: head, color: PALETTE.doorFrame, trim: true }] : []),
         ...(cap > sill ? [{ y0: sill, y1: cap, alpha: GLASS }] : []),
         { y0: 0, y1: GROUND_LINE + (style.mark ? 0.03 : 0), color: style.mark },
+        ...jambs,
       ];
     }
+    // Where the masonry stops being frame and starts being wall. A slice off
+    // the BOTTOM of the header rather than a band added under it — see
+    // `FRAME_HEAD` — so the hole stops exactly where it stopped and only the
+    // colour of its soffit changed. Clamped, because an opening cut in a
+    // boundary too short to carry a slice would otherwise emit a header of
+    // negative height.
+    const soffit = style.frame ? Math.min(style.h, head + FRAME_HEAD) : head;
     return [
+      ...(soffit > head
+        ? [{ y0: head, y1: soffit, color: PALETTE.doorFrame, trim: true }] : []),
       // The header runs from the head line to whatever the wall came to, so it
       // is the LINTEL that grows with the wall and never the hole — see
       // `HEAD_ROOM`. One band either way, so a taller shop cost nothing here.
-      { y0: head, y1: style.h },
+      { y0: soffit, y1: style.h },
       // Up FROM the deck rather than starting at the floor line, and the two are
       // not the same picture: a way through is cut in whatever the shop is
       // standing on, so a gate in a fence sits on grass at 0.01 and a doorway on
@@ -1203,6 +1451,7 @@ export function edgeBands(style) {
       // through keeps a little of the extra, because that stripe is the only
       // thing on screen saying who a door is for and it is being read edge-on.
       { y0: 0, y1: GROUND_LINE + (style.mark ? 0.03 : 0), color: style.mark },
+      ...jambs,
     ];
   }
   // An arch: the opening's own two bands, with the span corbelled in from either
