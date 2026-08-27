@@ -1119,22 +1119,58 @@ for (const dir of ['up', 'down']) {
     'the recovered loaded stroke uses the upgraded lift clock', wire?.shaftDuration);
   let frontDescended = false;
   let behindApproach = behind.x;
+  let behindOverran = false;
+  let released = false;
   let overlappingGrant = false;
+  /**
+   * THE WINDOW IS "UNTIL THE SHAFT IS OFFERED TO YOU", AND IT USED TO BE
+   * "WHILE THE BOX IN FRONT IS VISIBLY MID-DESCENT". That is the same window
+   * only while the descent is slow, and four lines above this sweep asserts
+   * that it is NOT — `shaftDuration` is the *upgraded* clock, and this shaft
+   * has been walked up to rung 3 deliberately.
+   *
+   * Which is what it caught, backwards. A descending crate used to ride at the
+   * FEEDER's rung while the piston animated at the lift's, so an express shaft
+   * spent three times as long visibly between storeys as it had any right to,
+   * and the follower closed its whole 0.43 of a tile inside that. Fixing the
+   * ride — the box comes down at the shaft's own speed now — left this
+   * assertion demanding the queue cross 0.43 tiles in the 0.15s an express
+   * descent lasts, which is 2.87 tiles/sec on a belt that runs at 1.67. It
+   * failed on arithmetic rather than on anything the queue did.
+   *
+   * So the claim is said against the thing it is actually about. A follower is
+   * held off the mouth for as long as the shaft has not been offered to it —
+   * through the descent, through the empty platform coming back, through the
+   * pickup — and `shaftGrant` naming it is the tick that stops being true.
+   * Both halves are measured over that window rather than one of them: the max
+   * must REACH the stop line (or the queue never closed up at all, which is
+   * the reading that would survive a `near` on a number that only ever fell
+   * short), and no tick in it may pass the line (or "stays outside" is a claim
+   * about an average).
+   */
   for (let i = 0; i < 80; i++) {
     g.step(0.05);
     const carry = g.shaftCarry?.get(lift.id);
     const grant = g.shaftGrant?.get(lift.id);
     if (carry && grant && carry !== grant) overlappingGrant = true;
     if ((front.deck ?? 0) < 1 - 1e-6) frontDescended = true;
-    if ((front.deck ?? 0) > 1e-6 && (front.deck ?? 0) < 1 - 1e-6) {
+    // A LATCH rather than a live test, because `shaftGrant` is cleared again
+    // the moment the follower boards — read tick by tick it reopens the window
+    // behind the box, halfway down the floor run, where staying off a mouth it
+    // has already been through is not a rule about anything.
+    if (grant === behind.id || carry === behind.id) released = true;
+    if (!released) {
       behindApproach = Math.max(behindApproach, behind.x);
+      if (behind.x > lift.x - Game.SHAFT_WAIT_OFFSET + 0.011) behindOverran = true;
     }
   }
   check(frontDescended, 'that front crate descends instead of deadlocking the queue');
   eq(overlappingGrant, false,
     'a following crate is never granted while the preceding carry still owns the lift');
   near(behindApproach, lift.x - Game.SHAFT_WAIT_OFFSET,
-    'the queue closes up to, but stays outside, the basket edge', 0.011);
+    'the queue closes up to the basket edge while the shaft is somebody else\'s', 0.011);
+  eq(behindOverran, false,
+    'and never once crosses it before the piston is offered to it');
   check(front.x > lift.x, 'and clears the shaft so the crate behind can follow', `at ${front.x}`);
 }
 
