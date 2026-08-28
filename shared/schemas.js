@@ -348,6 +348,58 @@ export const ModelSchema = z.object({
   })
   .default({ parts: [{ shape: 'box', color: '#cccccc', pos: [0, 0, 0], scale: [0.3, 0.3, 0.3], rot: 0 }] });
 
+/**
+ * How many DIFFERENT things may stand in one pen's field.
+ *
+ * Four, and it is authoring effort rather than draw cost that this caps — the
+ * real bill is this times `heads`, and `heads` has its own ceiling on the rung.
+ * A culture vat wants two of these (a rack of trays and one tender drone) and
+ * nothing yet has wanted a third; the day something does, this is a number and
+ * not a rule.
+ */
+const MAX_BODIES = 4;
+
+/**
+ * One thing that stands in a pen's field, and how many of it there are.
+ *
+ * `body` (below) is a HERD: one walking animal per head, which was the whole of
+ * it while a pen was a pen, because the animals *were* the count. Six pigs meant
+ * six head and you read the number off the grass without opening a menu. Indoors
+ * there is nothing to graze — a culture vat wants TRAYS, one per line, standing
+ * still, and one tender drone walking the deck — and those are two populations
+ * on one machine, which a single model cannot say.
+ *
+ * The two fields are deliberately not a rename of each other, and all four
+ * combinations mean something: a herd (roams, per head — every pen ever
+ * authored), a rack (still, per head), a tender (roams, per pen), a statue
+ * (still, per pen). The tempting fold is "a thing that stands still is the count
+ * and a thing that moves is the life", and it takes the pigs away from being the
+ * count, which is the one thing about them that was load-bearing.
+ */
+const BODY = z.object({
+  model: ModelSchema,
+  /**
+   * Does it wander? True is the shipped animal, so a list authored without this
+   * is a herd.
+   *
+   * A body that does not roam is never handed to `stepAnimal`, and that is the
+   * point rather than an optimisation: that function is the only thing keeping
+   * an animal inside an L-shaped paddock, so driving a statue through it is a
+   * movement system spending its whole argument on something that never moves.
+   */
+  roams: z.boolean().default(true),
+  /**
+   * One per HEAD, or one per PEN.
+   *
+   * Per head is the READOUT — this is the number the player is meant to count
+   * off the floor without opening anything, which is what the herd was doing.
+   * Per pen is the LIFE: a tender per line is six drones fussing round one
+   * machine, which is a crowd rather than somebody looking after it, and it
+   * drowns the very count the trays are there to give.
+   */
+  per: z.enum(['head', 'pen']).default('head'),
+});
+
 /** Tags are free-form, but we warn on unknown ones so typos surface. */
 const TagList = z.array(z.string().min(1)).min(1).max(12);
 
@@ -379,8 +431,39 @@ export const CropSchema = z.object({
   yield_min: z.number().int().min(1).max(99).default(1),
   yield_max: z.number().int().min(1).max(99).default(3),
   seed_cost: z.number().min(0).max(10000),
-  /** Empty array = grows in every season. */
-  seasons: z.array(z.enum(['spring', 'summer', 'autumn', 'winter'])).default([]),
+  // A crop has no `seasons`, and it is GONE rather than ignored.
+  //
+  // The farm moved indoors (docs/vats.md) and a controlled environment has no
+  // winter, so the supply half of seasonality — whether a thing grows at all —
+  // stopped having anything to be a fact about.
+  //
+  // **The demand half is untouched and must stay that way.** Seasons were
+  // always two mechanisms wearing one word, and only one of them is about the
+  // weather: an item's `season` tag still swings `seasonMult` 1.35 in season
+  // and 0.75 out, through `suggestedPrice`, `wholesalePrice` and
+  // `purchaseChance` (sim/economy.js). Shoppers wanting berries in summer is a
+  // fact about the town and survives the move indoors intact; a bed that could
+  // not grow them in March was a fact about the weather and does not. What the
+  // pair buys, which neither half buys alone, is the good version of the
+  // mechanic: prices still swing and you can now supply the swing, so going
+  // indoors is what gets you the 1.35 peak instead of locking you out of it.
+  //
+  // Deleted rather than left inert, and the reason is where authoring actually
+  // happens. Left in this schema the field would be the trap CLAUDE.md names
+  // about a tier that changes no number, wearing a crop: somebody authors
+  // `seasons: ['winter']` on the fifteenth crop, the write succeeds, zod
+  // validates it, `content_version` bumps, the client reloads — and the row
+  // grows all year with nothing anywhere saying a word. The enforcement is not
+  // this line, though: it is that `create_crop` no longer offers the parameter,
+  // so no agent can send one. This line is what makes that removal total, and
+  // the comment is here because this is where somebody about to re-add it will
+  // be typing.
+  //
+  // Nothing migrates. zod strips unknown keys, so the fourteen authored rows in
+  // `data/seed/crops.json` and the `seasons` column on every live database go
+  // on parsing and are dropped on the way in; the column keeps its rows and
+  // costs nothing, and the seed file loses the field the next time anybody runs
+  // the ordinary `npm run export` commit ritual.
   model: ModelSchema,
 }).refine((v) => v.yield_max >= v.yield_min, {
   message: 'yield_max must be >= yield_min',
@@ -723,6 +806,39 @@ export const FixtureSchema = z.object({
    * somebody has. It moves no number and needs no `simulate`.
    */
   body: ModelSchema.nullable().default(null),
+  /**
+   * ...and the same sentence said several times over, once the field stopped
+   * holding only one kind of thing.
+   *
+   * A culture vat is a pen with the grass taken out, and what stands on its deck
+   * is trays — one per line, standing still, which is exactly the job the pigs
+   * were doing — plus one tender drone that walks about, which is exactly the
+   * job the pigs were *also* doing. One model cannot be both, so this is a list
+   * and each entry says which (see `BODY` above).
+   *
+   * ### Why this is a second field and not a new shape for `body`
+   *
+   * `body` is the old spelling of a one-entry list and is READ as one
+   * (`bodiesOf`, shared/pieces.js) — a read-time default rather than a
+   * migration, which is the call `kindOf` makes about a row written before there
+   * were kinds. Two things pay for the extra name.
+   *
+   * Every pen row in every save carries a bare model in that column, so turning
+   * it into a list is a rewrite of all of them on their next write, for a field
+   * whose old readers would then be looking at an array where they expect
+   * `{parts}`. And content here is edited LIVE, from a second window, against
+   * whatever server happens to be running — which is very often not the build
+   * you just changed. A column that gains a new SHAPE is mis-read by every
+   * reader that predates it; a column that simply did not exist is invisible to
+   * them. The first is a shop full of pens that draw wrong on somebody else's
+   * screen, and nothing anywhere says a word.
+   *
+   * Empty is every fixture row ever authored, and a piece that names neither is
+   * a perfectly good pen — heads come off the paint, so a vat nobody has drawn a
+   * tray for runs exactly as many lines as one somebody has, and draws none of
+   * them. That is what keeps this a look.
+   */
+  bodies: z.array(BODY).max(MAX_BODIES).default([]),
   /**
    * "This one watches the shop" — which world quantity drives its art, out of
    * `WORLD_SIGNALS`.

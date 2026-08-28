@@ -77,7 +77,11 @@ CREATE TABLE IF NOT EXISTS crops (
   yield_min    INTEGER NOT NULL DEFAULT 1,
   yield_max    INTEGER NOT NULL DEFAULT 3,
   seed_cost    REAL NOT NULL,
-  seasons      TEXT NOT NULL DEFAULT '[]',
+  -- No seasons column. A crop grows all year (see CropSchema), so a fresh
+  -- database has nowhere to put one. Every database that already exists still
+  -- has it, because CREATE TABLE IF NOT EXISTS does not alter one and dropping
+  -- a populated column out from under a live shop buys nothing — so the two
+  -- shapes are reconciled on the way OUT, in RETIRED_FIELDS.
   model        TEXT NOT NULL,
   created_by   TEXT NOT NULL DEFAULT 'seed',
   created_at   INTEGER NOT NULL
@@ -150,6 +154,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
   model      TEXT NOT NULL,               -- JSON, staged by tier
   work       TEXT NOT NULL DEFAULT 'null',-- JSON, staged by how far through a batch
   body       TEXT NOT NULL DEFAULT 'null',-- JSON, unstaged: the animal that walks about
+  bodies     TEXT NOT NULL DEFAULT '[]',  -- JSON [{model, roams, per}] — several of the above
   tiers      TEXT NOT NULL DEFAULT '[]',  -- JSON [{name, cost, ...mults}]
   variants   TEXT NOT NULL DEFAULT '[]',  -- JSON [{id, name, model, work}] — looks only
   cost       REAL NOT NULL DEFAULT 0,     -- 0 = priced by the upgrade that sells it
@@ -381,6 +386,13 @@ const ADDED_COLUMNS = [
   // in the catalogue except seven — and is true of a beehive on purpose, since
   // the hive is the whole of what you see.
   ['fixtures', 'body', "TEXT NOT NULL DEFAULT 'null'"],
+  // ...and several of them, once a field could hold trays and a tender rather
+  // than a herd. '[]' is every row in the catalogue, `body` included: a piece
+  // that names neither has nothing standing in it, and one that still names
+  // `body` is read as a one-entry list of it (`bodiesOf`). So no row moves, and
+  // a server running yesterday's build sees a column it has never heard of
+  // rather than a column whose shape has changed under it.
+  ['fixtures', 'bodies', "TEXT NOT NULL DEFAULT '[]'"],
   // Whether you can walk all the way round it. 0 is "it has a back", which is
   // true of every unit authored before the question could be asked — so no shop
   // gains a side it did not have on the day this landed.
@@ -493,12 +505,12 @@ export function contentVersion() {
 
 const JSON_FIELDS = {
   items: ['tags', 'model'],
-  crops: ['seasons', 'model'],
+  crops: ['model'],
   archetypes: ['affinities', 'staple_tags', 'tags', 'look'],
   events: ['effects'],
   upgrades: ['payload', 'requires'],
   recipes: ['inputs'],
-  fixtures: ['model', 'work', 'body', 'tiers', 'variants', 'emits', 'sfx', 'surface', 'yields', 'produces', 'tags', 'hangs'],
+  fixtures: ['model', 'work', 'body', 'bodies', 'tiers', 'variants', 'emits', 'sfx', 'surface', 'yields', 'produces', 'tags', 'hangs'],
   workers: ['tags', 'model', 'tiers', 'jobs'],
   pastimes: ['buys', 'tags', 'model'],
   skins: ['slots', 'extras', 'tags'],
@@ -519,9 +531,32 @@ const BOOL_FIELDS = {
   fixtures: ['open'],
 };
 
+/**
+ * Columns a schema has retired, dropped on the way out.
+ *
+ * This store hands back rows RAW — a zod parse is what the web store does and
+ * deliberately not what this one does, since DB rows never revalidate on read —
+ * so a column the schema no longer declares goes on being handed to the sim
+ * long after nothing reads it. That is not a leftover, it is a *divergence*:
+ * the web store parses `data/seed/*.json` through the same schemas, so it drops
+ * the field and this one does not, and the two stores stop being the same shop.
+ * `verify:store` caught exactly that on the fourteen crop rows the day `seasons`
+ * was retired — fifteen assertions, none of which would have crashed anything.
+ *
+ * Dropping the column instead is the fix that looks tidier and is worse: it is
+ * an ALTER on every live database for a field nothing reads, and CLAUDE.md's
+ * rule about columns is that they are load-bearing on somebody's shop. A fresh
+ * database simply has no such column (see the `crops` DDL above), an old one
+ * keeps its data, and both hydrate to the same object.
+ */
+const RETIRED_FIELDS = {
+  crops: ['seasons'],
+};
+
 function hydrate(table, row) {
   if (!row) return null;
   const out = { ...row };
+  for (const f of RETIRED_FIELDS[table] ?? []) delete out[f];
   for (const f of JSON_FIELDS[table] ?? []) {
     try {
       out[f] = JSON.parse(row[f]);

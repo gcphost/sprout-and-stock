@@ -26,7 +26,7 @@
     "basket_min": 3,
     "basket_max": 6,
     "spawn_weight": 3,
-    "color": "#7fb3d9",
+    "color": "#7cbdf0",
     "staple_tags": [
       "dairy"
     ],
@@ -59,7 +59,7 @@
     "basket_min": 1,
     "basket_max": 4,
     "spawn_weight": 1.6,
-    "color": "#e0a53a",
+    "color": "#f0d030",
     "staple_tags": [
       "lunch"
     ],
@@ -96,7 +96,7 @@
     "basket_min": 5,
     "basket_max": 10,
     "spawn_weight": 1,
-    "color": "#d98a5a",
+    "color": "#8f5c50",
     "staple_tags": [],
     "tags": [],
     "steal_chance": 0,
@@ -124,7 +124,7 @@
     "basket_min": 1,
     "basket_max": 3,
     "spawn_weight": 0.6,
-    "color": "#7a6f8c",
+    "color": "#5c2f66",
     "staple_tags": [],
     "tags": [
       "thief"
@@ -156,7 +156,7 @@
     "basket_min": 2,
     "basket_max": 6,
     "spawn_weight": 0.5,
-    "color": "#f0e4d0",
+    "color": "#e8b0c4",
     "staple_tags": [
       "party"
     ],
@@ -193,7 +193,7 @@
     "basket_min": 1,
     "basket_max": 4,
     "spawn_weight": 1,
-    "color": "#33303c",
+    "color": "#111111",
     "staple_tags": [
       "beverage"
     ],
@@ -204,7 +204,9 @@
     "look": {
       "build": "slight",
       "hair": "fringe",
-      "hair_color": "#17161c"
+      "hair_color": "#17161c",
+      "beard": "none",
+      "face": "none"
     }
   },
   {
@@ -233,7 +235,7 @@
     "basket_min": 3,
     "basket_max": 7,
     "spawn_weight": 1.5,
-    "color": "#c98a5a",
+    "color": "#e8bb99",
     "staple_tags": [],
     "tags": [],
     "steal_chance": 0,
@@ -269,7 +271,7 @@
     "basket_min": 2,
     "basket_max": 5,
     "spawn_weight": 1.2,
-    "color": "#c98ad9",
+    "color": "#8f6cc0",
     "staple_tags": [],
     "tags": [],
     "steal_chance": 0,
@@ -301,7 +303,7 @@
     "basket_min": 1,
     "basket_max": 3,
     "spawn_weight": 1,
-    "color": "#e07ab0",
+    "color": "#d97070",
     "staple_tags": [
       "gift"
     ],
@@ -335,7 +337,7 @@
     "basket_min": 3,
     "basket_max": 7,
     "spawn_weight": 1,
-    "color": "#4f9bd9",
+    "color": "#9ad45c",
     "staple_tags": [
       "meat"
     ],
@@ -346,7 +348,9 @@
     "look": {
       "build": "buff",
       "hair": "crop",
-      "hair_color": "#4a3527"
+      "hair_color": "#4a3527",
+      "beard": "none",
+      "face": "none"
     }
   },
   {
@@ -369,7 +373,7 @@
     "basket_min": 2,
     "basket_max": 5,
     "spawn_weight": 2,
-    "color": "#7cc46a",
+    "color": "#93f0bd",
     "staple_tags": [
       "produce"
     ],
@@ -405,7 +409,7 @@
     "basket_min": 2,
     "basket_max": 5,
     "spawn_weight": 1.1,
-    "color": "#e6d9c4",
+    "color": "#e5cf95",
     "staple_tags": [
       "premium"
     ],
@@ -416,7 +420,9 @@
     "look": {
       "build": "stout",
       "hair": "swept",
-      "hair_color": "#d8b25a"
+      "hair_color": "#d8b25a",
+      "beard": "none",
+      "face": "none"
     }
   },
   {
@@ -439,7 +445,7 @@
     "basket_min": 3,
     "basket_max": 7,
     "spawn_weight": 1,
-    "color": "#b4453f",
+    "color": "#8f2408",
     "staple_tags": [
       "meat"
     ],
@@ -482,7 +488,7 @@
     "basket_min": 2,
     "basket_max": 4,
     "spawn_weight": 2.5,
-    "color": "#e8b04b",
+    "color": "#f0dc42",
     "staple_tags": [
       "breakfast"
     ],
@@ -516,7 +522,7 @@
     "basket_min": 2,
     "basket_max": 5,
     "spawn_weight": 2,
-    "color": "#b28cc4",
+    "color": "#9377e0",
     "staple_tags": [
       "bakery"
     ],
@@ -551,7 +557,7 @@
     "basket_min": 1,
     "basket_max": 3,
     "spawn_weight": 1.8,
-    "color": "#5a6478",
+    "color": "#1d1f4e",
     "staple_tags": [
       "lunch"
     ],
@@ -586,7 +592,7 @@
     "basket_min": 1,
     "basket_max": 3,
     "spawn_weight": 1.4,
-    "color": "#3fae8f",
+    "color": "#8c8c8c",
     "staple_tags": [
       "beverage"
     ],
@@ -624,7 +630,7 @@
     "basket_min": 1,
     "basket_max": 3,
     "spawn_weight": 2.5,
-    "color": "#e8b23c",
+    "color": "#7fcc6b",
     "staple_tags": [
       "kids"
     ],
@@ -658,7 +664,7 @@
     "basket_min": 2,
     "basket_max": 5,
     "spawn_weight": 1.7,
-    "color": "#8f7ad0",
+    "color": "#55b04f",
     "staple_tags": [
       "cheap"
     ],
@@ -693,7 +699,7 @@
     "basket_min": 2,
     "basket_max": 5,
     "spawn_weight": 0.9,
-    "color": "#e8734f",
+    "color": "#8a2f20",
     "staple_tags": [
       "gift"
     ],

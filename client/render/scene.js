@@ -35,7 +35,7 @@ import {
   faceKey, covers, footprintMid, sizeOf, deckOf, CEILING, armReach,
   conveyorLines, conveyorLoops, unitOn, conveyorMeets,
 } from '../../shared/build.js';
-import { pieceFor, surfaceOf } from '../../shared/pieces.js';
+import { pieceFor, surfaceOf, bodiesOf } from '../../shared/pieces.js';
 import { hash01 } from '../../shared/hash.js';
 // Only for the wall's own thickness, which the paint ghost has to stand proud
 // of — see `setFaceGhost`. Everything else in here reads edge kinds as the raw
@@ -5867,9 +5867,11 @@ export class Scene {
       (c) => this.crowdBody(c.color, { variant: c.id, varied: true, look: c.look ?? null }));
     // ...and the animals, keyed by which piece they came out of so that
     // redrawing a hen over MCP restages every hen in the shop — `syncActors`'
-    // own `keyOf`, doing here exactly what it does for a promoted hire.
+    // own `keyOf`, doing here exactly what it does for a promoted hire. The key
+    // carries which body of that piece it is and which stage of it, which is
+    // what makes a tray fill up as the vat does — see `animalKey`.
     this.syncActors(state.animals ?? [], this.animals,
-      (a) => this.buildAnimal(a), (a) => a.piece ?? '');
+      (a) => this.buildAnimal(a), (a) => this.animalKey(a));
     // The shop's own footfall map, when it is due — `trafficWire` sends it
     // every couple of seconds and leaves the field off in between, so this is
     // usually a compare against `undefined`. Adopted whether or not the overlay
@@ -6525,9 +6527,41 @@ export class Scene {
    * gone: content is edited live, and the alternative to a shrug is a hole in
    * the field where something is standing.
    */
+  /**
+   * Which of its piece's bodies this one is — a tray, or the drone that tends
+   * them.
+   *
+   * Resolved through `bodiesOf` rather than off `piece.body`, which is the one
+   * spelling of "what stands in this field" and reads the old column and the new
+   * list alike. Null for a row deleted out from under a body, and for an index
+   * that no longer names anything: content is edited live, so a vat can lose a
+   * tray between two frames of the tray being drawn.
+   */
+  animalSpec(a) {
+    const piece = (this.catalog.pieces ?? []).find((p) => p.id === a?.piece);
+    return bodiesOf(piece)[a?.b ?? 0] ?? null;
+  }
+
+  /**
+   * What a body is drawn AS, which is what `syncActors` restages on.
+   *
+   * The index has to be in it, not just the piece: two bodies out of one vat are
+   * a tray and a drone, and a key that could not tell them apart would hand a
+   * redrawn tray the drone's mesh the next time anybody edited the row. And the
+   * STAGE has to be in it, which is the whole of how a tray fills up — `t` is
+   * how much is standing ready, so a rack that is drawn once at whatever it
+   * looked like when it was built is the readout permanently reporting the
+   * moment you happened to build the vat.
+   */
+  animalKey(a) {
+    const spec = this.animalSpec(a);
+    const at = spec ? stageIndexAt(spec.model, a.t ?? 0) : 0;
+    return `${a?.piece ?? ''}:${a?.b ?? 0}:${at}`;
+  }
+
   buildAnimal(a) {
-    const piece = (this.catalog.pieces ?? []).find((p) => p.id === a.piece);
-    if (!piece?.body) return buildCharacter('#c9a227');
+    const spec = this.animalSpec(a);
+    if (!spec) return buildCharacter('#c9a227');
     // The two conventions `vehicleYaw` exists for, met a second time and settled
     // the same way. `body` lives on a `fixtures` row, so it is authored NOSE
     // EAST like every other piece of fixture art and like `docs/fixtures.md`
@@ -6537,9 +6571,16 @@ export class Scene {
     // at this zoom a chicken is nearly symmetric: it reads as odd art rather
     // than as a quarter turn. Baked into a wrapper rather than applied on the
     // group, because `syncActors` owns `rotation.y` on whatever it is handed.
+    // A tray that stands still is turned by exactly the same quarter, because
+    // nothing about the convention is a fact about walking — a rack authored
+    // nose east and hung straight on the group is racked sideways for the life
+    // of the save, which reads as art rather than as arithmetic.
     const turned = new THREE.Group();
     turned.rotation.y = -Math.PI / 2;
-    turned.add(buildModel(piece.body));
+    // Staged on how full the pen is standing, for anything authored that way —
+    // see `t` in the snapshot. A body with no stages ignores it, which is every
+    // animal in the game.
+    turned.add(buildModel(spec.model, { t: a.t ?? 0 }));
     const holder = new THREE.Group();
     holder.add(turned);
     return holder;

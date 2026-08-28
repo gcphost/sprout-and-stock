@@ -606,7 +606,10 @@ server.registerTool('create_crop', {
     yield_min: z.number().int().min(1).default(1),
     yield_max: z.number().int().min(1).default(3),
     seed_cost: z.number().min(0),
-    seasons: z.array(z.enum(['spring', 'summer', 'autumn', 'winter'])).default([]).describe('Empty means it grows all year.'),
+    // No `seasons`. Every crop grows all year — the farm is indoors, and this
+    // is the surface that enforces it, since an agent can only send what the
+    // tool declares. The argument is in `CropSchema`. Seasonality is authored
+    // on the ITEM instead, as a `season` tag, and it still moves the price.
     model: z.any().describe(MODEL_HELP),
   },
 }, async (args) => text(await call('POST', '/content/crop', args)));

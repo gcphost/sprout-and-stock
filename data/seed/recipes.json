@@ -356,6 +356,66 @@
     "minutes": 8
   },
   {
+    "id": "former-bacon-recipe",
+    "name": "Bacon Rashers",
+    "station": "former",
+    "inputs": [
+      {
+        "item_id": "protein-biomass",
+        "qty": 3
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "bacon",
+    "output_qty": 3,
+    "minutes": 11
+  },
+  {
+    "id": "former-fillet-recipe",
+    "name": "Beef Joint",
+    "station": "former",
+    "inputs": [
+      {
+        "item_id": "protein-biomass",
+        "qty": 4
+      }
+    ],
+    "output_id": "beef",
+    "output_qty": 3,
+    "minutes": 14
+  },
+  {
+    "id": "former-mince-recipe",
+    "name": "Beef Mince",
+    "station": "former",
+    "inputs": [
+      {
+        "item_id": "protein-biomass",
+        "qty": 3
+      }
+    ],
+    "output_id": "mince",
+    "output_qty": 3,
+    "minutes": 9
+  },
+  {
+    "id": "former-portions-recipe",
+    "name": "Chicken Portions",
+    "station": "former",
+    "inputs": [
+      {
+        "item_id": "protein-biomass",
+        "qty": 3
+      }
+    ],
+    "output_id": "chicken",
+    "output_qty": 3,
+    "minutes": 9
+  },
+  {
     "id": "frozen-berries-recipe",
     "name": "Frozen Berries",
     "station": "blast-freezer",

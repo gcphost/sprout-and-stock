@@ -71,6 +71,42 @@ export function pieceFor(rows, f) {
 }
 
 /**
+ * What STANDS in this piece's field, in one shape, whichever way it was
+ * authored.
+ *
+ * Two columns say it and there is one answer, because they are the same
+ * sentence a generation apart. `bodies` is the list — trays, a tender drone, a
+ * herd — and `body` is the old spelling of a list of one, read as one here
+ * rather than migrated in the database. That is `kindOf`'s call about a row
+ * written before there were kinds, made for the same two reasons: an old
+ * export, an old save and a fresh seed all agree with nobody having to run
+ * anything, and the seven pen rows in every live shop keep the bare model they
+ * were authored with.
+ *
+ * Defaults are filled HERE and not only at the gate, because rows come out of
+ * the store raw — `server/content.js` says so at the top of `load()`, and it is
+ * why `foldJobs` lives there. A row written before `roams` existed has no
+ * `roams` on it, and `undefined` read as falsy is every animal in the game
+ * standing still, which draws as a farm of statues and errors nowhere.
+ *
+ * Two readers, deliberately: `stepAnimals` for how many there are and whether
+ * each moves, and `Scene.buildAnimal` for what it looks like. Two copies of
+ * "what lives here" is two shops that disagree about what is standing in them.
+ */
+export function bodiesOf(piece) {
+  const list = Array.isArray(piece?.bodies) && piece.bodies.length
+    ? piece.bodies
+    : (piece?.body ? [{ model: piece.body }] : []);
+  return list
+    .filter((b) => b?.model)
+    .map((b) => ({
+      model: b.model,
+      roams: b.roams !== false,
+      per: b.per === 'pen' ? 'pen' : 'head',
+    }));
+}
+
+/**
  * What to call a placed fixture *out loud* — "Bakery Case", "Blender", "Plot".
  *
  * The name a player sees has to come off the same catalog row the picture does,

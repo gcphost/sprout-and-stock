@@ -301,6 +301,39 @@ Thirty sweeps, about a minute:
   rather than on the layout record a re-flow rebuilds), that nothing about a body
   reaches the save, and that scrubbing the paint puts the pen back to one head —
   the control said backwards.
+  Since the farm came indoors (docs/vats.md step 7) it also guards what stands in
+  a field that has no grass in it. The paddock was legible because six pigs meant
+  six head — you read the number off the floor without opening anything — and a
+  culture deck is paint with nothing on it, which is the `charm` trap wearing a
+  vat. So a piece names `bodies` rather than one `body`, and the two fields on an
+  entry are not a rename of each other: `roams` is whether it moves, `per` is how
+  many there are, and the four combinations are a herd, a rack of trays, one
+  tender drone and a statue. Its control is the shape every pen row in the game is
+  authored in — a bare `body`, read as a one-entry roaming herd — and its second
+  is a vat with **no deck painted round it**, which is every vat the day it is
+  built: `penField` falls back to the machine's own two-by-two, which is where a
+  hen with no paddock mills about and is where a tray would be drawn INSIDE the
+  vat, invisible, on every one in the shop, until somebody happened to paint. So
+  a stander needs deck, asserted as no trays and a tender still there — or the
+  pair is satisfied by a vat with nothing on it at all. Its centrepiece
+  is a PAIR that is worthless split in half, in one shop over one four hundred
+  seconds: the trays never move a pixel AND the tender between them does, since
+  "nothing moved" is satisfied by a vat that drew nothing at all and "something
+  moved" by a rack of trays wandering off across the shop floor, which is exactly
+  what a stander handed to `stepAnimal` would do. Then the claim that makes the
+  count countable: **no two trays on one square.** A stander is where it started
+  for the life of the save, so a hashed cell collides — 8 trays on 7 squares on the
+  first field it was tried on — and what that reads as is a vat running six lines
+  you can only count five of, with the arithmetic right the whole time. So a
+  stander is DEALT (`share` and `sharing` on the field, stepping per shelter and
+  per body), asserted within one vat and across two sharing one deck, which is the
+  half a per-pen hash is *probably* right about and provably nothing. Plus that
+  the paint moves the tray count and never the tender's; that a tray is staged on
+  `qty / cap` and never on `penFill`, which answers 0 when the pen is FULL and
+  would empty every tray at the exact moment the vat is fullest — asserted through
+  `snapshot` rather than off the record, because what the sim writes and what
+  reaches the client are two pieces of code; and that a re-flow parks a rack the
+  way it parks a herd, with nothing about any of it on the save.
 
 - `verify:motion` guards the one thing a screenshot can never show: whether the
   thing was moving. That a part flagged `motion` becomes the *right* moving part

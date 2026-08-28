@@ -1190,7 +1190,7 @@ export const ShopRoom = (Base) => class extends Base {
       })),
       crops: c.crops.map((cr) => ({
         id: cr.id, name: cr.name, item_id: cr.item_id, seed_cost: cr.seed_cost,
-        grow_minutes: cr.grow_minutes, seasons: cr.seasons, model: cr.model,
+        grow_minutes: cr.grow_minutes, model: cr.model,
       })),
       upgrades: c.upgrades,
       // An appliance's own menu says what it can make, so the client needs the

@@ -1752,24 +1752,26 @@ function tickFixture(ui) {
  */
 function seedRows(ui, f, live) {
   return ui.catalog.crops.map((c) => {
-    const inSeason = !c.seasons?.length || c.seasons.includes(ui._season);
     const affordable = (ui._cash ?? 0) >= c.seed_cost;
     const growing = live?.crop_id === c.id;
     return {
       icon: ICONS.seeds,
       name: c.name,
+      // No season line, and nothing here is dimmed for one. The crop-side
+      // season is gone (docs/vats.md step 5) and this row had to go with it in
+      // the same breath: a seed greyed out as "out of season" over a `sow` the
+      // server now accepts is the green-ghost bug said backwards — the menu
+      // refusing a press that works — and it would read as the shop being
+      // broken rather than as a stale label.
       sub: growing
         ? `growing here · ${Math.round((live.growth ?? 0) * 100)}% up`
-        : (inSeason
-          ? `${Math.round(c.grow_minutes)} min · ${c.seasons?.length ? c.seasons.join(', ') : 'any season'}`
-          : `out of season · ${c.seasons.join(', ')}`),
+        : `${Math.round(c.grow_minutes)} min`,
       right: growing ? '' : money(c.seed_cost),
       // A crop carries no tags of its own — what it grows INTO does, and that is
-      // what anybody typing `produce` in here is looking for. The seasons are
-      // already in the sub-line and searchable from there.
+      // what anybody typing `produce` in here is looking for.
       facets: ui.itemById(c.item_id)?.tags ?? [],
       picked: growing,
-      dim: !growing && (!inSeason || !affordable),
+      dim: !growing && !affordable,
       run: growing ? null : () => ui.net.send('sow', { plotId: f.id, cropId: c.id }),
     };
   });
@@ -2135,29 +2137,32 @@ function fixtureDetail(ui, f, live) {
   }
 
   if (f.kind === 'pen') {
-    // How many head it is running, and it is here because this is the ONLY
-    // place it can be read. A paddock divides the clock (`penFill`) and nothing
-    // else — so a pen filling four times as fast and a pen filling once are the
-    // same still frame, the same bar and the same shop. Counting the bodies out
-    // in the field is the alternative, which is a thing you do rather than a
-    // thing you see.
+    // How many lines it is running, and it is here because this is the ONLY
+    // place it can be read. The culture floor divides the clock (`penFill`) and
+    // nothing else — so a pen filling four times as fast and a pen filling once
+    // are the same still frame, the same bar and the same shop. Counting what
+    // is standing on the deck is the alternative, which is a thing you do
+    // rather than a thing you see.
     //
-    // The one-head line names the paddock rather than reporting a 1, because
-    // every pen in every shop that has never painted one says this, and "1
-    // animal" is a number that reads as working when what it means is that
-    // there is a whole brush you have not found.
-    // Which of the two is SHORT, because "out of grazing" and "out of shelter"
-    // are the same number on the same line and opposite things to do about it —
-    // and getting it wrong means painting half an acre at a pen that was never
-    // going to keep another animal.
+    // The one-line case names the BRUSH rather than reporting a 1, because
+    // every pen in every shop that has never painted any says this, and "1
+    // line" is a number that reads as working when what it means is that there
+    // is a whole brush you have not found.
+    // Which of the two is SHORT, because "out of deck" and "out of machine" are
+    // the same number on the same line and opposite things to do about it — and
+    // getting it wrong means painting half the floor at a pen that was never
+    // going to run another line.
+    //
+    // `heads`/`maxHeads` keep their spelling all the way from the content row:
+    // the words changed, the fields did not. See `GROUND.paddock`.
     const heads = live?.heads ?? 1;
     const most = live?.maxHeads ?? 1;
-    const grazing = heads >= most
-      ? `${heads} animals — all this shelter holds${most > 1 ? '. Upgrade it for more' : ''}`
-      : `${heads} of ${most} — paint more paddock round it`;
+    const running = heads >= most
+      ? `${heads} running — all this shelter holds${most > 1 ? '. Upgrade it for more' : ''}`
+      : `${heads} of ${most} — paint more culture floor round it`;
     return `<div class="fx-detail">
-      ${line('Grazing', heads > 1 || most > 1 ? grazing
-    : 'one animal — paint a paddock round it to keep more')}
+      ${line('Culture lines', heads > 1 || most > 1 ? running
+    : 'one line — paint culture floor round it to run more')}
       ${line('Ready to collect', live?.qty
     ? `${live.qty}× ${ui.itemName(live.item_id)}` : '<i>nothing yet</i>')}
       ${line('Holds', `${live?.cap ?? 0}, then it stops filling`)}

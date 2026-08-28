@@ -4317,7 +4317,6 @@ function pickCrop(game, c) {
   if (budget <= 0) return null;
 
   const options = c.crops
-    .filter((cr) => !cr.seasons.length || cr.seasons.includes(game.season))
     .filter((cr) => cr.seed_cost <= budget)
     .map((cr) => {
       const item = c.byId.items[cr.item_id];

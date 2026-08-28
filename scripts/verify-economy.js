@@ -103,9 +103,9 @@ const TEST_PIECES = [
     model: { parts: [{ shape: 'box', color: '#9c5432', pos: [0, 0.2, 0], scale: [0.5, 0.4, 0.5] }] },
     cost: PLANTER_PRICE,
   },
-  // Only ever painted over a bed in section 7, to take the ground away from
-  // underneath it — which is the one thing left that legitimately drops a
-  // placement now that a wall moving around one does not.
+  // Painted over a bed in section 7 as the CONTROL. It used to be what dropped
+  // the placement, and since docs/vats.md step 1 made `plot` `where: 'any'` a
+  // bed may stand on floor — so this is now the half that must NOT drop.
   {
     id: 'zz-econ-floor',
     kind: 'floor',
@@ -114,9 +114,23 @@ const TEST_PIECES = [
     surface: { color: '#8d8d88', pattern: 'plain' },
     tiers: [{ name: 'Standard', cost: 0 }],
   },
+  // ...and this is what does drop it. A PAD is in neither `BUILDABLE_INDOOR`
+  // nor `BUILDABLE_OUTDOOR`, so it is the one stroke left that genuinely takes
+  // the cell away from a `where: 'any'` fixture — CLAUDE.md's "one press of
+  // Muddy Yard over your own hen house", which is the exact shape section 7
+  // needs to cause a drop it can price.
+  {
+    id: 'zz-econ-deck',
+    kind: 'paddock',
+    name: 'Priced Deck',
+    cost: 3,
+    surface: { color: '#8d8d88', pattern: 'plain' },
+    tiers: [{ name: 'Standard', cost: 0 }],
+  },
 ];
 
 const FLOOR_PIECE = 'zz-econ-floor';
+const DECK_PIECE = 'zz-econ-deck';
 
 const TEST_UPGRADES = [
   // The one that would have set the price under the old scheme. `shelves: 100`
@@ -388,13 +402,25 @@ function spotFor(g, kind) {
 // ---------------------------------------------------------------------------
 // 7. Nothing is stranded silently. A dropped placement is paid for.
 //
-// Two halves, and the first one used to be the second. Roofing a bed was this
-// sweep's way of *causing* a drop — it was one fixture and nothing else in the
-// shop moved, which made the refund exact — and it turned out to be the bug
+// THREE halves now, and each one used to be the one before it. Roofing a bed
+// was this sweep's original way of *causing* a drop — one fixture, nothing else
+// in the shop moving, so the refund was exact — and it turned out to be the bug
 // rather than the fixture: walls move, so "is this indoors" is not a fact about
-// a bed that a re-flow may act on. See `canKeep` in shared/build.js. So the
-// roofed bed is now the regression guard, and the drop is caused by paving over
-// it, which is physics that genuinely takes the cell away.
+// a bed that a re-flow may act on. See `canKeep` in shared/build.js. Paving over
+// it took over as the cause.
+//
+// docs/vats.md step 1 moved it along again. `plot` is `where: 'any'`, so floor
+// is now a surface a bed may perfectly well stand on and paving one drops
+// nothing — which makes paving the CONTROL and a PAD the cause, since a pad is
+// in neither buildable set and is the one stroke left that really does take the
+// cell away.
+//
+// Worth being explicit about what is NOT being tested here, because it reads
+// like it is: `canPaintGround` refuses all three of these strokes over a bed
+// outright ('there is a bed there — clear it first', `groundIsBusy`), and that
+// rule is untouched and still live. Every stroke below is written straight into
+// `g.ground` to get round it, exactly as the walls go straight into `edits`.
+// The subject is the REFUND, not the brush.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -444,28 +470,64 @@ function spotFor(g, kind) {
   g.regenerateLayout();
   check(!!bed(), 'nor does the re-flow after that one');
 
-  // What "nothing grows indoors" now means: the clock stops rather than the bed
-  // being deleted. Held, not reset — take the roof off and it carries on.
+  // "Nothing grows indoors" is gone entirely, and this is the guard that it
+  // does not come back. It used to hold the clock — `stepCrops` pushed
+  // `plantedAt` along by the world delta, so a covered crop froze at whatever
+  // it had reached. docs/vats.md step 1 made an indoor bed a thing you
+  // deliberately build, and a hold left behind would be the worst shape for it:
+  // the press succeeds, the money goes, the rack draws, and it never ripens.
+  //
+  // Asserted as a STRICT INCREASE rather than as "the bed is not frozen",
+  // because a held clock reads as exactly equal and nothing anywhere else would
+  // say so — a rack at 40% since Tuesday and one that is quietly stopped are the
+  // same still frame, the same bar and the same shop.
   const grown = g.plotGrowth(bed());
+  for (let i = 0; i < 20; i++) g.step(1);
+  check(g.plotGrowth(bed()) > grown, 'a roofed bed goes on growing',
+    `${grown} -> ${g.plotGrowth(bed())}`);
+  // ...and all the way to ripe, which is what `stepCrops` is actually for and
+  // what a reinstated hold would silently never reach. The walls stay UP for
+  // this, and for the two parts below — a bed under a roof is not an edge case
+  // any more, it is the feature.
   for (let i = 0; i < 200; i++) g.step(1);
-  near(g.plotGrowth(bed()), grown, 'a roofed bed stops growing');
-  g.edits = [];
-  g.regenerateLayout();
-  for (let i = 0; i < 200; i++) g.step(1);
-  check(g.plotGrowth(bed()) > grown,
-    'and starts again where it left off once the roof comes off');
+  check(bed().ready, 'and ripens under the roof, exactly as it would under the sky');
 
-  // ---- b: pave over it. That IS a cell taken away. ------------------------
+  // The cell this section paints, replaced rather than appended: two overlay
+  // entries for one square is a state no press can produce, and a sweep that
+  // stacked them would be measuring whichever one the layout happened to read.
+  const elsewhere = () => g.ground.filter((c) => !(c.x === at.x && c.z === at.z));
+
+  // ---- b: pave over it. THE CONTROL — floor is a surface a bed may stand on.
+  //
+  // This is the assertion that decides whether `where: 'any'` reached the
+  // generator at all. `canPlace` answering yes is only half of it: `canKeep` is
+  // asked of every placement on every re-flow, and a bed that could be dug on
+  // floor and then shed by the next wall segment of a drag would be the
+  // shed-and-refund failure arriving one press late, with the money back so
+  // nothing reads as stolen.
   //
   // Straight into `ground` for the same reason the walls above went straight
-  // into `edits`, and because `canPaintGround` refuses this in normal play —
-  // deliberately, since it would do exactly what is asserted below. It keeps
-  // whatever the yard was laid with: dropping the pads to pave one cell would
-  // measure a shop that also lost its delivery bay.
+  // into `edits`, and because `canPaintGround` refuses this in normal play. It
+  // keeps whatever the yard was laid with: dropping the pads to paint one cell
+  // would measure a shop that also lost its delivery bay.
   cashWas = g.cash;
-  g.ground = [...g.ground, { x: at.x, z: at.z, k: 'floor', p: FLOOR_PIECE }];
+  g.ground = [...elsewhere(), { x: at.x, z: at.z, k: 'floor', p: FLOOR_PIECE }];
   g.regenerateLayout();
-  check(!bed(), 'paving over a bed drops it — there is no grass left to dig');
+  check(!!bed(), 'paving over a bed does NOT drop it — a bed may stand on floor');
+  eq(g.fixtureCounts()['zz-econ-plot'], 1, 'so it is still counted');
+  eq(round2(g.cash - cashWas), 0, 'and no money changes hands for a floor under a bed');
+  check(bed().ready, 'and what had ripened in it is still ripe');
+
+  // ---- c: paint a PAD over it. THAT is a cell taken away. -----------------
+  //
+  // A pad is in neither `BUILDABLE_INDOOR` nor `BUILDABLE_OUTDOOR`, so it is the
+  // one stroke left that strands a `where: 'any'` fixture — and it is the same
+  // physics the old paving case relied on rather than a new rule invented to
+  // keep this section alive.
+  cashWas = g.cash;
+  g.ground = [...elsewhere(), { x: at.x, z: at.z, k: 'paddock', p: DECK_PIECE }];
+  g.regenerateLayout();
+  check(!bed(), 'painting a pad over a bed drops it — a pad is never buildable');
   eq(g.fixtureCounts()['zz-econ-plot'], undefined, 'so it stops being counted');
   // Under the ledger it went back to the generator, which re-sited it somewhere
   // it still owned a budget for. There is nowhere to put it back now, so the

@@ -1,8 +1,17 @@
 # Vats — the farm that came indoors
 
-Status: **proposed.** Nothing here is built. Steps 1–3 are a day of flags and
-content; step 4 is a balance change that `simulate` can actually see; step 5 is
-the only new code in the document and it is about forty lines of renderer.
+Status: **steps 1–5 and 7 built; step 6 (the art) in progress.** The farm goes
+indoors, the Culture Floor is renamed, three vats and the Former are authored,
+crop-side seasons are gone, and the trays stand on the deck. What is left is
+finishing the art and looking at it.
+
+Two things the build turned up that this document did not predict, both recorded
+in their sections below: the roofed-clock holds in `stepPens`/`stepCrops` were
+**not** dead once the flag flipped (an indoor bed was placeable, charged for and
+permanently frozen), and the crop-side `seasons` field had **seven** readers
+rather than the four named here — including `replantable`, which was *emptying*
+a bed whose crop went out of season, for a quarter of the calendar, with nothing
+logged.
 
 This is a **reskin argued as a design**, and the reason it is worth a document
 rather than a commit message is that almost none of it is a rewrite. Every
@@ -293,6 +302,56 @@ re-finding it.
 nobody has drawn a tray for runs exactly as many lines as one somebody has and
 draws none of them. That is what keeps this a look.
 
+### What was built: `bodies`, a list
+
+**Built.** `body` did not gain a flag — it gained a plural. A `fixtures` row may
+carry `bodies: [{ model, roams, per }]`, and `bodiesOf` (shared/pieces.js) is the
+one reader, which resolves the old `body` column as a list of one. Three things
+about the shape.
+
+**The two fields are not a rename of each other**, which is `heads` against
+`capacity_mult` again. `roams` is whether it moves and `per` is how many there
+are, and all four combinations mean something: a herd (roams, per head — every
+pen ever authored), a rack (still, per head), a tender (roams, per pen), a statue.
+The tempting fold — *a thing that stands still is the count and a thing that moves
+is the life* — takes the pigs away from being the count, which is the one thing
+about them that was load-bearing.
+
+**A stander is DEALT a cell, never handed a hashed one.** A roamer only has to
+start somewhere legal because it walks off; a stander is where it started for the
+life of the save, so two of them on one square is a vat running six lines you can
+count five of — which reads as the arithmetic being wrong when it is the
+placement, and is the exact failure the trays exist to prevent. `penField` carries
+`share` and `sharing`, so the deal steps on per shelter and per body and is
+provably disjoint both ways, with no claim list anywhere. Hashing instead was run
+as a deliberate mutation: **8 trays, 7 squares**, on the first field it was tried
+on.
+
+**A stander needs DECK to stand on**, which is the second control and was found
+from a screenshot rather than reasoned about. `penField` falls back to the
+machine's own two-by-two when nothing is painted round it — right for a roamer,
+and where the hen with no paddock has always milled about — and a tray dealt one
+of those squares is drawn *inside* the vat. That is every vat in the shop the day
+it is built, so the trays would have read as broken until somebody happened to
+paint a deck: the trap this step exists to close, arriving through the default.
+So a rack turns up when there is somewhere to rack it, and the tender is what
+keeps an unpainted vat from being a machine with nothing on it.
+
+**It is `qty / cap` and never `penFill`.** A tray is drawn in stages on how much
+is standing READY. `penFill` is how far through the batch now brewing and answers
+0 when the pen is full — deliberately, and for a good reason of its own — so a
+tray staged on it empties itself at the exact moment the vat is fullest. Art
+running backwards, on the one machine the shop is telling you to go and empty.
+
+The other half of the shape is why `bodies` is a second column rather than a new
+value in `body`. Content here is edited **live**, from a second window, against
+whatever server happens to be running — which is very often not the build you just
+changed. A column that gains a new *shape* is mis-read by every reader that
+predates it; a column that simply did not exist is invisible to them. And every
+pen row in every save carries a bare model in `body`, so a shape change is a
+rewrite of all of them for nothing. Same call `kindOf` makes about a row written
+before there were kinds: a read-time default, not a migration.
+
 ---
 
 ## What it costs
@@ -322,6 +381,25 @@ already learned that the hard way.
 ---
 
 ## The traps
+
+**A fixture's footprint proportion did not travel indoors, and nothing said so.**
+The pen convention is to nearly fill the 2×2: shipped `dairy-shed` spans −0.95 of
+a block whose edge is −1.0, which is 0.05 of clearance, and the three vats were
+authored to the same proportion because matching the family is the right instinct.
+It reads as overhang the moment the machine is indoors, and the cause is not the
+model at all — **grass has no drawn grid and the shop floor does.** The identical
+proportion that looked correct on a lawn for the whole life of docs/pens.md looks
+like a machine sitting over the tile line on lino. Nothing in the art changed;
+what changed is that there is now a ruled surface behind it to be measured
+against.
+
+Two things follow. A fixture that fills its cell wants roughly the **shelf's**
+ratio indoors — ±0.34 in a 1.0 tile, about 70% — rather than the pen's 95%. And
+this will bite the **grow racks** in step 4 exactly the same way, for exactly the
+same reason, so decide the indoor proportion once and apply it to both. The
+general shape is this repo's most common one: *a convention that was correct
+because of the context it lived in stops being correct when the thing moves, and
+the code that expressed it does not look wrong afterwards.*
 
 **Rewire, never delete-and-recreate.** production.md's own trap, and it bites
 hardest here because the pens are live in real shops. Editing a `fixtures` row's
@@ -386,7 +464,8 @@ edits beyond strings, something in the rename was a mechanism.
 6. **The art** — the long pole, and the only part that cannot be done in an
    afternoon.
 7. **Trays** — the standing-still `body`. Last, because until the vats are drawn
-   there is nothing to stand them next to.
+   there is nothing to stand them next to. **Built**, as `bodies` — see the
+   section above, and `verify:pens` §12, which is the sweep that ships with it.
 
 Steps 2–5 are content and flags and land through `POST /api/content/:kind`, so
 two people can work at once and no file is touched. Steps 1 and 7 are the only

@@ -70,6 +70,7 @@ const ITEM = 'zz-pen-egg';
 const PIECE = 'zz-pen-coop';
 const BARE = 'zz-pen-bare';
 const NOART = 'zz-pen-noart';
+const VAT = 'zz-pen-vat';
 const GRASS = 'zz-pen-grazing';
 
 /**
@@ -171,6 +172,46 @@ const TEST_NOART = {
 };
 
 /**
+ * ...and the farm indoors: a pen whose field holds TRAYS and one drone.
+ *
+ * The two off-diagonal entries, which are the two the old single `body` could
+ * not express: a thing that stands still and is counted (the rack — one per
+ * line, which is the job the pigs were doing) and a thing that walks and is
+ * NOT counted (the tender — one per machine). Authored on its own row rather
+ * than by giving `TEST_PEN` a second body, because every other section in this
+ * file measures that pen's herd and a second population standing in the same
+ * field would fail those on a count nobody changed.
+ *
+ * The rack is drawn in STAGES so section 12 can ask what drives them. Two, and
+ * the second at 1 exactly: what is being asserted is which stage a full pen
+ * picks, and an `at` anywhere below the top would make that assertion true of a
+ * pen that was merely nearly full — which is the reading `penFill` gives and the
+ * one this is here to rule out.
+ */
+const TRAY = {
+  model: {
+    stages: [
+      { name: 'Empty', at: 0, parts: [{ shape: 'box', color: '#8fa3b8', pos: [0, 0.05, 0], scale: [0.3, 0.1, 0.3] }] },
+      { name: 'Full', at: 1, parts: [{ shape: 'box', color: '#c8e6a0', pos: [0, 0.1, 0], scale: [0.3, 0.2, 0.3] }] },
+    ],
+  },
+  roams: false,
+  per: 'head',
+};
+const DRONE = {
+  model: { parts: [{ shape: 'sphere', color: '#d8dee6', pos: [0, 0.16, 0], scale: [0.22, 0.22, 0.22] }] },
+  roams: true,
+  per: 'pen',
+};
+const TEST_VAT = {
+  id: VAT, kind: 'pen', name: 'Verify Vat', cost: 0,
+  produces: { item_id: ITEM, qty: BATCH, every: EVERY },
+  model: { parts: [box] },
+  bodies: [TRAY, DRONE],
+  tiers: [{ name: 'Basic', cost: 0, heads: MOB }],
+};
+
+/**
  * A paddock design of this sweep's own, priced at nothing.
  *
  * Free deliberately: section 11 paints fields of several sizes to count heads,
@@ -202,13 +243,13 @@ const HAND = {
 const WORLD = 'zz-verify-pens';
 
 process.on('exit', () => {
-  for (const [table, id] of [['fixtures', PIECE], ['fixtures', BARE], ['fixtures', NOART], ['fixtures', GRASS], ['items', ITEM], ['workers', HAND.id]]) {
+  for (const [table, id] of [['fixtures', PIECE], ['fixtures', BARE], ['fixtures', NOART], ['fixtures', VAT], ['fixtures', GRASS], ['items', ITEM], ['workers', HAND.id]]) {
     try { remove(table, id); } catch { /* the DB is already gone */ }
   }
   try { deleteWorldRow(WORLD); } catch { /* the DB is already gone */ }
 });
 
-for (const [kind, row] of [['item', TEST_ITEM], ['fixture', TEST_PEN], ['fixture', TEST_BARE], ['fixture', TEST_NOART], ['fixture', TEST_GRASS], ['worker', HAND]]) {
+for (const [kind, row] of [['item', TEST_ITEM], ['fixture', TEST_PEN], ['fixture', TEST_BARE], ['fixture', TEST_NOART], ['fixture', TEST_VAT], ['fixture', TEST_GRASS], ['worker', HAND]]) {
   const res = writeContent(kind, row, 'verify');
   check(res.ok, `the catalog accepts ${row.id}`, res.error ?? '');
 }
@@ -244,7 +285,11 @@ function fresh() {
   return g;
 }
 
-/** Somewhere outdoors a pen will go. A pen is `where: 'outdoor'`, like a bed. */
+/**
+ * Somewhere a pen will go. `where: 'any'` since docs/vats.md step 1, like a bed
+ * — so this walks the map rather than the yard, and section 2 asserts the
+ * indoor half separately.
+ */
 function spotFor(g, kind = 'pen') {
   const L = g.layout;
   for (let z = 1; z < L.h - 1; z++) {
@@ -291,9 +336,10 @@ const skipMinutes = (g, mins) => { g.elapsed += mins * 60; };
  * ...and the same span TICKED rather than skipped, for the two sections that
  * are about what `step` does rather than about what the arithmetic says.
  *
- * They are not interchangeable and the difference is the point: a roofed pen
- * holds its clock by having `filledAt` pushed along BY `stepPens`, so a section
- * that skipped `elapsed` past it would be measuring a hold that never ran.
+ * They are not interchangeable and the difference is the point: section 8's
+ * claim is about what `stepPens` does to `filledAt` on every tick under a roof
+ * (which since docs/vats.md step 1 is *nothing*), so a section that skipped
+ * `elapsed` past it would never run the code it is asserting about.
  */
 const runMinutes = (g, mins) => run(g, mins * 60);
 
@@ -379,15 +425,28 @@ const only = (g) => (g.layout.pens ?? [])[0];
   // `blocked` doing it rather than a tile stamp.
   check(!canPlace(g.layout, { kind: 'pen', ...spot }).ok, 'and nothing else fits on the square');
 
-  // Indoors is refused outright, so `stepPens`' roofed clause below is only ever
-  // about a building that grew around one.
+  // INDOORS IS ALLOWED, and this assertion is the reverse of the one that stood
+  // here. `pen` was `where: 'outdoor'` and this section asserted that no indoor
+  // cell would take one; docs/vats.md step 1 made it `where: 'any'`, so the
+  // claim is now the opposite claim and the old one had to go rather than be
+  // relaxed.
+  //
+  // Asserted POSITIVELY — "some indoor cell takes a pen" — and never as the
+  // absence of the old refusal, because "no cell refused it" is also what a
+  // sweep whose shop has no indoors looks like, and what a sweep that stopped
+  // calling `canPlace` at all looks like. Hence the paired claim above it that
+  // the test shop has an indoors in the first place.
+  //
+  // `.some` and not `.every`: `where: 'any'` still needs BUILDABLE ground, so
+  // an indoor cell with shelving already on it is refused for the ordinary
+  // reason and always was.
   const inside = [];
   for (let z = 0; z < g.layout.h; z++) {
     for (let x = 0; x < g.layout.w; x++) if (insideStore(g.layout, x, z)) inside.push({ x, z });
   }
   check(inside.length > 0, 'the test shop has an indoors');
-  check(inside.every((c) => !canPlace(g.layout, { kind: 'pen', ...c, rot: 0 }).ok),
-    'and a pen may not be built in any of it');
+  check(inside.some((c) => [0, 1, 2, 3].some((rot) => canPlace(g.layout, { kind: 'pen', ...c, rot }).ok)),
+    'and a pen may be built in it — the farm came indoors');
 }
 
 // ---------------------------------------------------------------------------
@@ -605,13 +664,26 @@ const only = (g) => (g.layout.pens ?? [])[0];
 }
 
 // ---------------------------------------------------------------------------
-// 8. A ROOF holds the clock rather than resetting it.
+// 8. A ROOF IS NOT A THING ANY MORE, and this section is the guard that it does
+//    not come back.
 //
-// `stepCrops`' rule said about livestock, and it has to be HELD rather than
-// reset for the reason given there: a wall drawn near the farm must not destroy
-// the batch that was nearly ready. This is the one section that has to TICK the
-// clock rather than skip it, because the hold is `stepPens` pushing `filledAt`
-// along by exactly the world delta — skipped, there is no hold to measure.
+// It used to assert the opposite: `stepPens` held a roofed pen's `filledAt`
+// along by the world delta, so an enclosed pen produced nothing and kept its
+// progress for when the roof came off. docs/vats.md step 1 retired the whole
+// rule — `where: 'any'` makes a pen indoors a thing you deliberately build, and
+// a hold left behind would take your money for a machine that then never
+// produces.
+//
+// That failure is why this section still exists rather than being deleted with
+// the rule. It is invisible twice over: a vat that is part way through a batch
+// and one whose clock is frozen are the same still frame and the same bar, and
+// the shop is the same shop — only the clock moved, and the clock is the thing
+// that stopped. No refusal, no log, nothing on screen. What it reads as is the
+// farm being broken.
+//
+// Still the section that TICKS rather than skips, because the thing being
+// asserted absent was `stepPens` pushing a stamp on every tick — skipped, there
+// is no hold to fail to find.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -621,16 +693,19 @@ const only = (g) => (g.layout.pens ?? [])[0];
   check(under > 0.4 && under < 1, 'a pen part way through a batch', `fill ${under}`);
 
   // Roof it by lying about the mask, which is what a building grown round it
-  // amounts to as far as `stepPens` is concerned.
+  // amounts to as far as `stepPens` is concerned — and is also exactly what
+  // standing one on a shop floor looks like from in here.
   const i = pen.z * g.layout.w + pen.x;
   g.layout.indoor[i] = 1;
-  runMinutes(g, EVERY * 2);
-  eq(pen.qty, 0, 'a roofed pen produces nothing');
-  near(g.penFill(pen), under, 'and holds its clock rather than losing it', 0.05);
 
-  g.layout.indoor[i] = 0;
-  runMinutes(g, EVERY * 0.5);
-  eq(pen.qty, BATCH, 'and takes up where it left off when the roof comes off');
+  // The clock goes on running under the roof. Asserted before the batch lands,
+  // or the only claim is about the total and a hold that merely stuttered would
+  // pass.
+  runMinutes(g, EVERY * 0.2);
+  check(g.penFill(pen) > under, 'a pen under a roof goes on filling', `fill ${g.penFill(pen)}`);
+
+  runMinutes(g, EVERY * 0.3);
+  eq(pen.qty, BATCH, 'and lands its batch indoors, at the same pace it would outside');
 }
 
 // ---------------------------------------------------------------------------
@@ -1031,6 +1106,211 @@ function graze(g, pens, want, piece = GRASS) {
   g.step(0.1);
   eq(g.penHeads(only(g)), 1, 'the grazing is gone and the pen is back to one head');
   eq(g.animals.size, 1, 'and one body');
+}
+
+// ---------------------------------------------------------------------------
+// 12. THE TRAYS. What stands in the field stopped being one thing.
+//
+// The paddock was legible because six pigs meant six head — you read the number
+// off the grass without opening a menu. Indoors there is nothing to graze, so
+// the deck is paint with nothing on it and the count is a number nobody can
+// see: the `charm` trap, where a working system with no content in it cannot be
+// told from a broken one. A rack of trays is that number put back, and a tender
+// drone is the life the herd was also providing.
+//
+// Everything here is invisible twice over, again. A vat running six lines and a
+// vat running five are the same machine; a tray that is standing still because
+// it is a tray and one standing still because the walk is broken are the same
+// still frame; and two trays drawn on one square are simply five trays, which
+// reads as the arithmetic being wrong when it is the placement.
+//
+// The control is the shape every pen row in the game is authored in — a bare
+// `body`, read as a one-entry roaming herd — and it is the assertion that
+// decides whether any of this is opt-in.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const { pen } = build(g);
+  graze(g, pen, PER_HEAD * 3);
+  g.step(0.1);
+  const herd = [...g.animals.values()];
+  eq(herd.length, 3, 'the old spelling is a herd of three, exactly as it was');
+  eq(new Set(herd.map((a) => a.b)).size, 1, 'all off the one body');
+  eq(herd[0].b, 0, 'which is the first and only entry in the list it is read as');
+}
+
+// ...and the other control, which is the shape every vat in the shop is in the
+// day it is built: no deck painted round it. A pen with no paddock falls back to
+// the two-by-two the machine itself stands on — right for a roamer, which is
+// where the hen with no field mills about, and fatal for a tray, which would be
+// dealt one of those squares and drawn INSIDE the vat. Invisible, on every vat,
+// until somebody happened to paint a deck: trays that read as not working, which
+// is the exact trap the trays exist to close arriving through the default.
+{
+  const g = fresh();
+  build(g, VAT);
+  g.step(0.1);
+  eq(g.penHeads(only(g)), 1, 'a vat with no deck painted round it runs one line');
+  eq([...g.animals.values()].filter((a) => a.b === 0).length, 0, 'and racks no trays inside itself');
+  eq([...g.animals.values()].filter((a) => a.b === 1).length, 1, 'while the tender is still there — or the pair is a vat with nothing on it');
+
+  // ...and the one press that changes it, which is what makes the brush legible.
+  graze(g, only(g), PER_HEAD * 2);
+  g.step(0.1);
+  eq([...g.animals.values()].filter((a) => a.b === 0).length, 2, 'paint a deck and two trays are standing on it');
+}
+
+// Two populations out of one piece, and they are counted differently. Fold the
+// two and one of them is gone: a tender per line is six drones fussing round one
+// machine, and a rack per machine is a readout that says "vat" rather than how
+// many lines are running.
+{
+  const g = fresh();
+  const { pen } = build(g, VAT);
+  graze(g, pen, PER_HEAD * 3);
+  g.step(0.1);
+  const trays = [...g.animals.values()].filter((a) => a.b === 0);
+  const drones = [...g.animals.values()].filter((a) => a.b === 1);
+  eq(g.penHeads(only(g)), 3, 'three lines');
+  eq(trays.length, 3, 'and a tray for each of them');
+  eq(drones.length, 1, 'and ONE tender, however many lines are running');
+
+  // ...and the paint moves one of those numbers and not the other.
+  graze(g, only(g), PER_HEAD * 5);
+  g.step(0.1);
+  eq(g.penHeads(only(g)), 5, 'paint more deck and it runs five');
+  eq([...g.animals.values()].filter((a) => a.b === 0).length, 5, 'and there are five trays');
+  eq([...g.animals.values()].filter((a) => a.b === 1).length, 1, 'and still the one tender');
+}
+
+// The centrepiece, and it is a PAIR: the trays stand still and the drone does
+// not, in the same shop, over the same four hundred seconds. Either half alone
+// is worthless — "nothing moved" is satisfied by a vat that drew nothing at all,
+// and "something moved" is satisfied by a rack of trays wandering off across the
+// shop floor, which is what a stander handed to `stepAnimal` would do.
+{
+  const g = fresh();
+  const { pen } = build(g, VAT);
+  const painted = graze(g, pen, PER_HEAD * 4);
+  const field = new Set(painted.map((c) => `${c.x},${c.z}`));
+  g.step(0.1);
+  eq([...g.animals.values()].filter((a) => a.b === 0).length, 4, 'four trays');
+
+  const at0 = new Map([...g.animals.values()].map((a) => [a.id, `${a.x},${a.z}`]));
+  let trayMoved = 0;
+  let droneMoved = 0;
+  let strayed = 0;
+  for (let i = 0; i < 4000; i++) {
+    g.step(0.1);
+    for (const a of g.animals.values()) {
+      if (at0.get(a.id) !== `${a.x},${a.z}`) (a.b === 0 ? trayMoved++ : droneMoved++);
+      if (!field.has(`${Math.round(a.x)},${Math.round(a.z)}`)) strayed++;
+    }
+  }
+  eq(trayMoved, 0, 'and over four hundred seconds not one tray moves a pixel');
+  check(droneMoved > 0, 'while the tender walking between them does — or the pair is about statues');
+  eq(strayed, 0, 'and neither of them ever leaves the deck');
+}
+
+// No two trays on one square, which is the whole of what makes them countable. A
+// pen deals its standing bodies rather than hashing each a cell, because a hash
+// collides: two trays drawn on one cell is a vat running six lines you can count
+// five of, and nothing anywhere says a word.
+{
+  const g = fresh();
+  const { pen } = build(g, VAT);
+  graze(g, pen, PER_HEAD * MOB);
+  g.step(0.1);
+  const cells = [...g.animals.values()].filter((a) => a.b === 0).map((a) => `${a.x},${a.z}`);
+  eq(cells.length, MOB, 'a deck painted for eight runs eight lines');
+  eq(new Set(cells).size, MOB, 'and every one of their trays is on a square of its own');
+}
+
+// ...and the same claim across the fence, which is the half a per-pen hash could
+// never make. Two vats sharing one deck deal from the same list of cells, so a
+// start hashed off the pen is *probably* disjoint and provably nothing — and
+// what "probably" looks like is one vat, once, drawn a tray short.
+{
+  const g = fresh();
+  const { pen } = build(g, VAT);
+  let second = null;
+  let best = Infinity;
+  for (let z = 1; z < g.layout.h - 1; z++) {
+    for (let x = 1; x < g.layout.w - 1; x++) {
+      const away = Math.abs(x - pen.x) + Math.abs(z - pen.z);
+      if (away >= best) continue;
+      for (const rot of [0, 1, 2, 3]) {
+        if (!canPlaceCleanly(g.layout, { kind: 'pen', x, z, rot }).ok) continue;
+        second = { x, z, rot };
+        best = away;
+        break;
+      }
+    }
+  }
+  check(!!second, 'there is room for a second vat beside the first');
+  if (second) {
+    const { pen: other } = build(g, VAT, second);
+    graze(g, [pen, other], PER_HEAD * 4);
+    g.step(0.1);
+    const live = g.layout.pens ?? [];
+    eq(live.length, 2, 'two vats');
+    for (const p of live) eq(g.penHeads(p), 2, 'sharing one deck two lines each');
+    const trays = [...g.animals.values()].filter((a) => a.b === 0).map((a) => `${a.x},${a.z}`);
+    eq(trays.length, 4, 'four trays between them');
+    eq(new Set(trays).size, 4, 'and not one of them is standing on another vat\'s square');
+  }
+}
+
+// What drives a tray is how much is STANDING READY, and never `penFill`. That
+// function is how far through the batch now brewing, and it answers 0 when the
+// pen is full — deliberately, because a progress bar sitting at the end over a
+// pen that has stopped is the one readout that would lie. A tray staged on it
+// empties itself at the exact moment the vat is fullest, which is art running
+// backwards on the one machine you are being told to go and empty.
+//
+// Asserted through `snapshot` rather than off the record, which is this file's
+// own named-field trap: what the sim writes and what reaches the client are two
+// pieces of code, and only one of them is obvious.
+{
+  const g = fresh();
+  const { pen } = build(g, VAT);
+  graze(g, pen, PER_HEAD * 2);
+  g.step(0.1);
+  const wire = () => (g.snapshot().animals ?? []).filter((a) => a.b === 0);
+  for (const a of wire()) eq(a.t, 0, 'an empty vat draws its trays empty');
+
+  skipMinutes(g, EVERY * 40);
+  g.step(0.1);
+  const live = only(g);
+  eq(live.qty, g.penCap(live), 'wind it on and the vat is standing full');
+  eq(g.penFill(live), 0, 'so the batch bar is back at nothing');
+  const full = wire();
+  eq(full.length, 2, 'two trays');
+  for (const a of full) eq(a.t, 1, 'and both of them full — the stockpile, not the batch');
+}
+
+// A re-flow parks the trays the way it parks the herd, which matters more here
+// rather than less: build mode re-flows on every wall segment of a drag, and a
+// rack that was re-dealt each time would shuffle itself across the deck while
+// you drew a wall. Nothing about any of it is on the save, and the layout record
+// a re-flow rebuilds says nothing about it either.
+{
+  const g = fresh();
+  const { pen } = build(g, VAT);
+  graze(g, pen, PER_HEAD * 3);
+  for (let i = 0; i < 200; i++) g.step(0.1);
+  const before = [...g.animals.values()].map((a) => `${a.id}@${a.x},${a.z}`).sort();
+  eq(before.length, 4, 'three trays and a tender');
+
+  g.regenerateLayout();
+  g.regenerateLayout();
+  eq([...g.animals.values()].map((a) => `${a.id}@${a.x},${a.z}`).sort().join('|'), before.join('|'),
+    'and two re-flows move none of them');
+
+  const saved = JSON.stringify(g.saveState());
+  check(!saved.includes('"animals"'), 'the save says nothing about any of them');
+  check(!saved.includes('"bodies"'), 'nor about what stands in the field, which is the piece\'s business');
+  check(only(g).bodies === undefined, 'nor does the layout record the re-flow rebuilds');
 }
 
 // ---------------------------------------------------------------------------

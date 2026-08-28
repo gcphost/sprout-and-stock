@@ -105,7 +105,25 @@ export const FIXTURES = {
     anchor: 'serveAt', behind: 'tendAt',
   },
   station: { label: 'Appliance', blocks: true, where: 'indoor', rotates: true, anchor: 'useAt', ends: true },
-  plot: { label: 'Plot', blocks: false, ground: T.PLOT, where: 'outdoor', rotates: false, anchor: null },
+  /**
+   * The plot — a bed, and since the farm came indoors it is a bed that may
+   * stand anywhere.
+   *
+   * `where: 'any'`, and the choice between that and `'indoor'` is the one
+   * decision in docs/vats.md step 1. It is NOT stylistic. Every fixture in
+   * every save is a placement at an absolute tile and there are live shops with
+   * beds standing on grass right now; `compose` re-judges player placements on
+   * every re-flow, and a re-flow fires on every wall segment of every drag. So
+   * `'indoor'` would not migrate an outdoor farm, it would SHED AND REFUND it —
+   * the first time somebody drew a wall. Money back, so nothing reads as
+   * stolen, and what you watch is your farm disappearing because you built a
+   * shed. That is `droppedPlacements` doing exactly what it is for, aimed at
+   * the wrong target.
+   *
+   * `'any'` is the skip's flag (see `bin`), it strands nothing, and it means an
+   * outdoor farm goes on working for anybody who wants one.
+   */
+  plot: { label: 'Plot', blocks: false, ground: T.PLOT, where: 'any', rotates: false, anchor: null },
   /**
    * The pen — an animal, and the first thing in the game that produces goods
    * without anybody asking it to.
@@ -131,18 +149,32 @@ export const FIXTURES = {
    * "either occupy your cell or be what the cell is made of" — a walk-over kind
    * with no `ground` stamp can be stacked on itself without limit.
    *
-   * `where: 'outdoor'`, which is the plot's rule and is about the same thing:
-   * livestock live outside, and a pen indoors would be a room full of pigs on
-   * the shop floor. It is also the half that keeps `whatThisUnroofs` honest —
-   * see `stepPens`, which holds a roofed pen's clock exactly as `stepCrops`
-   * holds a roofed crop's.
+   * `where: 'any'`, which is the plot's rule and is about the same thing: the
+   * farm came indoors (docs/vats.md), so a pen is a machine on a deck rather
+   * than a hutch on a lawn. It said `'outdoor'` until then, and the argument
+   * was that livestock live outside and a pen indoors would be a room full of
+   * pigs on the shop floor — which is now the *point* rather than the
+   * objection.
+   *
+   * `'any'` and never `'indoor'`, for the reason spelled out on `plot` above
+   * and worth repeating here because this is the kind it would cost the most:
+   * a pen is a placement at an absolute tile, live shops have them on grass,
+   * and `compose` re-judges placements on every re-flow — so `'indoor'` would
+   * shed and refund every existing pen the first time somebody drew a wall.
+   * The refund is what makes it invisible: nothing reads as stolen, and what
+   * you watch is your farm going away because you built a shed.
+   *
+   * The half this used to keep honest went with it — `whatThisUnroofs`'
+   * `roofed` branch and the roofed-clock holds in `stepPens`/`stepCrops` are
+   * all gone, because "nothing grows indoors" is the sentence this flag was
+   * the premise of.
    *
    * `anchor: 'useAt'` because you collect from ONE side, like an appliance's
    * tray, and deliberately not the bed's any-side rule. A bed has no side
    * because it is ground you stand on; a pen has a gate.
    */
   pen: {
-    label: 'Pen', blocks: true, where: 'outdoor', rotates: true, anchor: 'useAt',
+    label: 'Pen', blocks: true, where: 'any', rotates: true, anchor: 'useAt',
     /**
      * TWO CELLS ON A SIDE, and the first fixture in the game to take more than
      * one. A pen is a building rather than a shelf, and at one tile it read as
@@ -569,13 +601,25 @@ export const GROUND = {
     lastGone: 'that is your last parking space — nobody would be able to drive to the shop',
   },
   /**
-   * The paddock — the fifth pad, and the one that gave the animals a body.
+   * The culture floor — the fifth pad, and the one the farm's output scales on.
+   *
+   * ### It is spelled `paddock` and it always will be
+   *
+   * It was authored as a paddock, and docs/vats.md brought the farm indoors and
+   * renamed what the player reads. Per CLAUDE.md's rebrand rule the key, the
+   * tile (`T.PADDOCK`, 17), `groundTile('paddock')`, `paddockOf` and
+   * `PEN_CELLS_PER_HEAD` are all untouched, because every one of them is
+   * load-bearing on a live save or an authored content row. The `paddock`
+   * spelling in the code is the old name for a thing the player now sees a new
+   * name for, which is ordinary, and the trap to avoid is "fixing" the mismatch
+   * later. Everything below describes the same mechanism it always did.
    *
    * The bay and the drop-off hold the shop's goods, the break area holds its
-   * staff, the car park holds its shoppers. This one holds livestock, and it is
-   * the same sentence a fourth time: **how big you paint it is how many head it
-   * grazes**. `PEN_CELLS_PER_HEAD` is the exchange rate and it is the only new
-   * number in the step.
+   * staff, the car park holds its shoppers. This one is the deck the farm's
+   * throughput is divided over, and it is the same sentence a fourth time:
+   * **how big you paint it is how many lines a machine standing in it runs**.
+   * `PEN_CELLS_PER_HEAD` is the exchange rate and it is the only new number in
+   * the step.
    *
    * ### Why paint rather than a fence
    *
@@ -608,11 +652,13 @@ export const GROUND = {
    * paddock is one head, which is step 1's numbers to the digit.
    */
   paddock: {
-    label: 'Paddock',
+    // `label` is what the player reads; the KEY above is what every save, every
+    // `groundTile` call and every content row reads. They disagree on purpose.
+    label: 'Culture Floor',
     tile: T.PADDOCK,
     pad: true,
-    does: 'animals graze here, and how big you paint it is how many head a pen you stand in it holds',
-    lastGone: 'that is your last paddock tile — every pen would go back to a single animal',
+    does: 'culture lines run here, and how big you paint it is how many a pen standing in it runs',
+    lastGone: 'that is your last culture floor tile — every pen would go back to a single line',
   },
   /**
    * The road — the fifth ground kind and the second that is only a *look*.
@@ -1690,10 +1736,11 @@ function whatThisUnroofs(L, after) {
     : after[z * L.w + x] === 1);
 
   const evicted = [];
-  const roofed = [];
   for (const f of fixturesOf(L)) {
     const def = FIXTURES[f.kind];
     // `any` is a decoration, which is at home either way and has no opinion.
+    // Since docs/vats.md step 1 that also covers the farm, which is why there is
+    // no second list here — see below.
     if (!def || def.where === 'any') continue;
     const x = Math.round(f.x);
     const z = Math.round(f.z);
@@ -1704,14 +1751,25 @@ function whatThisUnroofs(L, after) {
     const isIn = inside(x, z);
     if (was === isIn) continue;
     if (def.where === 'indoor' && !isIn) evicted.push(f);
-    else if (def.where === 'outdoor' && isIn) roofed.push(f);
   }
 
+  // THE `roofed` HALF IS GONE, and it is a deletion rather than an omission.
+  //
+  // It counted `where: 'outdoor'` fixtures a wall would enclose and warned
+  // "that roofs over N plots — nothing grows indoors". `plot` and `pen` were
+  // the only two kinds that were ever `'outdoor'`, and docs/vats.md step 1 made
+  // both of them `'any'` — so the loop's own first line now skips every fixture
+  // that branch could have collected, and the strings could never fire again.
+  //
+  // A warning that cannot fire is worse than no warning: it reads as a live
+  // rule to whoever greps for it, and the sentence it says out loud ("nothing
+  // grows indoors") is the exact opposite of what the game now does. The
+  // enforcement behind it went at the same time — the roofed-clock holds in
+  // `stepCrops` and `stepPens` — so this is one rule retired in one place
+  // rather than a string left behind by a flag flip.
   const label = (list) => FIXTURES[list[0].kind]?.label.toLowerCase() ?? 'fixture';
   if (evicted.length === 1) return `that leaves a ${label(evicted)} standing outside`;
   if (evicted.length) return `that leaves ${evicted.length} fixtures standing outside`;
-  if (roofed.length === 1) return `that roofs over a ${label(roofed)} — nothing grows indoors`;
-  if (roofed.length) return `that roofs over ${roofed.length} plots — nothing grows indoors`;
   return null;
 }
 
@@ -1726,8 +1784,10 @@ function whatThisUnroofs(L, after) {
 // What it changes is `tiles` and only `tiles` — GRASS becomes FLOOR, FLOOR
 // becomes GRASS — which is the whole reason it needed no new tile kinds. Every
 // rule that already reads the ground reads the new ground for free: a shelf
-// still needs `BUILDABLE_INDOOR`, a plot still needs bare grass, and both stay
-// exactly as strict as they were. Which design of floor it is rides in a
+// still needs `BUILDABLE_INDOOR`, and a plot needed bare grass until
+// docs/vats.md step 1 made it `where: 'any'` — it takes either now, which is a
+// change to the FIXTURE's rule and not to this brush's. Both stay exactly as
+// strict as the sets say they are. Which design of floor it is rides in a
 // separate layer entirely (`layout.floors`), because a look must never be able
 // to change what may stand somewhere.
 //

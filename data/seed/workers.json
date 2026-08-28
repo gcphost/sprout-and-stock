@@ -1826,7 +1826,7 @@
     "speed": 2.6,
     "pace": 0.7,
     "carry": 6,
-    "color": "#d98b4a"
+    "color": "#8a2f20"
   },
   {
     "id": "clerk",
@@ -3538,7 +3538,7 @@
     "speed": 2.6,
     "pace": 0.45,
     "carry": 6,
-    "color": "#4aa3a3"
+    "color": "#1f5279"
   },
   {
     "id": "farmhand",
@@ -5279,7 +5279,7 @@
     "speed": 2.6,
     "pace": 0.7,
     "carry": 6,
-    "color": "#7a9e4b"
+    "color": "#a89b25"
   },
   {
     "id": "guard",
@@ -6969,7 +6969,7 @@
     "speed": 2.6,
     "pace": 0.5,
     "carry": 6,
-    "color": "#7a9e4b"
+    "color": "#2e4b4b"
   },
   {
     "id": "janitor",
@@ -8699,7 +8699,7 @@
     "speed": 2.6,
     "pace": 0.55,
     "carry": 6,
-    "color": "#4f7ea8"
+    "color": "#8ba0bd"
   },
   {
     "id": "runner",
@@ -10441,7 +10441,7 @@
     "speed": 2.9,
     "pace": 0.6,
     "carry": 6,
-    "color": "#4f7fa8"
+    "color": "#653166"
   },
   {
     "id": "shop-hand",
@@ -12173,7 +12173,7 @@
     "speed": 2.6,
     "pace": 0.6,
     "carry": 8,
-    "color": "#c2703d"
+    "color": "#8f5c50"
   },
   {
     "id": "stocker",
@@ -13868,6 +13868,6 @@
     "speed": 2.6,
     "pace": 0.8,
     "carry": 6,
-    "color": "#b07cc6"
+    "color": "#432f56"
   }
 ]

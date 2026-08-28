@@ -11,6 +11,32 @@
     "requires": []
   },
   {
+    "id": "backpack-2",
+    "name": "Delivery Harness",
+    "description": "Proper webbing and a waist belt. Six more in your hands again, so eighteen at a time. Crates stay the size they were.",
+    "cost": 260,
+    "kind": "capacity",
+    "payload": {
+      "carry": 6
+    },
+    "requires": [
+      "backpack-1"
+    ]
+  },
+  {
+    "id": "backpack-3",
+    "name": "Shoulder Yoke",
+    "description": "A yoke across the shoulders with a crate hook either side. Twenty-four in your hands — two full boards in one trip from the bay.",
+    "cost": 900,
+    "kind": "capacity",
+    "payload": {
+      "carry": 6
+    },
+    "requires": [
+      "backpack-2"
+    ]
+  },
+  {
     "id": "boots-1",
     "name": "Good Boots",
     "description": "Move 30% faster. Feels enormous once the shop gets big.",
@@ -20,6 +46,32 @@
       "speedMult": 1.3
     },
     "requires": []
+  },
+  {
+    "id": "boots-2",
+    "name": "Trail Runners",
+    "description": "Half again as fast as bare feet. Replaces the boots rather than stacking with them — the quickest pair you own is the pair you walk in.",
+    "cost": 560,
+    "kind": "speed",
+    "payload": {
+      "speedMult": 1.55
+    },
+    "requires": [
+      "boots-1"
+    ]
+  },
+  {
+    "id": "boots-3",
+    "name": "Warehouse Skates",
+    "description": "Wheels on your heels. Nearly twice walking pace, which is the difference between a shop you run and a shop you commute across.",
+    "cost": 1900,
+    "kind": "speed",
+    "payload": {
+      "speedMult": 1.85
+    },
+    "requires": [
+      "boots-2"
+    ]
   },
   {
     "id": "catchment-high-street",

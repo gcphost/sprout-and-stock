@@ -410,9 +410,18 @@ function runBot(game, bot, priceMult) {
   //    shelf and get reported as dead stock when their tags are fine. Strict
   //    round-robin overcorrects and hands half the farm to the worst crop, so
   //    weight by score: good crops still dominate, everything gets grown.
+  //
+  //    The bot no longer shortlists by season, because there is no longer a
+  //    crop-side season to shortlist by (docs/vats.md step 5). Leaving this
+  //    filter behind would have been the worse half of the change and the one
+  //    nobody would have caught: every player-facing refusal gone, the bot
+  //    still planting a winter shop out of the one crop that grew in winter,
+  //    and `simulate` therefore reporting a supply increase across the entire
+  //    farm as **no change at all**. That is this file's own closing warning in
+  //    CLAUDE.md — a broken instrument reads as a broken feature — pointed the
+  //    other way round, where it reads as a free one.
   const chooseCrop = () => {
     const options = c.crops
-      .filter((cr) => !cr.seasons.length || cr.seasons.includes(game.season))
       .filter((cr) => cr.seed_cost <= game.cash * 0.25)
       .map((cr) => {
         const item = c.byId.items[cr.item_id];

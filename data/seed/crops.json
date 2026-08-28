@@ -7,10 +7,6 @@
     "yield_min": 3,
     "yield_max": 5,
     "seed_cost": 2,
-    "seasons": [
-      "summer",
-      "autumn"
-    ],
     "model": {
       "stages": [
         {
@@ -242,10 +238,6 @@
     "yield_min": 2,
     "yield_max": 4,
     "seed_cost": 1.2,
-    "seasons": [
-      "summer",
-      "autumn"
-    ],
     "model": {
       "stages": [
         {
@@ -502,10 +494,6 @@
     "yield_min": 3,
     "yield_max": 4,
     "seed_cost": 0.6,
-    "seasons": [
-      "spring",
-      "autumn"
-    ],
     "model": {
       "stages": [
         {
@@ -743,9 +731,6 @@
     "yield_min": 2,
     "yield_max": 3,
     "seed_cost": 0.7,
-    "seasons": [
-      "summer"
-    ],
     "model": {
       "stages": [
         {
@@ -952,10 +937,6 @@
     "yield_min": 2,
     "yield_max": 4,
     "seed_cost": 1.4,
-    "seasons": [
-      "spring",
-      "summer"
-    ],
     "model": {
       "stages": [
         {
@@ -1187,10 +1168,6 @@
     "yield_min": 2,
     "yield_max": 4,
     "seed_cost": 0.6,
-    "seasons": [
-      "summer",
-      "autumn"
-    ],
     "model": {
       "stages": [
         {
@@ -1397,10 +1374,6 @@
     "yield_min": 2,
     "yield_max": 4,
     "seed_cost": 0.7,
-    "seasons": [
-      "autumn",
-      "winter"
-    ],
     "model": {
       "stages": [
         {
@@ -1582,11 +1555,6 @@
     "yield_min": 2,
     "yield_max": 3,
     "seed_cost": 0.5,
-    "seasons": [
-      "spring",
-      "summer",
-      "autumn"
-    ],
     "model": {
       "stages": [
         {
@@ -1899,9 +1867,6 @@
     "yield_min": 2,
     "yield_max": 4,
     "seed_cost": 0.5,
-    "seasons": [
-      "summer"
-    ],
     "model": {
       "stages": [
         {
@@ -2083,10 +2048,6 @@
     "yield_min": 2,
     "yield_max": 4,
     "seed_cost": 0.5,
-    "seasons": [
-      "spring",
-      "summer"
-    ],
     "model": {
       "stages": [
         {
@@ -2268,10 +2229,6 @@
     "yield_min": 3,
     "yield_max": 5,
     "seed_cost": 0.5,
-    "seasons": [
-      "spring",
-      "autumn"
-    ],
     "model": {
       "stages": [
         {
@@ -2478,9 +2435,6 @@
     "yield_min": 3,
     "yield_max": 4,
     "seed_cost": 0.5,
-    "seasons": [
-      "autumn"
-    ],
     "model": {
       "stages": [
         {
@@ -2662,10 +2616,6 @@
     "yield_min": 2,
     "yield_max": 3,
     "seed_cost": 1,
-    "seasons": [
-      "spring",
-      "summer"
-    ],
     "model": {
       "stages": [
         {
@@ -3028,10 +2978,6 @@
     "yield_min": 3,
     "yield_max": 5,
     "seed_cost": 0.8,
-    "seasons": [
-      "summer",
-      "autumn"
-    ],
     "model": {
       "stages": [
         {

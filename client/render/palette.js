@@ -32,9 +32,11 @@
  * near-grey in the building is anchored COOL at hue ~215 rather than drifting —
  * road, park and railing each used to pick their own hue at 7–8% saturation,
  * which is three greys that disagree, and under banding three greys that
- * disagree is what reads as mud. Nature (grass, hedge, paddock) and the cold
- * fixtures (freezer, counter) keep their chroma: they are the counterweight,
- * not the ground.
+ * disagree is what reads as mud. Nature (grass, hedge) and the cold fixtures
+ * (freezer, counter) keep their chroma: they are the counterweight, not the
+ * ground. The culture floor used to be in that nature list and left it when the
+ * farm went indoors — it is a cool tinted deck now, and its own note says why
+ * it may not join the ~215 anchor either.
  *
  * THE FLOOR IS THE EXCEPTION AND IT IS THE WHOLE LESSON. It was cut to 31% with
  * everything else and put back to 46%, which is still well under the 51% median
@@ -140,11 +142,34 @@ export const PALETTE = {
    *  should read as the front of the building rather than as more of the back
    *  of it — the two yard pads are deliberately warm and light. */
   park: '#76808f',
-  /** The paddock: the one pad that is not hardstanding at all. Grazed grass —
-   *  greener and duller than the lawn beside it, which is the whole read. The
-   *  four pads above are pale and warm because they are concrete you put things
-   *  on; this one has to say "still a field, and something eats it". */
-  paddock: '#9ab069',
+  /**
+   * THE CULTURE FLOOR — sealed deck, and the pad that changed job rather than
+   * colour scheme.
+   *
+   * It was `#9ab069`, a grazed yellow-green, and every word of the note that
+   * shipped with it was right about a paddock: the one pad that is not
+   * hardstanding at all, duller and greener than the lawn beside it, saying
+   * "still a field, and something eats it". docs/vats.md took the farm indoors,
+   * so the surface it has to describe is now a resin deck under a machine, and a
+   * lawn-green rectangle in the middle of a warehouse floor reads as a bug in
+   * the ground rather than as a room.
+   *
+   * Cool where the other four pads are warm, and that is what does the work. It
+   * cannot separate itself by lightness — `PAD_MARK` deliberately has no entry
+   * for this one (see below), so colour is all it has — and it cannot go warm
+   * without becoming another shade of `floor`/`bay`/`drop`/`break`, which is
+   * the pale warm family. So: hue 159 rather than the lawn's 79, saturation
+   * 31% → 18%, lightness 55% → 69%. Still tinted rather than a near-grey, which
+   * keeps it out of the cool ~215 anchor the road and car park sit on, so all
+   * three read as different surfaces rather than as three greys disagreeing.
+   *
+   * Linear luminance 0.48, comfortably over the 0.20 the ink pass needs to have
+   * anywhere to lay a contour — the floor `CONVEYOR.frame` fell through. Nothing
+   * on this deck is small or dark; it is the biggest single surface the farm
+   * has, so it belongs in the 0.6–0.7 structure band's neighbourhood rather than
+   * anywhere near an accent.
+   */
+  paddock: '#a3bfb5',
   /** The road: darker than the car park it leads to, because the lane is the
    *  thing you drive on and the pad is the thing you stand on. Near-neutral on
    *  purpose — it is the longest run of one colour anybody will paint, so a
@@ -436,8 +461,15 @@ export const SURROUND_COLORS = {
   },
 };
 
-/** Player colours, cycled by join order. */
-export const PLAYER_COLORS = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
+/**
+ * Everybody's hues, re-exported so the renderer has one import for colour.
+ *
+ * They live in `shared/palette.js` because `Game.addPlayer` is what hands a
+ * joining human theirs, and the table this file used to hold was the *other*
+ * copy — right, unread, and quietly disagreeing with the literal the game
+ * actually used.
+ */
+export { PEOPLE, PLAYER_COLORS } from '../../shared/palette.js';
 
 /**
  * Full-height architectural edges, in world units.
@@ -582,10 +614,13 @@ export const TILE_STYLE = {
   [T.DROP]: { color: PALETTE.drop, h: 0.06 },
   [T.BREAK]: { color: PALETTE.break, h: 0.06 },
   [T.PARK]: { color: PALETTE.park, h: 0.06 },
-  // Flush with the grass, unlike the four pads above it, and for `T.ROAD`'s
-  // reason rather than in spite of it: a paddock is a field somebody has fenced
-  // off, not a slab laid on one, and a lip round the edge of a meadow would read
-  // as a raised bed the size of the farm.
+  // Flush, unlike the four pads above it, and for `T.ROAD`'s reason rather than
+  // in spite of it: the culture floor is an area MARKED OUT on the ground it
+  // lies on rather than a slab laid on top of one, so a lip round its edge would
+  // read as a raised platform the size of the farm. That argument was written
+  // about a fenced field and survives the move indoors intact — if anything it
+  // is stronger, since the note on the four pads above is that a pad indoors is
+  // ground you have painted rather than a platform you have built.
   [T.PADDOCK]: { color: PALETTE.paddock, h: 0.02 },
   // Flush with the grass rather than raised the 0.07 the pads are. A pad is a
   // platform you put things on and a road is ground you drive over, and a lip
@@ -898,11 +933,22 @@ export const PAD_MARK = {
   [T.DROP]: { ink: '#ad9b78', glyph: 'stock' },
   [T.BREAK]: { ink: '#bcac92', glyph: 'charge' },
   [T.PARK]: { ink: '#cdd3db', glyph: 'park' },
-  // The paddock is deliberately NOT in here, and it is the one pad that should
-  // never be. Both marks are paint, and the sentence above is that paint on
-  // concrete is concrete you can see the paint on — a field is the one pad with
-  // no concrete in it, so a white line round a meadow reads as a tennis court.
-  // What tells you where it ends is that something is grazing inside it.
+  // The culture floor (`T.PADDOCK`) is deliberately NOT in here, and the reason
+  // has changed under it — which is worth writing down rather than leaving the
+  // old sentence to be read as still live.
+  //
+  // It used to be that a field is the one pad with no concrete in it, so a white
+  // line round a meadow reads as a tennis court, and what told you where it
+  // ended was that something was grazing inside it. Indoors that argument is
+  // dead: a sealed deck is exactly the surface paint belongs on, and it is now
+  // the ONLY pad separating itself from its neighbours by colour alone.
+  //
+  // It stays out because a mark needs a `glyph`, and every glyph in `PAD_MARK`
+  // is hand-drawn in `paintGlyph` (client/render/props.js) — there is no
+  // culture glyph, and inventing one is art rather than a rename. So this is a
+  // known gap, not a decision: the day somebody draws one, this is where it
+  // goes. What tells you where the deck ends until then is its colour and
+  // whatever is standing on it (docs/vats.md step 5's trays).
 };
 
 export const CRATE_LOOK = {

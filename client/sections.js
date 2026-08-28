@@ -383,7 +383,10 @@ export const KIND_TOOLS = {
     icon: ICONS.plot,
     group: 'farm',
     run: 'Beds',
-    blurb: 'Earth, outside. Turn it over before it takes a seed.',
+    // "Outside" until docs/vats.md step 1 made `plot` `where: 'any'`. A blurb
+    // that still said outside would be the palette refusing a press the shop
+    // accepts, which is the green-ghost disagreement wearing prose.
+    blurb: 'Earth, indoors or out. Turn it over before it takes a seed.',
   },
   // Reusing `plot` rather than baking a glyph: `ICONS` throws on a name nobody
   // added, and adding one is a build step (`scripts/build-icons.js`).
@@ -391,7 +394,7 @@ export const KIND_TOOLS = {
     icon: ICONS.plot,
     group: 'farm',
     run: 'Pens',
-    blurb: 'A shelter for animals, outside. Fills on its own — collect at the gate. Paint a paddock round it to keep more than one.',
+    blurb: 'A shelter, indoors or out. Fills on its own — collect at the gate. Paint culture floor round it to run more than one line.',
   },
   bin: {
     icon: ICONS.close,
@@ -499,17 +502,20 @@ export const KIND_TOOLS = {
     blurb: 'Drag out an area. Parking for shoppers who drive here. One cell parks one, and they walk in from it.',
   },
   // The fifth pad, and the only one filed by what it holds rather than by where
-  // it tends to be. It goes under Farm because the tab's own blurb already
-  // describes it — "beds to grow in, and what fences them off" — and because
-  // the fence and the gate are sitting right there: a player who has just drawn
-  // rails round a field is one press away from the thing that makes the field
-  // mean something. Filed under Outdoors with the other painted ground it would
-  // be correct about the brush and wrong about the afternoon.
+  // it tends to be. It goes under Farm because that is the tab a player is on
+  // when the deck starts meaning something: they have a pen down and they want
+  // it to run more than one line. Filed under Outdoors with the other painted
+  // ground it would be correct about the brush and wrong about the afternoon —
+  // and since docs/vats.md moved the farm indoors, Outdoors would now be wrong
+  // about the brush too.
+  // Keyed `paddock` because that is the `GROUND` key and the tile; what the
+  // player reads is the Culture Floor. See `GROUND.paddock` for why the two
+  // spellings are deliberate and permanent.
   paddock: {
     icon: ICONS.plot,
     group: 'farm',
-    run: 'Grazing',
-    blurb: 'Drag out an area. Grazing for a pen standing in it. Every four cells is another animal.',
+    run: 'Culture Floor',
+    blurb: 'Drag out an area. Deck for a pen standing in it. Every four cells is another line.',
   },
   // The ground the world came with, and the last cell in the game to become
   // something you could restyle. See the `land` sub-tab for why it is neither a
@@ -1617,7 +1623,77 @@ function upgradeRows(ui) {
     if (!mine.length) return [];
     // An icon on the `sep` is what makes it a tab — `tabGroups`' opt-in, so the
     // strip is the same three alternatives the bar had.
-    return [{ sep: g.name, icon: g.icon }, ...rowsFor(mine)];
+    return [{ sep: g.name, icon: g.icon }, ...rowsFor(ladderOrder(mine))];
+  });
+}
+
+/**
+ * A group's rows as LADDERS: each family contiguous, each rung under the one it
+ * needs.
+ *
+ * The list was in catalogue order, which is the order somebody happened to
+ * author the rows in and is not an order at all — and the tell is not that it
+ * was arbitrary, it is that it was *backwards*. `New Shopfront` sat above
+ * `Repaint and Signage` and `24-Hour Licence` above `Late Licence`, so the two
+ * shortest ladders in the game each led with the rung you cannot buy, greyed
+ * out, saying "needs the thing below this first". The six paddocks were
+ * scattered through the same list, which is what makes "did I buy the back
+ * one?" an unanswerable question about a panel you are looking straight at:
+ * North Paddock is a rung of the ladder whose first two you own, and it was
+ * four rows away from them.
+ *
+ * The sort is by FAMILY and then by DEPTH, deliberately not by price. Price
+ * very nearly works — a ladder gets dearer as it climbs — and it interleaves
+ * the families at exactly the moment the panel gets long enough for that to
+ * matter, which is the bug wearing a sort. Depth is also what the caption
+ * already talks about ("needs X first"), so the row above a locked one is now
+ * the row it names.
+ *
+ * A rung whose prerequisite is not in the list — `buyableUpgrades` can hide one
+ * behind the reveal ladder — is its own root rather than dropped, which keeps
+ * this a sort and never a filter.
+ */
+function ladderOrder(list) {
+  const byId = new Map(list.map((u) => [u.id, u]));
+  const rootOf = (u) => {
+    const seen = new Set();
+    let at = u;
+    // `requires[0]` is the spine: a rung with two prerequisites (none today)
+    // still belongs under the first one it names. The seen set is the guard for
+    // content edited live into a cycle, which would otherwise hang the panel.
+    while (!seen.has(at.id)) {
+      seen.add(at.id);
+      const up = (at.requires ?? []).map((r) => byId.get(r)).find(Boolean);
+      if (!up) return at;
+      at = up;
+    }
+    return at;
+  };
+  const depthOf = (u) => {
+    const seen = new Set();
+    let at = u;
+    let d = 0;
+    while (!seen.has(at.id)) {
+      seen.add(at.id);
+      const up = (at.requires ?? []).map((r) => byId.get(r)).find(Boolean);
+      if (!up) return d;
+      at = up;
+      d += 1;
+    }
+    return d;
+  };
+  const meta = new Map(list.map((u) => [u.id, { root: rootOf(u), depth: depthOf(u) }]));
+  // Families in the order you would meet them: cheapest way in first. Ties fall
+  // back to the name so the list cannot reshuffle itself between two renders of
+  // the same catalogue.
+  return [...list].sort((a, b) => {
+    const ma = meta.get(a.id);
+    const mb = meta.get(b.id);
+    if (ma.root.id !== mb.root.id) {
+      return (ma.root.cost - mb.root.cost)
+        || ma.root.name.localeCompare(mb.root.name);
+    }
+    return (ma.depth - mb.depth) || (a.cost - b.cost) || a.name.localeCompare(b.name);
   });
 }
 

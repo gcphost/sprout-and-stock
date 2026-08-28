@@ -5,7 +5,7 @@ import { FIXTURES, GROUND } from './build.js';
  *
  * Twenty-six build kinds is a correct palette and a bad first minute: the shop
  * has no gate but PRICE, so a new player opens the bar and meets conveyors,
- * lifts, sorters, paddocks and a ceiling before they have sold anything. The
+ * lifts, sorters, culture floor and a ceiling before they have sold anything. The
  * complaint it draws is "too many buttons", and it is not a complaint about
  * having too much game — Factorio has far more and nobody says it, because you
  * meet it over forty hours instead of in one screen.
@@ -73,10 +73,14 @@ export const REVEAL = {
   // `freezer` is deliberately NOT here — see `TUTORIAL_KINDS`.
   break: 'first-hire',
 
-  // Livestock, once a bed has actually produced something. `first-harvest` and
-  // never `first-plant`: a pen is a bed's rhythm borrowed by something that is
-  // not planted (docs/pens.md), so it reads as a variation on a loop you have
-  // been round once rather than as a second farm you never asked for.
+  // The pen and the deck it scales on, once a bed has actually produced
+  // something. `first-harvest` and never `first-plant`: a pen is a bed's rhythm
+  // borrowed by something that is not planted (docs/pens.md), so it reads as a
+  // variation on a loop you have been round once rather than as a second farm
+  // you never asked for.
+  //
+  // `paddock` is the key; the player reads "Culture Floor" (see
+  // `GROUND.paddock`). Both spellings are permanent and deliberate.
   pen: 'first-harvest',
   paddock: 'first-harvest',
 

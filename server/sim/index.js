@@ -40,6 +40,7 @@ import { SURROUNDS, isSurround, surroundOf } from '../../shared/surrounds.js';
 import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { difficultyOf } from '../../shared/difficulty.js';
 import { cleanName } from '../../shared/names.js';
+import { PLAYER_COLORS } from '../../shared/palette.js';
 import {
   isEmote, emoteSeconds, REPLIED, WAVE_REACH, WAVE_BACK_MAX, WAVE_MOOD, WAVE_CALM,
 } from '../../shared/emotes.js';
@@ -60,7 +61,7 @@ import {
   covers, footprintMid, footprint, paddockOf, pennedIn,
 } from '../../shared/build.js';
 import {
-  pieceFor, kindOf, defaultPiece, countKey, boardsOf, openOf, fixtureLabel,
+  pieceFor, kindOf, defaultPiece, countKey, boardsOf, openOf, fixtureLabel, bodiesOf,
 } from '../../shared/pieces.js';
 import {
   LOT_KINDS, lotStacks, lotTotal, lotQty, lotHas, lotMain, lotRoom,
@@ -3569,8 +3570,14 @@ export class Game {
       // gives. `piece` rather than a model, the way every other actor does it:
       // the client already holds the catalog and resolves the art itself.
       // Empty on every shop that has never painted a paddock or drawn an animal.
+      // `b` is which of the piece's bodies this one is drawn from and `t` is how
+      // full the pen it belongs to is standing — the second only means anything
+      // to a body authored in stages, which is a tray that fills up. Both ride
+      // per body rather than per pen because the client resolves the art itself
+      // and a lookup back to the pen would be a second copy of "which vat is
+      // this" for it to get wrong.
       animals: [...this.animals.values()].map((a) => ({
-        id: a.id, piece: a.piece, x: r2(a.x), z: r2(a.z), facing: a.facing,
+        id: a.id, piece: a.piece, b: a.b ?? 0, t: a.t ?? 0, x: r2(a.x), z: r2(a.z), facing: a.facing,
       })),
       queues: this.layout.checkouts.map((c) => ({ id: c.id, queue: c.queue?.length ?? 0 })),
       // Which way each junction is sending things, and it is here for exactly
@@ -4273,14 +4280,14 @@ export class Game {
     this.stepBelts(dt);
 
     this.stepPlayers(dt);
-    // The *world's* delta, not the tick's: a roofed bed holds its clock still by
-    // moving `plantedAt` along with `elapsed`, and `elapsed` runs on the scaled
-    // night clock. Handed `dt` it would drift forward every night.
-    this.stepCrops(world);
-    // The world's delta again, and for the same reason: an animal fills on the
-    // shop's clock rather than on a stopwatch, so the compressed night has to
-    // count. It is the pair to `stepCrops` in every respect — see `stepPens`.
-    this.stepPens(world);
+    // Neither of these takes a delta any more. Both used to be handed the
+    // *world's* one so they could push a roofed bed's `plantedAt` (and a roofed
+    // pen's `filledAt`) along with `elapsed` — that hold is gone with
+    // `where: 'any'`, see `stepCrops`. Both still read `elapsed` directly, so
+    // the compressed night is still counted; what went is the hold, not the
+    // clock.
+    this.stepCrops();
+    this.stepPens();
     // ...and the bodies in them, which take `dt` rather than `world` — the
     // opposite hand-off to the line above, and the split is the van's exactly.
     // What a pen PRODUCES is on the shop's clock, so the compressed night has to
@@ -7284,11 +7291,12 @@ export class Game {
    * the game that is a shop that argues with you, and there is no wrong line
    * anywhere in it.
    *
-   * The clocks are held rather than the tests being changed, which is the
-   * pattern a roofed bed already uses: `stepCrops` moves `plantedAt` along with
-   * `elapsed` so a covered crop keeps its progress without `plotGrowth` needing
-   * to know about roofs. Same shape — one place that knows about the exception,
-   * and every reader goes on doing arithmetic on a stamp.
+   * The clocks are held rather than the tests being changed. That shape was
+   * borrowed from the roofed bed, which held `plantedAt` along with `elapsed` so
+   * a covered crop kept its progress without `plotGrowth` needing to know about
+   * roofs — that one is retired (docs/vats.md step 1 put the farm indoors), but
+   * the shape it demonstrated is the one used here: one place that knows about
+   * the exception, and every reader goes on doing arithmetic on a stamp.
    *
    * **`soldDay` only, and `stockedDay` deliberately left where it is.** They
    * look interchangeable — `staleBoards` reads `soldDay ?? stockedDay` — and
@@ -7987,7 +7995,6 @@ export class Game {
 
   addPlayer(id, name, who = null) {
     const spawn = this.counterSpot() ?? this.layout.spawn;
-    const colors = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
     // Hired staff share `this.players`, so count only the humans — otherwise
     // hiring a clerk renames and recolours the next person who joins.
     const humans = Object.values(this.players).filter((p) => !p.staff).length;
@@ -8016,7 +8023,7 @@ export class Game {
       x: at.x,
       z: at.z,
       facing: stood ? (back.facing ?? 0) : 0,
-      color: colors[humans % colors.length],
+      color: PLAYER_COLORS[humans % PLAYER_COLORS.length],
       // Hands and shoulder come back even when the SPOT could not, because
       // where you were standing and what you were holding are two facts and
       // only one of them can be invalidated by a wall. Dropping the armful
@@ -8798,35 +8805,36 @@ export class Game {
   }
 
   /**
-   * Crops come on, unless somebody has built a roof over them.
+   * Crops come on. A roof is no longer a reason for them not to.
    *
-   * "Nothing grows indoors" is a sentence the game has said out loud since
-   * enclosure arrived — it is the warning you get for walling in your own farm
-   * (`whatThisUnroofs`) — and until now nothing whatsoever implemented it. What
-   * enforced it was the layout generator DROPPING a roofed bed as a placement it
-   * could no longer honour, which is not the same claim at all: one is a crop
-   * that stops ripening, the other is your bed and its crop deleted and refunded
-   * for the crime of your having drawn a wall nearby. That was half of the bug
-   * where knocking one wall through took most of a shop with it, so the drop is
-   * gone (`canKeep`, shared/build.js) and this is the half that should always
-   * have been here.
+   * ### The roofed hold is gone, and it went WITH the flag it was the other half of
    *
-   * The clock is *held* rather than reset: `plantedAt` is pushed along by exactly
-   * the time that just passed, so `elapsed - plantedAt` doesn't move and a crop
-   * three quarters grown is still three quarters grown when you take the roof
-   * back off. Resetting would make a wall drawn near the farm destroy a season's
-   * growth silently, which is the same class of thing as dropping the bed.
+   * "Nothing grows indoors" was a sentence the game said out loud from the day
+   * enclosure arrived, and for most of that time nothing implemented it — what
+   * enforced it was the generator DROPPING a roofed bed, which is not the same
+   * claim at all (one is a crop that stops ripening, the other is your bed and
+   * its crop deleted and refunded because you drew a wall nearby). So this
+   * function grew the honest version: `insideStore` held `plantedAt` along by
+   * exactly the world delta, so a covered crop kept its progress instead of
+   * losing it.
    *
-   * A bed that was already ripe stays ripe. It finished; a roof is not a reason
-   * to un-harvest something.
+   * docs/vats.md step 1 retires the whole sentence. `plot` is `where: 'any'`
+   * now, so a bed indoors is a thing you may deliberately build — and a hold
+   * left here would be the worst possible shape for that: the press succeeds,
+   * the money goes, the bed draws, and it never ripens. No refusal, no log,
+   * nothing on screen. A rack under lights that has been at 40% since Tuesday
+   * and one that is quietly frozen are the same still frame, and what it reads
+   * as is the farm being broken rather than a rule nobody removed.
+   *
+   * So the guard is not softened, it is DELETED, and `whatThisUnroofs`' matching
+   * warning went in the same change. Those two and `stepPens` were one rule
+   * written in three places, and the flag was its premise.
+   *
+   * A bed that was already ripe stays ripe, which it always did.
    */
-  stepCrops(world = 0) {
+  stepCrops() {
     for (const plot of this.layout.plots) {
       if (!plot.crop_id) continue;
-      if (insideStore(this.layout, plot.x, plot.z)) {
-        plot.plantedAt += world;
-        continue;
-      }
       if (!plot.ready && this.plotGrowth(plot) >= 1) plot.ready = true;
     }
   }
@@ -8921,16 +8929,27 @@ export class Game {
     // and a rung alone is a number with no land behind it. Whichever you are
     // short of is the one to spend on next, and the pen's own menu says which.
     const ceiling = this.fixtureStats(pen).heads;
+    // Who else is standing in this field, and where this one comes in that list.
+    // The COUNT is the divisor above; the INDEX is what deals a body that never
+    // moves a square nobody else's body was dealt — see `bornBody`. Kept in one
+    // place because both come out of the same filter, and two shelters that
+    // disagreed about how many of them there are would be two herds sharing a
+    // field and each counting the other out.
+    const mates = paddock.length ? (L.pens ?? []).filter((p) => pennedIn(p, keys, L.w)) : [pen];
+    const sharing = Math.max(1, mates.length);
+    const share = Math.max(0, mates.findIndex((p) => p.id === pen.id));
     let heads = 1;
     if (paddock.length) {
-      const sharing = (L.pens ?? []).filter((p) => pennedIn(p, keys, L.w)).length;
-      const grazes = Math.floor(paddock.length / (PEN_CELLS_PER_HEAD * Math.max(1, sharing)));
+      const grazes = Math.floor(paddock.length / (PEN_CELLS_PER_HEAD * sharing));
       heads = clamp(grazes, 1, ceiling);
     }
     // Which of the two is binding, for the menu — a pen that is out of land and
     // one that is out of shelter are the same number, and they are opposite
     // things to do something about.
-    const field = { cells, keys, heads, ceiling, w: L.w };
+    // Whether those cells are DECK or are the machine's own two-by-two, which is
+    // the fallback above. Nothing about filling reads it — a pen with no paddock
+    // is one head either way — but a body that never moves does: see `stepAnimals`.
+    const field = { cells, keys, heads, ceiling, sharing, share, painted: paddock.length > 0, w: L.w };
     this.penGraze.at.set(pen.id, field);
     return field;
   }
@@ -8971,13 +8990,14 @@ export class Game {
   }
 
   /**
-   * Every pen fills, unless somebody has built a roof over it.
+   * Every pen fills. A roof is no longer a reason for one not to.
    *
-   * The indoor clause is `stepCrops`'s, said about livestock, and it is HELD
-   * rather than reset for the reason given there at length: a wall drawn near
-   * the farm must not destroy the batch that was nearly ready. `where: 'outdoor'`
-   * already refuses a pen placed indoors, so this is only ever about a building
-   * that grew around one.
+   * The indoor clause was `stepCrops`'s said about livestock, and it went in the
+   * same change and for the same reason — see the note there. The short version:
+   * `where: 'any'` (docs/vats.md step 1) makes a pen indoors a thing you may
+   * deliberately build, and a hold left here would take your money for a machine
+   * that then never produces, silently, looking exactly like one that is simply
+   * part way through a batch.
    *
    * A finished batch is added and the clock RESTARTS from now rather than from
    * when the batch was due. That is the difference between a pen and a hopper:
@@ -8985,14 +9005,10 @@ export class Game {
    * batches, it has been standing there — so leaving one full costs you the
    * production, which is what makes `capacity_mult` worth paying for.
    */
-  stepPens(world = 0) {
+  stepPens() {
     for (const pen of this.layout.pens ?? []) {
       const made = this.penMakes(pen);
       if (!made) continue;
-      if (insideStore(this.layout, pen.x, pen.z)) {
-        pen.filledAt = (pen.filledAt ?? 0) + world;
-        continue;
-      }
       const cap = this.penCap(pen);
       if (pen.qty >= cap) {
         // Nothing accrues while it is full, and the clock is pinned to now so
@@ -9008,7 +9024,13 @@ export class Game {
   }
 
   /**
-   * Move the livestock, and keep one body per head.
+   * Move the livestock, and keep one body per head of whatever the piece says
+   * stands in its field.
+   *
+   * "Whatever the piece says" is a list since the farm came indoors — see
+   * `bodiesOf` and `BODY` — because a culture vat wants a tray per line standing
+   * still AND one tender drone walking the deck, and those are two populations
+   * on one machine. The herd is the same list with one entry in it.
    *
    * Reconciled every tick rather than on a purchase, because everything it
    * depends on can change without a pen being touched: paint a cell and the herd
@@ -9033,28 +9055,95 @@ export class Game {
     for (const pen of pens) {
       // Nothing to draw, so nothing to keep. Heads are counted off the paddock
       // either way — a piece nobody has drawn an animal for fills exactly as
-      // fast as one somebody has, which is what keeps `body` a look.
+      // fast as one somebody has, which is what keeps this a look.
       const piece = this.fixtureContent(pen);
-      if (!piece?.body) continue;
+      const bodies = bodiesOf(piece);
+      if (!bodies.length) continue;
       const field = this.penField(pen);
       if (!field.cells.length) continue;
-      for (let i = 0; i < field.heads; i++) {
-        const id = `${pen.id}#${i}`;
-        live.add(id);
-        let a = this.animals.get(id);
-        if (!a) {
-          const at = field.cells[Math.floor(hash01(`${id}:born`) * field.cells.length)];
-          a = { id, x: at.x, z: at.z, facing: 0, tx: at.x, tz: at.z, wait: 0, leg: 0 };
-          this.animals.set(id, a);
+      // What is STANDING READY, 0..1, for anything drawn in stages — a tray that
+      // fills up as the batch does. Deliberately not `penFill`, which is how far
+      // through the batch now brewing and which answers 0 when the pen is FULL,
+      // on purpose and for a good reason of its own. A tray staged on that would
+      // empty itself at the exact moment the thing it reports is at its fullest:
+      // art that runs backwards, on the one machine you were being told to go
+      // and empty.
+      const cap = this.penCap(pen);
+      const full = cap > 0 ? clamp((pen.qty ?? 0) / cap, 0, 1) : 0;
+      for (let bi = 0; bi < bodies.length; bi++) {
+        const spec = bodies[bi];
+        // A body that never moves needs DECK to stand on, and there is nothing
+        // clever in that. `penField` falls back to the machine's own two-by-two
+        // when nothing is painted round it — which is right for a roamer, and is
+        // where the hen with no paddock mills about — but a tray dealt one of
+        // those squares is drawn INSIDE the vat and cannot be seen at all. What
+        // that reads as is trays not working, on every vat in the shop, until
+        // somebody happens to paint a deck; and it is the trap this whole step
+        // exists to close, arriving through the default. So a rack turns up when
+        // there is somewhere to rack it, which is also the one press that teaches
+        // what the brush is for.
+        if (!spec.roams && !field.painted) continue;
+        // Per head is the readout and per pen is the life — see `BODY` in
+        // shared/schemas.js. One loop either way, because "how many" is the only
+        // thing that differs and a second branch here would be two placements to
+        // keep in step.
+        const n = spec.per === 'pen' ? 1 : field.heads;
+        for (let i = 0; i < n; i++) {
+          const id = `${pen.id}#${bi}.${i}`;
+          live.add(id);
+          const a = this.animals.get(id) ?? this.bornBody(id, spec, field, i, n);
+          // Re-read rather than kept from birth: a re-flow rebuilds the
+          // placement, so the row this pen resolves to can change under a body
+          // that is still standing in the field. `b` rides with it for the same
+          // reason — the list it indexes is edited live.
+          a.piece = piece.id;
+          a.b = bi;
+          a.t = r2(full);
+          if (spec.roams) this.stepAnimal(a, field, dt);
         }
-        // Re-read rather than kept from birth: a re-flow rebuilds the placement,
-        // so the row this pen resolves to can change under a body that is still
-        // standing in the field.
-        a.piece = piece.id;
-        this.stepAnimal(a, field, dt);
       }
     }
     for (const id of [...this.animals.keys()]) if (!live.has(id)) this.animals.delete(id);
+  }
+
+  /**
+   * Where a body starts, which is two different questions.
+   *
+   * A ROAMER only has to start somewhere legal: it will have walked off within a
+   * few seconds, and `hash01` off its own id is what keeps that choice out of
+   * `this.rng` — see the note on `stepAnimals`.
+   *
+   * A STANDER never moves, so where it starts is where it is for the life of the
+   * save, and two of them on one square is two trays drawn as one. That is a vat
+   * running six lines you can only count five of, which reads as the arithmetic
+   * being wrong when it is the placement — and the count off the floor is the
+   * whole reason the trays exist. So a stander is DEALT a cell rather than handed
+   * one: `share` steps the start on per shelter sharing the field, and
+   * `sharing * stride` steps it on per body. The highest index reached is
+   * `share + (n-1) * sharing * floor(cells / (n * sharing))`, which stays under
+   * `cells` whenever the field is the four-cells-a-head one `penField` computed —
+   * so it never wraps, never lands on the vat next door's tray, and needs no
+   * claim list anywhere. The modulo is for the one shape that arithmetic does not
+   * cover: a field smaller than the shelters standing in it, which is a one-cell
+   * paddock with three pens on it and is degenerate in every other way too.
+   *
+   * The facing is the authored one, and that is not an oversight. A tray belongs
+   * square to the rack it is in; hashing a spin onto it would read as clutter
+   * somebody dropped rather than as stock somebody racked, and a body that walks
+   * overwrites the field on its first leg anyway.
+   */
+  bornBody(id, spec, field, i, n) {
+    const cells = field.cells;
+    let at;
+    if (spec.roams) {
+      at = cells[Math.floor(hash01(`${id}:born`) * cells.length)];
+    } else {
+      const stride = Math.max(1, Math.floor(cells.length / Math.max(1, n * field.sharing)));
+      at = cells[(field.share + i * field.sharing * stride) % cells.length];
+    }
+    const a = { id, x: at.x, z: at.z, facing: 0, tx: at.x, tz: at.z, wait: 0, leg: 0 };
+    this.animals.set(id, a);
+    return a;
   }
 
   /**
@@ -9179,9 +9268,6 @@ export class Game {
     if (plot.crop_id) return err('that plot is already planted');
     if (plot.soil !== 'tilled') return err('turn the soil over first');
     if (this.cash < crop.seed_cost) return err(`need $${crop.seed_cost.toFixed(2)} for seed`);
-    if (crop.seasons.length && !crop.seasons.includes(this.season)) {
-      return err(`${crop.name} won't grow in ${this.season}`);
-    }
 
     this.cash -= crop.seed_cost;
     this.stats.spent += crop.seed_cost;
@@ -9208,9 +9294,6 @@ export class Game {
     const plot = this.layout.plots.find((x) => x.id === plotId);
     const crop = content().byId.crops[cropId];
     if (!p || !plot || !crop) return err('no such plot or crop');
-    if (crop.seasons.length && !crop.seasons.includes(this.season)) {
-      return err(`${crop.name} won't grow in ${this.season}`);
-    }
     // Ripe is worth money. Losing it to a mis-tap on a list of seeds is not a
     // trade anyone meant to make, and harvesting first costs one hold.
     if (plot.ready) return err('that is ready to pick — harvest it first');
@@ -9660,14 +9743,24 @@ export class Game {
   /**
    * Will the bed take this seed again the moment it's picked?
    *
-   * Deliberately the same two gates `plant` applies — season and money — and
-   * nothing else. Skipping the proximity and soil checks is the point: you are
-   * stood on the plot, and it is already turned.
+   * Deliberately the same gate `plant` applies — money — and nothing else.
+   * Skipping the proximity and soil checks is the point: you are stood on the
+   * plot, and it is already turned.
+   *
+   * **Season used to be the other gate, and it was the expensive one.** It is
+   * gone with the rest of the crop-side seasons mechanism (docs/vats.md step 5;
+   * the argument is written out where the field was, in `CropSchema`). This is
+   * the site that decided what dropping it was worth: a bed whose crop was out
+   * of season was not merely un-sowable, it was *emptied* — `harvest` and the
+   * loader's `armPull` both fall through to `clearPlot` when this says no — so
+   * a week of winter took every bed in the field out of production and left
+   * them as bare turned soil until somebody walked out and re-sowed by hand.
+   * With a season lasting a week, that is a quarter of the calendar, and what
+   * it read as was the farm stopping for no reason: nothing is logged, and an
+   * empty bed a robot chose not to re-sow and an empty bed nobody has got to
+   * yet are the same picture.
    */
   replantable(crop) {
-    if (crop.seasons.length && !crop.seasons.includes(this.season)) {
-      return { ok: false, why: `${crop.name} won't grow in ${this.season}` };
-    }
     if (this.cash < crop.seed_cost) {
       return { ok: false, why: `need $${crop.seed_cost.toFixed(2)} for seed` };
     }
@@ -17054,10 +17147,14 @@ export class Game {
     }
 
     let planted = 0;
-    const inSeason = c.crops.filter((cr) => !cr.seasons.length || cr.seasons.includes(this.season));
+    // Every crop, round-robin. This used to shortlist the ones in season and
+    // fall back to the whole catalog when that came out empty — a fallback that
+    // existed because a winter shop had exactly one crop it could stage, so a
+    // screenshot taken in winter was a field of the same plant fourteen times.
+    // The shortlist has nothing left to say now that a crop grows all year.
     for (let i = 0; i < this.layout.plots.length; i++) {
       const plot = this.layout.plots[i];
-      const crop = (inSeason.length ? inSeason : c.crops)[i % Math.max(1, (inSeason.length || c.crops.length))];
+      const crop = c.crops[i % Math.max(1, c.crops.length)];
       if (!crop) break;
       // Staging skips the tilling, but a planted plot must still read as broken
       // soil or the renderer would draw a crop growing out of turf.

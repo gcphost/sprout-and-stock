@@ -2069,6 +2069,71 @@
     }
   },
   {
+    "id": "dairy-culture",
+    "name": "Dairy Culture",
+    "tags": [
+      "perishable"
+    ],
+    "base_cost": 1.1,
+    "base_price": 2.8,
+    "shelf_life_days": 4,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e6e2d4",
+          "pos": [
+            0,
+            0.07,
+            0
+          ],
+          "scale": [
+            0.22,
+            0.14,
+            0.22
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#cfd6d2",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.23,
+            0.04,
+            0.23
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "dough",
     "name": "Dough",
     "tags": [
@@ -3088,6 +3153,71 @@
           "drift": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "fungal-biomass",
+    "name": "Fungal Biomass",
+    "tags": [
+      "perishable"
+    ],
+    "base_cost": 1,
+    "base_price": 2.6,
+    "shelf_life_days": 5,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#b8ae95",
+          "pos": [
+            0,
+            0.06,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.12,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#9fb08c",
+          "pos": [
+            0,
+            0.15,
+            0
+          ],
+          "scale": [
+            0.2,
+            0.07,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -5996,9 +6126,11 @@
     "id": "poultry",
     "name": "Whole Chicken",
     "tags": [
+      "meat",
       "needs-freezer",
       "perishable",
-      "heavy"
+      "heavy",
+      "dinner"
     ],
     "base_cost": 1.8,
     "base_price": 3.6,
@@ -6023,11 +6155,13 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "glow": false,
           "shadow": false,
           "drift": false,
           "back": false,
           "motion": null,
-          "tint": null
+          "tint": null,
+          "bone": null
         },
         {
           "shape": "sphere",
@@ -6046,11 +6180,13 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "glow": false,
           "shadow": false,
           "drift": false,
           "back": false,
           "motion": null,
-          "tint": null
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -6137,6 +6273,71 @@
           "drift": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "protein-biomass",
+    "name": "Protein Biomass",
+    "tags": [
+      "perishable"
+    ],
+    "base_cost": 1.2,
+    "base_price": 3,
+    "shelf_life_days": 4,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c9a893",
+          "pos": [
+            0,
+            0.06,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.12,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#dcbfa8",
+          "pos": [
+            0,
+            0.15,
+            0
+          ],
+          "scale": [
+            0.19,
+            0.07,
+            0.19
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -7860,9 +8061,11 @@
     "id": "turkey",
     "name": "Whole Turkey",
     "tags": [
+      "meat",
       "needs-freezer",
       "perishable",
       "heavy",
+      "dinner",
       "winter"
     ],
     "base_cost": 5,
@@ -7888,11 +8091,13 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "glow": false,
           "shadow": false,
           "drift": false,
           "back": false,
           "motion": null,
-          "tint": null
+          "tint": null,
+          "bone": null
         },
         {
           "shape": "sphere",
@@ -7911,11 +8116,13 @@
           "surface": false,
           "seam": false,
           "alpha": 1,
+          "glow": false,
           "shadow": false,
           "drift": false,
           "back": false,
           "motion": null,
-          "tint": null
+          "tint": null,
+          "bone": null
         }
       ]
     }

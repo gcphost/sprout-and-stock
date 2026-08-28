@@ -164,9 +164,8 @@ const otherKinds = (n = LOT_KINDS) => ({
     .map((i) => ({ item_id: i.id, qty: 1 })),
 });
 const frozenItem = c.items.find((i) => requiredFixture(i) === 'freezer') ?? null;
-/** A crop that will actually grow in whatever season the world is in. */
-const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.includes(g.season))
-  ?? c.crops[0];
+/** Any crop. Every crop grows in every season now — see `CropSchema`. */
+const cropFor = () => c.crops[0];
 
 // ---------------------------------------------------------------------------
 // 1. Tilling — soil is a real gate, and harvesting exhausts it.
@@ -231,9 +230,8 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
   const g = fresh();
   const plot = g.layout.plots[0];
   const grown = cropFor(g);
-  // A different crop that will also grow right now, or there is nothing to test.
-  const other = c.crops.find((cr) => cr.id !== grown.id
-    && (!cr.seasons.length || cr.seasons.includes(g.season)));
+  // A different crop, or there is nothing to test.
+  const other = c.crops.find((cr) => cr.id !== grown.id);
 
   stand(g, plot);
   g.till('me', plot.id);
@@ -374,25 +372,51 @@ const cropFor = (g) => c.crops.find((cr) => !cr.seasons.length || cr.seasons.inc
 }
 
 {
-  // Out of season — a crop that can't grow now must not be forced back in.
-  const g = fresh();
-  const seasonal = c.crops.find((cr) => cr.seasons.length);
-  if (seasonal) {
+  // The farm is indoors, so the season is not a fact about the bed.
+  //
+  // This block used to assert the opposite, and what it was really pinning was
+  // never `plant`'s refusal — it was that a bed whose crop had gone out of
+  // season came back EMPTY. `harvest` falls through to `clearPlot` when
+  // `replantable` says no, so one week of winter took the whole field out of
+  // production and left it as turned soil, silently, with nothing logged. The
+  // sweep is kept pointed the other way rather than deleted, because the value
+  // in it was always the bed's state after the pick rather than the refusal:
+  // every season, over every crop, the bed must still be planted afterwards.
+  //
+  // The season CLOCK is deliberately still turned underneath it. Seasons did
+  // not go away — an item's `season` tag still swings its price 1.35/0.75 — so
+  // a change that stopped the world having a season at all would pass a test
+  // written as "sowing works" and would take demand seasonality with it.
+  for (const season of ['spring', 'summer', 'autumn', 'winter']) {
+    const g = fresh();
     const plot = g.layout.plots[0];
+    const crop = c.crops[0];
     stand(g, plot);
-    g.season = seasonal.seasons[0];
+    g.season = season;
     g.till('me', plot.id);
-    check(g.plant('me', plot.id, seasonal.id).ok, 'planting in season works');
+    check(g.plant('me', plot.id, crop.id).ok, `planting works in ${season}`);
     plot.ready = true;
     g.players.me.carry = null;
-    // Roll on to a season this crop does not grow in.
-    g.season = ['spring', 'summer', 'autumn', 'winter'].find((s) => !seasonal.seasons.includes(s));
 
     const out = g.harvest('me', plot.id);
-    check(out.ok, 'harvesting still works out of season');
-    eq(out.replanted, null, 'an out-of-season crop is not re-sown');
-    eq(plot.crop_id, null, 'the bed is left empty instead');
-    check(!g.replantable(seasonal).ok, 'and replantable() agrees it could not grow');
+    check(out.ok, `harvesting works in ${season}`);
+    eq(out.replanted, crop.id, `the bed re-sows itself in ${season}`);
+    eq(plot.crop_id, crop.id, `and is planted rather than emptied in ${season}`);
+    check(g.replantable(crop).ok, `replantable() agrees in ${season}`);
+    eq(g.season, season, `and the world still knows it is ${season}`);
+  }
+
+  // Money is still a gate, which is the control: `replantable` losing its
+  // season test must not have left it answering yes to everything, or the bed
+  // replants on credit and the refusal it exists for has gone with the one that
+  // was removed on purpose.
+  {
+    const g = fresh();
+    const crop = c.crops.reduce((a, b) => (b.seed_cost > a.seed_cost ? b : a));
+    if (crop.seed_cost > 0) {
+      g.cash = crop.seed_cost / 2;
+      check(!g.replantable(crop).ok, 'a bed you cannot afford the seed for is still refused');
+    }
   }
 }
 
