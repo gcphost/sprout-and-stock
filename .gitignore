@@ -34,6 +34,11 @@ data/game.db-shm
 # Benchmark scratch. Throwaway runs, not part of the sweeps.
 scripts/.tmp/
 
+# Probes written while chasing one bug — one-off scripts and whatever database
+# copy they were pointed at. A sweep that is worth keeping goes in scripts/ and
+# is named in `npm run verify`; everything else in here is a measurement.
+scratch-tmp/
+
 # The web build. Same reason `dist/` is here: it is output, and `npm run
 # deploy` rebuilds it on the way to Cloudflare Pages.
 dist-web/
