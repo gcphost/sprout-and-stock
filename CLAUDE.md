@@ -95,7 +95,19 @@ that was always enough, `logFold` collapses the feed, and only a batch that
 changed **nothing** comes back as an error. The rule for adding the next bulk
 verb is that a **selection of one must be the old path exactly** — `bulkFixtures`
 returns the verb's own result untouched for a list of one, because every ordinary
-press in the game now goes through it. And the client half of the same rule:
+press in the game now goes through it. **Move is the one that could not be a
+`bulkFixtures` verb until the layout learned to forgive a whole group**, and the
+reason is worth keeping: `holdReflow` is safe for the other bulk verbs precisely
+because none of them moves a tile, so each one's `canPlace` reads a stale layout
+that is still true. A shift makes it stale by construction — a row nudged one
+square *along itself* has every member landing on the cell its neighbour has not
+vacated yet — so `ignoreId` takes a Set now (`ignores`, shared/build.js) and the
+batch forgives itself as one. What makes that safe rather than merely convenient
+is that a rigid translation is a bijection with no fixed points: no two members
+can ever land on the same cell, whatever order they are applied in. It is also
+the one bulk verb that is not carried — `p.holding` is one fixture, because hands
+are — so the client aims it the way it aims a stamp and sends one delta.
+And the client half of the same rule:
 `setFixtureRef` clears the selection unless told to keep it, which is what makes
 an ordinary tap safe, and every redraw (`showFixture`, `refollowSelection`) has
 to say `keepPicked` — a bulk verb IS a re-flow, so a selection that did not
@@ -570,8 +582,22 @@ Thirty sweeps, about a minute:
   pass and the shop is left unable to take money — and the tills being gone is
   what you asked for, so nothing anywhere says a word. Its pair is that two of
   them still go, or the guard is a shop front you can never rearrange, and its
-  control is that the last till alone is refused exactly as it always was. It
-  authors nothing.
+  control is that the last till alone is refused exactly as it always was.
+  Since Move became bulk it also guards the first bulk verb that moves a TILE,
+  which is the one thing `holdReflow`'s own note excludes: every other verb here
+  checks `canPlace` against the shop as it stood before the batch, "which is the
+  same shop, since none of them moves a tile". A shift makes that stale by
+  construction, and the failure is a *refusal* rather than a wrong answer — a row
+  nudged one square ALONG itself has every member landing on the cell its
+  neighbour has not vacated yet, so asked one id at a time the shop says no to
+  all but the first (measured: 1 of 4, "something is already there"), over a move
+  that is perfectly legal. ALONG rather than sideways is the sweep rather than a
+  detail of it: the same four moved sideways land on empty ground, no member is
+  ever in another's way, and the naive spelling gets all four right — so a sweep
+  written that way round passes on the bug. Plus conservation of the goods, a
+  delta of nothing being a refusal you can read rather than four members each
+  answering "already there", and a shift of one coming back in the verb's own
+  shape. It authors nothing.
 
 - `verify:belts` guards the first thing in the shop that moves goods with nobody
   walking, and every claim in it is invisible twice over: a crate that rode a
@@ -1048,7 +1074,18 @@ Thirty sweeps, about a minute:
   identically until the shop grows; that paint comes back **without a re-flow**,
   which is `verify:paint`'s claim said about the way home; and that a removal
   comes back as itself rather than through `placeFixture`, which mints tier 1 —
-  a demotion nothing logs, wearing an undo. It writes nothing at all.
+  a demotion nothing logs, wearing an undo. Since Move became bulk it also
+  guards a step that moved SEVERAL units at once, which is the "all or nothing"
+  rule above turned against itself: every fixture step until then held one unit
+  or twelve being built from nothing, so no part was ever standing where another
+  part was going. `couldGoTo` asks `canPlace` of each against the shop as it
+  stands, the deferred re-flow means that shop still has the whole row where it
+  was, the parts refuse one another — and because half an undo is worse than
+  none, the whole step is refused. You press Ctrl+Z on a move you made a second
+  ago and the shop says "something is already there" about the shop it is being
+  asked to go back to. Its pair is REDO, since one walk runs both ways and a fix
+  applied to one direction would leave the other refusing. It writes nothing at
+  all.
 
 - `verify:stamp` guards the two gestures that put down several fixtures at once,
   and every claim in it is invisible in a still frame by construction: six
@@ -1384,7 +1421,7 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, the fence that stopped being the only thing a boundary could be made of, and the head line — how tall a way through is, which stopped being a fact about the wall the day the walls grew, and which is what lets a doorway and a high window line up and be glazed as one piece, and the look that goes UNDER the job — because `GROUND` has partitioned into a look and a job since the yard stopped being furniture, and for as long as one overlay held one answer per cell those two were rivals, so a floor dragged across your own stockroom took the storage away | steps 1–9, 11, 13–27, 29–31 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, the fence that stopped being the only thing a boundary could be made of, and the head line — how tall a way through is, which stopped being a fact about the wall the day the walls grew, and which is what lets a doorway and a high window line up and be glazed as one piece, and the look that goes UNDER the job — because `GROUND` has partitioned into a look and a job since the yard stopped being furniture, and for as long as one overlay held one answer per cell those two were rivals, so a floor dragged across your own stockroom took the storage away, and moving a whole SELECTION — the one bulk verb that is not carried, because hands hold one fixture, and the one that moves a tile, which is the one thing a held re-flow was never safe for | steps 1–9, 11, 13–27, 29–31 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make, and the crew who stood up — five identical parts of a thirty-six part cap at three-quarters of a shopper's height, against a limb that is one flag on a part and a rig everything downstream was already guarded for | steps 1–6, 8–16 built; 7 proposed |
 | [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the same T read the other way — who goes first where two runs MEET, which is a fact about the cell rather than about the belt, so it is asked of whatever piece is standing where the lines arrive, and the piece that usually is is the sorter, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg, the tunnel that stopped being its own ecosystem — a span that DIPS to a storey below, so a mouth is a lift pointed down and the piston is the crate's own `deck` rather than two clocks beside it, plus the toggle that brings a span up onto the ceiling instead of the floor, and **Where a crate goes, in order** — the whole routing ladder in one place, with the audit's gap list at the foot, and the map that takes a SUBJECT — pick a shelf and everything but the shortest ways a box reaches it goes grey, because the reachable set is 15 runs of 23 whatever you pick, and the packer that stands still — a crate parked on a run that fills itself from the boxes going past, so a dock of part-crates is one trip instead of three | steps 1–4, 2b, 3b, 4b, 7–12 built; 5–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
@@ -1394,6 +1431,7 @@ what the next step was meant to be.
 | [docs/kitchen.md](docs/kitchen.md) | why a machine knows several recipes and runs one, and the rung that buys a second *slot* rather than more speed — one hopper feeding two heads, a tray per slot, the picker turning into a capped list of ticks, and the two clocks a twin machine has that one resolver cannot answer | step 1 built (no rung authored yet); 2–4 proposed |
 | [docs/appliances.md](docs/appliances.md) | what a row of machines has to share to look like a kitchen — three generations of art in one catalog, the counter line the shop already had at 0.745 that no appliance stands on, why every shelf in the game is taller than every appliance, shared *lines* rather than a shared chassis, three height classes against one locked footprint, where goods go in and come out on a cabinet with no worktop, and the accent colour that says what a machine does | all proposed |
 | [docs/pens.md](docs/pens.md) | the animal that is a building — why a cow you re-sow every time you milk her is a bed's rhythm borrowed by something that is not planted, one `pen` kind against seven authored pieces, a ladder where `speed_mult` is how often you must come and `capacity_mult` is how long you may leave it, the full pen that STOPS rather than banking batches overnight, and the first fixture in the game to take more than one tile — plus the eight places "a fixture is a tile" was load-bearing; and the paddock you PAINT rather than fence, where a head is a divisor on the one clock, the paddock that SUPPLIES animals against the rung that is their CEILING, the animal that came out of the art and onto the grass, and the third population that is neither a player nor a customer | steps 1–2 built |
+| [docs/vats.md](docs/vats.md) | the farm that came indoors — a reskin argued as a design, because a pen read with the word "animal" struck out is already a bioreactor: a machine that fills on a clock, stalls when full, and scales with painted floor divided between the machines sharing it. Two `where` flags (`'any'` and never `'indoor'`, or the first wall anybody draws sheds and refunds every farm in every live save), seven pens collapsing to three vats because one piece and one output for ever is right about a cow and wrong about a fermenter, meat moving off `pen` onto `station` + recipes so the sorter finally has something to sort, the paddock that is not pasture but the floor-space dial, and the two kinds of season — the item's tag that moves demand and price and STAYS, against the crop's field that decides whether it grows at all and goes, which is the one claim in the document `simulate` can actually see | proposed; steps 1–7 unbuilt |
 | [docs/production.md](docs/production.md) | everything on the shelf came from something — why a recipe book whose outputs nothing eats is a factory with no factory in it, the three tiers and the line between what you buy and what you make, an ingredient as an item with property tags only (so nobody ever buys it and it costs no code), the crafting margin that stops depth being a tax, the six primary-processing machines the shop never had, and the van that stopped selling you 68 of 103 items the day you could make them — and sells them again, because making is cheaper on 67 of the 68 and the arithmetic was defending the appliances all along, so what is left is a crew who leave a recipe output to the kitchen and a player who may order anything | built; the van fork is closed |
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
 | [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), the card that stops the world to say so, and the build palette that unfolds with the ladder — a REVEAL rather than an unlock, which is the only reason it may exist beside a rule that says a reward may not be a thing you unlock | steps 1–4 built |
@@ -2129,6 +2167,25 @@ what the next step was meant to be.
   **not in `FIXTURES`** — a floor has no anchor, blocks nobody and is painted
   rather than placed, so `BUILD_KINDS` partitions in three now, which
   `verify:catalog` counts rather than trusting anyone to remember.
+- **…and a brush may not take the ground out from under a FIXTURE, in either
+  direction — the refusal was asked of the eraser only.** Every word of
+  `groundIsBusy`'s argument is about laying too: the generator would not leave a
+  hen house standing on a paddock, it would drop the placement on the next
+  re-flow and refund it, which is a bulldozer wearing a paintbrush — and undo
+  cannot put it back, because what an undone ground step restores is the ground
+  rather than the shed placement. A pen stands on GRASS, so `groundIsBusy` never
+  fired (grass is exactly what you may paint over) and `blocked` was never
+  asked: one press of Muddy Yard over your own pen stamped `T.PADDOCK` and sold
+  the building back. Money in, so nothing reads as stolen — what you watch is a
+  fixture disappearing under a colour, with no refusal anywhere and no way back.
+  The test is whether the **tile moves**, not whether the stroke is laying or
+  erasing: a floor swapped for another floor leaves `T.FLOOR` where it was, so
+  an aisle can still be redecorated under its own shelving, and the eraser's own
+  version of the check should always have said the same thing. It was found from
+  a screenshot, which is the tell that no sweep was making the claim: reported as
+  "it erases my farm stuff", and the two sweeps that laid a pad indoors were
+  *themselves* shedding a shelf to make their point, because they tested the tile
+  and not `blocked`.
 - **…and a LOOK goes under a JOB, because for as long as one overlay held one
   answer per cell those two were rivals.** `GROUND` has partitioned since the
   yard stopped being furniture — `floor`, `road`, `path` and `lawn` are a look,
@@ -3497,6 +3554,21 @@ what the next step was meant to be.
   (`regenerateLayout`) and a re-flow is not a reposition. The fields ride as
   `undefined` rather than as defaults, or this file and `server/layout.js` each
   own half of what a new piece does.
+- **`ignoreId` is "what is in the air", and it stopped being ONE thing.** It was
+  a single id for as long as only one fixture could be moving, which was true
+  until Move learned about a selection — and the old spelling fails in the most
+  convincing way there is: a whole aisle shifted one square along has each member
+  refused for standing in the way of the neighbour it is about to replace, so six
+  perfectly legal placements come back as six noes and nothing anywhere says the
+  rule being broken is one about a batch. It takes a `Set` too, and every one of
+  the eight places that wrote `f.id === ignoreId` asks `ignores(ignoreId, f.id)`
+  instead. That it is a function rather than a widened comparison at each site is
+  the point: a site that kept the `===` works for a selection of one and quietly
+  answers "no" for the case the change exists for. Three callers pass a set —
+  `shiftFixtures`, the undo walk (`movingIds`, which forgives only the parts that
+  actually change tile, since a part standing still is not leaving) and the
+  client's own shift preview, which has to agree or the ghost is amber over a
+  press the shop accepts.
 - **Fixture ids live in two namespaces.** The generator mints `shelf-p0`,
   `till-p0`…; anything the player positioned keeps an `fx-N` id. They must never
   collide, or a re-flow hands a shelf someone else's stock.

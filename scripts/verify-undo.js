@@ -494,6 +494,73 @@ function paintPiece() {
 }
 
 // ---------------------------------------------------------------------------
+// 12. A STEP THAT MOVED SEVERAL UNITS AT ONCE.
+//
+// Every fixture step in this file until now held one unit, or twelve that were
+// each being built from nothing (a conveyor run) — and in both of those no part
+// is ever standing where another part is going. `shiftFixtures` is the press
+// where they are: a row nudged one square ALONG itself has every member landing
+// on the cell its neighbour has not vacated yet.
+//
+// Which makes it this file's own "all or nothing" rule turned against it.
+// `couldGoTo` asks `canPlace` of every part against the shop as it stands, and
+// the deferred re-flow means that shop still has the whole row where it was — so
+// the parts refuse one another, and because half an undo is worse than none the
+// entire step is refused. Nothing is wrong with any of it: you press Ctrl+Z on a
+// move you made a second ago and the shop says "something is already there"
+// about the shop it is being asked to go back to.
+//
+// Its pair is REDO, because the same walk runs both ways and a fix applied to
+// one direction of it would leave the other refusing.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  // A row laid by hand, so the members are next to each other — the whole claim
+  // is about parts standing in one another's way.
+  const row = [];
+  const at = freeTile(g);
+  for (let i = 0; i < 3; i++) {
+    const res = press(g, 'that shelf', () => g.placeFixture('me', {
+      kind: 'shelf', x: at.x + i, z: at.z, rot: 0,
+    }));
+    if (res.ok) row.push(res.placed);
+  }
+  if (row.length < 3) {
+    console.log('   (no room for a hand-laid row — the batch move is not measurable here)');
+  } else {
+    const unit = g.layout.shelves.find((s) => s.id === row[0]);
+    unit.stacks = [{ item_id: ITEM.id, qty: 5, price: 3, stockedDay: g.day }];
+    const where = () => row.map((id, i) => spotOf(g, id) ?? `gone${i}`).join(' ');
+    const goods = () => g.layout.shelves.reduce((n, s) => n + g.fixtureContents(s), 0);
+    const was = `${at.x},${at.z} ${at.x + 1},${at.z} ${at.x + 2},${at.z}`;
+    eq(where(), was, 'three shelves standing in a row');
+    eq(goods(), 5, 'with goods on the first of them');
+    const cash = g.cash;
+
+    const moved = press(g, 'that move', () => g.shiftFixtures('me', row, 1, 0));
+    check(moved.ok, 'the row shifts one square along itself', moved.error ?? '');
+    // The ids are re-minted by the move, so the row is re-read rather than
+    // reused — which is the same reason a client cannot send three messages.
+    const now = g.placements.filter((p) => p.kind === 'shelf' && p.z === at.z
+      && p.x > at.x && p.x <= at.x + 3);
+    eq(now.length, 3, 'and all three are one square along');
+
+    const back = g.undo();
+    check(back.ok, 'a batch move can be taken back', back.error ?? '');
+    eq(g.placements.filter((p) => p.kind === 'shelf' && p.z === at.z
+      && p.x >= at.x && p.x < at.x + 3).length, 3, 'and all three are back where they were');
+    eq(goods(), 5, 'with the goods still on the one that had them');
+    eq(g.cash, cash, 'and no money moved either way');
+
+    const again = g.redo();
+    check(again.ok, 'and the same walk puts it forward again', again.error ?? '');
+    eq(g.placements.filter((p) => p.kind === 'shelf' && p.z === at.z
+      && p.x > at.x && p.x <= at.x + 3).length, 3, 'with all three one square along once more');
+    eq(goods(), 5, 'and the goods still on board');
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 console.log(`\nverify:undo — ${checks} assertions`);
 if (failures.length) {

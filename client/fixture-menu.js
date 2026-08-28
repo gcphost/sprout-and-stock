@@ -472,23 +472,24 @@ export function showFixture(ui, f) {
   // See `actIcon` for what deliberately does NOT move: the price and the count.
   const foot = [];
 
-  // Move and Rotate are one at a time, and with several picked they say so
-  // rather than disappearing.
+  // Rotate is one at a time, and with several picked it says so rather than
+  // disappearing. A hole cannot answer "where is the Rotate button" — the same
+  // argument the disabled order button on a board row makes — and this row is
+  // the most familiar thing on the menu, so a selection that quietly shortened
+  // it would read as the menu having broken. It is one press away: shift-click
+  // the one you want, or Escape.
   //
-  // Which of the two is not a style question. A hole cannot answer "where is the
-  // Move button" — the same argument the disabled order button on a board row
-  // makes — and this row is the most familiar thing on the menu, so a selection
-  // that quietly shortened it would read as the menu having broken. And each of
-  // the two is genuinely a different sentence about six things than about one:
-  // Move fills your hands with one fixture, and Rotate turns each into its own
-  // corner. They are one press away — shift-click the one you want, or Escape.
+  // Turning six things is genuinely six sentences — each ends up facing its own
+  // way out of its own corner, and there is no one answer a batch could give.
   //
-  // The ladder and Remove are not among them, and the line between the two
-  // halves is worth saying: a verb belongs here when six of it would be six
-  // DIFFERENT things, and belongs to the selection when six of it is one thing
-  // said once. "Get rid of that aisle" and "make my freezers better" are both
-  // the second — they are the presses a selection is *for*. See their own
-  // squares below.
+  // MOVE IS NOT AMONG THEM ANY MORE, and the line between the two halves is the
+  // reason: a verb is one-at-a-time when six of it would be six DIFFERENT
+  // things, and belongs to the selection when six of it is one thing said once.
+  // "Shift that aisle a tile over" is the second, exactly as "get rid of that
+  // aisle" and "make my freezers better" are. What kept it out was hands rather
+  // than sense — `holding` is one fixture, because hands are — so a batch is
+  // aimed instead of carried (`ui.shiftSelection`): the units stay standing,
+  // the whole group previews under the pointer, and one press sends one delta.
   const alone = bulk ? ONE_AT_A_TIME : null;
   const only = alone ? { off: true } : {};
 
@@ -496,9 +497,11 @@ export function showFixture(ui, f) {
   // its button: a shortcut nothing names is a shortcut for whoever wrote it. Both
   // of these work on whatever this menu is open on, wherever the pointer is —
   // see `rotateSelected` and `moveSelected`.
-  foot.push(actIcon('move', ICONS.move, 'Move it',
-    alone ?? 'Picks it up with everything on it. Nothing shifts until you set it down.',
-    'Move', { key: 'M', ...only }));
+  foot.push(actIcon('move', ICONS.move, bulk ? `Move ${upFor.length}` : 'Move it',
+    bulk
+      ? 'Moves them together, keeping their spacing. Click where they should go.'
+      : 'Picks it up with everything on it. Nothing shifts until you set it down.',
+    'Move', { key: 'M' }));
 
   if (FIXTURES[kind]?.rotates) {
     // Which side a thing faces means something different for each of them, and
@@ -2269,6 +2272,13 @@ function wireFixtureMenu(ui, f, live) {
     el.onclick = () => ui.withBuildMode(() => {
       const what = el.dataset.act;
       if (what === 'move') {
+        // Read at the PRESS rather than off `bulk` above: a menu is a render and
+        // a selection can have changed under it.
+        //
+        // Several is aimed rather than carried, because hands hold one fixture.
+        // It closes this menu and says its own line — "carrying" is the wrong
+        // word for six things that never left the floor.
+        if (ui.manyPicked) { ui.shiftSelection?.(); return; }
         // One errand, start to finish: `startMove` holds the mode open across
         // the carry and `endMove` reopens this menu on it wherever it lands.
         ui.startMove(f);

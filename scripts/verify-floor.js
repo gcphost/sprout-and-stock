@@ -111,6 +111,15 @@ const TEST_FLOORS = [
     surface: { color: '#9a8f74', pattern: 'plain' },
     tiers: [{ name: 'Standard', cost: 0 }],
   },
+  /** A pad that goes OUTDOORS, for the refusal in §6 — a pen stands on grass. */
+  {
+    id: 'verify-floor-paddock',
+    kind: 'paddock',
+    name: 'Verify Paddock',
+    cost: PAD,
+    surface: { color: '#7d7a4e', pattern: 'plain' },
+    tiers: [{ name: 'Standard', cost: 0 }],
+  },
 ];
 
 /** The one world this sweep writes for real — see the round trip in section 9c. */
@@ -415,6 +424,47 @@ function grassPatch(g, w = 2, h = 2) {
       eq(scrape.reason, 'something is standing on it', 'and says why');
     }
   }
+
+  /**
+   * ...AND THE SAME REFUSAL WHEN LAYING, which is the half that was missing and
+   * was found from a screenshot: a hen house sold back under a colour.
+   *
+   * The check lived in the eraser's branch alone and every word of its argument
+   * is about laying too. A pen stands on GRASS, so `groundIsBusy` never fires —
+   * grass is exactly what you may paint over — and `blocked` was never asked:
+   * one press of a paddock over your own pen stamped `T.PADDOCK`, the re-flow
+   * found a fixture whose `where` is outdoor grass, and dropped it. Refunded, so
+   * nothing reads as stolen, and undo cannot put it back — what undo restores is
+   * the ground, not the shed placement.
+   *
+   * Paired with the re-tile below, or the fix is "you may never paint near your
+   * own shop": the test is whether the TILE moves, so a floor swapped for
+   * another floor strands nobody and must go through.
+   */
+  const penAt = grassPatch(g, 2, 2);
+  check(!!penAt, 'there is grass to stand a pen on');
+  const built = penAt ? g.placeFixture('me', { kind: 'pen', ...penAt, rot: 0 }) : { ok: false };
+  check(built.ok, 'and a pen goes up on it', built.error ?? '');
+  const pen = g.layout.pens?.[0] ?? null;
+  const spot = pen ? { x: pen.x, z: pen.z } : null;
+  if (spot) {
+    const over = canPaintGround(g.layout, [spot], 'paddock', 'verify-floor-paddock');
+    check(!over.ok, 'ground that would change under a fixture is refused when LAYING too');
+    eq(over.reason, 'something is standing on it', 'and says why');
+    const press = g.buildGround('me', { ...spot, piece: 'verify-floor-paddock' });
+    check(!press.ok, 'and the press is refused, not charged for', press.error ?? '');
+    check(g.layout.pens.some((q) => q.x === pen.x && q.z === pen.z),
+      'so the pen is still standing');
+  }
+
+  // The pair: a design swapped for another design leaves the tile where it was,
+  // so an aisle can be redecorated under its own shelving.
+  const unit = g.layout.shelves[0];
+  const retile = g.buildGround('me', { x: unit.x, z: unit.z, piece: 'verify-floor-dear' });
+  check(retile.ok, 'and a shelf is no bar to re-tiling the floor under it', retile.error ?? '');
+  eq(groundAt(g, unit.x, unit.z), T.FLOOR, 'which is still shop floor');
+  check(g.layout.shelves.some((s) => s.x === unit.x && s.z === unit.z),
+    'with the shelf still on it');
 
   // A bed is off limits, and says which job it is you would be taking away.
   const L = g.layout;

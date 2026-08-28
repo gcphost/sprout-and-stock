@@ -895,6 +895,22 @@ export const ShopRoom = (Base) => class extends Base {
       client.send('action-result', this.game.liftFixture(client.sessionId, m?.id));
     });
 
+    // ...and the same errand done to a SELECTION, which cannot be a carry: your
+    // hands hold one fixture, so six picked up one at a time is six trips. A
+    // batch is a rigid translation instead — one delta, one hold, one undo step
+    // — and the client aims it the way it aims a stamp. See `shiftFixtures`.
+    //
+    // `sendLayout` on the way out like every other verb that moves a tile, and
+    // one `undoStep` around the batch for `build-remove`'s reason: a player who
+    // wants the aisle back wants all of it back in one press of Ctrl+Z.
+    this.onMessage('build-shift', (client, m) => {
+      const res = this.game.undoStep('that move', () => this.game.shiftFixtures(
+        client.sessionId, targets(m), m?.dx, m?.dz,
+      ));
+      client.send('action-result', res);
+      if (res.ok) this.sendLayout();
+    });
+
     // With an `itemId` it is one board of a unit rather than the whole thing —
     // the delete button on a board row. Same gate, same crates, finer address.
     this.onMessage('build-empty', (client, m) => {

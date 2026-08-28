@@ -15,7 +15,7 @@ import { Transport } from './transport.js';
 import { UI } from './ui.js';
 import { pillDrives } from './input.js';
 import { RAIL_ITEMS } from './sections.js';
-import { showFixture, refreshFixture, ONE_AT_A_TIME } from './fixture-menu.js';
+import { showFixture, refreshFixture } from './fixture-menu.js';
 import { showWorker } from './worker-menu.js';
 import { showEdgeMenu, hasEdgeMenu, kindAt } from './edge-menu.js';
 import { Menu, preselectedWorld, setMenuApi, enableJoin } from './menu.js';
@@ -272,6 +272,11 @@ net.on('layout', (m) => {
   // An open fixture menu has to follow its fixture through the re-flow — a
   // fixture that was turned comes back with a new id on the same tile.
   refreshFixture(ui, scene.allFixtures());
+  // ...and a selection that was MOVED lands on this layout rather than following
+  // one: a batch move re-mints every id it touched, so what was picked is named
+  // by the cells it was sent to. Before the two below, because both are about
+  // re-pointing a selection and this one is what there is to re-point.
+  ui.claimShifted(scene.allFixtures());
   // ...and so does a thing that is merely SELECTED, which is the case the menu's
   // own refresh cannot see. R turns the fixture you picked without opening it,
   // and the working spots are the only part of the marker a turn moves.
@@ -408,6 +413,10 @@ net.on('action', (res) => {
   // says you're carrying it means the lift didn't happen, and the mode the menu
   // was holding open for the carry has nothing left to hold it open for.
   ui.abortMove();
+  // ...and the same for a batch move: a refusal sends no layout, so a selection
+  // waiting at cells nothing ever arrived on would land on the next re-flow
+  // instead — picking out whatever happens to be standing there by then.
+  ui.markShifted(null);
 });
 net.on('disconnected', () => ui.toast('Disconnected from the shop', true));
 // A drop the transport is going to try to undo. Said out loud, because the shop
@@ -705,10 +714,10 @@ addEventListener('keydown', (e) => {
   // lifts whatever the pointer happens to be over is the proximity bug again.
   if (k === 'm') {
     const f = ui.selectedFixture();
-    // ...and it is one at a time for the reason R is (`rotateSelected`), said
-    // louder: your hands hold one fixture, so a Move over a selection of six
-    // could only ever have been a Move of one of them.
-    if (f && ui.manyPicked) ui.toast(ONE_AT_A_TIME);
+    // ...and a selection of several is the aimed move rather than a carry, which
+    // is the Move BUTTON's own split said on the key — a shortcut that refused
+    // where the button it duplicates works is two rules to learn.
+    if (f && ui.manyPicked) ui.withBuildMode(() => ui.shiftSelection());
     else if (f) liftAimed(f, { reopen: false });
   }
   // ...and Delete tears the selection out, which is the Remove button's key and
@@ -3269,6 +3278,20 @@ let stampCells = [];
  * drawn under it, which reads as Ctrl+C not having taken.
  */
 let stampSeq = 0;
+/**
+ * ...AND THE BLUEPRINT THAT IS A MOVE RATHER THAN A COPY.
+ *
+ * Null while what is held is an ordinary stamp; otherwise the ids the press
+ * will shift and the corner they are standing at right now, which is what turns
+ * the pointer into a delta.
+ *
+ * It rides the SAME held blueprint as Ctrl+C on purpose. Both are "something in
+ * your hands that a press puts down", both draw one footprint under the pointer,
+ * and two of them would be two promises about one click — the pair
+ * `selectBuildTool` and `copySelection` already refuse to be. What differs is
+ * one message at the end and one flag here.
+ */
+let shiftFrom = null;
 // Registered on `ui` for the reason `dropBoardPick` is: the ladder that owns
 // Escape is `ui.escape`, and one listener owning the key is the rule this file's
 // keydown handler is written around.
@@ -3282,11 +3305,90 @@ function dropStamp(dry = false) {
   if (dry) return true;
   clipboard = null;
   stampCells = [];
+  // A MOVE that was aimed and never landed, which is the one of the two that
+  // owns state outside this file: it borrowed build mode off a fixture menu, and
+  // dropping the blueprint is where that mode goes back. Unconditional, because
+  // `endShift` is a no-op for a stamp and a branch here would be one more place
+  // the two can drift.
+  shiftFrom = null;
+  ui.endShift();
   scene.setRunGhost(null, null);
   scene.setFloorGhost(null, null);
   ui.setBuildVerdict(null);
   refreshGhost(true);
   return true;
+}
+
+/**
+ * MOVE, WITH SEVERAL PICKED.
+ *
+ * A selection cannot be carried — `holding` is one fixture, because hands are —
+ * so this is aimed instead: the shop keeps standing where it is, the preview
+ * follows the pointer, and the press sends the one delta. Every member keeps its
+ * own facing, its own tier and its own tile relative to the rest, because the
+ * server moves them as a rigid group (`shiftFixtures`).
+ *
+ * The anchor is the top-left of the group's own footprint, which is `paste`'s
+ * anchor exactly and is the reason it is that rather than the fixture whose menu
+ * you were in: with six picked there is no "the one you clicked", and a gesture
+ * the player has already learnt on Ctrl+V beats a second rule.
+ *
+ * `pickedFixtures` before anything closes the panel — `closePanel` clears the
+ * selection, and this is called from a fixture menu that is about to shut.
+ */
+ui.shiftSelection = () => {
+  const picks = ui.pickedFixtures();
+  if (picks.length < 2) return false;
+  // `footprint` and not the anchor tile, for `copySelection`'s reason: a pen's
+  // record is its min corner and a 2x2 reaches a cell further both ways.
+  const at = picks.flatMap((f) => footprint(f.kind, f.x, f.z));
+  const x0 = Math.min(...at.map((c) => c.x));
+  const z0 = Math.min(...at.map((c) => c.z));
+
+  clipboard = picks.map((f) => ({
+    dx: f.x - x0,
+    dz: f.z - z0,
+    kind: f.kind,
+    piece: f.piece ?? null,
+    variant: f.variant ?? '',
+    rot: f.rot ?? 0,
+    deck: f.deck ?? 0,
+  }));
+  // Ground stays where it is: this moves what is standing on the floor, not the
+  // floor. A copied ROOM carries its pads because it is being built again
+  // somewhere else; a move is the same units on different tiles.
+  stampCells = [];
+  shiftFrom = { ids: picks.map((f) => f.id), x: x0, z: z0 };
+  stampSeq++;
+  // Before the panel closes, or `releaseMenuMode` hands back the build mode this
+  // errand is about to need — nothing goes into your hands here, so `holding`
+  // never goes true and `_shift` is the only thing holding the mode open.
+  ui.startShift();
+  // Holding a blueprint means holding nothing else — `copySelection`'s pair.
+  ui.disarmTool();
+  // AND THE MENU GOES, which is the half that is not bookkeeping: the panel is
+  // half the screen and what you are about to do is point at the floor behind
+  // it. Owned here rather than by each caller, so the button, the M key and the
+  // pill row cannot disagree about it.
+  ui.closePanel();
+  ui.toast(`Moving ${picks.length} — click where they should go · Escape leaves them`);
+  return true;
+};
+
+/** The press at the end of it. One message, one delta, one undo step. */
+function commitShift(tile) {
+  const from = shiftFrom;
+  net.send('build-shift', { ids: from.ids, dx: tile.x - from.x, dz: tile.z - from.z });
+  // What was picked is still what is picked, which is `endMove`'s claim about
+  // one fixture said about six — named by the cells it is being sent to, since
+  // the ids it will come back wearing do not exist yet.
+  ui.markShifted(clipboard.map((c) => ({
+    kind: c.kind, x: tile.x + c.dx, z: tile.z + c.dz, deck: c.deck,
+  })));
+  // Unlike a stamp, which stays in your hands so an aisle can be laid four
+  // times down a wall: these units are somewhere else now, and a blueprint of
+  // where they used to be is a second move nobody asked for.
+  dropStamp();
 }
 
 /**
@@ -3344,6 +3446,11 @@ function copySelection() {
     .map((c) => ({ dx: c.x - x0, dz: c.z - z0 }));
 
   stampSeq++;
+  // ...and a COPY is not a move, which is the one field that tells the two
+  // halves of the held blueprint apart. Ctrl+C over an aimed move replaces it,
+  // and `endShift` is what hands back the mode that move had on loan.
+  shiftFrom = null;
+  ui.endShift();
   // Holding the blueprint means holding nothing else. Arming a tool is what
   // puts it down (`ui.onArm`), and this is the other half of that pair — a
   // shelf ghost and a stamp footprint under one pointer would be two promises
@@ -3399,6 +3506,18 @@ function stampFootprint(tile, fixtures) {
 /** Where the stamp would land — the ghost's cells, and the paste's own anchor. */
 function pasteCells(tile) {
   if (!clipboard || !tile) return [];
+  /**
+   * A MOVE FORGIVES ITSELF, and it has to forgive the whole GROUP.
+   *
+   * The units being shifted are still standing where they are — nothing is in
+   * the air — so an aisle nudged one square along has every member but the
+   * leading one previewing over the neighbour it is about to replace. Asked one
+   * id at a time that reads as amber down the whole row, over a press the server
+   * accepts: the green-ghost bug pointed the other way, which is the one that
+   * makes a working feature look broken. `ignores` in shared/build.js is the
+   * server's own answer to the same question, so both ends agree by asking it.
+   */
+  const ignoreId = shiftFrom ? new Set(shiftFrom.ids) : null;
   return clipboard.map((c) => ({
     x: tile.x + c.dx,
     z: tile.z + c.dz,
@@ -3409,7 +3528,7 @@ function pasteCells(tile) {
     deck: c.deck,
     state: canPlace(scene.storeLayout, {
       kind: c.kind, x: tile.x + c.dx, z: tile.z + c.dz, rot: c.rot, deck: c.deck,
-    }).ok ? 'ok' : 'warn',
+    }, { ignoreId }).ok ? 'ok' : 'warn',
   }));
 }
 
@@ -5966,7 +6085,18 @@ function pressHints({ aim, board, onPile, drop }) {
     // because a bare drag is still the camera: the press has to settle first
     // (`MOVE_DWELL_MS`), and naming only the second half of the gesture is how
     // you end up sweeping at a shelf and blaming the feature.
-    add('l', 'hold-drag', 'Move it', () => liftAimed(sel, { reopen: false }));
+    //
+    // ...and with SEVERAL picked it is the aimed move instead, with no gesture
+    // named: a drag is a press on one unit, and the group is what the ring says
+    // it is. This row is the only way into either on a phone, where there is no
+    // M key and the whole point of the pill is that a build verb should not be
+    // behind a menu you have to know about.
+    if (ui.manyPicked && ui.isSelected(sel)) {
+      add('l', null, `Move ${ui.pickedIds().length}`,
+        () => ui.withBuildMode(() => ui.shiftSelection()));
+    } else {
+      add('l', 'hold-drag', 'Move it', () => liftAimed(sel, { reopen: false }));
+    }
     // ...and the one press here that is not a press at all. Only on the unit
     // that is actually selected, because that is what R acts on — offering it
     // over a fixture you are merely hovering would turn the one behind you.
@@ -7013,7 +7143,10 @@ function tapAtPointer(cx, cy) {
      * second one a trip back to the selection. Escape puts it down.
      */
     if (clipboard && ui.buildOn) {
-      pasteAtPointer(tile);
+      // ...and which of the two blueprints it is decides what the press SENDS,
+      // and nothing else about it: same footprint, same aim, same Escape.
+      if (shiftFrom) commitShift(tile);
+      else pasteAtPointer(tile);
       scene.ripple(tile.x, tile.z);
       return;
     }

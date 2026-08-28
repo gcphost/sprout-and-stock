@@ -18314,6 +18314,66 @@ export class Game {
   }
 
   /**
+   * MOVE A WHOLE SELECTION, by the same step, in one press.
+   *
+   * The other way to move something is `liftFixture`/`dropFixture`, and it
+   * cannot be this: hands hold ONE fixture (`p.holding` is a record, not a
+   * list), and six things picked up one at a time is six carries. So a batch is
+   * a *rigid translation* instead — nothing is ever in the air, every member
+   * keeps its own facing and its own tile relative to the rest, and the whole
+   * press is one delta.
+   *
+   * Which is also what makes it cheap and safe. A translation by a non-zero
+   * step is a bijection with no fixed points, so no two members can land on the
+   * same cell however the batch is ordered — and that is the one thing a held
+   * re-flow needs from a verb that MOVES tiles. `holdReflow`'s own note says why
+   * it is safe for everything else: each verb checks `canPlace` against the shop
+   * as it stood before the batch, "which is the same shop, since none of them
+   * moves a tile". This one moves every tile it touches, so the stale layout
+   * still has the whole aisle standing where it was — and each member is then
+   * refused for being in the way of the neighbour it is about to replace. Six
+   * legal placements, six noes, and the shop reports that none of it would go.
+   * `ignore` is the answer: the batch's ids are forgiven as one set, exactly as
+   * a single move forgives the fixture in your hands.
+   *
+   * A partial batch is `bulkFixtures`' rule and not a special case — a shelf
+   * that would land in a wall stays where it is and the press says so, rather
+   * than the whole aisle refusing over the one member at the end of it.
+   */
+  shiftFixtures(playerId, ids, dx, dz) {
+    const p = this.players[playerId];
+    if (!p) return err('no such player');
+    if (!p.build?.on) return err('not in build mode');
+    const sx = Math.round(Number(dx) || 0);
+    const sz = Math.round(Number(dz) || 0);
+    // Not a refusal anybody can act on if it is silent: a press that lands the
+    // selection back where it started is the one press here that is honestly
+    // nothing at all, and every member would come back "that fixture is already
+    // there" from `canPlace` — which reads as the move having been refused.
+    if (!sx && !sz) return err('that is where it already is');
+
+    const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
+    const all = new Set(list);
+    return this.bulkFixtures(list, (id) => {
+      const f = this.findFixture(id);
+      if (!f) return err('no such fixture');
+      // Every field named, the way `dropFixture` names them — `repositionFixture`
+      // defaults the ones it can from the record it is replacing, and `station`
+      // is the one that has no fallback there.
+      return this.repositionFixture(id, {
+        kind: f.kind,
+        piece: f.piece ?? null,
+        station: f.station ?? null,
+        x: Math.round(f.x) + sx,
+        z: Math.round(f.z) + sz,
+        rot: f.rot ?? 0,
+        tier: this.fixtureTier(f),
+        variant: this.fixtureVariant(f),
+      }, { ignore: all });
+    }, (n) => `Moved ${n} fixtures.`);
+  }
+
+  /**
    * Turn a fixture a quarter turn on the spot.
    *
    * Rotation is which side people use it from, so for a shelf it decides which
@@ -18427,8 +18487,17 @@ export class Game {
    * never lose its stock one way and keep it the other. A repositioned fixture
    * gets a fresh id so it can't collide with one the generator is about to
    * mint, and `alias` carries its contents across the re-flow.
+   *
+   * `ignore` is how a BATCH gets asked one at a time and still answers as a
+   * batch. Every check below runs against `this.layout`, which under a
+   * `holdReflow` is the shop as it stood before the first of them moved — so a
+   * whole aisle shifted one square along has every member but the leading one
+   * refused for standing in the way of the neighbour it is about to replace,
+   * and the six perfectly legal placements come back as six noes. See
+   * `shiftFixtures`, and `ignores` in shared/build.js for why forgiving the
+   * whole set at once is safe rather than merely convenient.
    */
-  repositionFixture(id, spec) {
+  repositionFixture(id, spec, { ignore = null } = {}) {
     const from = this.findFixture(id);
     if (!from) return err('that fixture is gone');
 
@@ -18507,7 +18576,7 @@ export class Game {
       // floor, through a shelf, on the re-flow this call triggers.
       deck: from.deck,
     };
-    const check = canPlace(this.layout, placement, { ignoreId: id });
+    const check = canPlace(this.layout, placement, { ignoreId: ignore ?? id });
     if (!check.ok) return err(check.reason);
 
     // The PLACEMENT rather than `from`, which is the layout record — they carry

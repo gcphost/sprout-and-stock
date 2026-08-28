@@ -141,9 +141,9 @@ export function recordUndo(game, part) {
  * placement exactly as it stood, tier, variant, `boh` and every conveyor
  * setting included.
  */
-function putBack(game, spec) {
+function putBack(game, spec, ignore = null) {
   const placement = { ...spec, id: `fx-${game.nextFixtureId}` };
-  const check = canPlace(game.layout, placement);
+  const check = canPlace(game.layout, placement, { ignoreId: ignore });
   if (!check.ok) return { ok: false, error: check.reason };
   game.nextFixtureId++;
   game.placements.push(placement);
@@ -186,15 +186,15 @@ function takeAway(game, id) {
  * `part.id` is rewritten on the way through, because both paths mint a fresh
  * id and the entry has to still name the right thing when the redo comes.
  */
-function goTo(game, part, target) {
+function goTo(game, part, target, ignore = null) {
   if (!target) return takeAway(game, part.id);
   const standing = part.id ? game.findFixture(part.id) : null;
   if (standing) {
-    const res = game.repositionFixture(part.id, target);
+    const res = game.repositionFixture(part.id, target, { ignore });
     if (res.ok) part.id = res.id;
     return res;
   }
-  const res = putBack(game, target);
+  const res = putBack(game, target, ignore);
   if (res.ok) part.id = res.id;
   return res;
 }
@@ -209,7 +209,7 @@ function goTo(game, part, target) {
  * the Ctrl+Z: somebody stocked the shelf, a wall went up across the tile, the
  * fixture was torn out by the other player.
  */
-function couldGoTo(game, part, target) {
+function couldGoTo(game, part, target, ignore = null) {
   if (!target) {
     const f = part.id ? game.findFixture(part.id) : null;
     if (!f) return 'that fixture is gone';
@@ -221,7 +221,7 @@ function couldGoTo(game, part, target) {
   }
   const standing = part.id ? game.findFixture(part.id) : null;
   const probe = { ...target, id: standing ? part.id : `fx-${game.nextFixtureId}` };
-  const check = canPlace(game.layout, probe, standing ? { ignoreId: part.id } : undefined);
+  const check = canPlace(game.layout, probe, { ignoreId: ignore ?? (standing ? part.id : null) });
   return check.ok ? null : check.reason;
 }
 
@@ -238,9 +238,9 @@ function setGround(game, cell, entry) {
   if (entry) game.ground.push({ ...entry });
 }
 
-function applyPart(game, part, dir) {
+function applyPart(game, part, dir, ignore = null) {
   const target = dir === 'undo' ? part.from : part.to;
-  if (part.t === 'fixture') return goTo(game, part, target);
+  if (part.t === 'fixture') return goTo(game, part, target, ignore);
   if (part.t === 'edges') {
     for (const s of part.segs) setEdge(game, s, dir === 'undo' ? s.was : s.now);
     game.regenerateLayout();
@@ -268,9 +268,37 @@ function applyPart(game, part, dir) {
   return { ok: true };
 }
 
-function couldApply(game, part, dir) {
+function couldApply(game, part, dir, ignore = null) {
   if (part.t !== 'fixture') return null;
-  return couldGoTo(game, part, dir === 'undo' ? part.from : part.to);
+  return couldGoTo(game, part, dir === 'undo' ? part.from : part.to, ignore);
+}
+
+/**
+ * EVERY FIXTURE IN THIS STEP THAT IS ABOUT TO LEAVE WHERE IT STANDS.
+ *
+ * One press can move several units at once (`shiftFixtures`), and every check in
+ * here runs against `game.layout` — which under the `holdReflow` below is the
+ * shop as it stood before the first part moved. So an aisle put back one square
+ * along has each member refused for standing in the way of the neighbour it is
+ * about to replace, and because half an undo is worse than none, the WHOLE step
+ * is refused. Nothing is wrong with any of it: press Ctrl+Z on a move you just
+ * made and the shop says "something is already there" about the shop you asked
+ * it to go back to.
+ *
+ * Which is exactly the question `ignores` (shared/build.js) answers for the
+ * press itself, so it is answered the same way here. Only the parts that
+ * actually change TILE are forgiven: a part standing still — a restyle, a rung —
+ * is not leaving, and forgiving it would let another part land on top of it.
+ */
+function movingIds(order, dir) {
+  const out = new Set();
+  for (const p of order) {
+    if (p.t !== 'fixture' || !p.id) continue;
+    const now = dir === 'undo' ? p.to : p.from;
+    const then = dir === 'undo' ? p.from : p.to;
+    if (!now || !then || now.x !== then.x || now.z !== then.z) out.add(p.id);
+  }
+  return out;
 }
 
 /**
@@ -291,8 +319,11 @@ function walk(game, dir) {
   if (!step) return { ok: false, error: dir === 'undo' ? 'nothing to undo' : 'nothing to redo' };
 
   const order = dir === 'undo' ? [...step.parts].reverse() : step.parts;
+  // Read once, before anything moves — the ids are re-minted as the walk goes,
+  // and what has to be forgiven is where each of them is standing NOW.
+  const moving = movingIds(order, dir);
   for (const part of order) {
-    const why = couldApply(game, part, dir);
+    const why = couldApply(game, part, dir, moving);
     if (why) return { ok: false, error: why };
   }
 
@@ -309,7 +340,7 @@ function walk(game, dir) {
   let failed = null;
   game.holdReflow(() => {
     for (const part of order) {
-      const res = applyPart(game, part, dir);
+      const res = applyPart(game, part, dir, moving);
       if (!res.ok) failed ??= res.error;
     }
   });

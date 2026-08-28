@@ -360,8 +360,27 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
 {
   const g = fresh();
   const L = () => g.layout;
-  const spot = { x: L().store.x + 2, z: L().store.z + 2 };
-  eq(L().tiles[spot.z * L().w + spot.x], T.FLOOR, 'there is empty shop floor to work on');
+  /**
+   * Floor AND unoccupied, which are two questions since a tile stopped saying
+   * what is standing on it.
+   *
+   * It was `store.x + 2, store.z + 2` with a tile test, and in this seed that is
+   * a cell with a SHELF on it — floor, and blocked. Laying a pad there used to
+   * go through and the re-flow then shed the shelf and refunded it, which is the
+   * bug `canPaintGround` refuses now (see verify:floor §6), so the setup was
+   * quietly demolishing a fixture to make its point.
+   */
+  const spot = (() => {
+    for (let z = L().store.z + 1; z < L().store.z + L().store.h - 1; z++) {
+      for (let x = L().store.x + 1; x < L().store.x + L().store.w - 1; x++) {
+        if (L().tiles[z * L().w + x] !== T.FLOOR) continue;
+        if (L().blocked[z * L().w + x]) continue;
+        return { x, z };
+      }
+    }
+    return null;
+  })();
+  check(!!spot, 'there is empty shop floor to work on');
 
   const paint = g.buildGround('me', { ...spot, piece: 'verify-yard-drop' });
   check(paint.ok, 'storage can be laid indoors', paint.error ?? '');

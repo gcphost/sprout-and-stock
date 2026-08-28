@@ -916,6 +916,69 @@ export class UI {
     if (move.reopen) showFixture(this, f);
   }
 
+  // ---- ...and moving SEVERAL of them ---------------------------------------
+  //
+  // A selection cannot be carried: `holding` is one fixture, because hands are.
+  // So a batch move is aimed rather than carried — the shop keeps standing
+  // where it is, the preview follows the pointer, and a press sends the one
+  // delta (`build-shift`). `main.js` owns that preview, the way it owns the
+  // stamp's; what lives here is the half `startMove` exists for, which is
+  // holding a BORROWED build mode open across an errand that spans frames.
+
+  /**
+   * Pressing Move with several picked. `borrowed` is `startMove`'s distinction
+   * exactly, and it matters more here: the press comes out of a fixture menu,
+   * and closing that menu is the first thing the errand does.
+   */
+  startShift() {
+    this._shift = { borrowed: !!this._modeFromMenu };
+  }
+
+  /** Aimed, or given up on. Hand back a mode that was only ever on loan. */
+  endShift() {
+    const shift = this._shift;
+    this._shift = null;
+    if (!shift?.borrowed) return;
+    this._modeFromMenu = true;
+    this.releaseMenuMode();
+  }
+
+  /**
+   * WHERE THE BATCH IS GOING, so the selection can be waiting for it.
+   *
+   * `endMove`'s claim about one fixture, said about six, and it is the same
+   * argument word for word: a move re-mints every id it touches, so the
+   * selection cannot simply survive one — and lining an aisle up is several
+   * nudges, so a selection that emptied itself on the first is six shift-clicks
+   * before the second.
+   *
+   * By CELL rather than by id, because the ids do not exist yet: the press has
+   * been sent and the shop has not answered. `claimShifted` runs on the layout
+   * that answers it.
+   */
+  markShifted(cells) {
+    this._shiftTo = cells?.length ? cells : null;
+  }
+
+  /**
+   * ...and the layout that says it landed. Called before `refollowSelection`,
+   * which then re-points the fresh ref through the ordinary path.
+   *
+   * A batch that lands on nothing is left alone rather than cleared to null: the
+   * press was refused, the shop did not move, and taking the selection away
+   * would be the move's failure costing you the aisle you had picked.
+   */
+  claimShifted(fixtures) {
+    const want = this._shiftTo;
+    if (!want) return;
+    this._shiftTo = null;
+    const found = want.map((c) => fixtures.find((f) => sameFixture(f, c))).filter(Boolean);
+    if (!found.length) return;
+    this.setFixtureRef(found[0]);
+    this.picked = found.slice(1);
+    this.syncPickMarkers();
+  }
+
   selectBuildTool(id) {
     const t = buildTools(this).find((x) => x.id === id);
     if (!t) return;
@@ -5844,7 +5907,12 @@ export class UI {
     // Mid-move. Dropping out now would strand the thing in your hands — and
     // `holding` is a snapshot behind the press, so the lift carries its own flag
     // for the gap in between.
-    if (this.holding || this._lifting) return;
+    //
+    // `_shift` is the same claim for a move that is aimed rather than carried:
+    // nothing is in your hands there, so `holding` never goes true and the very
+    // first thing that errand does is close the menu that lent us the mode —
+    // which would hand it straight back and refuse the press at the end of it.
+    if (this.holding || this._lifting || this._shift) return;
     this._modeFromMenu = false;
     // However you were put into it is how you're taken back out: a mode you
     // were never told about shouldn't announce itself on the way out.

@@ -419,8 +419,25 @@ const secondsOf = (id) => Math.max(1, content().byId.pastimes[id]?.seconds ?? 20
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
-  const spot = { x: g.layout.store.x + 2, z: g.layout.store.z + 2 };
-  eq(g.layout.tiles[spot.z * g.layout.w + spot.x], T.FLOOR, 'there is shop floor to work on');
+  /**
+   * Floor AND unoccupied, which are two questions since a tile stopped saying
+   * what is standing on it. This was a tile test on a fixed cell, and in this
+   * seed that cell has a SHELF on it — so laying a pad there went through and
+   * the re-flow then shed the shelf and refunded it, which `canPaintGround`
+   * refuses now (verify:floor §6). The setup was demolishing a fixture to make
+   * its point.
+   */
+  const spot = (() => {
+    const L = g.layout;
+    for (let z = L.store.z + 1; z < L.store.z + L.store.h - 1; z++) {
+      for (let x = L.store.x + 1; x < L.store.x + L.store.w - 1; x++) {
+        if (L.tiles[z * L.w + x] !== T.FLOOR || L.blocked[z * L.w + x]) continue;
+        return { x, z };
+      }
+    }
+    return null;
+  })();
+  check(!!spot, 'there is shop floor to work on');
 
   const paint = g.buildGround('me', { ...spot, piece: 'verify-break-room' });
   check(paint.ok, 'a break area can be laid indoors', paint.error ?? '');

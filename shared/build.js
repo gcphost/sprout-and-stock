@@ -1188,14 +1188,40 @@ export function blockedAt(L, x, z, ignoreId = null) {
   if (x < 0 || z < 0 || x >= L.w || z >= L.h) return false;
   if (!L.blocked?.[z * L.w + x]) return false;
   if (!ignoreId) return true;
-  const moving = fixturesOf(L).find((f) => f.id === ignoreId);
-  if (!moving) return true;
-  // Every cell it is standing on, not just its origin. A 2x2 shuffled one
-  // square along overlaps three of its own cells, and with only the origin
+  // Every cell each of them is standing on, not just its origin. A 2x2 shuffled
+  // one square along overlaps three of its own cells, and with only the origin
   // forgiven it would be refused for standing where it already is — which reads
   // as a pen that cannot be moved at all.
-  return !footprint(moving.kind, Math.round(moving.x), Math.round(moving.z))
-    .some((c) => c.x === x && c.z === z);
+  return !fixturesOf(L).some((f) => ignores(ignoreId, f.id)
+    && footprint(f.kind, Math.round(f.x), Math.round(f.z))
+      .some((c) => c.x === x && c.z === z));
+}
+
+/**
+ * IS THIS FIXTURE ONE OF THE ONES IN THE AIR?
+ *
+ * `ignoreId` was a single id for as long as only one thing could be moving,
+ * which was true right up until Move learned about a selection. A whole aisle
+ * shifted one square along is the case that breaks the old spelling and does it
+ * in the most convincing way there is: every shelf but the leading one lands on
+ * the cell its neighbour is *currently* standing in, so each is refused for
+ * being in the way of itself-one-along — the placement is perfectly legal and
+ * the shop says no to all six of them.
+ *
+ * So it takes a `Set` as well, and every one of the eight places that used to
+ * write `f.id === ignoreId` asks this instead. Which is the whole point of it
+ * being a function rather than a widened comparison at each site: a site that
+ * kept the `===` would work for a selection of one and quietly answer "no" for
+ * the case this exists for, which is the shape half of the bugs in this file's
+ * comments already have.
+ *
+ * A rigid translation is a bijection with no fixed points, so no two members of
+ * a batch can ever land on the same cell — which is exactly what makes it safe
+ * to forgive the whole set at once rather than one member at a time.
+ */
+export function ignores(ignoreId, id) {
+  if (!ignoreId || !id) return false;
+  return typeof ignoreId === 'string' ? ignoreId === id : !!ignoreId.has?.(id);
 }
 
 /**
@@ -2235,21 +2261,49 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
       bareAt(x, z),
     );
     if (!next) continue;
-    // See above: this would drop the fixture rather than strand it.
-    if (!laying && blockedAt(L, x, z)) return no('something is standing on it');
+
+    // Where the cell ENDS UP, which everything below is judged on rather than on
+    // what was aimed at it.
+    const tile = next.k ? groundTile(next.k) : T.GRASS;
+
+    /**
+     * GROUND OUT FROM UNDER SOMETHING STANDING ON IT, and it is the TILE that
+     * decides — in BOTH directions, which is the half that was missing.
+     *
+     * This refusal is the one deliberate exception to warn-don't-refuse
+     * (`groundIsBusy`'s note, and docs/building.md's): the generator would not
+     * leave a hen house standing on a paddock, it would DROP the placement on
+     * the next re-flow and refund it, so the brush would be a bulldozer wearing
+     * a paintbrush — and undo cannot put it back, because what it restores is
+     * the ground rather than the shed placement.
+     *
+     * It was asked of the ERASER only, and every word of the argument is about
+     * laying too. A pen stands on grass, so `groundIsBusy` never fires (grass is
+     * exactly what you may paint over) and `blocked` was never consulted: one
+     * press of Muddy Yard over your own hen house stamped `T.PADDOCK`, the
+     * re-flow found a pen whose `where` is outdoor grass, and the building was
+     * quietly sold back. Money in, so nothing reads as stolen — what you watch
+     * is a fixture disappearing under a colour, with no refusal and no way back.
+     *
+     * The TILE is the test rather than the stroke, or redecorating an aisle
+     * becomes impossible: a floor swapped for another floor leaves `T.FLOOR`
+     * where it was, so nothing standing on it is stranded and the press must go
+     * through. That is also what makes a look laid UNDER a pad free of this —
+     * the cell it lands on is the cell it was — and it is what the eraser's own
+     * version of this check should always have said: taking a design up off a
+     * shop floor strands nobody.
+     */
+    if (tile !== ground && blockedAt(L, x, z)) return no('something is standing on it');
     changed++;
 
-    // Two consequences, and both are about the TILE rather than about the
-    // stroke, which is what makes a look laid UNDER a job free of either: the
-    // cell it lands on is the cell it was. A cell that ends up indoors and is
-    // not floor is one nothing can ever be built or dug on, and a pad cell this
-    // stroke really does paint over is one that pad no longer has.
+    // Two consequences, and both are about the TILE for the same reason: a cell
+    // that ends up indoors and is not floor is one nothing can ever be built or
+    // dug on, and a pad cell this stroke really does paint over is one that pad
+    // no longer has.
     //
-    // Judged on where the cell ENDS UP rather than on what was aimed at it, or
-    // a floor dragged across a stockroom warns that it is taking your last
-    // storage tile away and then does not take it — a warning that goes off
-    // whatever you do is one nobody reads.
-    const tile = next.k ? groundTile(next.k) : T.GRASS;
+    // Judged on where the cell ends up, or a floor dragged across a stockroom
+    // warns that it is taking your last storage tile away and then does not take
+    // it — a warning that goes off whatever you do is one nobody reads.
     if (tile === ground) continue;
     if (was && padWas.has(was)) padLost.set(was, padLost.get(was) + 1);
     if (tile !== T.FLOOR && insideStore(L, x, z)) bared++;
@@ -4452,7 +4506,7 @@ function conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping) {
    * demolition the ghost never mentioned.
    */
   const above = spec.kind === 'lift' ? conveyorAt(L, x, z, CEILING) : null;
-  if (above && above.id !== ignoreId && above.kind !== spec.kind) {
+  if (above && !ignores(ignoreId, above.id) && above.kind !== spec.kind) {
     return { ok: true, warn: `replaces the ${FIXTURES[above.kind]?.label?.toLowerCase() ?? 'run'} overhead` };
   }
   // Overhead, the tile says NOTHING. A ceiling cell stamps no ground — that is
@@ -4479,7 +4533,7 @@ function conveyorSwap(L, def, spec, ground, x, z, ignoreId, keeping) {
   // different: swapping a belt for a loader is a purchase and warns about what
   // it replaces, where turning a piece you already own costs nothing and has
   // nothing to say.
-  if (here.id === ignoreId) return { ok: true };
+  if (ignores(ignoreId, here.id)) return { ok: true };
   // Only between the two conveyor kinds, and never for the same kind: a belt
   // over a belt is a press that takes money and changes nothing.
   if (here.kind !== spec.kind) {
@@ -4685,7 +4739,7 @@ function canPlaceProp(L, def, x, z, ignoreId, keeping = false) {
   if (def.at !== 'ceiling' && (!WALKABLE.has(tileAt(L, x, z)) || blockedAt(L, x, z, ignoreId))) {
     return no('something is already there');
   }
-  const clash = (L.props ?? []).some((p) => p.id !== ignoreId && p.x === x && p.z === z);
+  const clash = (L.props ?? []).some((p) => !ignores(ignoreId, p.id) && p.x === x && p.z === z);
   if (clash) return no('something is already there');
   return { ok: true };
 }
@@ -4900,7 +4954,7 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
   // ---- a till wants a queue ----------------------------------------------
   if (spec.kind === 'checkout') {
     const serve = anchorTile(x, z, spec.rot ?? 0);
-    const clash = (L.checkouts ?? []).some((c) => c.id !== ignoreId
+    const clash = (L.checkouts ?? []).some((c) => !ignores(ignoreId, c.id)
       && c.serveAt?.x === serve.x && c.serveAt?.z === serve.z);
     if (clash) return 'another till already serves that spot';
     // Measured against a shop with this till already standing in it, which used
@@ -4910,7 +4964,7 @@ function whatThisCosts(L, spec, def, { ignoreId }) {
     // pile-up the lane then bends its way out of. A till in a corner used to be
     // warned about on the strength of a straight run it never had.
     const others = new Set((L.checkouts ?? [])
-      .filter((c) => c.id !== ignoreId && c.serveAt)
+      .filter((c) => !ignores(ignoreId, c.id) && c.serveAt)
       .map((c) => `${c.serveAt.x},${c.serveAt.z}`));
     const best = Math.max(...queueAxis(spec.rot ?? 0)
       .map((d) => queueLane(probe, serve, d, { claimed: others }).length - 1));
@@ -4975,7 +5029,7 @@ function whatThisBlocks(L, spec, def, ignoreId) {
       // Every cell it stands on. Corner-only, a 2x2 being moved leaves three
       // quarters of itself in the mask, so the flood answers about a shop with
       // a hole in it and the warning fires on the placement that is fine.
-      if (f.id === ignoreId) {
+      if (ignores(ignoreId, f.id)) {
         for (const c of footprint(f.kind, f.x, f.z)) before[c.z * L.w + c.x] = 0;
       }
     }
@@ -5046,7 +5100,7 @@ function whatThisBlocks(L, spec, def, ignoreId) {
   }
 
   for (const f of fixturesOf(L)) {
-    if (f.id === ignoreId) continue;
+    if (ignores(ignoreId, f.id)) continue;
     if (f.kind === 'plot') {
       // A bed is worked from any side, so it only needs one of them — and it
       // has to have had one, or a bed you had already boxed in blames the next

@@ -554,6 +554,16 @@ Two consequences worth knowing:
   brush that quietly sells your shelving and its stock back is a bulldozer
   wearing a paintbrush, and the bulldozer is right there.
 
+  **And LAYING it, which was missing until step 31 and had to be reported from a
+  screenshot.** The check sat in the eraser's branch alone. A pen stands on
+  grass, so the "only ever over ground" refusal never fired — grass is exactly
+  what you may paint over — and `blocked` was never consulted: one press of a
+  paddock over your own hen house stamped the tile, the re-flow dropped the pen,
+  and it was refunded. Nothing reads as stolen and undo cannot help, because what
+  an undone ground step restores is the ground rather than the shed placement. The
+  test is whether the **tile moves** rather than which way the brush is pointed,
+  so an aisle can still be re-tiled under its own shelving.
+
 ### The yard stops being furniture
 
 **Built** — step 14, and it is the floor brush's argument applied to the last two
@@ -2421,6 +2431,55 @@ the number.
     phone it is two more buttons in the left thumb stack, because Shift is not a
     key that exists there — the latch is the interesting one. See above, and
     `verify:pick` §7–8.
+27c. **Moving what is picked.** *Built.* Move joins them, and it is the one of
+    the four that could not simply be handed to `bulkFixtures`, for two reasons
+    that are each worth a line.
+
+    It is not a CARRY. `p.holding` is one fixture because hands are, so six
+    picked up one at a time is six trips across the shop. A batch is a **rigid
+    translation** instead: nothing is ever in the air, the units keep standing
+    where they are, the whole group previews under the pointer and one press
+    sends one delta (`build-shift` → `Game.shiftFixtures`). The client aims it
+    with the blueprint machinery Ctrl+C already has — same held-in-your-hands
+    footprint, same anchor (the group's own top-left corner, which is paste's
+    anchor exactly and beats inventing a second rule), same Escape — and the one
+    thing that differs is which message the click sends.
+
+    And it MOVES A TILE, which is the one thing `holdReflow` was never safe for.
+    Its own note says why it is safe for the other bulk verbs: each looks its
+    own fixture up and checks `canPlace` "against the shop as it stood before
+    the batch — which is the same shop, since none of them moves a tile". A
+    shift makes that stale by construction, and the failure is a refusal rather
+    than a wrong answer: a row nudged one square *along itself* has every member
+    landing on the cell its neighbour has not vacated yet, so asked one id at a
+    time the shop says no to all but the first — measured at 1 of 4, "something
+    is already there", over six perfectly legal placements. So `ignoreId` takes
+    a **set** (`ignores`, shared/build.js) and the batch forgives itself as one.
+    What makes that safe rather than merely convenient is arithmetic: a rigid
+    translation is a bijection with no fixed points, so no two members can ever
+    land on the same cell, whatever order they are applied in.
+
+    The same bug is waiting one level up, and it bit on the first run. Undo
+    walks a step under the same hold and pre-checks every part with
+    `couldGoTo` — so a batch move could be made and not taken back, and because
+    half an undo is worse than none the *whole* step was refused: you press
+    Ctrl+Z on a move you made a second ago and the shop says "something is
+    already there" about the shop it is being asked to go back to. `movingIds`
+    is the same answer, narrowed to the parts that actually change tile, since a
+    part standing still (a restyle, a rung) is not leaving and forgiving it
+    would let another part land on top of it.
+
+    Three smaller things. The menu **closes itself** on the press, which is not
+    tidiness — the panel is half the screen and what you are about to do is
+    point at the floor behind it — and it is owned by `shiftSelection` so the
+    button, the M key and the pill row cannot disagree. The preview has to ask
+    the same forgiving question the server does, or the ghost is amber down the
+    whole aisle over a press the shop accepts, which is the green-ghost bug
+    pointed the other way. And the selection **follows it there** (`markShifted`
+    / `claimShifted`), by cell rather than by id because the ids do not exist
+    yet — `endMove`'s own argument said about six, since lining an aisle up is
+    several nudges and a selection that emptied itself on the first would be six
+    shift-clicks before the second. See `verify:pick` §9 and `verify:undo` §12.
 29. **The arch, and the three ways to be a fence.** *Built.* One new opening
     (`arch`, two rules — see above for why not four) and one new look family
     (`FENCING`: panel, hedge, railing, low wall, all at a fence's price and free

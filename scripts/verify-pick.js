@@ -45,7 +45,7 @@
  */
 
 import { Game } from '../server/sim/index.js';
-import { fixturesOf } from '../shared/build.js';
+import { fixturesOf, canPlace } from '../shared/build.js';
 import { silenceMilestones } from '../server/sim/goals.js';
 import { content } from '../server/content.js';
 import { pieceFor } from '../shared/pieces.js';
@@ -93,6 +93,35 @@ function fresh(want = SHOP) {
 }
 
 const shelvesOf = (g) => g.layout.shelves.filter((s) => s.kind === 'shelf');
+
+/**
+ * A run of `n + 1` free cells in one row — somewhere `n` units can stand in a
+ * line AND be nudged one square ALONG it.
+ *
+ * Along, and that is the whole of section 9 rather than a detail of it. A row
+ * shifted sideways lands on empty ground and no member is ever in another's way,
+ * which is a move the naive spelling gets right — so a sweep that nudged the
+ * row perpendicular to itself would pass on the bug. Measured: four shelves
+ * moved one square along refuse three of themselves with "something is already
+ * there", and the same four moved one square sideways all go.
+ *
+ * Derived off the shop rather than written down, because a hard-coded tile is a
+ * sweep that silently stops measuring the day this seed's shop is one square
+ * narrower.
+ */
+function findRun(g, n) {
+  const L = g.layout;
+  for (let z = 0; z < L.h; z++) {
+    for (let x = 0; x + n + 1 <= L.w; x++) {
+      let ok = true;
+      for (let i = 0; i <= n && ok; i++) {
+        ok = canPlace(L, { kind: 'shelf', x: x + i, z, rot: 0 }).ok;
+      }
+      if (ok) return { x, z };
+    }
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // 1. A shelf setting done to a whole selection lands on every one of them.
@@ -401,6 +430,121 @@ const shelvesOf = (g) => g.layout.shelves.filter((s) => s.kind === 'shelf');
     check(g.cash < cash, 'and a round trip up and back always loses money',
       `${cash} → ${g.cash}`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// 9. A SELECTION MOVED, which is the first bulk verb that moves a TILE.
+//
+// Every other verb in this file leaves the shop the shape it was, and that is
+// precisely what `holdReflow`'s own note says makes it safe: each member checks
+// `canPlace` against the shop as it stood before the batch, "which is the same
+// shop, since none of them moves a tile". A shift makes it stale by
+// construction, and the failure is not a wrong answer — it is a refusal.
+//
+// Its centrepiece is therefore the row nudged one square ALONG ITSELF, which is
+// the press this exists for and the one every naive spelling gets wrong: each
+// shelf but the leading one lands on the cell its neighbour is still standing
+// in, so asked one id at a time the shop says no to all but the first. Measured
+// on the naive spelling: 1 of 4, refused with "something is already there" — a
+// perfectly legal move, and nothing anywhere to say the rule being broken is
+// one about a batch rather than about a shelf.
+//
+// ALONG rather than sideways, and that is the sweep rather than a detail of it:
+// the same four moved one square sideways land on empty ground, no member is
+// ever in another's way, and the naive spelling gets all four right. A sweep
+// written that way round passes on the bug.
+//
+// Its control is a shift of ONE, which is `bulkFixtures`' rule said about the
+// new verb: every ordinary move in the game still goes through `liftFixture`,
+// but a selection of one must land here identically rather than growing a
+// second set of rules.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  // A row of shelving one tile apart, laid by hand so the geometry is the sweep's
+  // rather than the generator's — the whole claim is about members standing in
+  // each other's way, and a seed that happened to space them out would pass on a
+  // shop where the bug cannot happen.
+  //
+  // Found rather than written down: a hard-coded tile is a sweep that silently
+  // stops measuring the day the seed's shop is one square narrower.
+  const spot = findRun(g, 4);
+  const row = [];
+  if (spot) {
+    for (let i = 0; i < 4; i++) {
+      const res = g.placeFixture('me', { kind: 'shelf', x: spot.x + i, z: spot.z, rot: 0 });
+      if (res.ok) row.push(res.placed);
+    }
+  }
+  if (row.length < 4) {
+    console.log('   (no room for a hand-laid row in this shop — shift not measurable here)');
+  } else {
+    // Something on a board, because a move must never cost the shop its stock:
+    // `repositionFixture` re-mints the id and `alias` is what carries the goods
+    // across, and a batch is four aliases merged into one re-flow.
+    const item = (content().items ?? [])[0]?.id ?? null;
+    const unit = g.layout.shelves.find((s) => s.id === row[0]);
+    if (item && unit) {
+      unit.stacks = [{ item_id: item, qty: 6, price: 3, stockedDay: g.day }];
+    }
+    const stocked = g.fixtureContents(g.findFixture(row[0]));
+    check(!item || stocked === 6, 'the row has goods on it to lose', `${stocked}`);
+
+    const before = g.layoutVersion ?? 0;
+    const cash = g.cash;
+    g.log = [];
+    const res = g.shiftFixtures('me', row, 1, 0);
+    check(res.ok, 'a row shifted one square along itself is accepted', res.error ?? '');
+    eq(res.done, 4, 'and every one of the four goes');
+    eq((g.layoutVersion ?? 0) - before, 1, 'four moved, ONE re-flow');
+    eq(g.log.length, 1, 'and one line in the feed');
+
+    // By VALUE off the layout, because the ids are re-minted: four units on the
+    // row they were asked for, and nothing left standing on the old one.
+    const on = (x0) => fixturesOf(g.layout).filter((x) => x.kind === 'shelf' && x.z === spot.z
+      && x.x >= x0 && x.x < x0 + 4).length;
+    eq(on(spot.x + 1), 4, 'all four are standing one square along');
+    // The cell the row LEFT, which is the only one that can say the whole group
+    // moved rather than the leading unit having been shuffled along the row.
+    eq(fixturesOf(g.layout).filter((x) => x.kind === 'shelf'
+      && x.z === spot.z && x.x === spot.x).length, 0, 'and the first cell is empty behind them');
+    eq(g.cash, cash, 'and a move costs nothing either way');
+    if (item) {
+      const kept = fixturesOf(g.layout)
+        .filter((x) => x.kind === 'shelf')
+        .reduce((n, x) => n + g.fixtureContents(x), 0);
+      eq(kept, stocked, 'and the goods came with it');
+    }
+  }
+}
+
+{
+  // The control: one unit is the ordinary move, and it must answer in the verb's
+  // own shape rather than as a batch report.
+  const g = fresh();
+  const id = shelvesOf(g)[0].id;
+  const f = g.findFixture(id);
+  const one = g.shiftFixtures('me', [id], 1, 0);
+  check(one.ok, 'a shift of one is accepted', one.error ?? '');
+  eq(one.done, undefined, 'and comes back with no batch report on it');
+  check(!!g.fixtureAt(f.x + 1, f.z), 'the unit is one square along');
+
+  // ...and a delta of nothing is a refusal with something to read, rather than
+  // four members each answering "that fixture is already there".
+  const still = g.shiftFixtures('me', shelvesOf(g).slice(0, 2).map((s) => s.id), 0, 0);
+  check(!still.ok, 'a move to where they already are is refused');
+  check(/already/.test(still.error ?? ''), 'and says so', still.error ?? '');
+
+  // ...and a shift into the world's edge is refused per member, which is
+  // `bulkFixtures`' partial rule: what can go, goes.
+  const off = g.shiftFixtures('me', shelvesOf(g).map((s) => s.id), -999, 0);
+  check(!off.ok, 'a shift off the map moves nothing at all', JSON.stringify(off));
+
+  // Build mode is the consent here as it is for every other fixture verb.
+  g.players.me.build = { on: false };
+  const shut = g.shiftFixtures('me', [shelvesOf(g)[0].id], 1, 0);
+  check(!shut.ok, 'and none of it happens outside build mode', JSON.stringify(shut));
+  g.players.me.build = { on: true, tool: 'shelf' };
 }
 
 // ---------------------------------------------------------------------------
