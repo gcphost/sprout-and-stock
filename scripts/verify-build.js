@@ -1084,8 +1084,33 @@ const cropFor = () => c.crops[0];
   check(!recycled || recycled.id !== now.id,
     'the old procedural id no longer means the fixture we turned');
 
-  // A plot has no front, so there is nothing to turn.
-  check(!g.rotateFixture('me', g.layout.plots[0].id).ok, 'a plot does not face anywhere');
+  /**
+   * A RACK HAS A FRONT, WHICH A BED DID NOT — the claim inverts, and it is
+   * pinned rather than dropped for the reason all of these are.
+   *
+   * "A plot has no front, so there is nothing to turn" was true of a square of
+   * earth you stood on and picked from wherever you were. A grow tent is worked
+   * from one side, so which side that is has to be something you can choose, and
+   * R is the press that chooses it.
+   *
+   * The half worth asserting is the SPOT rather than the angle: `rot` moving is
+   * a number changing, and what a player actually needs is for the side they
+   * pick from to have moved with it. That is `repositionFixture` rebuilding
+   * `useAt`, and a rack whose anchor did not follow its facing is one you turn
+   * and then cannot reach — with the turn visibly having worked.
+   */
+  const rack = g.layout.plots[0];
+  const rackRot = rack.rot ?? 0;
+  const rackSpot = { ...rack.useAt };
+  const rackAt = { x: rack.x, z: rack.z };
+  const spun = g.rotateFixture('me', rack.id, 1);
+  check(spun.ok, 'a rack faces somewhere, so it can be turned', spun.error);
+  const rackNow = g.fixtureAt(rackAt.x, rackAt.z);
+  check(!!rackNow, 'and it is still on the same tile');
+  check(rackNow.rot !== rackRot, 'and it is facing somewhere else');
+  check(rackNow.useAt.x !== rackSpot.x || rackNow.useAt.z !== rackSpot.z,
+    'and the side you pick it from moved with it');
+  eq(g.layout.plots.length, g.fixtureCounts().plot, 'turning did not create or destroy a rack');
 }
 
 // ---------------------------------------------------------------------------
@@ -1335,75 +1360,58 @@ const cropFor = () => c.crops[0];
   g.stepActions(5);
   eq(g.players.me.carry, null, 'which puts the armful on the shelf');
 
-  // The bed is the exception, and it is the only one.
-  //
-  // It went the other way for four steps — "six seconds on a ripe bed picks
-  // nothing" was asserted right here — and both reasons it did have since been
-  // paid off. Picking can no longer strand you (a full pair of hands crates the
-  // surplus rather than binning it, `Game.harvest`), and *which* bed has an
-  // exact answer no aisle of shelves has: the one under your feet. What is left
-  // is a press per bed to do the one thing a farm is for.
-  //
-  // So the three claims are: standing on it picks it with the button UP,
-  // standing NEXT to it does not — the ambiguity guard, and the half that would
-  // silently strip a whole field if the tile test ever became `near()` — and
-  // walking over it does not, which is `moving` still being the other consent.
+  /**
+   * THE BED WAS THE EXCEPTION AND THE RACK IS NOT, WHICH IS THE WHOLE OF THIS.
+   *
+   * Three claims used to live here and all three were about `auto`: standing on
+   * a ripe bed picked it with the button UP, standing NEXT to it did not, and
+   * walking over it did not. Every one of them rested on the same sentence —
+   * *which bed has an exact answer no aisle of shelves has: the one under your
+   * feet* — and the rack took that sentence away by standing up. A plot blocks
+   * its cell now, so there is no bed to be standing on and `standingOn` answers
+   * false for every rack in the shop for ever.
+   *
+   * So the claims INVERT, and they have to be asserted rather than deleted: a
+   * gesture that quietly went back to firing on its own would strip a whole
+   * grow room as you walked down the aisle, which looks exactly like a farm
+   * working. What is pinned is that picking is a PRESS, and that pointing at a
+   * rack is what arms it — the shelf's rule, said about the farm.
+   */
   const plot = g.layout.plots[0];
   const crop = cropFor(g);
-  stand(g, plot);
+  const bedSpot = { x: plot.useAt.x, z: plot.useAt.z };
+  stand(g, bedSpot);
   g.till('me', plot.id);
-  check(g.plant('me', plot.id, crop.id).ok, 'a bed is sown to pick from');
+  check(g.plant('me', plot.id, crop.id).ok, 'a rack is sown to pick from');
   plot.ready = true;
   g.players.me.pressing = false;
 
-  // Beside it, not on it. A fraction of a tile away, so it is well inside
-  // `REACH` and the old proximity rule would have picked it — and on a tile no
-  // other bed claims, or the sweep would be measuring the neighbour.
-  const beds = new Set(g.layout.plots.map((q) => `${q.x},${q.z}`));
-  const step = [[1, 0], [-1, 0], [0, 1], [0, -1]]
-    .find(([dx, dz]) => !beds.has(`${plot.x + dx},${plot.z + dz}`));
-  check(!!step, 'there is a tile beside the bed that is not another bed');
-  stand(g, { x: plot.x + step[0] * 0.9, z: plot.z + step[1] * 0.9 });
+  // You cannot stand on one at all, which is the premise the rest rests on.
+  check(g.layout.blocked[plot.z * g.layout.w + plot.x] === 1,
+    'a rack occupies its own cell, so there is nothing to stand on');
+
+  // At the spot you pick from, stopped, nothing pressed — and nothing happens.
+  // This is the exact state that used to harvest.
   for (let i = 0; i < 60; i++) g.stepActions(0.1);
-  check(plot.ready, 'six seconds beside a ripe bed picks nothing');
+  check(plot.ready, 'six seconds at a ripe rack picks nothing on its own');
   eq(g.players.me.carry, null, 'so your hands stay empty');
 
-  // ...and crossing it does not either: a route with legs left is somebody on
-  // their way somewhere, which is what stops a walk down a row stripping it.
-  stand(g, plot);
-  g.players.me.path = [{ x: plot.x + 3, z: plot.z }];
+  // ...and naming it is what does it, from where you already are — which is
+  // `walkToFixture` + `errandAction`, the same two calls the shelf above uses.
+  check(g.walkToFixture('me', plot.id).ok, 'pointing at the rack is accepted');
+  check(!!g.players.me.errand, 'which is an errand, not a walk');
+  eq(g.actionFor(g.players.me)?.kind, 'harvest', 'and that arms the harvest');
+  g.players.me.pressing = true;
   for (let i = 0; i < 60; i++) g.stepActions(0.1);
-  check(plot.ready, 'and walking over it picks nothing either');
-
-  // Standing on it, stopped, with nothing pressed.
-  stand(g, plot);
-  for (let i = 0; i < 60; i++) g.stepActions(0.1);
-  check(!plot.ready, 'but stopping on the bed picks it, with no button held');
+  check(!plot.ready, 'and holding the press picks it');
   // Onto the SHOULDER, not into your hands: a crate is `CRATE_UNITS` against
-  // six, and a bed gives up to ten, so an armful was one bed and a walk. Empty
+  // six, and a rack gives up to ten, so an armful was one rack and a walk. Empty
   // hands is the condition (you cannot shoulder a box holding loose goods) and
   // the claim is worth pinning because both are legal states to end a harvest
   // in — a change that quietly put it back in your hands would halve the trip
   // again with nothing failing.
   check(lotTotal(g.players.me.haul) > 0, 'straight onto your shoulder as a crate');
   eq(g.players.me.carry, null, 'with your hands still free');
-
-  // ...and a bed you TAPPED is the same bed. It shipped needing a press:
-  // `errandAction` outranks proximity by design, so a named bed comes back
-  // through `actionAt` rather than through the standing-on-it branch — and
-  // walking to a bed is the ordinary way to end up standing on one, so the
-  // path that fires on its own was the one nobody takes. Both ends of it
-  // decide `auto` the same way now, and this is the claim that says so.
-  const tapped = g.layout.plots[2];
-  stand(g, tapped);
-  g.till('me', tapped.id);
-  check(g.plant('me', tapped.id, crop.id).ok, 'a third bed is sown');
-  tapped.ready = true;
-  check(g.walkToFixture('me', tapped.id).ok, 'pointing at the bed is accepted');
-  check(!!g.players.me.errand, 'which is an errand, not a walk');
-  for (let i = 0; i < 60; i++) g.stepActions(0.1);
-  check(!tapped.ready, 'and naming the bed you are stood on picks it with no press');
-  g.players.me.pressing = true;
 
   // And a bed picked with no room left still comes out of the ground: the
   // surplus is a crate at your feet, never nothing. Destroying it is what made

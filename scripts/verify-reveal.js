@@ -68,8 +68,10 @@
 
 import { Game } from '../server/sim/index.js';
 import { MILESTONES, silenceMilestones } from '../server/sim/goals.js';
-import { REVEAL, SAFE_GATES, TUTORIAL_KINDS, gateFor, opensAt, toolRevealed, revealSig } from '../shared/reveal.js';
-import { FIXTURES, GROUND_KINDS, BUILD_KINDS } from '../shared/build.js';
+import { REVEAL, SAFE_GATES, TUTORIAL_KINDS, RETIRED_PIECES, gateFor, opensAt, toolRevealed, revealSig, pieceOffered } from '../shared/reveal.js';
+import { FIXTURES, GROUND_KINDS, BUILD_KINDS, canPlaceCleanly } from '../shared/build.js';
+import { content } from '../server/content.js';
+import { pieceFor, kindOf } from '../shared/pieces.js';
 
 const failures = [];
 let checks = 0;
@@ -314,6 +316,118 @@ const allTools = () => [
   // Same value twice is a no-op rather than a second log line.
   const again = h.setReveal(true, 'sweep');
   check(again?.ok !== false, 'setting it to what it already is is fine');
+}
+
+// ---------------------------------------------------------------------------
+// 8. THE OTHER END OF THE TABLE: a piece that is no longer offered.
+//
+// `RETIRED_PIECES` is the gate table's opposite promise — a gate hides a button
+// you have not reached, this takes away one you have gone past — and its claim
+// is a PAIR that is worthless split in half. The piece must be off the bar AND
+// must still resolve, and each half alone is satisfied by the wrong fix.
+//
+// Off the bar alone is satisfied by deleting the row, which is the thing this
+// mechanism exists so that nobody does: `pieceFor` falls through to
+// `defaultPiece` for a piece it cannot find, and `defaultPiece` answers the
+// first row of the kind — so a deleted `hen-house` does not empty the hen
+// houses standing in seven live shops, it silently turns every one of them into
+// whatever pen row sorts first. They go on filling, nothing errors, nothing is
+// logged, and what you are looking at is a farm that is suddenly all one
+// building. **It reads as art**, which is why it would survive a screenshot and
+// why the claim is written here rather than trusted to the next person.
+//
+// And still-resolves alone is satisfied by never having retired anything at
+// all, which is the control below.
+//
+// What this canNOT reach is the filter itself — `client/sections.js` pulls the
+// audio manifest, so `computeBuildTools` will not load in node, exactly as
+// section 1's header says of the cache key. So the PREDICATE is asserted, which
+// is why `pieceOffered` is a function rather than a bare lookup, and the two
+// things left uncovered are named at that call site: the `drawn`/`mine` split
+// that keeps a fully retired kind from falling back to its own bare button, and
+// removal-rather-than-flagging.
+// ---------------------------------------------------------------------------
+{
+  const rows = content().fixtures ?? [];
+  const ids = Object.keys(RETIRED_PIECES);
+
+  // The control, and it is the one that decides whether any of this is opt-in:
+  // a piece nobody retired is offered, which is every row in the catalogue bar
+  // these. Unlisted is VISIBLE here for the same reason it is above — a piece
+  // authored tomorrow must turn up on the bar, where a default of hidden is a
+  // fixture that prices, places, renders and can never be found.
+  for (const p of rows) {
+    if (RETIRED_PIECES[p.id]) continue;
+    check(pieceOffered(p.id), `\`${p.id}\` is still offered`);
+  }
+  check(pieceOffered('zz-authored-tomorrow'), 'a piece nobody has heard of is offered');
+
+  for (const id of ids) {
+    // Half one: off the bar.
+    check(!pieceOffered(id), `\`${id}\` is no longer offered`);
+
+    // Half two: and still resolves to ITSELF. Asked through `pieceFor` with the
+    // shape a placement actually carries, because that is the call every live
+    // shop makes on every re-flow — and `defaultPiece`'s forgiveness means a
+    // missing row answers a *different* piece rather than null, so a test for
+    // truthiness would pass on exactly the failure this is about.
+    const row = rows.find((p) => p.id === id);
+    check(!!row, `\`${id}\`'s row is still in the catalogue`, 'deleted, not retired');
+    if (!row) continue;
+    const got = pieceFor(rows, { kind: kindOf(row), piece: id });
+    check(got?.id === id, `...and a placement of it still resolves to itself`,
+      `got ${got?.id ?? 'null'}`);
+    // The three things a live placement is drawn, priced and run from. A row
+    // that survived with its art stripped is the same silent failure one field
+    // along.
+    check(got?.model != null || (got?.bodies?.length ?? 0) > 0,
+      `...and keeps its art`);
+    check(Array.isArray(got?.tiers) && got.tiers.length >= 1, `...and its tier ladder`);
+    check(got?.produces?.item_id, `...and goes on producing what it always did`,
+      `produces ${JSON.stringify(got?.produces ?? null)}`);
+  }
+
+  // A retirement is not a permission, which is the header's claim said as a
+  // value: the server must still place one. Same argument section 5 makes about
+  // a gate, and the same four callers — MCP, this sweep, the balance bot and a
+  // co-op guest a version ahead.
+  if (ids.length) {
+    const g = Game.create({ worldId: 'verify-reveal-retired', seed: 'reveal', ephemeral: true });
+    g.shell = null;
+    g.ownedUpgrades = [];
+    g.regenerateLayout(null, {}, { want: { shelf: 2, checkout: 1 } });
+    g.freezeShell();
+    g.freezeYard();
+    silenceMilestones(g);
+    g.addPlayer('me', 'Tester');
+    g.players.me.build = { on: true };
+    g.cash = 999999;
+    const row = rows.find((p) => p.id === ids[0]);
+    const kind = kindOf(row);
+    // Cleanly, or the first cell of the sweep is the corner of the map and the
+    // claim below is about a placement nobody could have reached anyway —
+    // `verify:pens` makes the same call for the same reason.
+    let spot = null;
+    const L = g.layout;
+    for (let z = 1; z < L.h - 1 && !spot; z++) {
+      for (let x = 1; x < L.w - 1 && !spot; x++) {
+        for (const rot of [0, 1, 2, 3]) {
+          if (canPlaceCleanly(L, { kind, x, z, rot }).ok) { spot = { x, z, rot }; break; }
+        }
+      }
+    }
+    const before = g.placements.length;
+    const res = spot ? g.placeFixture('me', { kind, piece: ids[0], ...spot }) : null;
+    check(g.placements.length > before,
+      'the server still builds a retired piece — this is a filter, not a rule',
+      `placeFixture said ${JSON.stringify(res)}`);
+    // ...and it resolves to the retired row rather than to a shipped pen, which
+    // is section 8's whole claim arriving through the one door a player uses.
+    const built = g.placements.find((p) => p.piece === ids[0]);
+    check(!!built && g.fixtureContent(built)?.id === ids[0],
+      '...and what it built is that piece and not the kind default',
+      `got ${g.fixtureContent(built)?.id ?? 'nothing'}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

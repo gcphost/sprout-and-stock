@@ -287,6 +287,17 @@ const EDGE_LABEL = {
   [E.DOOR_SHOPFRONT_IN]: 'a shopfront entrance',
   [E.DOOR_SHOPFRONT_OUT]: 'a shopfront exit',
 };
+
+/**
+ * The floor a new room comes out in when the shop has not said otherwise.
+ *
+ * A catalog id, deliberately — `floorNewRooms` lays a design somebody could
+ * have laid by hand, and a hard-coded colour would be a second floor material
+ * the brush cannot reach and the palette cannot draw a button for. It is only
+ * ever the fallback: see `roomFloorPiece`, which asks the shop first.
+ */
+const ROOM_FLOOR = 'shop-floor';
+
 const PLAYER_SPEED = 4.2;      // tiles/sec
 /**
  * ...and how much of that again when the camera is behind your eyes.
@@ -1091,6 +1102,38 @@ const CROWD_FROM = 0.7;
  * the term is comparable to the one it replaces.
  */
 const CROWD_REACH = 2;
+/**
+ * ...and how far from a unit is still SHOP FLOOR, which is a different question
+ * asked at the same radius for as long as there was only one.
+ *
+ * `shoppingRoom` marks out where a customer would ever stand — within reach of a
+ * unit or a till — so a stockroom, a kitchen and the run of floor behind your
+ * last shelf are not counted as room. That is right, and it was measured with
+ * `CROWD_REACH`, which is a fact about how far round themselves a body feels
+ * somebody else. The two are not the same distance and the gap is the middle of
+ * the shop: shelving hugs the walls, the aisle down the centre is three tiles
+ * off the nearest unit, and at 2 it counted for nothing at all. A live 13x12 shop
+ * read **62 of its 122 walkable cells** as shopping floor, and 32 of the 60 it
+ * threw away were in the 2-3 band — the central floor and the space in front of
+ * its own tills. Capacity 11.7 against a flat 30.5, and four fifths of that loss
+ * was this mask rather than the crowding weight it is there to apply.
+ *
+ * Which inverts the design: the elbow-room term is supposed to say a narrow
+ * aisle holds fewer people than open floor, and the mask was saying open floor
+ * holds NOBODY. It reads as a shop being judged smaller the more of it you
+ * build, and the fix a player reaches for — another shelf, to pull the mask over
+ * the middle — is the one that makes the aisle tighter.
+ *
+ * 3 rather than 4 because the shopping floor should still stop somewhere: at 4
+ * the mask reaches across a stockroom wall from the shelving on the other side,
+ * and `service` starts binding first on half the saves measured, which would
+ * make this a silent retune of what a till is worth as well.
+ *
+ * `localCrush` and `roomNear` keep `CROWD_REACH`, and that separation is the
+ * whole reason this is safe: how tight an aisle FEELS is untouched, and only
+ * how many people the door lets in moves.
+ */
+const SHOPPING_REACH = 3;
 /**
  * How much of the floor may be under boxes before anybody minds.
  *
@@ -5597,34 +5640,29 @@ export class Game {
     // choose is one you keep making — stand at a bed, pay, walk to the next
     // bed, pay.
     //
-    // Harvesting is, and it is the one job that has come back off a tap. Both
-    // objections that took it away are answered.
-    //
-    // "Picking fills your hands, and full hands refuse you everything else"
-    // stopped being true when the surplus started landing in a crate (see
-    // `harvest`): a ripe bed can no longer put you in a state it then leaves
-    // you stuck in, which is the whole reason a goods job was unsafe to fire
-    // on its own.
-    //
-    // "Which one did you mean" — the reason every goods job left proximity —
-    // has an answer here that an aisle of shelves does not have: the bed you
-    // are STANDING ON. A plot is the ground rather than a thing standing on
-    // it, so its own tile is a target exactly one bed can claim, where
-    // `nearest` in a block of six beds is a question about where your feet
-    // happened to stop. Deliberately not `near()`: reaching one bed from the
-    // next one over is the ambiguous case, and this is the unambiguous half.
-    //
-    // `auto` is the rest of what was asked for. A field is six beds and a
-    // press each, to do the one thing a farm is for. The other two consents
-    // are untouched — `moving` still throws the charge away, so walking across
-    // the farm strips nothing, and the ring still winds in full view. Stopping
-    // on the bed is the press.
-    const under = this.layout.plots.find((q) => q.ready && this.standingOn(p, q));
-    // Straight through `actionAt`, which is where a bed's jobs are described —
-    // a plot record carries its own `kind`, so it is already the shape that
-    // function takes. Writing the candidate out again here is how the two paths
-    // to the same bed drift apart, and one of them was already wrong once.
-    if (under) return this.actionAt(p, under);
+    /**
+     * HARVESTING IS NOT HERE ANY MORE, AND IT WAS FOR TWO STEPS.
+     *
+     * It came back off a tap on one argument — *the bed you are STANDING ON* —
+     * which was the one answer to "which one did you mean" that an aisle of
+     * shelves does not have. A plot was the ground rather than a thing standing
+     * on it, so its own tile named exactly one bed, and `standingOn` was the
+     * precise half of proximity that made a goods job safe on its own.
+     *
+     * The rack took that away by standing UP. It blocks its cell now, so there
+     * is no bed to be standing on — `standingOn` is false for every plot in the
+     * shop, for ever — and a branch that can never fire is worse than one that
+     * is gone: it reads as the rule still being live.
+     *
+     * What replaces it is the rule every other goods job in the game already
+     * has, which is the whole of what was asked for: **you point at it**. Tap a
+     * rack and `walkToFixture` sets the errand, `errandAction` outranks
+     * everything here, and `actionAt` describes the pick. Nothing about
+     * `harvest` itself moved.
+     *
+     * If a rack ever walks back onto the ground, this is the branch to restore
+     * and `standingOn` is still here for it.
+     */
     return null;
   }
 
@@ -5773,15 +5811,13 @@ export class Game {
 
     if (f.kind === 'plot') {
       if (f.ready) {
-        // `auto` is decided HERE as well as in `actionFor`, and forgetting that
-        // is a bed that says Harvest and then waits for a press anyway.
-        // `errandAction` outranks proximity — that is the whole scheme — so a
-        // bed you TAPPED comes back through this function rather than through
-        // the standing-on-it branch, and walking to a bed is the ordinary way
-        // to end up standing on one. Two paths, one answer: the flag is a fact
-        // about where your feet are, not about how the job was named.
+        // No `auto`, which is the gesture change said in one word. It read
+        // `standingOn(p, f)` — a bed fired its own harvest when you stopped on
+        // it, so a field was a walk rather than six presses — and a rack blocks
+        // its cell, so nobody can stand on one. Picking is a press now, exactly
+        // as taking an armful off a shelf is: you point, you walk, you hold.
         return {
-          kind: 'harvest', target: f.id, label: 'Harvest', at, auto: this.standingOn(p, f),
+          kind: 'harvest', target: f.id, label: 'Harvest', at,
           run: () => this.harvest(p.id, f.id),
         };
       }
@@ -9722,12 +9758,31 @@ export class Game {
    * `crop_id` by hand would grow a bed with no yield on it, and the renderer
    * would quietly fall back to drawing one plant while harvest handed over a
    * different number — which is precisely the mismatch this removes.
+   *
+   * ...AND IT IS WHERE THE RUNG BUYS ITS SHELVES.
+   *
+   * A rack's ladder is 1, 2, 3 decks, and what a deck is worth is plants. The
+   * multiply lands here rather than at harvest for the reason above said
+   * twice: the bed DRAWS what it is going to give, so a yield decided at the
+   * pull would be a two-deck rack showing one deck of lettuce and handing over
+   * two. One choke point, one number, and the picture is the promise.
+   *
+   * `capacity_mult` and not `speed_mult`, which is docs/pens.md's split
+   * arriving at the farm: a rung that bought pace AND volume would be one knob
+   * wearing two names. The rack's speed ladder was flattened to 1 the day this
+   * landed, or the two compound to 6.9x at the top rung.
+   *
+   * AFTER the draw and never inside it. `rng.int` is one call whatever the
+   * rung, so the stream is exactly where it was — a multiplier folded into the
+   * arguments would move every basket, crop and spawn roll after it, and two
+   * runs either side of a tier edit would diverge with nothing to say why.
    */
   sowInto(plot, crop) {
     plot.crop_id = crop.id;
     plot.plantedAt = this.elapsed;
     plot.ready = false;
-    plot.yield = this.rng.int(crop.yield_min, crop.yield_max);
+    const decks = this.fixtureStats(plot).capacity_mult || 1;
+    plot.yield = Math.max(1, Math.round(this.rng.int(crop.yield_min, crop.yield_max) * decks));
     return plot.yield;
   }
 
@@ -19221,14 +19276,159 @@ export class Game {
     this.cash = round2(this.cash - spent);
     if (spent > 0) this.stats.spent += spent;
     recordUndo(this, { t: 'edges', segs: undoSegs });
+    // Read before the re-flow, which is the only moment the OLD mask still
+    // exists — `edits` already holds the new wall, and `this.layout` does not.
+    const wasIndoor = this.layout.indoor ? Uint8Array.from(this.layout.indoor) : null;
     this.regenerateLayout();
+    const floored = this.floorNewRooms(wasIndoor);
 
     const what = EDGE_LABEL[kind] ?? 'a wall';
-    this.pushLog(kind
+    const also = floored
+      ? ` Floored the ${floored.laid} new ${floored.laid === 1 ? 'tile' : 'tiles'}`
+        + `${floored.spent > 0 ? ` for $${floored.spent.toFixed(2)}` : ''}.`
+      : '';
+    this.pushLog((kind
       ? `Built ${placed > 1 ? `${placed} segments of ${what.replace(/^an? /, '')}` : what}`
         + `${spent > 0 ? ` for $${spent.toFixed(2)}` : ''}.`
-      : `Knocked ${placed > 1 ? `${placed} segments` : 'a hole'} through.`);
-    return ok({ placed, cost: spent, short, warn: check.warn ?? null });
+      : `Knocked ${placed > 1 ? `${placed} segments` : 'a hole'} through.`) + also);
+    return ok({
+      placed,
+      cost: spent,
+      short,
+      warn: check.warn ?? null,
+      floored: floored?.laid ?? 0,
+      flooredCost: floored?.spent ?? 0,
+    });
+  }
+
+  /**
+   * FLOOR A ROOM THE WALLS JUST MADE.
+   *
+   * Enclosure and flooring have been two presses since step 3 of
+   * docs/building.md, and the gap between them is not a decision anybody makes —
+   * it is a chore. You draw four walls, the cells inside them count as indoors,
+   * and every one of them then refuses every shelf you try to stand in it,
+   * because the ground under them is grass and `BUILDABLE_INDOOR` is floor. The
+   * Floor brush is the other half and always was; this is that half laid for
+   * you, on the one gesture that can ever create the hole.
+   *
+   * Four things about it.
+   *
+   * **Only the cells that CHANGED**, which is what the `wasIndoor` snapshot is
+   * for. Flooring every bare cell indoors would be a rule about the whole shop
+   * rather than a consequence of the press, so a hole you deliberately left in
+   * the middle of your aisle would be paved over by a wall you drew somewhere
+   * else — and it would happen on every wall press for ever, since the cell
+   * comes back the moment you scrape it again.
+   *
+   * **Grass only, and never over anything standing.** `T.FLOOR` is already what
+   * it should be, a bed is a job, a conveyor is a rail set into whatever is
+   * there, and the road and the pavement are looks somebody chose. Each of those
+   * is a cell the Floor brush itself would refuse or leave alone, and this is not
+   * allowed to be a bulldozer the brush is not — `blocked` is asked for the
+   * reason `canPaintGround` asks it: the tile moves here, so a pen enclosed by
+   * the same drag would be shed and refunded by the re-flow rather than refused.
+   *
+   * **It is a purchase**, at the same price and the same refund arithmetic the
+   * brush charges, laid in the design the shop is mostly already wearing so an
+   * annex matches the aisle it opens off. Free flooring would be the cheapest
+   * shop in the game being one enormous drag, which is the argument
+   * `buildGround` settles about per-cell pricing said one press along. Running
+   * out halfway lays what you could afford, exactly as a wall does.
+   *
+   * **One press, one undo.** It records its own `ground` part rather than its
+   * own step, so the step the room opened around `build-edge` holds both and
+   * Ctrl+Z takes the wall and its floor back together — which it has to, or
+   * undoing the wall leaves a room-shaped patch of flooring behind the room it
+   * just deleted.
+   *
+   * A shop that un-encloses gets nothing at all, and that falls out rather than
+   * being written: `computeIndoor` answers ZERO cells for a breached building,
+   * so no cell became indoors and there is nothing to lay.
+   */
+  floorNewRooms(wasIndoor) {
+    const L = this.layout;
+    if (!wasIndoor || !L.indoor) return null;
+    const piece = this.roomFloorPiece();
+    if (!piece) return null;
+
+    const unit = this.groundUnitCost(piece.id);
+    const kept = new Map(this.ground.map((f) => [`${f.x},${f.z}`, f]));
+    const undoCells = [];
+    let spent = 0;
+    let laid = 0;
+    let short = false;
+
+    for (let z = 1; z < L.h - 1 && !short; z++) {
+      for (let x = 1; x < L.w - 1; x++) {
+        const i = z * L.w + x;
+        if (L.indoor[i] !== 1 || wasIndoor[i] === 1) continue;
+        if (L.tiles[i] !== T.GRASS) continue;
+        if (L.blocked?.[i]) continue;
+
+        const key = `${x},${z}`;
+        const was = kept.get(key) ?? null;
+        const next = groundPaint(
+          { k: groundKindOfTile(L.tiles[i]), p: was?.p ?? null, u: was?.u ?? null },
+          'floor',
+          piece.id,
+          'floor',
+        );
+        if (!next) continue;
+
+        const cost = round2(unit - this.groundUnitCost(next.from) * FIXTURE_REFUND);
+        if (cost > 0 && this.cash - spent < cost) { short = true; break; }
+
+        spent = round2(spent + cost);
+        const entry = { x, z, k: next.k, p: next.p };
+        if (next.u) entry.u = { ...next.u };
+        kept.set(key, entry);
+        undoCells.push({ x, z, was: was ? { ...was } : null, now: entry });
+        laid++;
+      }
+    }
+
+    if (!laid) return null;
+
+    this.ground = [...kept.values()];
+    this.cash = round2(this.cash - spent);
+    if (spent > 0) this.stats.spent += spent;
+    recordUndo(this, { t: 'ground', cells: undoCells });
+    this.regenerateLayout();
+    return { laid, spent, piece, short };
+  }
+
+  /**
+   * Which floor design a room the walls just made comes out in.
+   *
+   * The shop's own, by a count of what is already down — an annex off a marble
+   * aisle in beige lino is a thing you would have to go and redo, which is the
+   * chore this is supposed to be removing rather than moving. `shop-floor` is
+   * the fallback and it is the answer for nearly every shop, since the shell's
+   * own floor is stamped by the generator and carries no design at all.
+   *
+   * The tally is filtered against the catalog rather than trusted, because
+   * content is edited live: a design deleted out from under a save would
+   * otherwise be laid as a row `groundUnitCost` prices at zero and the renderer
+   * has never heard of.
+   */
+  roomFloorPiece() {
+    const rows = (content().fixtures ?? []).filter((f) => kindOf(f) === 'floor');
+    if (!rows.length) return null;
+
+    const tally = new Map();
+    for (const g of this.ground) {
+      if (g.k !== 'floor' || !g.p) continue;
+      if (!rows.some((r) => r.id === g.p)) continue;
+      tally.set(g.p, (tally.get(g.p) ?? 0) + 1);
+    }
+    let best = null;
+    let most = 0;
+    for (const [id, n] of tally) if (n > most) { best = id; most = n; }
+
+    return rows.find((r) => r.id === best)
+      ?? rows.find((r) => r.id === ROOM_FLOOR)
+      ?? [...rows].sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0))[0];
   }
 
   /**
@@ -20701,7 +20901,7 @@ export class Game {
    * contributes a fraction of a person, which is the sentence the whole thing
    * exists to say: *two aisles do not hold fifty people.*
    *
-   * **And whether anybody would ever stand on it** — within `CROWD_REACH` of a
+   * **And whether anybody would ever stand on it** — within `SHOPPING_REACH` of a
    * unit or a till, which is where shopping happens. A stockroom, a kitchen
    * floor, the run of empty floor between your last shelf and the far wall: all
    * of it is walkable, none of it is where a customer goes, and counting it was
@@ -20738,9 +20938,9 @@ export class Game {
     const mark = (x, z) => {
       const ax = Math.round(x);
       const az = Math.round(z);
-      for (let dz = -CROWD_REACH; dz <= CROWD_REACH; dz++) {
-        for (let dx = -CROWD_REACH; dx <= CROWD_REACH; dx++) {
-          if (dx * dx + dz * dz > CROWD_REACH * CROWD_REACH) continue;
+      for (let dz = -SHOPPING_REACH; dz <= SHOPPING_REACH; dz++) {
+        for (let dx = -SHOPPING_REACH; dx <= SHOPPING_REACH; dx++) {
+          if (dx * dx + dz * dz > SHOPPING_REACH * SHOPPING_REACH) continue;
           const nx = ax + dx;
           const nz = az + dz;
           if (nx < 0 || nz < 0 || nx >= w || nz >= h) continue;

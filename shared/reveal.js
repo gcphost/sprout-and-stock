@@ -168,6 +168,79 @@ export const SAFE_GATES = ['take-', 'sold-', 'harvest-', 'crew-', 'week-', 'mont
  */
 export const TUTORIAL_KINDS = ['shelf', 'freezer'];
 
+/**
+ * PIECES THAT ARE NO LONGER OFFERED, AND WHY EACH STOPPED BEING ONE.
+ *
+ * The table above answers "when does a button turn up"; this one answers "when
+ * does one stop", and they are neighbours rather than one table because the two
+ * are opposite promises. A gate is a thing you WILL get — absent today, earned
+ * on a rung, and `verify:reveal` insists every value here names a real
+ * milestone. Retirement is a thing you will not, and there is no rung for
+ * never: spelling it as a gate would need a fake milestone id, which fails that
+ * sweep on the first line it reaches.
+ *
+ * It is also keyed on the PIECE and could not have been a gate for a second
+ * reason — `gateFor` reads `REVEAL[tool.kind] ?? REVEAL[tool.id]`, kind first,
+ * and `REVEAL.pen` is already `first-harvest`. A per-piece entry there would
+ * never be read at all, and taking `pen` out to reach it would un-gate the
+ * three vats that replaced these seven.
+ *
+ * ### It is a FILTER and never a permission
+ *
+ * The whole of the header above applies unchanged. Nothing on the server asks
+ * this: `placeFixture` does not consult it, so MCP, every `verify:*` sweep, the
+ * balance bot and a co-op guest whose client is a version ahead can all still
+ * build one, exactly as they can still build a gated conveyor today. What it
+ * changes is what a palette OFFERS, which is the only thing that has to change
+ * — the seven are placed in live shops right now, and every one of those
+ * placements keeps its row, its art, its price, its tier ladder, its `produces`
+ * and its refund, because the row is still here.
+ *
+ * **None of them are deleted**, which is the same sentence `RETIRED` in
+ * `client/sections.js` opens with about `staff` and `space`, for a sharper
+ * reason. `pieceFor` falls through to `defaultPiece` for a piece it cannot find
+ * (shared/pieces.js), and `defaultPiece` answers the first row of the kind —
+ * so deleting `hen-house` does not empty the hen houses standing in seven live
+ * shops, it turns every one of them into whatever pen row happens to sort
+ * first. Nothing errors, nothing is logged, the pens go on filling, and what
+ * you see is a shop whose farm is suddenly all one building. It reads as ART.
+ * Deleting the ITEM is worse again: `binOrphans` gives a day of grace and then
+ * the stock is gone (docs/production.md).
+ *
+ * The trap for whoever adds the next id is one line down in
+ * `computeBuildTools`, and it is named at that call site too: a kind whose rows
+ * are ALL retired must offer nothing rather than falling back to the kind's own
+ * bare button, which is an undrawn grey box wearing the label of a thing you
+ * just retired.
+ */
+export const RETIRED_PIECES = {
+  // The seven pens. docs/vats.md step 3: meat stopped being seven buildings
+  // with a hardcoded 1:1 output and became three vats, a biomass and a recipe,
+  // and until these stop being offered the Former is optional — a new shop can
+  // buy a Pig Pen that makes pork 1:1 and never lay a belt at all. Every raw
+  // the seven produced has a vat route now (egg, milk, honey, poultry, pork,
+  // turkey and beef), so retiring them strands nothing.
+  'hen-house': true,
+  'dairy-shed': true,
+  'poultry-run': true,
+  'beehive': true,
+  'pig-pen': true,
+  'turkey-pen': true,
+  'cattle-pen': true,
+};
+
+/**
+ * Is this piece still something the palette offers?
+ *
+ * A function rather than a bare lookup because it is the one thing a sweep can
+ * hold on to: `client/sections.js` pulls the audio manifest, so the filter that
+ * calls this is unreachable from node, and `verify:reveal` asserts the
+ * predicate instead of the bar it feeds.
+ */
+export function pieceOffered(id) {
+  return !RETIRED_PIECES[id];
+}
+
 /** Which milestone, if any, a tool waits for. Kind first, then id. */
 export function gateFor(tool) {
   if (!tool) return null;

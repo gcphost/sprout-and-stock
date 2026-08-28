@@ -447,7 +447,12 @@ export class Lights {
   update(camLook) {
     if (camLook.distanceToSquared(this._at) < RESORT_DISTANCE * RESORT_DISTANCE) return;
     this._at.copy(camLook);
-    this.chosen = [...this.emitters].sort((a, b) => (
+    // A baked emitter is skipped HERE rather than kept out of `emitters`,
+    // because it is still a lamp everywhere else — it sums into the bake, it
+    // dims with the day, and it counts toward `spill` when it does not fit.
+    // The only thing it may not do is become a point and pool. See `bake` in
+    // `emitsShape`.
+    this.chosen = this.emitters.filter((e) => !e.bake).sort((a, b) => (
       (a.x - camLook.x) ** 2 + (a.z - camLook.z) ** 2
       - ((b.x - camLook.x) ** 2 + (b.z - camLook.z) ** 2)
     )).slice(0, MAX_LIGHTS);
@@ -652,6 +657,7 @@ export function emittersIn(fixtures, pieceOf, ceilingY, signals = null) {
       color: emits.color ?? '#ffd9a0',
       intensity: (emits.intensity ?? 1) * worth,
       range: emits.range ?? 4,
+      bake: emits.bake ?? false,
     });
   }
   return out;

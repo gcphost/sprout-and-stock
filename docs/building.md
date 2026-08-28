@@ -2230,6 +2230,108 @@ before it is worth having: `addPadMarks` already draws a glyph per pad kind, so
 the honest version is that glyph over your own floor rather than over the pad's
 flat colour.
 
+### A room comes with its floor
+
+**Built** — step 32, and it is the smallest step in this document: the two
+presses step 13 put next to each other became one.
+
+Step 13's own opening is *"how do I make my shop bigger?"*, and the answer it
+gave was two gestures — draw the walls, then lay the floor — because enclosure
+and ground are genuinely two layers and always will be. What that section did
+not say is that the second gesture is not a **decision**. There is no shop in
+which you wall an annex and want it left as grass: bare ground indoors is the
+one thing `canPaintGround` warns about by name, a cell nothing can be built or
+dug on. So the ordinary way to grow a shop was a press that puts the room in a
+state the game itself calls a hole, followed by a chore to get out of it — and
+the chore is not even one drag, since a room is whatever shape you drew.
+
+`floorNewRooms` (`server/sim/index.js`) is that chore, done on the press that
+creates it. Four things about it are load-bearing, and each of them is a way it
+could have been a rule about the shop rather than a consequence of the gesture.
+
+**Only the cells that CHANGED.** `buildEdge` snapshots the `indoor` mask before
+its re-flow — the one moment the old answer still exists, since `edits` already
+holds the new wall and `this.layout` does not — and lays floor only where the
+mask went from out to in. Flooring every bare cell indoors instead would pave a
+hole you deliberately left in the middle of your own aisle, on a wall you drew
+somewhere else, and it would do it again every time you scraped the cell back.
+
+**Grass only, and never over anything standing.** `T.FLOOR` is already right, a
+bed is a job, a conveyor is a rail set into whatever is under it, and the road,
+the pavement and the land are looks somebody chose. Every one of those is a cell
+the Floor brush itself leaves alone or refuses, and this must not be a bulldozer
+the brush is not — `blocked` is asked for the reason the section above gives:
+the tile moves here, so a pen caught inside the same drag would be shed and
+refunded by the re-flow rather than refused.
+
+**It is a purchase**, at the brush's own price and the brush's own refund
+arithmetic, in the design the shop is mostly already wearing (`roomFloorPiece`,
+a count of what is down, falling back to `shop-floor`) so an annex matches the
+aisle it opens off. Free flooring would make the cheapest shop in the game one
+enormous drag, which is step 13's per-cell pricing argument said one press
+along. Running out halfway lays what you could afford, exactly as a wall does.
+
+**One press, one undo.** It records a `ground` part rather than opening a step
+of its own, so the step the room opened around `build-edge` holds both and
+Ctrl+Z takes the wall and its floor back together. Undoing the wall and leaving
+the flooring is a room-shaped stain of perfectly good floor sitting outdoors,
+which is the stain the section above already names — arriving through a door
+nothing else opens. `verify:undo` §4b is the pair, redo included.
+
+A shop that *un*-encloses gets nothing at all, and that falls out rather than
+being written: enclosure is all-or-nothing, so a breached building reports zero
+indoor cells and no cell has become indoors.
+
+What it deliberately does not do is show up in the ghost. The wall preview says
+what the wall costs; the floor is priced on the press and named in the feed
+(*"Built 2 segments of wall for $24.00. Floored the 4 new tiles for $24.00."*).
+Putting it in the preview means answering "would this close a room" on every
+frame of a drag, which is `computeIndoor` per segment — and the honest version
+of that is the overlay key rather than a number on the cursor.
+
+### The wall drag turns, and stops looking like it has been built
+
+*Built (step 33).* Two things about the same gesture, and the second is what
+made the first read as broken.
+
+`edgeRun`'s own note argued that a run follows the line it started on and that
+turning a corner is a second drag — "simpler to reason about, and what a drawn
+wall actually wants". The first half is still true and the second half was a
+claim about *runs* smuggled in as a claim about *presses*. The axis was settled
+at `pointerdown` by `pickEdge`, which snaps to whichever of two lattice lines is
+nearer, and half a cell is the whole of that decision: press meaning to go north
+off a wall you have been tracing east and you have pressed on the east line, so
+dragging north moves the pointer along an axis the run does not have and lays
+**nothing at all**. Not a refusal, not a warning — a ghost of one segment that
+will not grow, which reads as the tool having stopped working.
+
+So the axis is the pointer's, re-read every move (`edgeDragRun`), and three
+things hold it together. **Ties keep the incumbent**, `faceAlong`'s rule: a
+press that has not travelled is the line it snapped to, so a click is exactly
+the single segment it has always been. The turned run hangs off the **corner**
+(`Scene.pickCorner`) rather than off the pressed edge, because an edge names one
+lattice coordinate and the other axis needs the other one — and which side of
+that corner it starts on is the direction of travel, since a lattice line sits
+between two cells and the run takes the one you dragged towards. And the press
+sends **the run's own start**, not the edge under the pointer at `pointerdown`:
+the wire format is still two ends and a kind, so the server re-runs the same
+`edgeRun` and lands on the same segments, but the start it is handed is now a
+line the press never named.
+
+The ghost is an **outline** rather than a slab per segment. A half-opaque wall,
+at wall height, on the line it would stand on, is not a preview of a wall — it
+is a wall being built as you drag, which is the one thing this gesture must not
+look like, because nothing is bought until the button comes up. One cage for the
+whole run rather than one per segment, for `setEdgeGhost`'s existing reason:
+"this seals the shop" is true of the run and colouring segments separately would
+invite you to read part of it as the part that will happen. Twelve merged bars
+rather than a `LineSegments`, which is `buildCageMarker`'s argument and not a new
+one — `linewidth` is one pixel on every platform that ignores it, and at this
+camera that reads as a smudge rather than as a box. The `grow` on the cage is
+what the old `+0.05` fattening was for: in the `aim` state the ghost describes an
+edge that is already standing there, and a preview at exactly its thickness is
+two coplanar faces arguing over the depth buffer.
+
 ---
 
 ## Build order

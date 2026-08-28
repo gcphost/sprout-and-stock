@@ -118,13 +118,37 @@ for (const opts of cases()) {
       'station useAt outside the shop', `${where}: ${st.id} useAt ${st.useAt.x},${st.useAt.z}`);
   }
   for (const p of L.plots) {
-    // A plot is the one fixture that IS ground rather than standing on it, so it
-    // digs its tile and blocks nobody — you walk over a bed to work it.
+    /**
+     * A RACK IS BOTH, WHICH IS WHAT CHANGED AND IS WHY THIS IS THE SHARP ONE.
+     *
+     * This asserted the opposite for the whole life of the bed — *a plot is the
+     * one fixture that IS ground rather than standing on it, so it digs its tile
+     * and blocks nobody, you walk over a bed to work it* — and every word of
+     * that was true. The rack stands up (docs/vats.md), so it does what a shelf
+     * does AND keeps the stamp: `T.PLOT` is still what refuses a second rack on
+     * the cell and what `canPaintGround` reads to say "there is a bed there".
+     *
+     * Both halves, and the pair is worthless split. Occupancy alone passes on a
+     * rack that stopped stamping its tile, which is a cell you can lay a
+     * conveyor and a floor through. The stamp alone is the bug this replaced —
+     * a solid-looking tent shoppers stroll through, which is `occupy`'s own
+     * two-places problem said about the farm.
+     */
     check(at(p.x, p.z) === T.PLOT, 'plot tile not dug', `${where}: ${p.id} at ${p.x},${p.z}`);
-    check(!taken(p.x, p.z), 'a plot should not block its own cell', `${where}: ${p.id}`);
-    const reachable = [[1, 0], [-1, 0], [0, 1], [0, -1]]
-      .some(([dx, dz]) => walkable(p.x + dx, p.z + dz));
-    check(reachable, 'plot has no walkable neighbour', `${where}: ${p.id} at ${p.x},${p.z}`);
+    check(taken(p.x, p.z), 'a rack should block its own cell', `${where}: ${p.id}`);
+    check(!walkable(p.x, p.z), 'you can walk through a grow rack', `${where}: ${p.id}`);
+    /**
+     * ...and the side you pick from has to be somewhere a person fits.
+     *
+     * "A walkable neighbour" was enough while you stood ON the bed — it only had
+     * to be reachable at all. A rack is worked from a SPOT, so the claim is the
+     * shelf's now: the anchor itself, not just some neighbour. That is what
+     * `PLOT_ROW_PITCH` buys and it is the assertion that catches a farm laid
+     * back to a solid block, where every interior rack is a thing you own and
+     * cannot pick.
+     */
+    check(walkable(p.useAt.x, p.useAt.z),
+      'plot useAt not walkable', `${where}: ${p.id} useAt ${p.useAt.x},${p.useAt.z}`);
   }
 
   // ---- 4. queues stay indoors, and no two people stand in one place -------

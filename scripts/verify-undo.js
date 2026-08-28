@@ -285,6 +285,52 @@ function paintPiece() {
 }
 
 // ---------------------------------------------------------------------------
+// 4b. ...AND A PRESS THAT MAKES A ROOM TAKES ITS FLOOR BACK WITH IT.
+//
+// One press can now write two kinds of part: a wall that closes an annex lays
+// the floor inside it (`floorNewRooms`), which is a `ground` part recorded
+// beside the `edges` one. Both or neither — undoing the wall and leaving the
+// flooring is a room-shaped stain of perfectly good floor sitting outdoors,
+// which is the stain `verify:stamp` catches on the other gesture that can leave
+// one, arriving through a door nothing else in this file opens.
+//
+// It is invisible in a still frame twice over: a shop that never had the annex
+// and one that had it and undid it are the same picture — that IS undo — and
+// grass with the memory of a floor under it draws exactly like grass.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const L = g.layout;
+  const ax = L.store.x + L.store.w;
+  const az = L.store.z + 1;
+  check(ax + 2 < L.w - 1, 'there is room east of the building for an annex');
+
+  // Three sides by hand, so the fourth press is the one that encloses.
+  for (let z = az; z < az + 2; z++) press(g, 'that wall', () => g.buildEdge('me', { o: 'v', x: ax + 2, z, kind: E.WALL }));
+  press(g, 'that wall', () => g.buildEdge('me', { o: 'h', x: ax, z: az, kind: E.WALL, to: ax + 1 }));
+
+  const before = fabric(g);
+  const cash = g.cash;
+  const depth = g.undoStack.length;
+
+  const closed = press(g, 'that wall',
+    () => g.buildEdge('me', { o: 'h', x: ax, z: az + 2, kind: E.WALL, to: ax + 1 }));
+  check(closed.ok, 'the press that closes the annex goes through', closed.error ?? '');
+  eq(closed.floored, 4, '...and floors it');
+  eq(g.undoStack.length, depth + 1, 'and a wall AND its floor is still ONE entry');
+  check(g.ground.length >= 4, 'the flooring is really in the overlay', `${g.ground.length}`);
+
+  g.undo();
+  eq(fabric(g), before, 'and one Ctrl+Z takes the wall and the floor back together');
+  eq(g.cash, cash, '...including what the floor cost');
+  eq(g.ground.length, 0, '...leaving no ground entry behind');
+
+  g.redo();
+  check(fabric(g) !== before, 'and the redo puts the room back');
+  eq(g.ground.length, 4, '...floor included', `${g.ground.length}`);
+}
+
+// ---------------------------------------------------------------------------
 // 5. A REFUSED PRESS PUSHES NOTHING.
 // ---------------------------------------------------------------------------
 {

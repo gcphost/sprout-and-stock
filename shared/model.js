@@ -248,6 +248,39 @@ export function shownOn(parts, s) {
 }
 
 /**
+ * ...and the same board's PHYSICAL gap, which is a different question.
+ *
+ * `shownOn` answers how much of a thing standing here the camera can see, and
+ * subtracts a setback term for exactly that reason. What a growing plant needs
+ * is the other half: how tall it may get before it is inside the thing above
+ * it. A crop drawn through its own grow light is not a sightline problem — it
+ * is wrong from every angle, including the ones where you can see it perfectly.
+ *
+ * Beside `shownOn` rather than in the renderer, for this file's own reason: the
+ * art says where the trays are and what hangs over them, and a renderer with a
+ * second opinion about that is a rack whose decks the docs and the game
+ * disagree about. Same exclusions — glass you grow behind, vapour you grow
+ * through.
+ *
+ * Infinity is open sky, which is every board of every piece that has nothing
+ * over it: a one-deck rack, an open trough, and every shelf in the game.
+ */
+export function clearanceOn(parts, s) {
+  let gap = Infinity;
+  for (const p of parts ?? []) {
+    if ((p.alpha ?? 1) < 1 || p.drift) continue;
+    const under = (p.pos?.[1] ?? 0) - (p.scale?.[1] ?? 0) / 2;
+    if (under <= s.y + 1e-6) continue;
+    // Over the middle of the board, which is where the crop stands. A part that
+    // only clips a corner of the tray is not a ceiling.
+    const over = (j, v) => Math.abs(v - (p.pos?.[j] ?? 0)) <= (p.scale?.[j] ?? 0) / 2 + 1e-6;
+    if (!over(0, s.x) || !over(2, s.z)) continue;
+    gap = Math.min(gap, under - s.y);
+  }
+  return gap;
+}
+
+/**
  * The boards of a unit you can actually see into, out of the ones its art
  * flagged as `surface`.
  *

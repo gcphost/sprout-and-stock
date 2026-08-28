@@ -183,6 +183,19 @@ Thirty sweeps, about a minute:
   flooring behind the stockroom it just deleted. Three deliberate mutations were
   run against it — a look replacing the job, a scrape that does not reveal, and a
   pad carrying nothing down — and each was caught on the assertion that names it.
+  Since step 32 it also guards the press that lays a floor nobody asked for — a
+  room the walls just made comes floored — and the sharp half is not that it
+  happens but that it happens to the cells that CHANGED and to nothing else,
+  asserted as the SET of tiles that moved rather than as a look at the annex,
+  because every way of getting this wrong paves too much rather than too little:
+  a version that swept every bare cell indoors passes a check on the new room and
+  quietly paves the field. Paired with the till moving by the wall AND the floor,
+  or the flooring is a gift. Its own §4 had to learn a new way to reach the bug
+  the whole feature is the fix for, and that is the interesting part: you can no
+  longer get a bare cell indoors by walling one, and you cannot scrape one back
+  either, because bare ground indoors IS floor (`canPaintGround.leaves`) — so it
+  paints the LAND over it, which is the only gesture that puts an enclosed cell
+  on `T.GRASS`. A guard that retires with the chore is a guard nobody removed.
 - `verify:yard` guards the delivery bay and the drop-off, which stopped being
   generated furniture and became ground you paint. Four claims, none of them
   visible in a screenshot because a seeded pad and a generated one look
@@ -1117,8 +1130,17 @@ Thirty sweeps, about a minute:
   none, the whole step is refused. You press Ctrl+Z on a move you made a second
   ago and the shop says "something is already there" about the shop it is being
   asked to go back to. Its pair is REDO, since one walk runs both ways and a fix
-  applied to one direction would leave the other refusing. It writes nothing at
-  all.
+  applied to one direction would leave the other refusing. Since step 32 it also
+  guards the first press that writes TWO KINDS of part, which is the "one entry"
+  rule pointed at a step that is not all one thing: a wall that closes an annex
+  lays the floor inside it, so the step holds an `edges` part and a `ground` one,
+  and both or neither — undoing the wall and keeping the flooring is a
+  room-shaped stain of perfectly good floor left standing outdoors, which is the
+  stain `verify:stamp` catches on the other gesture that can leave one, arriving
+  through a door nothing else in the file opens. Invisible twice over: a shop
+  that never had the annex and one that had it and undid it are the same picture
+  — that IS undo — and grass with the memory of a floor under it draws exactly
+  like grass. It writes nothing at all.
 
 - `verify:stamp` guards the two gestures that put down several fixtures at once,
   and every claim in it is invisible in a still frame by construction: six
@@ -1454,7 +1476,7 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, the fence that stopped being the only thing a boundary could be made of, and the head line — how tall a way through is, which stopped being a fact about the wall the day the walls grew, and which is what lets a doorway and a high window line up and be glazed as one piece, and the look that goes UNDER the job — because `GROUND` has partitioned into a look and a job since the yard stopped being furniture, and for as long as one overlay held one answer per cell those two were rivals, so a floor dragged across your own stockroom took the storage away, and moving a whole SELECTION — the one bulk verb that is not carried, because hands hold one fixture, and the one that moves a tile, which is the one thing a held re-flow was never safe for | steps 1–9, 11, 13–27, 29–31 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, the fence that stopped being the only thing a boundary could be made of, and the head line — how tall a way through is, which stopped being a fact about the wall the day the walls grew, and which is what lets a doorway and a high window line up and be glazed as one piece, and the look that goes UNDER the job — because `GROUND` has partitioned into a look and a job since the yard stopped being furniture, and for as long as one overlay held one answer per cell those two were rivals, so a floor dragged across your own stockroom took the storage away, and moving a whole SELECTION — the one bulk verb that is not carried, because hands hold one fixture, and the one that moves a tile, which is the one thing a held re-flow was never safe for, and the room that comes with its floor — because laying it was never a decision, it was the chore between the press that makes a hole and the press that fills it in | steps 1–9, 11, 13–27, 29–32 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make, and the crew who stood up — five identical parts of a thirty-six part cap at three-quarters of a shopper's height, against a limb that is one flag on a part and a rig everything downstream was already guarded for | steps 1–6, 8–16 built; 7 proposed |
 | [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the same T read the other way — who goes first where two runs MEET, which is a fact about the cell rather than about the belt, so it is asked of whatever piece is standing where the lines arrive, and the piece that usually is is the sorter, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg, the tunnel that stopped being its own ecosystem — a span that DIPS to a storey below, so a mouth is a lift pointed down and the piston is the crate's own `deck` rather than two clocks beside it, plus the toggle that brings a span up onto the ceiling instead of the floor, and **Where a crate goes, in order** — the whole routing ladder in one place, with the audit's gap list at the foot, and the map that takes a SUBJECT — pick a shelf and everything but the shortest ways a box reaches it goes grey, because the reachable set is 15 runs of 23 whatever you pick, and the packer that stands still — a crate parked on a run that fills itself from the boxes going past, so a dock of part-crates is one trip instead of three | steps 1–4, 2b, 3b, 4b, 7–12 built; 5–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
@@ -1662,29 +1684,33 @@ what the next step was meant to be.
   action from the tick it arms, at zero progress, so the client can light the
   target up and name what is about to happen.
   Proximity is left with the two jobs that touch no goods — a till with somebody
-  waiting, and turning a rough bed over — plus the one that does: the ripe bed
-  **under your own feet**. Money is not even in that list — it is
+  waiting, and turning a rough tray over. Money is not even in that list — it is
   scooped up by walking over it (`stepCashPickup`), which is the one thing
   nobody has ever wanted to decline.
-- **…and the bed is the one goods job that came back, on a tile rather than on a
-  radius.** Both reasons it left are paid off, and either one going away again
-  puts it back. "Which one did you mean" is what killed proximity everywhere
-  else, and a plot has an answer no aisle has: a bed IS the ground, so the tile
-  under your feet names exactly one — `Math.round(p.x) === plot.x`, deliberately
-  not `near()`, which reaches the neighbouring bed and would strip a field. And
-  "picking fills your hands, and full hands refuse you everything else" stopped
-  being true when `harvest` started crating the surplus. It is also the one
-  action that charges with **no button down** (`auto` on the candidate, read in
-  `stepActions`): a field is six beds, and the press was six presses to do the
-  one thing a farm is for. The other two consents are untouched — `moving` still
-  throws the charge away, so walking a row strips nothing, and the ring still
-  winds in full view. The trap is that there are TWO ways to the same bed and
-  `auto` has to be decided in both: proximity finds the bed under your feet, but
-  `errandAction` outranks proximity by design, so a bed you *tapped* comes back
-  through `actionAt` — and walking to a bed is the ordinary way to end up
-  standing on one, which made the self-firing path the one nobody takes. It
-  shipped that way for exactly one round of play-testing. `verify:build` pins
-  all four, including the walk-over and the tap.
+- **…and the bed was the one goods job that came back, until the rack stood
+  up.** Worth keeping as a whole argument rather than a correction, because it
+  is the clearest case in this file of a rule that was right for a reason and
+  stopped being right when the reason moved. It came back on a TILE rather than
+  on a radius, and both halves were paid for: "which one did you mean" is what
+  killed proximity everywhere else and a plot had an answer no aisle has — a bed
+  IS the ground, so the tile under your feet named exactly one
+  (`Math.round(p.x) === plot.x`, deliberately not `near()`, which reaches the
+  neighbouring bed and would strip a field) — and "picking fills your hands, and
+  full hands refuse you everything else" stopped being true when `harvest`
+  started crating the surplus. So it was the one action that charged with **no
+  button down** (`auto` on the candidate, read in `stepActions`), because a field
+  is six beds and the press was six presses to do the one thing a farm is for.
+  What retired it is that `plot` now **blocks its own cell** (docs/vats.md): a
+  grow rack is a unit you stand beside, so there is no bed to be standing on,
+  `standingOn` answers false for every rack in the shop for ever, and the whole
+  branch could only ever have been dead code that reads as a live rule. Picking
+  is a press now, exactly as taking an armful off a shelf is — you point, you
+  walk, you hold. `standingOn` is still there, and it is still correct, for
+  anything that IS the ground: a painted pad, and a rack if one ever walks back
+  onto the floor. `verify:build` pins the inversion rather than deleting the
+  claims, because a gesture that quietly went back to firing on its own would
+  strip a whole grow room as you walked down the aisle and would look exactly
+  like a farm working.
 - **…and a harvest that does not fit goes in a crate, because it used to go
   NOWHERE.** Hands hold six and a bed gives two to seven, so the second bed of a
   row was clipped to whatever room was left and the rest silently ceased to
@@ -2716,6 +2742,33 @@ what the next step was meant to be.
   the near end of the shop instead of switching the far end off. Also: three's
   falloff makes `intensity` a power, not a brightness — a lamp authored as "1
   over 4 tiles" is invisible until it is scaled by range squared.
+- **…and a lamp mounted INSIDE its own cabinet must be `bake: true`, because a
+  point light is a point.** The nearer a flat face is to one, the tighter and
+  hotter the disc it lays on it — and a fitting under its own canopy is as near
+  as anything in the shop ever gets. A display case is the shape that suffers:
+  `emittersIn` puts every `freezer`'s light at the tile's own centre at y 1.18,
+  so a shelf a few centimetres under it takes a blown ellipse and the case reads
+  as broken rather than as lit. **Neither dial helps** — dimming it dims the
+  ellipse and widening the range widens it, because the pooling is the *falloff*
+  and not the brightness, which is what makes this a flag rather than a number.
+  `bake` keeps the emitter in `emitters`, which is what the bake sums, and out
+  of `chosen`, which is what becomes a `THREE.PointLight`. It costs the GPU
+  nothing — that is what the bake is *for* — it still dims with the day, and it
+  still spills into ambient for the things the bake cannot reach. It is
+  `windows`' own argument pointed the other way: that list is out of the eight
+  because there is nothing for a real light to do, and this is out of them
+  because there is something a real light does that nobody wants. What it costs
+  is that a fixture is baked as ONE FLAT TINT for the whole group
+  (`paintProp`), so an inside light lifts the outside of the cabinet too — a
+  piece that needs the two told apart wants `glow` parts for the fittings and
+  this for the lift. **And no three.js plugin is the answer here**, which is
+  worth knowing before somebody spends an afternoon looking: `RectAreaLight` is
+  exactly this problem's shape — a glowing rectangle rather than a point — it is
+  in core three.js already, and it is *silently ignored* by `MeshToonMaterial`
+  and `MeshLambertMaterial`, which is everything this shop draws with
+  (`shaded`, client/render/props.js). It lights MeshStandard/Physical and
+  nothing else, so reaching for it means giving up the toon look for one
+  fixture's interior.
 - **A line found in the PICTURE can never be sharp, and no amount of tuning the
   threshold changes that.** The ink pass reads the finished frame, which is what
   makes it free for every fixture anybody ever authors — and both of its

@@ -654,6 +654,29 @@ const emitsShape = z.object({
   intensity: z.number().min(0).max(4).default(1),
   /** How far the glow carries, in tiles. */
   range: z.number().min(0.5).max(12).default(4),
+  /**
+   * "Never take one of the eight."
+   *
+   * A real `THREE.PointLight` is a point, so it pools: the nearer a flat face
+   * is to it the tighter and hotter the disc, and a fitting mounted INSIDE its
+   * own cabinet is as near as anything ever gets. A display case is the shape
+   * that suffers — the lamp sits a few centimetres under the cap and over the
+   * top shelf, and what you get is a blown ellipse on a shelf rather than a
+   * lit case. No amount of intensity or range fixes it, because the pooling is
+   * the falloff rather than the brightness.
+   *
+   * So: stay in `emitters`, which is what the bake sums, and stay out of
+   * `chosen`, which is what becomes a point light. The bake has no falloff
+   * artefact to have — it is a number added up on the CPU and multiplied into
+   * a colour — and a fixture takes it as one flat tint over the whole group,
+   * which is exactly the even lift a strip light is meant to give.
+   *
+   * This is the argument `windows` in `client/render/lights.js` already makes,
+   * pointed the other way: that list is out of the eight because there is
+   * nothing for a real light to do, and this is out of them because there is
+   * something a real light does that nobody wants.
+   */
+  bake: z.boolean().default(false),
 });
 
 /**

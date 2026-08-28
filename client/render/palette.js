@@ -102,10 +102,30 @@ export const PALETTE = {
    * rather than a hole, and the contour it earns has to land on the ridge beside
    * it.
    */
-  soilTilled: '#c09a63',
-  soilFurrow: '#8a6238',
-  /** A plot nobody has turned over yet: scrubby, pale, still half turf. */
-  soilRough: '#a89268',
+  /**
+   * …AND THEN THE FARM CAME INDOORS, WHICH RETIRED THE EARTH BUT NOT THE NAMES.
+   *
+   * docs/vats.md: a bed is a grow rack now, standing on shop floor under lights.
+   * The four colours below are the growing MEDIUM — rockwool and perlite rather
+   * than turned soil — and the argument above survives the change intact, since
+   * it was never about brown: `soilTilled` is still the big pale face that has
+   * to carry a contour, `soilFurrow` is still the small groove that spends the
+   * dark, and both are still comfortably either side of the 0.20 the ink needs.
+   *
+   * The names stay `soil*` deliberately, and that is CLAUDE.md's rebrand rule
+   * rather than laziness: `buildSoil` and `TILE_STYLE[T.PLOT]` read these keys,
+   * a rename is a diff across two files that buys a tidier grep and nothing
+   * else, and the trap to avoid is somebody "fixing" the mismatch later.
+   *
+   * Why this had to be here at all: the frame is authored on the `plot` row and
+   * was reskinned as a rack, but the medium is drawn in code — so a content-only
+   * pass left a pale steel rack sitting in a brown field, which reads as the art
+   * being half-finished because it was.
+   */
+  soilTilled: '#c9c3b4',
+  soilFurrow: '#8f8878',
+  /** A rack nobody has planted yet: bare mat, drier and greyer than a wet one. */
+  soilRough: '#b0aa9c',
   soilWeed: '#93b96a',
   /**
    * THE THREE PADS, WHICH USED TO BE THE LOUDEST GROUND IN THE SHOP.
@@ -933,22 +953,33 @@ export const PAD_MARK = {
   [T.DROP]: { ink: '#ad9b78', glyph: 'stock' },
   [T.BREAK]: { ink: '#bcac92', glyph: 'charge' },
   [T.PARK]: { ink: '#cdd3db', glyph: 'park' },
-  // The culture floor (`T.PADDOCK`) is deliberately NOT in here, and the reason
-  // has changed under it — which is worth writing down rather than leaving the
-  // old sentence to be read as still live.
-  //
-  // It used to be that a field is the one pad with no concrete in it, so a white
-  // line round a meadow reads as a tennis court, and what told you where it
-  // ended was that something was grazing inside it. Indoors that argument is
-  // dead: a sealed deck is exactly the surface paint belongs on, and it is now
-  // the ONLY pad separating itself from its neighbours by colour alone.
-  //
-  // It stays out because a mark needs a `glyph`, and every glyph in `PAD_MARK`
-  // is hand-drawn in `paintGlyph` (client/render/props.js) — there is no
-  // culture glyph, and inventing one is art rather than a rename. So this is a
-  // known gap, not a decision: the day somebody draws one, this is where it
-  // goes. What tells you where the deck ends until then is its colour and
-  // whatever is standing on it (docs/vats.md step 5's trays).
+  /**
+   * THE CULTURE FLOOR, WHICH WAS THE ONE PAD WITH NOTHING PAINTED ON IT.
+   *
+   * It used to be out because a field is the one pad with no concrete in it, so
+   * a white line round a meadow reads as a tennis court, and what told you where
+   * it ended was that something was grazing inside it. docs/vats.md took the
+   * farm indoors and killed that argument outright: a sealed deck is exactly the
+   * surface paint belongs on, and being out left it the only pad separating
+   * itself from its neighbours by COLOUR ALONE — the one cue this whole table
+   * exists to stop the pads leaning on.
+   *
+   * What kept it out afterwards was that a mark needs a `glyph` and every glyph
+   * is hand-drawn in `paintGlyph`, which is art rather than a rename. So the gap
+   * outlived its own reason by a step, which is worth noticing: the note that
+   * shipped here said "known gap, not a decision", and a gap nobody re-reads is
+   * a decision by default.
+   *
+   * The ink is DERIVED rather than picked, which is the only interesting thing
+   * about it. The three light pads all put their ink at about half the ground's
+   * luminance, hue held to within a couple of degrees, saturation eased back
+   * roughly a quarter (×0.49, ×0.73, ×0.75). Applying those three moves to
+   * `#a3bfb5` — hue 158.6 held, saturation ×0.74, lightness −19 — lands here, at
+   * a luminance ratio of 0.52 against ratios of 0.51, 0.52 and 0.60. `park` is
+   * the one that inverts and this is not it: at luminance 0.48 the deck is
+   * firmly in the light half, so the line goes darker like the other three.
+   */
+  [T.PADDOCK]: { ink: '#6f9084', glyph: 'culture' },
 };
 
 export const CRATE_LOOK = {

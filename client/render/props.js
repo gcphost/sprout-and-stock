@@ -2044,25 +2044,34 @@ export const RIDGE_TOP = SOIL_TOP + RIDGE_H;
 const BED_INNER = 0.86;
 
 /**
- * What the soil in a plot looks like right now.
+ * What is in the tray right now.
  *
- * Untilled ground has to read as *not ready* from across the farm, or the till
- * step is just an invisible error message. So rough ground keeps its turf: pale,
- * scrubby, with weeds still standing on it. Turned earth is cut into furrows —
- * the same shape a seed is about to go into.
+ * A bed that has not been turned over has to read as *not ready* from across
+ * the room, or the till step is an invisible error message. That claim survives
+ * the farm coming indoors and everything it was drawn with does not: this was
+ * turf, five weed cones and a stone, which is a picture of a neglected corner of
+ * a field. Under a lit rack it reads as somebody having tipped a lawn into the
+ * hydroponics — and it is the exact shape docs/vats.md warns about, a
+ * convention that was right because of where it lived.
  *
- * The furrows are RIDGES rather than stripes, and that is the whole of what was
- * wrong with this. Four dark bars painted on a dark slab is a texture, and this
- * renderer does not draw textures — it draws a contour, and it finds one at a
- * depth step. `soilFurrow` on `soilTilled` was 0.076 against 0.111 linear
- * luminance, both under the 0.20 the ink needs to land at all, so a bed drew as
- * one flat brown square in a shop where everything else is outlined. Standing
- * the ridge PROUD and pale puts the dark in the groove between two of them,
- * which is the one place this art spends it.
+ * So both states are the same tray with different things in it. An unprepared
+ * tray is a DRY MAT, flat and bare — nothing standing up, because the one thing
+ * a clean tray must not have is scruff growing out of it. A prepared one is cut
+ * into CHANNELS.
  *
- * `rows` is where the plants are actually going, so the ridges line up with what
- * is growing in them — a bed of four is two fat ridges and a bed of twelve is
- * four. Nothing is planted in an unturned bed, so a bare tilled bed gets four.
+ * The channels are RIDGES rather than stripes, and that is the whole of what was
+ * wrong with the outdoor version and is why it survives the reskin unchanged.
+ * Bars painted on a slab are a texture, and this renderer does not draw textures
+ * — it draws a contour, and it finds one at a depth step. Standing the channel
+ * PROUD and pale puts the dark in the groove between two of them, which is the
+ * one place this art spends it.
+ *
+ * `rows` is where the plants are actually going, so the channels line up with
+ * what is growing in them — four plants is two fat channels and twelve is four.
+ * Nothing is planted in an unprepared tray, so a bare prepared one gets four.
+ * Since the rack grew decks, `rows` is the BOTTOM deck's plants only: the tray
+ * drawn here is the one at the base of the rack, and cutting it a lane per plant
+ * on three levels at once is three trays' worth of channels in one.
  */
 export function buildSoil(state, palette, rows = null) {
   const g = new THREE.Group();
@@ -2084,21 +2093,14 @@ export function buildSoil(state, palette, rows = null) {
       ridge.receiveShadow = true;
       g.add(ridge);
     }
-  } else {
-    // Tufts of grass that never got cleared, plus a stone or two.
-    for (let i = 0; i < 5; i++) {
-      const tuft = new THREE.Mesh(GEO.cone, material(palette.soilWeed));
-      const a = (i / 5) * Math.PI * 2 + 0.7;
-      tuft.scale.set(0.13, 0.2, 0.13);
-      tuft.position.set(Math.cos(a) * 0.28, SOIL_TOP + 0.06, Math.sin(a) * 0.28);
-      tuft.castShadow = true;
-      g.add(tuft);
-    }
-    const stone = new THREE.Mesh(GEO.sphere, material(palette.soilDark));
-    stone.scale.set(0.14, 0.09, 0.12);
-    stone.position.set(0.1, SOIL_TOP + 0.01, -0.12);
-    g.add(stone);
   }
+  // ...and nothing at all in an unprepared one. The weeds and the stone are
+  // GONE rather than restyled, which is worth saying so nobody puts a tidier
+  // version of them back: what they were for was telling a rough bed from a
+  // turned one at a distance, and the mat does that on its own now — bare and
+  // flat against four raised channels is a bigger silhouette difference than
+  // five cones ever were, and it is the difference the contour can actually
+  // draw.
   return g;
 }
 
@@ -2332,9 +2334,13 @@ export function buildFixtureGhost({ model, t = 1, rot = 0, height, verdict, spot
  * one pixel on every platform that has ever ignored `linewidth`, and at this
  * camera that reads as a smudge rather than as a box.
  */
-export function buildCageMarker(mode = 'aim', size = { x: 1, y: 1, z: 1 }) {
+export function buildCageMarker(mode = 'aim', size = { x: 1, y: 1, z: 1 }, override = null) {
   const g = new THREE.Group();
-  const look = MARKER_LOOK[mode] ?? MARKER_LOOK.aim;
+  // `override` is for a cage that is not one of the marker vocabulary's — the
+  // wall ghost, whose colour is a verdict rather than a mode. Merged over a
+  // real look rather than replacing it, or every caller of it has to restate
+  // the bar thickness and the draw order.
+  const look = { ...(MARKER_LOOK[mode] ?? MARKER_LOOK.aim), ...override };
   g.userData.color = look.color;
 
   const t = 0.045;
@@ -3200,6 +3206,33 @@ function paintGlyph(ctx, canvas, glyph, ink) {
     ctx.lineTo(S * 0.42, S * 0.88);
     ctx.lineTo(S * 0.72, S * 0.44);
     ctx.lineTo(S * 0.52, S * 0.44);
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+  if (glyph === 'culture') {
+    /**
+     * A flask, as ONE closed filled path — the lorry's rule rather than the
+     * crate's, and for the lorry's reason: what survives a 0.09 stroke lying
+     * flat under a 40° camera is a silhouette, and this shape has a waist,
+     * which is the most distinctive outline in the set.
+     *
+     * It is the one mark here with an UP, which was the argument against it and
+     * is worth recording as a decision rather than an oversight. The paint turns
+     * with the shop, so at the far quarter this reads as a funnel — and a funnel
+     * over a deck that feeds vats is not a wrong sentence, where a lorry read
+     * backwards or a P upside down would be. The three yaw-proof alternatives
+     * were a ring, which the set can only spend once and which sinters to a dot
+     * at distance, and a hex cluster, which is a beehive — a pen this feature
+     * retired.
+     */
+    ctx.beginPath();
+    ctx.moveTo(S * 0.38, S * 0.10);
+    ctx.lineTo(S * 0.62, S * 0.10);
+    ctx.lineTo(S * 0.62, S * 0.37);
+    ctx.lineTo(S * 0.89, S * 0.85);
+    ctx.lineTo(S * 0.11, S * 0.85);
+    ctx.lineTo(S * 0.38, S * 0.37);
     ctx.closePath();
     ctx.fill();
     return;

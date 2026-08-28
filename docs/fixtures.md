@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-127 pieces across 26 kinds.
+130 pieces across 26 kinds.
 
 ## Fixtures
 
@@ -123,7 +123,7 @@ Shapes: Standard, Chest, Wall run, Wall corner, Wall corner (other way), Endcap 
 
 `deli-counter` · kind `freezer` · $240 to build
 
-6 parts · **1 board of goods** (3 facings drawn) · has glass
+19 parts · **1 board of goods** (3 facings drawn) · has glass
 
 ✨ Charm **1** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
@@ -229,8 +229,9 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 - ⚙️ **Butcher's Block** while running — one look throughout · 1 moving part
 - ⚙️ **Blast Freezer** while running — one look throughout · steams
 - ⚙️ **Candy Kettle** while running — one look throughout · steams · 1 moving part
+- ⚙️ **Former** while running — 3 stages across a batch · the machine itself bobs
 
-Shapes: Standard, Barista, Blender, Toaster, Press, Juicer, Soft-Serve, Fryer, Oven, Grill, Preserver, Stockpot, Mill, Mixer, Churn, Butcher's Block, Blast Freezer, Candy Kettle — looks only, same price and same ladder.
+Shapes: Standard, Barista, Blender, Toaster, Press, Juicer, Soft-Serve, Fryer, Oven, Grill, Preserver, Stockpot, Mill, Mixer, Churn, Butcher's Block, Blast Freezer, Candy Kettle, Former — looks only, same price and same ladder.
 
 1. **Bench** — free, as built
 2. **Commercial** — $340, speed ×2
@@ -238,23 +239,23 @@ Shapes: Standard, Barista, Blender, Toaster, Press, Juicer, Soft-Serve, Fryer, O
 
 ### `plot`
 
-Outdoors only, blocks nobody, nobody stands at it.
+Indoors or out, owns its cell (people walk around it), worked from the side it faces (`useAt`), and reachable from either end, rotates.
 
-#### Plot
+#### Grow Rack
 
 `plot` · kind `plot` · $30 to build
 
-4 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof
+18 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn) · has glass
 
-Shapes: Standard, Timber trough, Cold frame — looks only, same price and same ladder.
+Shapes: Standard, Nutrient channel, Propagator — looks only, same price and same ladder.
 
-1. **Bare earth** — free, as built
-2. **Raised bed** — $90, speed ×1.6
-3. **Greenhouse** — $260, speed ×2.3
+1. **Grow tray** — free, as built
+2. **Twin rack** — $90, holds ×2
+3. **Triple rack** — $260, holds ×3
 
 ### `pen`
 
-Outdoors only, **2x2 tiles**, owns its cells (people walk around it), worked from the side it faces (`useAt`), rotates.
+Indoors or out, **2x2 tiles**, owns its cells (people walk around it), worked from the side it faces (`useAt`), rotates.
 
 #### Hen House
 
@@ -319,6 +320,33 @@ Outdoors only, **2x2 tiles**, owns its cells (people walk around it), worked fro
 1. **Beehive** — free, keeps 3 animals
 2. **Apiary** — $190, holds ×2.5, speed ×1.5, keeps 6 animals
 
+#### Protein Vat
+
+`protein-vat` · kind `pen` · $220 to build
+
+27 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass · 1 part moves always
+
+1. **Protein vat** — free, keeps 2 animals
+2. **Twin fermenter** — $340, holds ×2.5, speed ×1.5, keeps 4 animals
+
+#### Culture Tank
+
+`culture-tank` · kind `pen` · $180 to build
+
+33 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
+
+1. **Culture tank** — free, keeps 2 animals
+2. **Precision line** — $280, holds ×2.5, speed ×1.5, keeps 4 animals
+
+#### Myco Tower
+
+`myco-tower` · kind `pen` · $160 to build
+
+31 parts · 2 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass · 1 part moves always
+
+1. **Myco tower** — free, keeps 3 animals
+2. **Stacked rack** — $240, holds ×2.5, speed ×1.5, keeps 6 animals
+
 ### `bin`
 
 Indoors or out, owns its cell (people walk around it), worked from the side it faces (`useAt`), rotates.
@@ -351,7 +379,7 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 `arm` · kind `arm` · $90 to build
 
-22 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 2 parts move always
+31 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass · 3 parts move always
 
 1. **Loader** — free, as built
 2. **Quick loader** — $90, speed ×1.9
@@ -365,7 +393,7 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 `sorter` · kind `sorter` · $140 to build
 
-21 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · 3 parts move always
+30 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass · 6 parts move always
 
 1. **Sorter** — free, as built
 2. **Quick sorter** — $140, speed ×1.9
@@ -379,7 +407,7 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 `packer` · kind `packer` · $160 to build
 
-16 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
+34 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
 
 1. **Packer** — free, as built
 2. **Quick packer** — $160, speed ×1.9
@@ -407,7 +435,7 @@ Indoors only, owns its cell (people walk around it), nobody stands at it, rotate
 
 `lift` · kind `lift` · $120 to build
 
-16 parts · no `surface` boards — goods pile on its roof · has glass
+33 parts · no `surface` boards — goods pile on its roof · has glass
 
 1. **Standard** — free, as built
 2. **Quick hoist** — $60, speed ×1.8
@@ -463,7 +491,7 @@ Indoors or out, blocks nobody, nobody stands at it, rotates.
 
 ✨ Charm **1.5** — raises how far word of the shop travels (catchment), saturating across the whole shop.
 
-💡 Emits `#ffd7a1`, intensity 1.1, range 4.5 tiles. (Eight lights are real at once — see `render/lights.js`.)
+💡 Emits `#ffd7a1`, intensity 0.55, range 3.2 tiles. (Eight lights are real at once — see `render/lights.js`.)
 
 #### Lamppost
 
@@ -845,13 +873,13 @@ Ground. Painted over an area, blocks nobody, and is purely a **look** — two de
 
 `pine-boards` · kind `floor` · $9 per tile
 
-Surface `#c09a63` / `#a8834f`, planks repeat. No model — ground *is* the cell.
+Surface `#b49c78` / `#a99371`, planks repeat. No model — ground *is* the cell.
 
 #### Chequer
 
 `chequer-tile` · kind `floor` · $14 per tile
 
-Surface `#e6e2d8` / `#4a4a52`, checker repeat. No model — ground *is* the cell.
+Surface `#e6e2d8` / `#9b9ba4`, checker repeat. No model — ground *is* the cell.
 
 #### Concrete
 
@@ -863,13 +891,13 @@ Surface `#9b9a94`, plain repeat. No model — ground *is* the cell.
 
 `terracotta-tile` · kind `floor` · $16 per tile
 
-Surface `#c2724a` / `#a75f3d`, checker repeat. No model — ground *is* the cell.
+Surface `#cf9a80` / `#c39178`, checker repeat. No model — ground *is* the cell.
 
 #### Slate
 
 `slate-flags` · kind `floor` · $22 per tile
 
-Surface `#5c626b` / `#4a4f57`, planks repeat. No model — ground *is* the cell.
+Surface `#949aa4` / `#8b919a`, planks repeat. No model — ground *is* the cell.
 
 #### Paving
 
@@ -881,19 +909,19 @@ Surface `#c9c7c0` / `#b0aea6`, checker repeat. No model — ground *is* the cell
 
 `asphalt` · kind `floor` · $5 per tile
 
-Surface `#4b4d51`, plain repeat. No model — ground *is* the cell.
+Surface `#9296a0`, plain repeat. No model — ground *is* the cell.
 
 #### Cobblestone
 
 `cobblestone` · kind `floor` · $13 per tile
 
-Surface `#8d8478` / `#786f64`, checker repeat. No model — ground *is* the cell.
+Surface `#a8a094` / `#9e968b`, checker repeat. No model — ground *is* the cell.
 
 #### Brickwork
 
 `brick-paving` · kind `floor` · $11 per tile
 
-Surface `#a35e49` / `#8b4e3c`, planks repeat. No model — ground *is* the cell.
+Surface `#c08e7c` / `#b48575`, planks repeat. No model — ground *is* the cell.
 
 #### Shop Floor
 
@@ -905,25 +933,25 @@ Surface `#f0ddb8`, plain repeat. No model — ground *is* the cell.
 
 `dark-oak-boards` · kind `floor` · $12 per tile
 
-Surface `#7a5334` / `#63422a`, planks repeat. No model — ground *is* the cell.
+Surface `#b4906c` / `#a98766`, planks repeat. No model — ground *is* the cell.
 
 #### Parquet Blocks
 
 `oak-parquet` · kind `floor` · $18 per tile
 
-Surface `#b98b4e` / `#96692f`, checker repeat. No model — ground *is* the cell.
+Surface `#c3a786` / `#b79d7e`, checker repeat. No model — ground *is* the cell.
 
 #### Clay Paviors
 
 `clay-paviors` · kind `floor` · $13 per tile
 
-Surface `#ab5238` / `#cabfae`, brick repeat. No model — ground *is* the cell.
+Surface `#c9917a` / `#bd8873`, brick repeat. No model — ground *is* the cell.
 
 #### Mosaic Tiling
 
 `mosaic-tile` · kind `floor` · $17 per tile
 
-Surface `#38707f` / `#ded9cc`, tiles repeat. No model — ground *is* the cell.
+Surface `#88b4be` / `#80a9b3`, tiles repeat. No model — ground *is* the cell.
 
 #### Marble Tiling
 
@@ -935,13 +963,13 @@ Surface `#f0eee7` / `#cfccc2`, tiles repeat. No model — ground *is* the cell.
 
 `sage-lino` · kind `floor` · $5 per tile
 
-Surface `#7d9878`, plain repeat. No model — ground *is* the cell.
+Surface `#9db594`, plain repeat. No model — ground *is* the cell.
 
 #### Oxblood Lino
 
 `oxblood-lino` · kind `floor` · $5 per tile
 
-Surface `#8c3f3a`, plain repeat. No model — ground *is* the cell.
+Surface `#c48c85`, plain repeat. No model — ground *is* the cell.
 
 #### Steel Deck
 
@@ -991,19 +1019,19 @@ Surface `#79808c` / `#98a0ad`, planks repeat. No model — ground *is* the cell.
 
 ### `paddock`
 
-Ground. Painted over an area, blocks nobody, and carries a **job**: animals graze here, and how big you paint it is how many head a pen you stand in it holds.
+Ground. Painted over an area, blocks nobody, and carries a **job**: culture lines run here, and how big you paint it is how many a pen standing in it runs.
 
-#### Grazing
+#### Culture Bed
 
 `paddock-grazing` · kind `paddock` · $1.40 per tile
 
-Surface `#9ab069` / `#accb78`, tufts repeat. No model — ground *is* the cell.
+Surface `#a9c3bb` / `#bcd3cb`, tiles repeat. No model — ground *is* the cell.
 
-#### Muddy Yard
+#### Bare Deck
 
 `paddock-yard` · kind `paddock` · $1.10 per tile
 
-Surface `#7d6a4e` / `#8d7a5c`, tufts repeat. No model — ground *is* the cell.
+Surface `#9aa4a6` / `#a8b1b3`, plain repeat. No model — ground *is* the cell.
 
 ### `road`
 

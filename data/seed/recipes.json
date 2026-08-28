@@ -252,6 +252,20 @@
     "minutes": 8
   },
   {
+    "id": "culture-milk-recipe",
+    "name": "Cultured Milk",
+    "station": "churn",
+    "inputs": [
+      {
+        "item_id": "dairy-culture",
+        "qty": 2
+      }
+    ],
+    "output_id": "milk",
+    "output_qty": 3,
+    "minutes": 8
+  },
+  {
     "id": "cup-of-soup-recipe",
     "name": "Cup of Soup",
     "station": "stock-pot",
@@ -374,6 +388,24 @@
     "minutes": 11
   },
   {
+    "id": "former-egg-recipe",
+    "name": "Cultured Eggs",
+    "station": "former",
+    "inputs": [
+      {
+        "item_id": "protein-biomass",
+        "qty": 2
+      },
+      {
+        "item_id": "dairy-culture",
+        "qty": 1
+      }
+    ],
+    "output_id": "egg",
+    "output_qty": 5,
+    "minutes": 9
+  },
+  {
     "id": "former-fillet-recipe",
     "name": "Beef Joint",
     "station": "former",
@@ -402,6 +434,20 @@
     "minutes": 9
   },
   {
+    "id": "former-pork-recipe",
+    "name": "Cultured Pork",
+    "station": "former",
+    "inputs": [
+      {
+        "item_id": "protein-biomass",
+        "qty": 3
+      }
+    ],
+    "output_id": "pork",
+    "output_qty": 3,
+    "minutes": 10
+  },
+  {
     "id": "former-portions-recipe",
     "name": "Chicken Portions",
     "station": "former",
@@ -414,6 +460,34 @@
     "output_id": "chicken",
     "output_qty": 3,
     "minutes": 9
+  },
+  {
+    "id": "former-poultry-recipe",
+    "name": "Cultured Chicken",
+    "station": "former",
+    "inputs": [
+      {
+        "item_id": "fungal-biomass",
+        "qty": 3
+      }
+    ],
+    "output_id": "poultry",
+    "output_qty": 4,
+    "minutes": 10
+  },
+  {
+    "id": "former-turkey-recipe",
+    "name": "Cultured Turkey",
+    "station": "former",
+    "inputs": [
+      {
+        "item_id": "protein-biomass",
+        "qty": 5
+      }
+    ],
+    "output_id": "turkey",
+    "output_qty": 2,
+    "minutes": 16
   },
   {
     "id": "frozen-berries-recipe",
@@ -643,6 +717,24 @@
     ],
     "output_id": "ketchup",
     "output_qty": 4,
+    "minutes": 14
+  },
+  {
+    "id": "kettle-honey-recipe",
+    "name": "Fermented Honey",
+    "station": "candy-kettle",
+    "inputs": [
+      {
+        "item_id": "sugar",
+        "qty": 2
+      },
+      {
+        "item_id": "fungal-biomass",
+        "qty": 1
+      }
+    ],
+    "output_id": "honey",
+    "output_qty": 2,
     "minutes": 14
   },
   {

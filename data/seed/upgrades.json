@@ -481,6 +481,20 @@
     "requires": []
   },
   {
+    "id": "station-former",
+    "name": "Former",
+    "description": "Extrudes and shapes what the vats grew. Protein biomass becomes mince, bacon, portions and joints; myco becomes birds. The machine the culture floor exists to feed.",
+    "cost": 300,
+    "kind": "station",
+    "payload": {
+      "station": "former",
+      "group": "farm",
+      "run": "Prep",
+      "sort": 0.9
+    },
+    "requires": []
+  },
+  {
     "id": "station-grill",
     "name": "Grill",
     "description": "A flat-top grill. Skewers for the shelf, and roast chicken, carvery, hot dogs and bacon rolls for a hot counter.",

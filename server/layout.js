@@ -28,6 +28,7 @@ import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
   FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS, FIXTURES,
   footprint, sizeOf, deckOf, CEILING, LIFT_WAYS, rot4, sorterRoute, mergeRoute,
+  standableSide,
 } from '../shared/build.js';
 import { LOT_KINDS } from '../shared/lot.js';
 
@@ -160,15 +161,29 @@ const storeWest = (shell, worldW, storeW, baseW) => {
  * appliances below, which are worked from the tile at their side and want the
  * elbow room, and for the world-width reservation the farm makes.
  *
- * `PLOT_PITCH` is the farm, and 1 for the same reason: a bed IS the ground, you
+ * `PLOT_PITCH` was the farm, and 1 for the same reason: a bed IS the ground, you
  * stand on the one you are picking, so beds laid touching are a field. At 2
  * four beds were a dotted diagonal line strung eight tiles down the flank, and
  * what that reads as is the farm having been scattered rather than planted.
+ *
+ * IT IS TWO NUMBERS NOW, and the split is exactly the shelf's — because a rack
+ * is exactly a shelf. The day `plot` started blocking its cell, a packed square
+ * of them stopped being a field and became a solid block, and a bed in the
+ * middle of one has no side anybody can stand on: nine plots came out as a 3x3
+ * with an unreachable centre, which `canPlaceCleanly` refuses and the generator
+ * then reports as `incomplete`. A dotted diagonal is still the wrong answer, and
+ * it is not the only alternative — `SHELF_ROW_PITCH`/`ROW_PITCH` have laid runs
+ * of shelving with an aisle between them since there were aisles. So: touching
+ * along the row, a gap between rows. A grow room is racks and aisles.
+ *
+ * Both together, or neither is right. Along alone is the block again; between
+ * alone is the diagonal the old comment threw out.
  */
 const COL_PITCH = 2;
 const SHELF_ROW_PITCH = 1;
 const ROW_PITCH = 2;
-const PLOT_PITCH = 1;
+const PLOT_COL_PITCH = 1;
+const PLOT_ROW_PITCH = 2;
 
 /**
  * Generate the whole world.
@@ -410,7 +425,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
    * single long row: four beds came out as a line eight tiles down the flank
    * with a gap between each, so the whole of a starting farm was further from
    * the back door than the far corner of the shop. Roughly square and packed
-   * (`PLOT_PITCH`), so a field is a field.
+   * (`PLOT_COL_PITCH`/`PLOT_ROW_PITCH`), so a field is a field.
    *
    * ...and it sits at the BACK of that flank, level with the north wall, which
    * is where the yard is. It was bottom-aligned with the door for one round, on
@@ -426,7 +441,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
    * farm may come in as far as it likes except for that.
    */
   const farmX0 = store.x + store.w + 2;
-  const farmRoom = Math.max(1, Math.floor((worldW - 2 - farmX0) / PLOT_PITCH) + 1);
+  const farmRoom = Math.max(1, Math.floor((worldW - 2 - farmX0) / PLOT_COL_PITCH) + 1);
   const farmCols = Math.max(1, Math.min(farmRoom, Math.ceil(Math.sqrt(Math.max(1, req.plots)))));
   const plotRows = Math.max(1, Math.ceil(req.plots / farmCols));
   const plotTop = store.z;
@@ -446,7 +461,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const worldH = Math.max(
     WORLD_H + growH,
     doorLine + FRONT_DEPTH,
-    plotTop + plotRows * PLOT_PITCH + FRONT_DEPTH,
+    plotTop + plotRows * PLOT_ROW_PITCH + FRONT_DEPTH,
   );
 
   const tiles = new Uint8Array(worldW * worldH).fill(T.GRASS);
@@ -885,10 +900,17 @@ function compose(req, storeW, storeH, allowDrops = true) {
     }
     budget[p.kind]--;
     if (p.kind === 'plot') {
+      // Ground AND occupant, which a bed was not: it stamped its tile and stood
+      // on nothing, so a shopper walked through the carrots. A rack blocks like
+      // any other unit and reserves the side you pick from — the till's shape,
+      // arriving at the farm.
       set(p.x, p.z, T.PLOT);
-      plotsOut.push(Object.assign(makePlot(p.id, p.x, p.z), {
+      occupy(p.x, p.z);
+      const bed = Object.assign(makePlot(p.id, p.x, p.z, p.rot ?? 2), {
         tier: p.tier ?? 1, variant: p.variant ?? '', piece: p.piece ?? null,
-      }));
+      });
+      plotsOut.push(bed);
+      reserve(bed.useAt);
     } else if (p.kind === 'pen') {
       // A hutch stands ON its cell rather than being it, so this is the till's
       // and the skip's shape rather than the bed's: occupy, and reserve the gate
@@ -1209,12 +1231,21 @@ function compose(req, storeW, storeH, allowDrops = true) {
   let nPlot = 0;
   for (let i = 0; budget.plot > 0; i++) {
     if (i > req.plots * 8 + 64) break;         // belt and braces
-    const px = farmX0 + (i % farmCols) * PLOT_PITCH;
-    const pz = plotTop + Math.floor(i / farmCols) * PLOT_PITCH;
+    const px = farmX0 + (i % farmCols) * PLOT_COL_PITCH;
+    const pz = plotTop + Math.floor(i / farmCols) * PLOT_ROW_PITCH;
     if (pz > farmFloor || px < 1 || px > worldW - 2) continue;
     if (at(px, pz) !== T.GRASS) continue;
+    // The aisle a rack faces has to be free for somebody to stand in, which a
+    // bed never needed — it was the standing spot. `PLOT_ROW_PITCH` is what
+    // leaves the gap; this is the check that it is still a gap, since the row
+    // below may be off the frontage or already built on.
+    const bed = makePlot(`plot-p${nPlot}`, px, pz);
+    if (!standableSide(layoutSoFar(), bed, bed.useAt)) continue;
     set(px, pz, T.PLOT);
-    plotsOut.push(makePlot(`plot-p${nPlot++}`, px, pz));
+    occupy(px, pz);
+    nPlot++;
+    plotsOut.push(bed);
+    reserve(bed.useAt);
     budget.plot--;
   }
   // A taller building is what buys more farm: it pushes the door down, which
@@ -2000,9 +2031,20 @@ export function carLanes(L, cells) {
   });
 }
 
-function makePlot(id, x, z) {
+function makePlot(id, x, z, rot = 2) {
   return {
     tier: 1,
+    rot,
+    /**
+     * The side you work it from, which a bed did not have.
+     *
+     * It stood on `anchor: null` — you stood on the bed itself — and the day it
+     * started blocking its cell that stopped being a spot anybody could reach.
+     * `rot: 2` is the generator's default for everything worked from one side
+     * (see `makeBin`, `makePen`): the aisle a farm row faces is the one below
+     * it, which is where `PLOT_ROW_PITCH` leaves the gap.
+     */
+    useAt: anchorTile(x, z, rot),
     // Which shape it is. Empty means the kind's own model — Standard.
     variant: '',
     // And the same missing field, found the same way and costing real money:

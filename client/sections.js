@@ -15,7 +15,7 @@ import { homeKind } from '../shared/tags.js';
 // grows a member above it.
 import { E, wayDefault } from '../shared/edges.js';
 import { kindOf, countKey } from '../shared/pieces.js';
-import { toolRevealed, revealSig, opensAt, gateFor } from '../shared/reveal.js';
+import { toolRevealed, revealSig, opensAt, gateFor, pieceOffered } from '../shared/reveal.js';
 import { variantsOf } from '../shared/model.js';
 import { artForModel, artForTool, artForWorker } from './thumb.js';
 import { doingNow, bodyOf, kindSummary, ARM_MS } from './worker-menu.js';
@@ -382,19 +382,45 @@ export const KIND_TOOLS = {
   plot: {
     icon: ICONS.plot,
     group: 'farm',
-    run: 'Beds',
+    // "Beds" until the bed became a rack. A `run` is a length budget rather than
+    // a caption (see `paddock` below), and this one is a word shorter than the
+    // 7 that budget was set at.
+    run: 'Racks',
     // "Outside" until docs/vats.md step 1 made `plot` `where: 'any'`. A blurb
     // that still said outside would be the palette refusing a press the shop
     // accepts, which is the green-ghost disagreement wearing prose.
-    blurb: 'Earth, indoors or out. Turn it over before it takes a seed.',
+    //
+    // ...and "earth" was the same mistake one reskin later. The medium is a tray
+    // now, but what the sentence has to carry is the RULE — a rack holds one
+    // crop and wants turning over before it takes a seed — because that is the
+    // half a player cannot see, and it is true of all three designs.
+    blurb: 'Grows one crop at a time, indoors or out. Turn the tray over before it takes a seed.',
   },
   // Reusing `plot` rather than baking a glyph: `ICONS` throws on a name nobody
   // added, and adding one is a build step (`scripts/build-icons.js`).
   pen: {
     icon: ICONS.plot,
     group: 'farm',
-    run: 'Pens',
-    blurb: 'A shelter, indoors or out. Fills on its own — collect at the gate. Paint culture floor round it to run more than one line.',
+    run: 'Vats',
+    /**
+     * THE ID IS `pen` AND EVERY WORD A PLAYER READS IS A VAT.
+     *
+     * CLAUDE.md's rebrand rule exactly: the enum, the column and the kind stay
+     * `pen` because they are load-bearing on live saves, and the trap is
+     * somebody "fixing" the mismatch later. So this string is where the rename
+     * actually happens, and it shipped half done — "a shelter" and "collect at
+     * the gate" are a shed with an animal in it, sitting under three machines
+     * called Protein Vat, Culture Tank and Myco Tower.
+     *
+     * Three sentences because there are three rules and none of them is
+     * visible. It fills on a clock of its own; a full one has STOPPED rather
+     * than banking overnight, which is the whole of why `capacity_mult` is
+     * worth paying for and why the trip out matters; and the deck is the
+     * supply, which is the one thing about a vat nothing on screen says until
+     * somebody paints. Every vat standing in shop-6 is on one line for want of
+     * that last sentence.
+     */
+    blurb: 'Brews on its own clock, indoors or out. A full one has stopped, so it is worth emptying. Paint culture floor round it to run more than one line.',
   },
   bin: {
     icon: ICONS.close,
@@ -514,8 +540,28 @@ export const KIND_TOOLS = {
   paddock: {
     icon: ICONS.plot,
     group: 'farm',
-    run: 'Culture Floor',
-    blurb: 'Drag out an area. Deck for a pen standing in it. Every four cells is another line.',
+    /**
+     * ONE WORD, AND THE REASON IS THE CSS RATHER THAN THE PROSE.
+     *
+     * A `run` is drawn as the vertical rule down the left of its group, in
+     * `writing-mode: vertical-rl` — so the label's **character count is its
+     * HEIGHT**, and a run is the tallest thing in its row, so every tile in the
+     * group stretches to match it. "Culture Floor" measured 91px against the
+     * 57px a tile actually needs, which is 37px of white space under every
+     * button on the Farm tab and nothing anywhere to say why. It reads as the
+     * tiles being wrong — they are the thing that visibly changed size — and the
+     * tiles are identical to Appliances in every dimension.
+     *
+     * It arrived as a rename: "Paddock" is 7 characters and this was 13. So the
+     * rule for any future `run`: it is a **length budget**, not a caption. The
+     * others are BEDS, PENS, COOKING, GLAZING — one short word each, and that is
+     * a constraint rather than a style.
+     */
+    run: 'Culture',
+    // "a pen standing in it" was the code word leaking into the one sentence
+    // that explains the deck. Same rename as `pen` above: the kind is a pen and
+    // the thing in the room is a vat.
+    blurb: 'Drag out an area. Deck for the vats standing in it. Every four cells is another line.',
   },
   // The ground the world came with, and the last cell in the game to become
   // something you could restyle. See the `land` sub-tab for why it is neither a
@@ -735,24 +781,45 @@ export const BUILD_TOOLS = [
   // Fences. Same tool, same drag, same lattice — and deliberately not the same
   // *meaning*: a fence never encloses (`ENCLOSING`, shared/edges.js), so fencing
   // a field can't accidentally roof it and turn every bed in it indoors. That is
-  // why the farm can be fenced at all, and it is the whole of step 11: the shop
+  // why the farm could be fenced at all, and it is the whole of step 11: the shop
   // used to draw one for you, hugging the bounding box of wherever your plots
   // happened to be, which meant it moved every time you dug a bed.
+  //
+  // DECORATION, AND IT WAS FARM UNTIL THE FARM MOVED INDOORS.
+  //
+  // Filing them under Farm was right for as long as the only thing anybody
+  // fenced was a field of beds and a paddock of pigs. docs/vats.md took both of
+  // those inside — the beds are racks, the paddock is a deck you paint on a shop
+  // floor — so the Farm tab is now a list of things that stand in a warehouse
+  // with four boundary tools on the end of it, and there is nothing left on that
+  // tab for a fence to go round.
+  //
+  // Decoration is where they land rather than Outdoors, and that is the honest
+  // reading rather than the tidy one: a rail never encloses and never makes a
+  // room, so it changes no rule about the building — and a thing you put up
+  // because it looks right is exactly what that group is. Outdoors is the ground
+  // itself and the ways in, and a fence is neither.
+  //
+  // None of them carries a `tags`, so `subIdFor` files all four in the catch-all
+  // (Odds and ends) under their own `run`. That is deliberate rather than a
+  // fallthrough nobody checked: a fifth sub-tab holding one run of four is the
+  // eight-sub-tabs tell the Building group's own note describes, arriving one
+  // group over.
   {
     id: 'fence',
     edge: 5,
-    group: 'farm',
+    group: 'decor',
     run: 'Fencing',
     icon: ICONS.plot,
     name: 'Fence',
-    blurb: 'Marks out the farm. Blocks the way, but never makes a room.',
+    blurb: 'Marks out a boundary. Blocks the way, but never makes a room.',
   },
   // Two more boundaries, beside the fence they are looks of. Same price, same
   // rules, and free to swap between — see `FENCING` in shared/edges.js.
   {
     id: 'hedge',
     edge: E.HEDGE,
-    group: 'farm',
+    group: 'decor',
     run: 'Fencing',
     icon: ICONS.plot,
     name: 'Hedge',
@@ -761,20 +828,20 @@ export const BUILD_TOOLS = [
   {
     id: 'railing',
     edge: E.RAILING,
-    group: 'farm',
+    group: 'decor',
     run: 'Fencing',
     icon: ICONS.plot,
     name: 'Railing',
-    blurb: 'Posts and a rail. Blocks the way and you can see the whole field through it.',
+    blurb: 'Posts and a rail. Blocks the way and you can see straight through it.',
   },
   {
     id: 'gate',
     edge: 4,
-    group: 'farm',
+    group: 'decor',
     run: 'Fencing',
     icon: ICONS.build,
     name: 'Gate',
-    blurb: 'A way through a fence. Tap a built one to keep shoppers out of the field.',
+    blurb: 'A way through a fence. Tap a built one to keep shoppers on their side of it.',
   },
   // The bulldozer, and it is on every tab because "get rid of that" is not a
   // question about what sort of thing it is.
@@ -907,7 +974,15 @@ function computeBuildTools(ui) {
   const rows = ui?.catalog?.fixtures ?? [];
   const pieces = [];
   for (const kind of Object.keys(KIND_TOOLS)) {
-    const mine = rows.filter((p) => kindOf(p) === kind);
+    const drawn = rows.filter((p) => kindOf(p) === kind);
+    // ...and then the ones that are no longer offered, which is the other end of
+    // `shared/reveal.js` — a gate is a button you have not reached yet, this is
+    // one you have gone past. It is a FILTER and never a permission, exactly as
+    // a gate is: the seven pens are standing in live shops, `placeFixture` has
+    // never heard of either table, and every one of those placements keeps its
+    // row, its art, its price and its refund. See `RETIRED_PIECES` for what
+    // deleting the rows instead would look like.
+    const mine = drawn.filter((p) => pieceOffered(p.id));
     // A kind that *is* its art gets no entry until somebody draws one. Props
     // were the original case — an undrawn planter is nothing — and a floor is
     // the same claim from the other end: an undrawn floor has no colour, so
@@ -917,7 +992,19 @@ function computeBuildTools(ui) {
     // colour, so an entry for one would be a button that paints a wall whatever
     // the renderer happens to fall back to.
     const artOnly = isProp(kind) || isSurface(kind);
-    const entries = mine.length ? mine : (artOnly ? [] : [{ id: kind, name: FIXTURES[kind]?.label ?? kind }]);
+    // THE BARE BUTTON IS FOR A KIND NOBODY HAS DRAWN, NOT ONE NOBODY OFFERS.
+    //
+    // `drawn` and not `mine`, and the difference is the whole guard. The
+    // fallback exists so a kind with no `fixtures` row is still buildable — an
+    // undrawn shelf renders as a plain block and always has. Asked of the
+    // filtered list instead, a `RETIRED_PIECES` entry that happened to empty a
+    // kind would put that grey box back on the bar wearing the label of the
+    // thing somebody had just retired: a button that builds an undrawn fixture,
+    // arriving *because* of the line meant to take one away. Today the three
+    // vats keep `pen` non-empty, so this costs nothing and is here for the next
+    // id somebody adds.
+    const entries = mine.length ? mine
+      : ((artOnly || drawn.length) ? [] : [{ id: kind, name: FIXTURES[kind]?.label ?? kind }]);
     for (const p of entries) {
       // Two brushes, and the flag says WHICH GESTURE rather than "is a brush":
       // `paint` is dragged over an area of ground, `face` is dragged along one

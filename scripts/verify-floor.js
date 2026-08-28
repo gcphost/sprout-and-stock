@@ -111,6 +111,24 @@ const TEST_FLOORS = [
     surface: { color: '#9a8f74', pattern: 'plain' },
     tiers: [{ name: 'Standard', cost: 0 }],
   },
+  /**
+   * A LOOK that leaves the cell as grass, which §4 needs and nothing else does.
+   *
+   * A room the walls just made is floored for you now (`floorNewRooms`), so the
+   * bug this whole feature is the fix for cannot be reached by walling an annex
+   * any more — and it must still be asserted, or the guard retires with the
+   * chore. Painting the land back over it is the one gesture that puts a cell
+   * indoors back onto `T.GRASS`: the eraser cannot, because bare ground indoors
+   * IS floor (`canPaintGround.leaves`).
+   */
+  {
+    id: 'verify-floor-lawn',
+    kind: 'lawn',
+    name: 'Verify Turf',
+    cost: 0.41,
+    surface: { color: '#6f8a52', pattern: 'plain' },
+    tiers: [{ name: 'Standard', cost: 0 }],
+  },
   /** A pad that goes OUTDOORS, for the refusal in §6 — a pen stands on grass. */
   {
     id: 'verify-floor-paddock',
@@ -315,15 +333,63 @@ function grassPatch(g, w = 2, h = 2) {
   const az = L.store.z + 1;
   check(ax + 2 < L.w - 1, 'there is room east of the building for an annex');
 
+  // The shop as it stood, so the auto-floor below can be asserted as a set of
+  // cells rather than as a spot check — every way of getting it wrong paves too
+  // much rather than too little.
+  const before = Uint8Array.from(L.tiles);
+
   for (let z = az; z < az + 2; z++) g.buildEdge('me', { o: 'v', x: ax + 2, z, kind: E.WALL });
   g.buildEdge('me', { o: 'h', x: ax, z: az, kind: E.WALL, to: ax + 1 });
-  g.buildEdge('me', { o: 'h', x: ax, z: az + 2, kind: E.WALL, to: ax + 1 });
+  // The press that closes it — the shop's own east wall is the fourth side — so
+  // this is the one that owes the floor, and the three before it owe nothing.
+  const cashBefore = g.cash;
+  const closed = g.buildEdge('me', { o: 'h', x: ax, z: az + 2, kind: E.WALL, to: ax + 1 });
+  // Read before the doorway below, which is a fourth press and $28 of its own.
+  const cashAfter = g.cash;
   // ...and a doorway through the shop's own east wall, so the annex joins on.
   g.buildEdge('me', { o: 'v', x: ax, z: az, kind: E.DOOR });
 
   check(g.layout.indoor[az * g.layout.w + ax] === 1,
     'the annex counts as indoors the moment the walls close it in');
-  eq(groundAt(g, ax, az), T.GRASS, 'but the ground inside it is still grass');
+
+  /**
+   * ...AND IT IS FLOORED, which is the chore this used to be a monument to.
+   *
+   * Every cell of the annex, on the press that closed it — and NOTHING else in
+   * the shop, which is the half that makes it a consequence of the gesture
+   * rather than a rule about the shop. Asserted as the set of cells whose tile
+   * moved rather than as a spot check, because every way of getting this wrong
+   * paves too much rather than too little: a version that swept every bare cell
+   * indoors would pass a check on the annex and quietly pave the field.
+   */
+  for (let z = az; z < az + 2; z++) {
+    for (let x = ax; x < ax + 2; x++) {
+      eq(groundAt(g, x, z), T.FLOOR, `closing the walls floors (${x},${z})`);
+    }
+  }
+  const moved = [];
+  for (let i = 0; i < before.length; i++) {
+    if (before[i] !== g.layout.tiles[i]) moved.push(`${i % g.layout.w},${Math.floor(i / g.layout.w)}`);
+  }
+  eq(moved.sort().join('|'),
+    [`${ax},${az}`, `${ax + 1},${az}`, `${ax},${az + 1}`, `${ax + 1},${az + 1}`].sort().join('|'),
+    'and stops at the walls it was drawn inside');
+  eq(closed.floored, 4, 'and the press that closed it is the one that says so');
+  check(closed.flooredCost > 0, 'and it was paid for rather than given away');
+  eq(round2(cashBefore - cashAfter), round2(closed.cost + closed.flooredCost),
+    'and the till moved by the wall AND the floor, with nothing unaccounted for');
+
+  /**
+   * Now put it back to grass, because the refusal below is the bug the Floor
+   * brush exists to fix and it has to go on being asserted somewhere. Laying
+   * the land over a floor is a look over a look — one stroke, no walls touched,
+   * and the cell reads `T.GRASS` again exactly as it did before any of this.
+   */
+  const turfed = g.buildGround('me', {
+    x: ax, z: az, piece: 'verify-floor-lawn', to: { x: ax + 1, z: az + 1 },
+  });
+  check(turfed.ok, 'the land can be laid back over it', turfed.error ?? '');
+  eq(groundAt(g, ax, az), T.GRASS, 'and the ground inside it is grass again');
 
   // Against the back wall of the annex, browsed from the entrance side. Not in
   // the doorway cell (ax, az) — that is the only way in, so a shelf standing

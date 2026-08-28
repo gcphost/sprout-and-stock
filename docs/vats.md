@@ -1,9 +1,14 @@
 # Vats — the farm that came indoors
 
-Status: **steps 1–5 and 7 built; step 6 (the art) in progress.** The farm goes
-indoors, the Culture Floor is renamed, three vats and the Former are authored,
-crop-side seasons are gone, and the trays stand on the deck. What is left is
-finishing the art and looking at it.
+Status: **built — all seven steps.** The farm goes indoors, the Culture Floor is
+renamed, three vats and the Former are authored and drawn, crop-side seasons are
+gone, the beds are grow racks, the trays stand on the deck, five recipes give
+every retired animal a vat route, and the seven pens are off the palette without
+a row being deleted. What is left is playing it.
+
+⚠️ **A client rebuild is owed before any of the art or the palette change is
+visible**, and `npm run export` before any commit — the content rows live only in
+the local database until then.
 
 Two things the build turned up that this document did not predict, both recorded
 in their sections below: the roofed-clock holds in `stepPens`/`stepCrops` were
@@ -193,6 +198,45 @@ Note that this **adds a hop** to every meat chain — biomass, then a cut, then
 whatever the kitchen does with it. Depth is capped at three in production.md and
 `beef → mince → bolognese` was already two. Check that nothing lands at five.
 
+### …and three things DO land at five, deliberately
+
+Measured over the whole catalogue once the loop was closed: 78 recipes, all of
+them clearing 1.4×, and the deepest chain is **5** on exactly three items —
+`frozen-pizza`, `jam-tart` and `mince-pies`. Every one of them is downstream of
+milk, and the cause is the one recipe that closes the dairy half:
+
+```
+dairy-culture ─[Churn]→ milk ─[Churn]→ cream ─[Churn]→ butter ─[Mixer]→ pastry ─[Oven]→ mince-pies
+```
+
+The meat side is fine — the Former makes finished cuts straight out of biomass,
+so `protein-biomass → mince` is one hop and nothing there moved. It is the
+*dairy* chain that was already at four before this document existed
+(`milk → cream → butter → pastry → jam-tart`), and putting a vat in front of
+milk is what takes it over.
+
+**It was shipped anyway, and that is a decision rather than an oversight.** Two
+reasons. The five-hop chain is never *forced*: the van sells everything again
+(docs/production.md's closed fork), so milk, butter and cheese can all be
+bought, and every intermediate on the way is sellable in its own right — the
+player who wants a mince pie has a one-hop route to it and the five-hop one is
+the margin play. And the alternative is worse: without this recipe the Culture
+Tank's output feeds only one thing, and retiring the Dairy Shed puts milk back
+to being bought, which is the exact sentence production.md calls *"the single
+oddest thing in the catalogue"*.
+
+The fix that was rejected is worth recording because it looks like the obvious
+one. A second Churn recipe — `dairy-culture → cream`, skipping milk — pulls
+`jam-tart` and `mince-pies` back to four and leaves `frozen-pizza` at five (it
+goes via `milk → curd → cheese → pizza`), so it would take a *third* shortcut to
+actually hold the line. At that point the recipes exist to move a number rather
+than because anybody wants to make cream that way, which is authoring content to
+game a guideline. **Three is a shape, not a rule**; production.md says
+"occasionally four where it is the joke", and this is five on three bakery items
+nobody is obliged to make from scratch. If a later step wants the ceiling back,
+the honest lever is the dairy chain's own length — `milk → cream → butter` is
+three hops on one machine — and not a bypass round it.
+
 ---
 
 ## Step 4 — the racks, and the one real balance change
@@ -202,6 +246,67 @@ the one the plot exists for. The bed becomes a rack, the soil becomes a tray, th
 stages draw under lights instead of under sky, and **not one crop row changes**.
 
 Except one field, and it is not small.
+
+### …and then the rack STOOD UP, which was three changes rather than a reskin
+
+Built after the rest of this document, and worth its own heading because two of
+the three move rules rather than pictures.
+
+**It blocks its cell.** `plot` was `blocks: false, rotates: false, anchor: null`
+and every word of that was right about soil: you stood ON the thing you were
+picking, so it had no working spot because it *was* one, it could not turn
+because a square of earth has no front, and a block of them was a field you
+walked through. A grow tent has a front and a door, and a waist-high tent you
+stroll through is the thing that reads wrong. So it takes the shelf's shape —
+`blocks: true`, `rotates: true`, `anchor: 'useAt'`, `ends: true` — while keeping
+`ground: T.PLOT`, which is still what refuses a second rack on the cell and what
+`canPaintGround` reads to say "there is a bed there".
+
+Two things fell out that were not obvious:
+
+- **The generator had to grow aisles.** `PLOT_PITCH` was 1 and a farm was a
+  packed square, which the day plots blocked became a solid block with an
+  unreachable middle — nine plots is a 3×3 whose centre has no side to stand on,
+  `canPlaceCleanly` refuses it and the generator reports `incomplete`. It is two
+  numbers now, `PLOT_COL_PITCH` 1 and `PLOT_ROW_PITCH` 2, which is
+  `SHELF_ROW_PITCH`/`ROW_PITCH` exactly: touching along the row, an aisle between
+  rows. A grow room is racks and aisles. No live save was stranded — every
+  existing farm is 4–5 beds in a 2–3 wide block, so every one of them is already
+  on a perimeter.
+- **Upgrading a bed had never worked, and nothing said so.** `canPlace` asks two
+  questions — what the ground is made of, and whether anything stands on it —
+  and only the second had ever heard of `ignoreId`. A `plot` stamps `T.PLOT` and
+  that is in neither buildable set, deliberately, so a rack asked to stand where
+  it already stands was refused **by its own stamp**, with the message that the
+  cell was occupied. `upgradeFixture` goes through `repositionFixture`, which
+  re-judges the placement, so the Lit Rack rung has been unbuyable for as long as
+  it has existed. The belt half of the same bug was papered over years earlier by
+  `conveyorSwap`, which is a bespoke function about conveyors that happens to
+  return before the tile test; the general rule it is a special case of now lives
+  beside it, and a stamp you made is proof you were allowed to build here.
+
+**Picking is a press.** The bed was the one goods job in the game on proximity —
+`auto` on the candidate, fired by standing on it — and the whole argument for
+that was *the tile under your feet names exactly one bed*. A rack cannot be stood
+on, so `standingOn` is false for every plot for ever and the branch could only
+have been dead code reading as a live rule. It is gone; you point, you walk, you
+hold, which is what taking an armful off a shelf already was. `verify:build`
+asserts the inversion rather than dropping the claims, because a gesture that
+quietly went back to firing on its own would strip a grow room as you walked down
+the aisle and would look exactly like a farm working.
+
+**The rung buys DECKS.** `capacity_mult` 1 / 2 / 3, multiplied into `sowInto` —
+the one place a yield is decided, and the same choke point that exists so the
+bed *draws* what it is going to give. `speed_mult` was flattened to 1 in the same
+breath, or the two compound to 6.9× at the top rung for $260. The art carries the
+count rather than the code: a stage's `surface` parts ARE its decks
+(`surfacesAt`, the shelf's own flag), so a rung that draws the wrong number of
+trays says so on screen. `clearanceOn` (shared/model.js) is the new half — a
+tray in a rack has a grow light a third of a tile over it, and the crop catalogue
+was authored for open sky, so a plant is scaled to fit under its own light.
+
+⚠️ **The deck ladder is a supply increase and `simulate` can see it**, exactly as
+the seasons change below is. It has not been measured.
 
 ### All fourteen crops are seasonal
 
@@ -407,6 +512,31 @@ hardest here because the pens are live in real shops. Editing a `fixtures` row's
 to `defaultPiece` and every vat in every save becomes a shipped pen — which fails
 silently and looks like art. If an item is retired rather than rewired,
 `binOrphans` gives it one day of grace and then the stock is gone.
+
+**…which left "retire" with nothing in the codebase to say it, so it grew a
+table.** `computeBuildTools` listed every `fixtures` row of a kind
+unconditionally, and there was no per-piece way to stop offering one:
+`shared/reveal.js` is keyed kind-first (`REVEAL.pen` is already
+`first-harvest`, so a per-piece entry there would never be read at all), only
+ever hides a button *until a rung lands*, and `verify:reveal` rejects a gate
+that does not name a real milestone — there is no rung for never. Pricing them
+out is worse than useless: `razeFixture` refunds `cost × FIXTURE_REFUND`, so a
+pen repriced to 100000 lets a live shop sell the ones it already owns back at
+50,000 each, and the button stays on the bar regardless. And rewiring their
+`produces` to a biomass — the tempting content-only answer — silently stops a
+running shop's egg boards being fed while a pile of biomass grows on its pad,
+which is the one option that fails while everything reads as working.
+
+So `RETIRED_PIECES` sits beside `REVEAL` as its opposite promise: a gate hides a
+button you have not reached, this takes away one you have gone past. It is a
+palette FILTER and never a permission — `placeFixture` has never heard of either
+table — and it is the same call `RETIRED` in `client/sections.js` already makes
+about the `staff` and `space` upgrade kinds, one table over and keyed on the
+piece instead of the kind. The seven rows stay exactly where they are, art,
+ladder, price, `produces` and refund intact. `verify:reveal` §8 is the sweep, and
+its claim is a pair worthless split in half: off the bar **and** still resolving
+through `pieceFor`, because "off the bar" alone is satisfied by deleting the row,
+which is the thing this exists so that nobody does.
 
 **`poultry` has no category tag.** Found while sizing this: its tags are
 `needs-freezer, perishable, heavy` — no `meat`, no `dinner`. So no

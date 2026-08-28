@@ -2906,15 +2906,50 @@ function lookEndsPress(dx, dy) {
 // ---------------------------------------------------------------------------
 let edgeDrag = null;
 
-/** The segments a drag from its start to the pointer would lay, and its far end. */
+/**
+ * The segments a drag from its press to the pointer would lay, its far end, and
+ * the run's own start — which is no longer the edge you pressed on.
+ *
+ * The axis is the pointer's, re-read every move, rather than the pressed edge's
+ * settled at `pointerdown`. `edgeRun`'s own note argued the other way — "a run
+ * follows the line it started on, turning a corner is a second drag" — and that
+ * is still true of one RUN; what it got wrong is that the press is not the
+ * decision. Half a cell decides which of two lines you snapped to, so a drag
+ * that meant north off a wall you were tracing east laid nothing at all and
+ * read as the tool ignoring you.
+ *
+ * Ties keep the incumbent, `faceAlong`'s rule: a press that has not travelled,
+ * and one that has gone the same distance both ways, are the line you pressed
+ * on — so a click is exactly the single segment it always was.
+ *
+ * The perpendicular run hangs off the CORNER rather than off the pressed edge,
+ * because the pressed edge names one lattice coordinate and the other axis
+ * needs the other one. Which side of that corner it begins on is the direction
+ * of travel: a lattice line sits between two cells, and the run takes the one
+ * you dragged towards.
+ */
 function edgeDragRun(cx, cy) {
-  if (!edgeDrag) return { segs: [], to: null };
-  // How far along the run's own axis the pointer has got. Read off the tile
-  // rather than off `pickEdge`, which answers "which line" — the wrong question
-  // once the line is already chosen.
+  if (!edgeDrag) return { segs: [], to: null, spec: null };
+  const { start, from, corner } = edgeDrag;
   const tile = scene.pickTile(cx, cy, 0.55);
-  const to = tile ? (edgeDrag.start.o === 'v' ? tile.z : tile.x) : null;
-  return { segs: edgeRun(edgeDrag.start, to), to };
+  if (!tile) return { segs: edgeRun(start, null), to: null, spec: start };
+
+  const dx = Math.abs(tile.x - from.x);
+  const dz = Math.abs(tile.z - from.z);
+  const o = dx === dz ? start.o : (dx > dz ? 'h' : 'v');
+
+  if (o === start.o) {
+    const to = o === 'v' ? tile.z : tile.x;
+    return { segs: edgeRun(start, to), to, spec: start };
+  }
+  if (o === 'h') {
+    const to = tile.x;
+    const spec = { o, x: to >= start.x ? start.x : start.x - 1, z: corner.z };
+    return { segs: edgeRun(spec, to), to, spec };
+  }
+  const to = tile.z;
+  const spec = { o, x: corner.x, z: to >= start.z ? start.z : start.z - 1 };
+  return { segs: edgeRun(spec, to), to, spec };
 }
 
 /**
@@ -3055,7 +3090,7 @@ function showFaceDrag(cx, cy) {
 }
 
 function showEdgeDrag(cx, cy) {
-  const { segs, to } = edgeDragRun(cx, cy);
+  const { segs, to, spec } = edgeDragRun(cx, cy);
   if (!segs.length) { scene.setEdgeGhost(null, null); return null; }
   const verdict = canPlaceEdges(scene.storeLayout, segs, edgeDrag.kind);
   const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
@@ -3067,7 +3102,7 @@ function showEdgeDrag(cx, cy) {
   // way you dragged, so the last segment is the far end only when you dragged
   // towards increasing x or z; the other way round it is the segment you
   // STARTED on, and sending it asks the server for a run of exactly one.
-  return { segs, verdict, to };
+  return { segs, verdict, to, spec };
 }
 
 /**
@@ -4014,8 +4049,13 @@ canvas.addEventListener('pointerdown', (e) => {
     ? null : ui.edgeKindForTool();
   if (ek !== null) {
     const start = scene.pickEdge(e.clientX, e.clientY);
-    if (start) {
-      edgeDrag = { start, kind: ek, id: e.pointerId };
+    const corner = scene.pickCorner(e.clientX, e.clientY);
+    const from = scene.pickTile(e.clientX, e.clientY, 0.55);
+    clickLog('down: edge drag starting', {
+      ek, start: start && `${start.o}${start.x},${start.z}`, corner, from,
+    });
+    if (start && corner && from) {
+      edgeDrag = { start, corner, from, kind: ek, id: e.pointerId };
       canvas.setPointerCapture(e.pointerId);
       showEdgeDrag(e.clientX, e.clientY);
       return;
@@ -4542,11 +4582,14 @@ function endPress(e) {
   }
   if (edgeDrag && (!e || e.pointerId === edgeDrag.id)) {
     const drawn = e ? showEdgeDrag(e.clientX, e.clientY) : null;
-    const start = edgeDrag.start;
     const kind = edgeDrag.kind;
     edgeDrag = null;
     scene.setEdgeGhost(null, null);
     ui.setBuildVerdict(null);
+    clickLog('up: edge drag ending', {
+      hadEvent: !!e, type: e?.type ?? null, segs: drawn?.segs.length ?? null,
+      to: drawn?.to ?? null, verdict: drawn?.verdict ?? null,
+    });
     if (drawn) {
       // ...and the press keeps what the ghost promised: a tool up builds, and
       // opening what is already there is the tap with no tool up. See the
@@ -4561,8 +4604,12 @@ function endPress(e) {
       // `edgeRun` against the same maximum and trims it to the same segments,
       // so reading it back off the list could only ever disagree — and did, in
       // one direction, for every drag towards a lower x or z.
+      //
+      // The run's own start, never the edge the press snapped to: since the axis
+      // is the pointer's, a drag that turned has a start on a line the press
+      // never named.
       net.send('build-edge', {
-        o: start.o, x: start.x, z: start.z, kind, to: drawn.to,
+        o: drawn.spec.o, x: drawn.spec.x, z: drawn.spec.z, kind, to: drawn.to,
       });
     }
     return;

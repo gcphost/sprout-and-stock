@@ -33,7 +33,7 @@ import {
   FIXTURES, workSpots, flowSpots, conveyorNext, conveyorAt, conveyorsOf, conveyorBranches, tunnelExit, CONVEYOR_KINDS, derivedFlow, anchorTile, spotsOf, canPlace, turn, rot4, groundIndex, groundKindOfTile, isProp, shelfKind, GOODS_PADS, isPadAt, isWalkableTile,
   SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   faceKey, covers, footprintMid, sizeOf, deckOf, CEILING, armReach,
-  conveyorLines, conveyorLoops, unitOn, conveyorMeets,
+  conveyorLines, conveyorLoops, unitOn, armPorts, conveyorMeets,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf, bodiesOf } from '../../shared/pieces.js';
 import { hash01 } from '../../shared/hash.js';
@@ -56,7 +56,7 @@ import {
 } from './look.js';
 import {
   isStaged, stageIndexAt, tierProgress, partsAt, modelHeight, modelBounds, surfacesAt, drawableBoards,
-  boardsForShare,
+  boardsForShare, clearanceOn,
   variantModel, variantWork, skinKey,
 } from '../../shared/model.js';
 import { SIGNAL_NAMES, signalValue } from '../../shared/signals.js';
@@ -467,6 +467,16 @@ const GROUND_DEEP = 1.2;
 
 /** Usable width inside a plot's frame, and roughly how wide a crop draws. */
 const BED_SPAN = 0.64;
+/**
+ * How much of a raised bed's depth of earth a RACK TRAY gets.
+ *
+ * A bed is `RIDGE_TOP` of soil standing on the ground with open sky over it, so
+ * how thick it is costs nothing. In a rack the tray has a grow light a third of
+ * a tile above it, and every millimetre the medium takes comes straight off what
+ * the crop may grow to before it is inside that light — so the same depth that
+ * reads as *a bed* reads as *a plant with no room* one deck up.
+ */
+const MEDIUM_SQUASH = 0.55;
 const PLANT_FOOTPRINT = 0.4;
 /** Past this a bed just reads as "full"; no authored crop comes close. */
 const BED_MAX = 12;
@@ -687,29 +697,61 @@ function hashId(id) {
  * when it was sown, and the arrangement has to hold anything from one plant to
  * a full tray without either rattling around or growing through the frame.
  */
-function plantSpots(count, seed = 0) {
+/**
+ * Where the plants stand in a rack — and, since the ladder became DECKS, which
+ * shelf of it each one is on.
+ *
+ * `decks` is read off the art rather than off the rung (`surfacesAt`, the same
+ * flag a shelf's boards use), so a rack draws as many levels as it was drawn
+ * with and a variant that is one open trough is a variant rather than a special
+ * case. One deck is exactly the old function to the digit, which is what keeps
+ * every crop, every variant and every save that has never upgraded untouched.
+ *
+ * The split is BOTTOM-UP and the remainder rides on the lowest deck, which is
+ * the opposite of a shelf's top-first fill and is right for the same reason it
+ * is wrong there. A shelf fills from the top because that is the board you can
+ * see into; a rack of trays is loaded like a rack of trays — you fill the one
+ * you can reach and work up — so a two-deck rack holding three lettuces draws
+ * two below and one above, and the half-empty deck is the top one.
+ *
+ * Each deck lays its own grid over the whole tray, so a deck of two is two
+ * plants spread across it rather than two plants in the corner of a grid sized
+ * for the whole yield. That is the thing that would look broken: a triple rack
+ * would draw one sparse tall grid split three ways instead of three full trays.
+ */
+function plantSpots(count, seed = 0, decks = 1) {
   const n = Math.max(1, Math.min(BED_MAX, count || 1));
-  const cols = Math.ceil(Math.sqrt(n));
-  const rows = Math.ceil(n / cols);
-  const pitch = BED_SPAN / Math.max(cols, rows);
-  const scale = Math.min(1, pitch / PLANT_FOOTPRINT);
-
+  const levels = Math.max(1, Math.round(decks) || 1);
   const spots = [];
-  for (let i = 0; i < n; i++) {
-    const r = Math.floor(i / cols);
-    // Centre each row on its own width, so a short final row sits in the
-    // middle of the bed rather than hanging off one edge.
-    const inRow = Math.min(cols, n - r * cols);
-    const c = i - r * cols;
-    // Deterministic wobble: a perfectly square grid reads as printed rather
-    // than planted, and it must wobble the *same* way every rebuild or the
-    // whole bed twitches each time the crop crosses into its next stage.
-    const wob = (k) => ((Math.sin(seed * 0.7 + i * 12.9898 + k * 78.233) * 43758.5453) % 1) * pitch * 0.15;
-    spots.push({
-      x: (c - (inRow - 1) / 2) * pitch + wob(1),
-      z: (r - (rows - 1) / 2) * pitch + wob(2),
-      scale,
-    });
+
+  for (let d = 0; d < levels; d++) {
+    // How many are on THIS deck. Spread as evenly as the count allows, with the
+    // remainder on the bottom decks — `ceil` for the first `n % levels` of them.
+    const here = Math.floor(n / levels) + (d < n % levels ? 1 : 0);
+    if (here <= 0) continue;
+    const cols = Math.ceil(Math.sqrt(here));
+    const rows = Math.ceil(here / cols);
+    const pitch = BED_SPAN / Math.max(cols, rows);
+    const scale = Math.min(1, pitch / PLANT_FOOTPRINT);
+    for (let i = 0; i < here; i++) {
+      const r = Math.floor(i / cols);
+      // Centre each row on its own width, so a short final row sits in the
+      // middle of the tray rather than hanging off one edge.
+      const inRow = Math.min(cols, here - r * cols);
+      const c = i - r * cols;
+      // Deterministic wobble: a perfectly square grid reads as printed rather
+      // than planted, and it must wobble the *same* way every rebuild or the
+      // whole bed twitches each time the crop crosses into its next stage.
+      // Seeded by the DECK too, or every level of a rack wobbles identically
+      // and the three read as one tray with a mirror under it.
+      const wob = (k) => ((Math.sin(seed * 0.7 + d * 31.41 + i * 12.9898 + k * 78.233) * 43758.5453) % 1) * pitch * 0.15;
+      spots.push({
+        x: (c - (inRow - 1) / 2) * pitch + wob(1),
+        z: (r - (rows - 1) / 2) * pitch + wob(2),
+        scale,
+        deck: d,
+      });
+    }
   }
   return spots;
 }
@@ -7788,6 +7830,23 @@ export class Scene {
   }
 
   /**
+   * Which lattice INTERSECTION the pointer is nearest — both of `pickEdge`'s
+   * answers rather than the nearer one.
+   *
+   * A wall drag that may change axis mid-drag needs the line it did *not* snap
+   * to as well: press near a vertical wall, drag east, and the horizontal run
+   * has to hang off a row, which the pressed edge does not name.
+   */
+  pickCorner(clientX, clientY) {
+    if (!this.pickTile(clientX, clientY, 0.55)) return null;
+    const L = this.storeLayout;
+    const x = Math.round(this._hit.x + 0.5);
+    const z = Math.round(this._hit.z + 0.5);
+    if (x < 0 || z < 0 || x > L.w || z > L.h) return null;
+    return { x, z };
+  }
+
+  /**
    * Which SIDE of a wall you are pointing at.
    *
    * `pickEdge` answers which line, which was the whole question while everything
@@ -10579,9 +10638,11 @@ export class Scene {
     // drop collar are drawn separately below.
     for (const s of armReach(c)) {
       if (conveyorAt(L, s.x, s.z, deckOf(c))) continue;
-      const takes = (L.shelves ?? []).some((sh) => sh.x === s.x && sh.z === s.z)
-        || (L.stations ?? []).some((st) => st.x === s.x && st.z === s.z)
-        || (L.bins ?? []).some((bn) => bn.x === s.x && bn.z === s.z)
+      // `armPorts` rather than a list of kinds. This was three lines naming
+      // shelves, stations and bins, which is one of the three copies of that
+      // list `armPorts` exists to retire — see its note. A pad is not a fixture
+      // and has no kind, so the off-ramp stays its own clause.
+      const takes = armPorts(L, s.x, s.z).pour
         || GOODS_PADS.some((k) => isPadAt(L, k, s.x, s.z));
       if (takes) out.push(s);
     }
@@ -10631,6 +10692,22 @@ export class Scene {
    *
    * Both are facts about what you built rather than about where a box happens to
    * be lying this second, which is the line the whole marking layer draws.
+   *
+   * ...AND A STANDING SOURCE IS NOT ONLY PAINT. This listed painted ground and a
+   * stockroom shelf, and both of those are right — what it left out is every
+   * fixture a loader takes goods OUT of, which by then was three kinds. A
+   * finished tray on an appliance, a full vat and a ripe rack are each exactly
+   * what this comment describes: goods live there, it is a fact about what you
+   * built, and the machine beside it collects on its own. `armTake` has been in
+   * the sim since loaders existed and `armGather`/`armReap` since docs/belts.md
+   * step 4b, and none of the three ever reached this list — so a loader bolted
+   * to a vat drew no intake rail and no opening at all, which reads as the
+   * machine not being wired up rather than as a mark that was never added.
+   *
+   * `armPorts` is the schema now, so a kind authored tomorrow says which ports
+   * it has on its own row. The `boh` test below stays here on purpose: the kind
+   * says the port EXISTS and the placement says whether it is open, which is the
+   * same split `where` makes against `canKeep`.
    */
   conveyorIntake(L, c) {
     if (c.kind !== 'arm') return [];
@@ -10645,8 +10722,14 @@ export class Scene {
       // one thing and the machine does another.
       if (c.mode !== 'load' && s.x === faced.x && s.z === faced.z) continue;
       if (conveyorAt(L, s.x, s.z, deckOf(c))) continue;
+      // A unit of shelving is the one kind whose take port is conditional, and
+      // the condition is `armPull`'s: back of house only, or a loader empties
+      // the aisle it was bought to fill and the two directions undo each other
+      // on one run. Everything else with a take port — an appliance's tray, a
+      // vat, a rack — is unconditional, exactly as the sim has it.
+      const shelving = (L.shelves ?? []).find((sh) => sh.x === s.x && sh.z === s.z);
       const source = GOODS_PADS.some((k) => isPadAt(L, k, s.x, s.z))
-        || (L.shelves ?? []).some((sh) => sh.x === s.x && sh.z === s.z && sh.boh === true);
+        || (shelving ? shelving.boh === true : armPorts(L, s.x, s.z).take);
       if (source) out.push(s);
     }
     return out;
@@ -12451,26 +12534,32 @@ export class Scene {
     // besides: a fence is 0.5 tall, so a boundary tool previewed a slab more than
     // twice the height of what it builds.
     const style = EDGE_STYLE[shown] ?? EDGE_STYLE[E.WALL];
-    // A hair fatter than the real thing, which is the one number here that is
-    // not the wall's own: the `aim` state lights up an edge that is ALREADY
-    // there, and a ghost at exactly its thickness is two coplanar faces fighting
-    // over the depth buffer — the highlight would flicker as the camera turned.
-    const t = style.t + 0.05;
-    const group = new THREE.Group();
-    const geo = new THREE.BoxGeometry(1, 1, 1);
-    for (const s of segs) {
-      const mesh = new THREE.Mesh(geo, material(colour, 0.5));
-      // Same centring the real edge renderer uses: a vertical segment sits on
-      // the lattice line in x and spans the cell in z, and the other way round.
-      if (s.o === 'v') {
-        mesh.position.set(s.x - 0.5, style.h / 2, s.z);
-        mesh.scale.set(t, style.h, 1);
-      } else {
-        mesh.position.set(s.x, style.h / 2, s.z - 0.5);
-        mesh.scale.set(1, style.h, t);
-      }
-      group.add(mesh);
-    }
+    // AN OUTLINE ROUND THE WHOLE RUN, not a translucent slab per segment. A
+    // half-opaque wall at wall height on the line it would stand on is not a
+    // preview of a wall, it is a wall being built as you drag — which is the
+    // one thing this gesture must not look like, since nothing is bought until
+    // the button comes up. And it says the same thing the verdict does: one
+    // cage for the run, because "this seals the shop" is true of the run.
+    //
+    // Twelve bars rather than a `LineSegments` for `buildCageMarker`'s own
+    // reason — `linewidth` is one pixel on every platform that ignores it, and
+    // at this camera that reads as a smudge rather than as a box. `grow` is
+    // what the old `+0.05` fattening was for: the cage sits just outside the
+    // wall it describes, so the `aim` state does not fight an edge that is
+    // already standing there.
+    const o = segs[0].o;
+    const lo = o === 'v' ? segs[0].z : segs[0].x;
+    const hi = o === 'v' ? segs[segs.length - 1].z : segs[segs.length - 1].x;
+    const span = hi - lo + 1;
+    const group = buildCageMarker(
+      'aim',
+      o === 'v' ? { x: style.t, y: style.h, z: span } : { x: span, y: style.h, z: style.t },
+      { color: colour, chevron: false, grow: 0.03 },
+    );
+    // Same centring the real edge renderer uses: a vertical run sits on the
+    // lattice line in x and spans its cells in z, and the other way round.
+    if (o === 'v') group.position.set(segs[0].x - 0.5, style.h / 2, (lo + hi) / 2);
+    else group.position.set((lo + hi) / 2, style.h / 2, segs[0].z - 0.5);
     this.actorRoot.add(group);
     this.edgeGhost = group;
   }
@@ -13827,7 +13916,28 @@ export class Scene {
       // How many plants are in the bed is part of what it looks like, so a
       // re-roll after replanting has to rebuild it.
       const count = Math.max(1, p.yield || 1);
-      const key = `${soil}:${p.crop_id}:${stage}:${count}`;
+      /**
+       * The decks this rack has, off its own art at its own rung.
+       *
+       * `surfacesAt` is the shelf's flag, and using it here is what keeps the
+       * ladder honest in both directions: the rung sells `capacity_mult` decks
+       * and the art draws that many boards, so a rack you paid to upgrade shows
+       * the level you bought. Author a stage with the wrong number of surfaces
+       * and the plants say so immediately, which is the one way this could go
+       * wrong that a screenshot can catch.
+       *
+       * `?? 1` and never 0: a variant with no surfaces at all (an open trough,
+       * a cold frame) is one tray, which is the bed exactly as it always drew.
+       */
+      const rackModel = this.pieceOf(def)?.model;
+      const rackT = this.fixtureT(def);
+      const boards = surfacesAt(rackModel, rackT);
+      const decks = Math.max(1, boards.length);
+      // What is over each tray, so nothing grows through its own light. Open
+      // sky (Infinity) for a one-deck rack and for every variant with no
+      // surfaces, which is the bed exactly as it drew.
+      const roomOver = boards.map((b) => clearanceOn(partsAt(rackModel, rackT), b));
+      const key = `${soil}:${p.crop_id}:${stage}:${count}:${decks}`;
       let rec = this.plotProps.get(p.id);
 
       if (!rec) {
@@ -13854,11 +13964,47 @@ export class Scene {
       // Where the plants are going, decided BEFORE the soil is built: the
       // ridges are cut to the rows, so a bed of four is two fat ridges and a
       // bed of twelve is four. A bed nobody has sown gets the default four.
-      const spots = p.crop_id && crop ? plantSpots(count, hashId(p.id)) : null;
+      const spots = p.crop_id && crop ? plantSpots(count, hashId(p.id), decks) : null;
 
       // Turned earth vs rough turf. A planted bed is always broken soil, so a
       // crop never looks like it's growing straight out of the lawn.
-      rec.group.add(buildSoil(p.crop_id ? 'tilled' : soil, PALETTE, spots?.map((s) => s.z)));
+      //
+      // The BOTTOM deck's rows only. `buildSoil` draws the tray you can see into
+      // — the one at the base of the rack — and handing it every deck's z would
+      // cut it a lane per plant on three levels at once, which is three trays'
+      // worth of ridging crammed into one.
+      /**
+       * The medium, IN each tray rather than on the floor under the rack.
+       *
+       * It drew at y 0 for as long as a bed was the ground — which it was — and
+       * a rack stands its lowest deck a quarter of a tile up, so left alone the
+       * medium sits inside the plinth with the plants floating over it.
+       *
+       * One per DECK, not one for the rack. A three-deck rack with medium in
+       * the bottom tray only is two shelves of plants growing out of bare
+       * metal, which reads as the upper decks being unfinished.
+       *
+       * `MEDIUM_SQUASH` is the one number here that is a judgement. A raised bed
+       * is `RIDGE_TOP` of earth and a tray in a lit rack is a mat — and the
+       * height matters twice over, because everything the medium takes comes
+       * straight off what a plant may grow to before it is inside its own light.
+       * At full depth a crop had 0.19 of a tile; squashed it has 0.25, which is
+       * the difference between a lettuce and a smear.
+       *
+       * A rack with no authored decks gets one medium at 0, undiminished, which
+       * is the bed exactly as it drew.
+       */
+      const levels = boards.length ? boards : [{ y: 0 }];
+      levels.forEach((b, d) => {
+        const medium = buildSoil(
+          p.crop_id ? 'tilled' : soil,
+          PALETTE,
+          spots?.filter((s) => s.deck === d).map((s) => s.z),
+        );
+        medium.position.y = b.y;
+        if (boards.length) medium.scale.y = MEDIUM_SQUASH;
+        rec.group.add(medium);
+      });
 
       if (!spots) continue;
 
@@ -13877,11 +14023,42 @@ export class Scene {
         // Then shrink to share the bed. Multiplied, not assigned, or a crowded
         // bed of unstaged crops would lose its growth ramp entirely.
         plant.scale.multiplyScalar(spot.scale);
+        /**
+         * ...and again, to fit UNDER the deck it is on.
+         *
+         * A tray in a rack has a light hanging a third of a tile over it, and
+         * the crop catalogue was authored for open sky — an apple tree in a
+         * grow rack is a metre of tree through a lamp. It is the `drawableBoards`
+         * argument said the other way round: that one asks whether you can see a
+         * board, this asks whether what you put on it fits.
+         *
+         * A ceiling of Infinity multiplies by 1, which is every rack that has
+         * not been upgraded, every variant with no authored decks, and every
+         * plant on the top tray of a trough. Nothing that was growing before
+         * this moved.
+         */
+        // ...measured from the top of the medium it is standing in, which is
+        // where the plant actually starts. `clearanceOn` answers from the tray,
+        // so the medium's own depth comes off it or a crop is allowed exactly
+        // that much of its own light.
+        const room = (roomOver[spot.deck] ?? Infinity) - RIDGE_TOP * MEDIUM_SQUASH;
+        const tall = modelHeight(crop.model) * plant.scale.y;
+        if (Number.isFinite(room) && tall > room) plant.scale.multiplyScalar(room / tall);
         // On the ridge rather than on the ground the ridge stands on. The soil
         // used to be a flat slab and 0 was its top; it has a top and a bottom
         // now, and a plant left at 0 grows out of the bottom of the furrow with
         // its own row banked up either side of it.
-        plant.position.set(spot.x, RIDGE_TOP, spot.z);
+        //
+        // ...and on its own DECK above that, off the art. `boards` is sorted by
+        // height, so deck 0 is the bottom one and the index is the level. The
+        // ground tray is the fallback and it is what every rack with no authored
+        // surfaces draws — the bed, unchanged, which is why nothing that was
+        // growing before this moved a millimetre.
+        plant.position.set(
+          spot.x,
+          (boards[spot.deck]?.y ?? 0) + RIDGE_TOP * (boards.length ? MEDIUM_SQUASH : 1),
+          spot.z,
+        );
         bed.add(plant);
       }
       rec.group.add(weld(bed));

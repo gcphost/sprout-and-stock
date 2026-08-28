@@ -78,8 +78,14 @@ import {
  * reachability; this one was a literal in a job function.
  */
 export const FIXTURES = {
-  shelf: { label: 'Shelf', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true },
-  freezer: { label: 'Freezer', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true },
+  shelf: {
+    label: 'Shelf', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true,
+    arm: { pour: true, take: true },
+  },
+  freezer: {
+    label: 'Freezer', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true,
+    arm: { pour: true, take: true },
+  },
   /**
    * The hot counter — a freezer pointed the other way, and the third and last
    * thing a unit of shelving can be.
@@ -99,12 +105,20 @@ export const FIXTURES = {
    * to the bread — for as long as there had been a kitchen. `needs-warmer` is
    * the other half of a tag that was only ever written down cold.
    */
-  warmer: { label: 'Hot Counter', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true },
+  warmer: {
+    label: 'Hot Counter', blocks: true, where: 'indoor', rotates: true, anchor: 'browseAt', ends: true,
+    arm: { pour: true, take: true },
+  },
   checkout: {
     label: 'Till', blocks: true, where: 'indoor', rotates: true,
     anchor: 'serveAt', behind: 'tendAt',
   },
-  station: { label: 'Appliance', blocks: true, where: 'indoor', rotates: true, anchor: 'useAt', ends: true },
+  station: {
+    label: 'Appliance', blocks: true, where: 'indoor', rotates: true, anchor: 'useAt', ends: true,
+    // Both ports, and it is the kind that makes the pair obvious: goods go into
+    // the hopper and a finished tray comes off the other side.
+    arm: { pour: true, take: true },
+  },
   /**
    * The plot — a bed, and since the farm came indoors it is a bed that may
    * stand anywhere.
@@ -123,7 +137,41 @@ export const FIXTURES = {
    * `'any'` is the skip's flag (see `bin`), it strands nothing, and it means an
    * outdoor farm goes on working for anybody who wants one.
    */
-  plot: { label: 'Plot', blocks: false, ground: T.PLOT, where: 'any', rotates: false, anchor: null },
+  /**
+   * THE RACK STANDS ON ITS CELL, WHERE THE BED WAS THE CELL.
+   *
+   * `blocks: false, rotates: false, anchor: null` was the bed's whole shape and
+   * every word of it was right about soil: you stood ON the thing you were
+   * picking, so it had no working spot because it *was* one, it could not turn
+   * because a square of earth has no front, and a block of them was a field you
+   * walked through. A grow tent has a front, a back and a door, and a waist-high
+   * tent you stroll through is the thing that reads wrong.
+   *
+   * So it is the shelf's shape now, and the three flags move together — a
+   * blocking fixture with no anchor is a thing nobody can reach, and an anchor
+   * that cannot turn is a door in whichever direction the generator felt like.
+   *
+   * `ends: true` is the forgiving half and it is load-bearing rather than
+   * generous. A bed has always been workable from wherever you were standing, so
+   * making it front-only would strand every bed in every live save that happens
+   * to have its neighbour on the side `rot` picked — a farm you own and cannot
+   * pick. With ends, three of the four sides answer, which is a run of racks with
+   * an aisle down it, exactly as a run of shelving is.
+   *
+   * `ground: T.PLOT` STAYS, and it is worth saying why it is not now redundant.
+   * `blocked` refuses a second fixture on the cell, so the stamp looks like
+   * belt-and-braces — but it is what `canPaintGround` reads to say "there is a
+   * bed there, clear it first", and it is what keeps a rack off a conveyor and a
+   * conveyor off a rack. The tile is still WALKABLE (`WALKABLE` in tiles.js);
+   * what stops you is the same thing that stops you walking through shelving.
+   */
+  plot: {
+    label: 'Plot', blocks: true, ground: T.PLOT, where: 'any', rotates: true,
+    anchor: 'useAt', ends: true,
+    // Take only. `armReap` picks a ripe rack and re-sows it; nothing has ever
+    // poured anything INTO a bed, and a seed is not goods on a run.
+    arm: { take: true },
+  },
   /**
    * The pen — an animal, and the first thing in the game that produces goods
    * without anybody asking it to.
@@ -175,6 +223,13 @@ export const FIXTURES = {
    */
   pen: {
     label: 'Pen', blocks: true, where: 'any', rotates: true, anchor: 'useAt',
+    // Take only, and it is the reason `armPorts` walks `fixturesOf` with
+    // `covers` rather than comparing a tile: this is the one kind with a
+    // footprint, its record is the min corner, and a loader against three of
+    // its four sides would otherwise find nothing standing there at all.
+    // `nothing feeds the vats` is docs/pens.md's standing decision, so there is
+    // no pour half to declare.
+    arm: { take: true },
     /**
      * TWO CELLS ON A SIDE, and the first fixture in the game to take more than
      * one. A pen is a building rather than a shelf, and at one tile it read as
@@ -217,7 +272,13 @@ export const FIXTURES = {
    * would mean every one of those sites resolving a placement back to its row to
    * ask something the placement already knew.
    */
-  bin: { label: 'Bin', blocks: true, where: 'any', rotates: true, anchor: 'useAt' },
+  bin: {
+    label: 'Bin', blocks: true, where: 'any', rotates: true, anchor: 'useAt',
+    // Pour only, and it is the one kind where the missing half is a rule rather
+    // than an omission: a skip is the way OUT of the shop, so a loader that
+    // could take goods back off one would be undoing the only thing it does.
+    arm: { pour: true },
+  },
   /**
    * The conveyor — the first thing in the shop that moves goods without anybody
    * walking, and the first fixture since the plot that IS the ground.
@@ -1182,7 +1243,7 @@ export function spotsOf(f, { layout = null, open = false } = {}) {
  * `faceAlong` documents, where the far side of your own shop wall is ordinary
  * walkable grass.
  */
-function standableSide(L, f, t) {
+export function standableSide(L, f, t) {
   if (!L) return true;
   if (!isWalkableTile(L, t.x, t.z)) return false;
   return !SOLID.has(edgeBetween(L, t.x, t.z, f.x, f.z));
@@ -1593,9 +1654,10 @@ export function edgeRun(start, to, max = 40) {
   const lo = Math.min(from, end);
   const hi = Math.min(Math.max(from, end), lo + max - 1);
   const out = [];
-  // A run follows the line it started on: a horizontal segment lies along x, a
-  // vertical one along z. Turning a corner is a second drag, which is both
-  // simpler to reason about and what a drawn wall actually wants.
+  // A run follows the line of the start it is HANDED: a horizontal segment lies
+  // along x, a vertical one along z. Which line that is stopped being the edge
+  // the press snapped to — see `edgeDragRun` — so an L is still two runs, but
+  // the second one no longer needs a second press.
   for (let i = lo; i <= hi; i++) out.push(o === 'v' ? { o, x, z: i } : { o, x: i, z });
   return out;
 }
@@ -2936,17 +2998,89 @@ export function conveyorAt(L, x, z, deck = 0) {
  * works differently from the one you are playing.
  */
 /**
+ * WHAT A LOADER MAY DO WITH WHATEVER IS STANDING ON A TILE.
+ *
+ * `{ pour, take }` — may goods go into the thing on this square, and may they
+ * come out of it. Folded over everything covering the cell, because a tile can
+ * hold more than one thing (a duct over a shelf) and the answer is about the
+ * square rather than about one placement.
+ *
+ * It replaced THREE hand-written lists of kinds, in three files, and the bug
+ * that produced is the one CLAUDE.md names about every enumeration with a
+ * fallback: *a kind missing from one copy is a machine that works and a shop
+ * that will not admit it does.* `unitOn` here, `conveyorPours` and
+ * `conveyorIntake` in the renderer. The sim grew `armGather` and `armReap` when
+ * a loader learned to collect a pen and a bed (docs/belts.md step 4b) and not
+ * one of the three lists heard about it — so a loader bolted to a vat collected
+ * from it perfectly and drew **no rail, no opening and no spur**, which reads as
+ * the machine not being hooked up at all. The farm was the report; `station` was
+ * missing from the take half too, and had been since loaders existed.
+ *
+ * So the port is declared on the KIND, beside `blocks`, `where` and `anchor`,
+ * for their reason: it is behaviour, it is closed, and it is the same question
+ * asked in `shared/` by three readers that must agree. A kind with no `arm` is
+ * something a loader has nothing to do with, which is the safe direction and is
+ * every kind that is not a unit — and a kind authored tomorrow says which of
+ * the two it is on the row that defines it rather than in three files that have
+ * never heard of it.
+ *
+ * Filed by `footprint` and never by `f.x === x`, which is the pen's doing: it
+ * is the one kind with more than one cell, its record is the min corner, and a
+ * loader against three of its four sides would find nothing standing there at
+ * all. That bug was live in all three of the lists this replaced.
+ *
+ * What is deliberately NOT here is any condition about the PLACEMENT. A kind
+ * says the port exists; whether it is open on the day is the caller's — a
+ * stockroom shelf may be pulled from and a shop-floor one may not, and that is
+ * `boh` on the unit rather than anything about shelving. Same split `where`
+ * makes against `canKeep`.
+ */
+const NO_PORT = { pour: false, take: false };
+const PORTS = new WeakMap();
+
+export function armPorts(L, x, z) {
+  if (!L) return NO_PORT;
+  /**
+   * Built once per layout and cached against it, for `conveyorFlow`'s reason:
+   * this is asked per cell by the flow walk and per side by two loops in the
+   * renderer, and the honest reading of "what covers this tile" is a sweep of
+   * every fixture in the shop. A re-flow builds a new layout object, which is
+   * what invalidates it — the same identity check every other cache here uses,
+   * and the same trap: anything that MUTATES a fixture list in place rather
+   * than re-flowing would hand out a stale map.
+   */
+  let grid = PORTS.get(L);
+  if (!grid) {
+    grid = new Map();
+    for (const f of fixturesOf(L)) {
+      const port = FIXTURES[f.kind]?.arm;
+      if (!port) continue;
+      for (const c of footprint(f.kind, f.x, f.z)) {
+        const k = `${c.x},${c.z}`;
+        const had = grid.get(k);
+        grid.set(k, {
+          pour: !!(had?.pour || port.pour),
+          take: !!(had?.take || port.take),
+        });
+      }
+    }
+    PORTS.set(L, grid);
+  }
+  return grid.get(`${x},${z}`) ?? NO_PORT;
+}
+
+/**
  * Is a thing a loader can EMPTY INTO standing on this tile?
  *
- * The three `armLand` knows how to pour into, which is the same list
- * `conveyorMeets` gathers and the same list `whatThisCosts` warns about. Written
- * once, because a kind missing from one copy of it is a machine that works and
- * a shop that will not admit it does.
+ * The pour half of `armPorts`, kept as its own name because it is asked in two
+ * places that mean something narrower than "a loader is interested in this
+ * square": `conveyorFlow` uses it to decide a loader is a TERMINUS, and
+ * `whatThisCosts` warns about a run that ends nowhere. A pen must not answer
+ * yes to either — a loader collecting a vat still hands the box on down the
+ * run, and calling it a terminus would end the line at the farm.
  */
 export function unitOn(L, x, z) {
-  return (L?.shelves ?? []).some((u) => u.x === x && u.z === z)
-    || (L?.stations ?? []).some((u) => u.x === x && u.z === z)
-    || (L?.bins ?? []).some((u) => u.x === x && u.z === z);
+  return armPorts(L, x, z).pour;
 }
 
 const FLOW = new WeakMap();
@@ -4699,8 +4833,54 @@ export function canPlace(L, spec, { ignoreId = null, keeping = false, warn: want
   const ok = (g) => (def.where === 'indoor' ? BUILDABLE_INDOOR.has(g)
     : (def.where === 'any' ? (BUILDABLE_INDOOR.has(g) || BUILDABLE_OUTDOOR.has(g))
       : BUILDABLE_OUTDOOR.has(g)));
-  const bad = cells.find((c) => !ok(tileAt(L, c.x, c.z))) ?? cells[0];
-  const ground = tileAt(L, bad.x, bad.z);
+  /**
+   * ...AND A FIXTURE IS NOT IN ITS OWN WAY, WHICH THE GROUND TEST NEVER KNEW.
+   *
+   * `blockedAt` has forgiven `ignoreId` since there was an `ignoreId` — you are
+   * not standing in your own way when you are the thing being lifted — and the
+   * TILE half of the same question was never told. That is invisible for every
+   * kind that stamps nothing, which is all but two of them: a shelf leaves
+   * `T.FLOOR` behind it, so moving one asks about floor and gets floor.
+   *
+   * A `plot` stamps `T.PLOT` and a `belt` stamps `T.BELT`, and neither is in
+   * either buildable set — deliberately, since that stamp is the only thing
+   * refusing a SECOND one on the cell (a non-blocking kind is invisible to
+   * `blocked`). So a rack asked to stand where it already stands was refused by
+   * its own stamp, with the message the cell was occupied. **Upgrading, moving
+   * or turning a bed has never worked**: `upgradeFixture` goes through
+   * `repositionFixture`, which re-judges the placement, and the Lit Rack rung
+   * has been unbuyable for as long as it has existed. Nothing said so — the
+   * refusal names the cell, so it reads as the shop being full.
+   *
+   * The belt half was papered over by `conveyorSwap`, which is a bespoke
+   * function about conveyors that happens to return before this test. This is
+   * the general rule it is a special case of.
+   *
+   * Whether the ground is BUILDABLE is the only thing being asked, and a stamp
+   * you made is proof you were allowed to build here — so it needs no
+   * reconstruction of what lies underneath, which is the version of this that
+   * would have to guess between the overlay, the shell and bare grass.
+   */
+  const ownStamp = (c, g) => !!ignoreId && fixturesOf(L).some((f) => ignores(ignoreId, f.id)
+    && FIXTURES[f.kind]?.ground === g
+    && footprint(f.kind, Math.round(f.x), Math.round(f.z)).some((q) => q.x === c.x && q.z === c.z));
+  /**
+   * The tile, with your own stamp lifted off it — which is what the cell is
+   * made of once the thing being moved is in the air.
+   *
+   * Answered as plain shell ground rather than by reading the overlay back,
+   * because the only thing downstream asks is whether it is buildable and the
+   * fixture standing here is proof that it was. Reconstructing the real base
+   * would mean guessing between `layout.ground`, the shell and bare grass, and
+   * getting that wrong is a fixture you can lift and not put back.
+   */
+  const seen = (c) => {
+    const g = tileAt(L, c.x, c.z);
+    if (ok(g) || !ownStamp(c, g)) return g;
+    return insideStore(L, c.x, c.z) ? T.FLOOR : T.GRASS;
+  };
+  const bad = cells.find((c) => !ok(seen(c))) ?? cells[0];
+  const ground = seen(bad);
   const taken = cells.some((c) => blockedAt(L, c.x, c.z, ignoreId));
   const anyIn = cells.some((c) => insideStore(L, c.x, c.z));
   const allIn = cells.every((c) => insideStore(L, c.x, c.z));
