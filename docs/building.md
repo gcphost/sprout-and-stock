@@ -580,6 +580,16 @@ kind rides beside the piece on each entry rather than being looked up from it,
 for the same reason a placement stores both: `generateLayout` is pure and has
 never seen the catalog.
 
+> **Amended — see "A look goes under a job" below.** A cell holds two answers
+> now, and the four objections above are the reason it is not the second layer
+> this paragraph turned down: still one array, still one entry per cell, still
+> one validator and one re-flow, and the precedence question is answered by the
+> partition that was already in the table — `k` is the job and is still the only
+> thing that decides the tile. What changed is that a *look* painted onto a job
+> stopped being a rival to it. What forced it is in that section: a floor dragged
+> across your own stockroom took the storage away, silently, because painting
+> over a pad is also how you MOVE one.
+
 **A pad is a region, not a point.** `L.bay` was `{x, z}` and is now
 `{x, z, cells}`, read back off `tiles` rather than remembered — the argument
 `fixtureCounts` makes against the ledger it replaced. That is what makes the
@@ -2137,6 +2147,78 @@ machine off the piece instead of off the placement, `buildTools` loses its
 special case, and the upgrade rows become unlocks or go away. That is a content
 migration with models in it, and doing it inside the ledger's retirement would
 have made two risky things one commit.
+
+### A look goes under a job
+
+**Built** — step 31, and it is one line of `GROUND`'s own taxonomy finally being
+read by the brush that paints it.
+
+That table has partitioned in two since step 14: `floor`, `road`, `path` and
+`lawn` are a **look**, and `bay`, `drop`, `break`, `park` and `paddock` carry a
+**job** (`pad: true`, and a `does` sentence saying what). One overlay held one
+answer per cell, so those two were rivals — and the shape of the bug that
+follows from that is worth stating exactly, because nothing in the code looked
+wrong:
+
+> Drag a floor across your stockroom and the storage is gone. Not refused, not
+> warned about past the last cell — the warning fires and then the thing it warns
+> about happens — because painting over a pad is *also* how you move one, and the
+> stroke has no way to tell "put the bay over there" from "lay a nice floor
+> through here". What you notice, days later, is that deliveries have stopped
+> arriving.
+
+The whole fix is that a look painted onto a job goes **underneath** it. The job
+draws and behaves exactly as it did, what you laid is remembered (`u` on the
+entry — a kind and a piece), and taking the job up hands the look back rather
+than scraping the cell to nothing.
+
+It is the same sentence `canPaintGround` has said one cell over since conveyors
+became ground: **under a conveyor is still ground**, and a run laid across your
+parquet does not owe you a repaint. Under a pad is still ground too. Five things
+are worth knowing.
+
+**`k` is still the top, and still the only thing that decides the tile.** So not
+one reader of `tiles`, `blocked`, `indoor`, a pad region or the renderer changed,
+and `verify:floor` asserts it as a byte comparison: paint the whole delivery bay
+and the three arrays are identical afterwards. The inverse shape — the look on
+top with the job beside it — is the layer the section above turned down, and it
+turns "what is this cell made of" into a precedence question asked inside a pure
+generator that has never seen the catalog.
+
+**One function owns it** (`groundPaint`, `shared/build.js`), called by the
+validator for the ghost and by `buildGround` for the press. Two copies of a
+layering rule is the green-ghost bug with a paintbrush on it: a preview that
+promises a floor over a room the press leaves as a stockroom. It also folded in
+three no-op skips that had been written out separately at each end, one of which
+disagreed — the press wrote a floor entry over a *bed's* own cell and reported a
+tile taken up, which the next re-flow stamped straight back over.
+
+**An underlay is only ever a look, and only ever one somebody bought.** Seeded
+pads, the generated street and plain shell floor all arrive with no piece, and a
+remembered look with no piece would hand back ground nobody paid for on every
+scrape. So `u.p` is never null, which is what keeps the money to one question:
+nothing is refunded for a look that went *under* — you still own it, and it comes
+back — and the pad is refunded when the pad is what changes hands.
+
+**A selection remove clears both** (`all`, the one argument that does not come off
+the wire). The bulldozer aimed at one cell peels a layer, which is what "stop
+being storage" means; a region being deleted is not that, and a reveal there
+would leave a room-shaped stain of perfectly good flooring behind the stockroom
+it just deleted — the stain `verify:stamp` exists to catch, arriving through the
+one door allowed to peel.
+
+**The one outcome that looks like nothing happening is in the feed.** A pad draws
+on top either way, so a drag through your stockroom is a charge and an unchanged
+picture; the line says *"— all of it under the delivery bay, which stays"*, and
+it names the pad when the stroke crossed only one.
+
+What it does **not** do is make the pad see-through. Storage still reads as
+storage from across the shop, and the floor you laid is only visible once the pad
+comes off. The alternative — the look drawn and the job reduced to a marker over
+it — is a rendering decision rather than a rule, and it wants the marker designed
+before it is worth having: `addPadMarks` already draws a glyph per pad kind, so
+the honest version is that glyph over your own floor rather than over the pad's
+flat colour.
 
 ---
 

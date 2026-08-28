@@ -54,7 +54,6 @@ import glouglou from './music/glouglou.ogg';
 import bicycle from './music/bicycle.ogg';
 import strawberry from './music/strawberry.ogg';
 import horizon from './music/horizon.ogg';
-import seashell from './music/seashell.ogg';
 import care from './music/care.ogg';
 import hop from './music/hop.ogg';
 
@@ -237,7 +236,6 @@ export const TRACKS = [
   { id: 'bicycle', url: bicycle, name: 'Bicycle', ...KOMIKU },
   { id: 'strawberry', url: strawberry, name: 'The Strawberry', ...KOMIKU },
   { id: 'horizon', url: horizon, name: 'The Horizon', ...KOMIKU },
-  { id: 'seashell', url: seashell, name: 'Night in a Seashell', ...KOMIKU },
   { id: 'care', url: care, name: 'CARE', ...MONPLAISIR },
   { id: 'hop', url: hop, name: 'Hop', ...MONPLAISIR },
 ];

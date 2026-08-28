@@ -327,6 +327,30 @@ function jobsOf(game, s) {
 export function stepStaff(game, dt) {
   syncStaff(game);
 
+  /**
+   * THE CREW STAND STILL WHILE SOMEBODY IS BEING SHOWN ROUND.
+   *
+   * A new shop comes with a Shop Hand, which is what stops the first minute
+   * being a still frame — and a hand authored `restock: 3` starts *shopping*
+   * on the first tick. That is exactly what they are for on day twelve and
+   * exactly wrong on minute one: $148 of a $250 float gone on goods a robot
+   * chose, before the player has pressed anything, leaving them unable to
+   * afford the thing the card in front of them is pointing at. The tour also
+   * asks you to put stock on a shelf, and a hire racing you to the crate is
+   * two people doing one job.
+   *
+   * `syncStaff` is ABOVE this on purpose: the bodies still exist, still stand
+   * where they were, and still come and go with the roster. What stops is the
+   * job loop. A hire who vanished for the length of the tour would be a shop
+   * that hires somebody the moment you stop reading.
+   *
+   * It is not on the save, and that is the whole safety of it: a tab closed
+   * mid-tour must not come back to a shop whose crew have downed tools for
+   * ever. A fresh `Game` reads false, so every existing shop and every headless
+   * run — `simulate`, every `verify:*` sweep — is untouched.
+   */
+  if (game.crewIdle) return;
+
   for (const s of Object.values(game.players)) {
     if (!s.staff) continue;
     s.cooldown = Math.max(0, s.cooldown - dt);

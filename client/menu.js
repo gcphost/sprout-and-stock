@@ -30,7 +30,6 @@ import { bootHide } from './boot.js';
 import { wireScroll } from './scroll.js';
 import { SUPPORT_URL, SUPPORT_LABEL } from './links.js';
 import { ICONS } from './icons.js';
-import { inkScope } from './ink-edge.js';
 
 export { setMenuApi } from './front-api.js';
 
@@ -287,15 +286,6 @@ export class Menu {
      * on screen to say which one is doing it.
      */
     this.hushed = false;
-    /**
-     * The drawn contours — see `ink` below and client/ink-edge.js.
-     *
-     * One scope per menu rather than one per redraw, because the scope IS the
-     * observer: made here, disconnected and refilled on every redraw, and gone
-     * with the menu. The Leave path builds a second Menu against the same root,
-     * which gets its own.
-     */
-    this.ink = inkScope();
   }
 
   /**
@@ -571,10 +561,6 @@ export class Menu {
     // stopped scrolling, so the old line restored 0 onto 0 and quietly did
     // nothing — which is worse than being wrong, because it still looks right.
     const scroll = this.root.querySelector('.menu-list')?.scrollTop ?? 0;
-    // Every drawn contour on this screen hangs off an element that is about to
-    // stop existing, so the observations go BEFORE the markup does — see
-    // `inkLines`, and `inkScope` for why the order is the whole leak argument.
-    this.ink.clear();
     this.root.innerHTML = `
       <div class="menu-box">
         <!-- The one control on this screen that is not about choosing a shop.
@@ -770,61 +756,28 @@ export class Menu {
     const list = this.root.querySelector('.menu-list');
     if (list) list.scrollTop = scroll;
     this.wire();
-    this.inkLines();
   }
 
-  /**
-   * THE CONTOURS, DRAWN.
+  /* THE CONTOURS ARE CSS NOW — see index.html, "WHO IS INKED".
    *
-   * Every edge on this screen was a `box-shadow` ring until now, and a
-   * box-shadow ring is perfectly even, perfectly geometric and identical on all
-   * four sides — which is a border, and eleven of them stacked down a column
-   * over a pale sky is the brutalism the whole ink pass exists to get away
-   * from. The HUD has not been drawn that way since `client/ink-edge.js`: the
-   * cards there carry a real stroke pushed through `feTurbulence`, so the line
-   * wanders and changes weight along its own length the way a nib does. This is
-   * that, on the front door.
+   * This screen used to hang a drawn <svg> stroke on eleven elements per
+   * redraw, which is why Menu carried a ResizeObserver scope it had to clear
+   * before every innerHTML. A ranked contour needs none of that: the six
+   * selectors that used to be listed here are six selectors in the
+   * stylesheet, and a rebuilt card is inked the instant it exists.
    *
-   * A DRAWN LINE IS A CONTOUR, so only things that are objects IN THEIR OWN
-   * RIGHT get one — and that turns out to be the whole rule, because the two
-   * ways of getting this wrong are the same mistake. Something standing inside
-   * a drawn card is a crease (index.html's `--crease`, and the doctrine
-   * `.menu-new` already spells out with `--line`): give Delete its own contour
-   * and the card has an outline, and then a second outline eight pixels inside
-   * it round a button, which is two boxes rather than a thing on a thing. And
-   * anything under about 40px cannot carry the wander at all — 2.1px round a
-   * 38px square is a fifth of a corner, which is `inkEdges`' own call about the
-   * rail. Both roads end at: the paper and the standalone controls on the sky,
-   * nothing else.
+   * WHAT SURVIVES IS THE RULE, and it is worth keeping where the markup is:
+   * only things that are objects IN THEIR OWN RIGHT get a contour. Something
+   * standing inside a card is a crease (--crease, and the doctrine .menu-new
+   * spells out with --line) — give Delete its own outline and the card has a
+   * line, then a second line eight pixels inside it round a button, which is
+   * two boxes rather than a thing on a thing. So: the paper (.wcard,
+   * .menu-new) and the standalone controls on the sky (.menu-add,
+   * .menu-support, .menu-err, and the name box only).
    *
-   * `trim` rather than `small` for the slim ones, and that is not a size label,
-   * it is where the LINE SITS. See `NIBS` — the small nib's 2.4px margin is a
-   * twelfth of a 34px control's height, and what it draws is a rectangle
-   * floating inside the button with its fill carrying on past it.
-   *
-   * The seed alternates for the reason `NIBS` gives: one shape of wobble
-   * repeated is a texture, a texture is a pattern, and a pattern is the thing a
-   * drawn line is not. It matters most here — a list of saves is the one place
-   * in the game where a dozen identically-sized boxes stack in one column.
-   */
-  inkLines() {
-    const ink = this.ink;
-    const all = (sel, nib, from = 0) => this.root.querySelectorAll(sel)
-      .forEach((el, i) => ink.edge(el, 2, i + from, nib));
-
-    // The paper: a save, and the form that takes the New shop button's place.
-    all('.wcard', 'card');
-    all('.menu-new', 'card');
-    // Standalone controls on the sky.
-    all('.menu-add', 'trim');
-    all('.menu-support', 'trim');
-    all('.menu-err', 'trim');
-    // The name box only. A CHILD selector, because the shop-name and cash boxes
-    // wear the same class and stand inside `.menu-new` — same object, so they
-    // are the crease case above, and the one that would be drawn eight pixels
-    // in from a line already round the form they sit in.
-    all(':scope > .menu-box > .menu-field', 'trim');
-  }
+   * The name box is a CHILD selector there for the same reason it was here:
+   * the shop-name and cash boxes wear the same class and stand INSIDE
+   * .menu-new, so they are the crease case above. */
 
   wire() {
     const q = (sel) => this.root.querySelector(sel);

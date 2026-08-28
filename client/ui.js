@@ -3400,6 +3400,14 @@ export class UI {
      * section, or a menu opened after the Menu inherits its size.
      */
     this.el.panel.classList.toggle('fixed', !!sec.fixed);
+    /* ...and where it OPENS, for the same reason and cleared the same way. A
+       section that is a picture rather than a list wants the middle of the
+       screen; everything else wants to be above the bar with the shop showing.
+       Toggled rather than added, or the Shop report centres every menu you open
+       after it — which is the bug the note above is about, said about the other
+       axis. It is only a default: `panel-drag.js` writes inline `left`/`top`
+       the moment you drag the header, and those beat a class. */
+    this.el.panel.classList.toggle('mid', !!sec.mid);
     if (sec.fixed) { body.style.minHeight = ''; return; }
     if (!sec.steady || !groups) { body.style.minHeight = ''; return; }
     const drawn = [...body.querySelectorAll('.sec-row')];
@@ -3621,6 +3629,15 @@ export class UI {
      * The caption is a `title` rather than a line, which is the `mark` argument
      * made about a whole row: these are the only words that say what the switch
      * does, and a tile is not wide enough to print them.
+     *
+     * Two cells are not switches, and both are a cell shape rather than a
+     * second kind of block, because what they are is a thing that belongs in
+     * THIS grid: `pick` is one of a set (see below), and `chip` is a cell that
+     * brings its own markup — a stepper on a tile, for the number that would
+     * otherwise be a full-width row under a block of switches about the same
+     * subject. A chip's presses name themselves with `data-act` like everything
+     * else in here, so the row's `acts` map answers for them and `wireRows`
+     * still knows nothing.
      */
     /**
      * A ROW THAT IS A BUTTON.
@@ -3676,12 +3693,22 @@ export class UI {
     if (r.grid) {
       return `<div class="grid" data-acts="${i}">${r.grid.map((t) => `
         <div class="gcell">
-          <button class="gtile${t.on ? ' on' : ''}" data-act="${t.id}"
+          ${t.chip ?? `<button class="gtile${t.on ? ' on' : ''}" data-act="${t.id}"
             title="${esc(t.title ?? t.name)}" aria-pressed="${t.on ? 'true' : 'false'}">
             <span class="gico">${t.icon}</span>
             <span class="gname">${t.name}</span>
-            <span class="gstate">${t.on ? 'On' : 'Off'}</span>
-          </button>
+            ${
+            /**
+             * ...unless the tile is ONE OF A SET, where the word would be a lie
+             * about the shape of the thing. A switch answers on/off about
+             * itself; three surrounds are three alternatives with exactly one
+             * true, and "Off" printed under the two you did not pick reads as
+             * two switches you could turn on together. `pick` drops the word
+             * and leaves the lit tile to say it, which is the same yellow and
+             * the same fact `.sec-row.picked` carries.
+             */
+            t.pick ? '' : `<span class="gstate">${t.on ? 'On' : 'Off'}</span>`}
+          </button>`}
           ${t.extra ?? ''}
         </div>`).join('')}</div>`;
     }
@@ -5872,6 +5899,10 @@ export class UI {
     // Menu would otherwise wear the Menu's size. `paintSection` runs this first
     // and sets the flag afterwards, which is what makes one clear enough.
     this.el.panel.classList.remove('fixed');
+    /* ...and where it opens, for the identical reason. `mid` is set by
+       `steadyHeight`, which none of those four call, so a fixture opened after
+       the Shop report would come up in the middle of the screen. */
+    this.el.panel.classList.remove('mid');
     // Measured BEFORE the swap, off the old content, and only kept when the key
     // says it is the same list. `scrollerOf` because a paned menu scrolls its
     // middle and a plain one scrolls the body — reading the wrong one is a

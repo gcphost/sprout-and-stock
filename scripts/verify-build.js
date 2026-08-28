@@ -2632,6 +2632,32 @@ function canPlaceHere(g, spec, ignoreId = null) {
     check(g3.tapCrate('me', box.id).ok, 'and a quick tap rummages instead');
     eq(g3.players.me.errand, null, 'spending the errand');
     eq(g3.actionFor(g3.players.me), null, 'so nothing is left armed to shoulder it');
+
+    // ...and a press on a box you could already touch does not MOVE you, which
+    // is the half that cannot be seen in a still frame: a hire shuffled one tile
+    // and a hire stood still are the same picture a second later, and the box is
+    // in your hands either way.
+    //
+    // The diagonal is the case, and it is the common one — `beside` answers with
+    // the four sides, so from a corner you are well inside `UNLOAD_REACH` and
+    // every tile on that list is a step away. Its pair is a crate whose sides are
+    // all taken, where the only tile left on the list is the crate's OWN, so the
+    // walk parked you on top of the thing you came to pick up.
+    Object.assign(g3.players.me, { carry: null, haul: null, errand: null });
+    stand(g3, { x: box.x - 1, z: box.z - 1 });
+    const from = { x: g3.players.me.x, z: g3.players.me.z };
+    check(g3.take('me', { palletId: box.id }).ok, 'a press from the diagonal is accepted');
+    eq(g3.players.me.path, null, 'and plans no walk at all');
+    eq(g3.players.me.x, from.x, 'leaving you where you stood (x)');
+    eq(g3.players.me.z, from.z, '...and z');
+    eq(g3.actionFor(g3.players.me)?.kind, 'lift', 'with the lift armed from there');
+
+    // Out of reach is still a walk, or the fix above is "a crate can be lifted
+    // from across the shop" wearing a turn.
+    Object.assign(g3.players.me, { errand: null });
+    stand(g3, { x: box.x + 4, z: box.z });
+    check(g3.take('me', { palletId: box.id }).ok, 'a press from across the shop is accepted');
+    check(g3.players.me.path?.length > 0, 'and that one sets off to get it');
   }
 
   // A crate you are holding is not a crate you can rummage in.

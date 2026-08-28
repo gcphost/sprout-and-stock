@@ -38,22 +38,40 @@ blacked out and unpressable.
 ## Step 1 — the tour *(built)*
 
 `client/tutor.js`, plus a `#tutor` element and its styles, plus two rows in the
-Menu and one attribute in `bar.js`. **Twelve beats:**
+Menu and one attribute in `bar.js`. **Thirteen beats:**
 
 | | teaches |
 |---|---|
 | 1 Hello | who is talking, and that there is a way out |
 | 2 Walk | left-click the floor; and that left-clicking a *thing* is a walk plus a job |
-| 3 Buy stock | the supplier, and that goods arrive on a lorry rather than out of a menu |
-| 4 Meet your Shop Hand | the crew are leased machines; the strip; opening somebody up |
-| 5 Their shift | that a hire's day is a ratio **and** a budget |
-| 6 Build a chiller | the palette, the price, the green/amber ghost |
-| 7 Take one out | **left takes one, hold-left takes the lot, right puts one back, hold-right pours** |
-| 8 Shelve it | the chevrons — the shop tells you which unit will have it |
-| 9 Shoulder the crate, tip it in | the same four presses at scale, and why a box beats your arms |
-| 10 Hold for the menu | that a hold is how you reach what a thing can *do* |
-| 11 Keep it for something | a reservation, and that the shop will then buy for it |
-| 12 Open up | the shutters, which is why the shop was quiet the whole time |
+| 3 Shoulder the crate | that a tap on something across the shop is a walk that ends in a job |
+| 4 Tip it into a shelf | hold-right pours, and the chevrons say which unit will take it |
+| 5 Take one off | **stood at a thing, a tap is one unit** |
+| 6 Put it back | right puts, and holding either button does the lot |
+| 7 Hold for the menu | that a hold is how you reach what a thing can *do* |
+| 8 Keep it for something | a reservation, and that the shop will then buy for it |
+| 9 Meet your Shop Hand | the crew are leased machines; the strip; opening somebody up |
+| 10 Their shift | that a hire's day is a ratio **and** a budget |
+| 11 Build a chiller | the palette, the price, the green/amber ghost |
+| 12 Buy stock | the supplier, and that goods arrive on a lorry rather than out of a menu |
+| 13 Open up | the shutters, which is why the shop was quiet the whole time |
+
+**The gestures come first, and that is what the free crate bought.** The old
+order had to open an account before it could teach a pair of hands: stock was
+ordered at beat 3 and collected at 7, with the three beats in between chosen for
+one reason — they are the ones that do not need it. A tutorial shaped around a
+delivery time teaches ordering first whether or not ordering is the first thing
+worth knowing, and it makes the four gestures nothing else in the game explains
+wait for a lorry. `starterOrder` puts a van on the road at minute zero, so the
+hands go first and the supplier becomes a beat about *where more comes from*.
+
+**And the order of the four gestures is the shop's, not the tutorial's.**
+`errandAction` is explicit that "empty-handed at a crate is a LIFT", so a tap on
+a box you are not stood at walks you over and shoulders it — which means the
+whole-box lift is the one press a walk can produce, and a card asking for a
+single unit first describes a state you can only reach by not doing what it
+says. So the box is beat 3, and the pair about single units is taught at the
+shelf, where a tap is a unit and a hold is the lot with no walk in between.
 
 A new shop **comes with a Shop Hand** (`starterHire`, server/worlds.js), which
 is why beat 4 opens somebody up rather than buying one. A bare building with

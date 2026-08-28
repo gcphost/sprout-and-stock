@@ -81,9 +81,27 @@ export const PALETTE = {
   grassAlt: '#7fa762',
   soil: '#a8763f',
   soilDark: '#8d6234',
-  /** Broken, workable soil — darker and damper than the rough ground. */
-  soilTilled: '#7d5530',
-  soilFurrow: '#6b4626',
+  /**
+   * BROKEN, WORKABLE SOIL — AND WHY IT GOT PALER RATHER THAN DAMPER.
+   *
+   * It was `#7d5530` with `#6b4626` furrows on it, on the reasonable claim that
+   * turned earth is darker and damper than the turf beside it. That is true of
+   * soil and false of this renderer: 0.111 and 0.076 linear luminance are both
+   * under the 0.20 the ink pass needs to lay a line at all, so the one thing in
+   * the shop with no contour on it was the farm — which reads as the beds not
+   * having been updated when the cel ink went in, because that is exactly what
+   * it looks like.
+   *
+   * Both keep their names and swap which one you are mostly looking at.
+   * `soilTilled` is the ridge — the turned earth standing proud, the biggest
+   * share of the bed from this camera, and pale enough (0.352) to carry a line.
+   * `soilFurrow` is the groove between two of them: darker, small, and the one
+   * place this art spends its dark. Not near-black, because a furrow is a groove
+   * rather than a hole, and the contour it earns has to land on the ridge beside
+   * it.
+   */
+  soilTilled: '#c09a63',
+  soilFurrow: '#8a6238',
   /** A plot nobody has turned over yet: scrubby, pale, still half turf. */
   soilRough: '#a89268',
   soilWeed: '#93b96a',

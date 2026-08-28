@@ -41,7 +41,7 @@
 
 import { Game } from '../server/sim/index.js';
 import { writeContent } from '../server/content.js';
-import { remove } from '../server/db.js';
+import { remove, deleteWorldRow } from '../server/db.js';
 import {
   canPaintGround, groundStroke, groundIndex, GROUND_STROKE_MAX, fixturesOf,
 } from '../shared/build.js';
@@ -69,6 +69,15 @@ const SHOP = { shelf: 6, freezer: 1, checkout: 1, plot: 4 };
  */
 const CHEAP = 7.31;
 const DEAR = 13.19;
+/**
+ * A THIRD price, on a row that is a *job* rather than a look.
+ *
+ * Section 9 is about what happens where the two meet, and every figure in it is
+ * arithmetic across the two kinds — so a pad that cost the same as a floor would
+ * let a refund of the wrong layer come out right by accident, which is exactly
+ * the mistake being guarded against.
+ */
+const PAD = 3.53;
 
 const TEST_FLOORS = [
   {
@@ -87,12 +96,31 @@ const TEST_FLOORS = [
     surface: { color: '#8a5f36', accent: '#6d4a2a', pattern: 'checker' },
     tiers: [{ name: 'Standard', cost: 0 }],
   },
+  /**
+   * A design of STORAGE, which is the other side of section 9.
+   *
+   * Authored here rather than in verify:yard because what it is under test for is
+   * the floor brush: a pad is the thing a look now goes underneath, and a sweep
+   * about layering needs one of each with a price you can tell apart.
+   */
+  {
+    id: 'verify-floor-drop',
+    kind: 'drop',
+    name: 'Verify Storage',
+    cost: PAD,
+    surface: { color: '#9a8f74', pattern: 'plain' },
+    tiers: [{ name: 'Standard', cost: 0 }],
+  },
 ];
+
+/** The one world this sweep writes for real — see the round trip in section 9c. */
+const ROUND_TRIP = 'verify-floor-roundtrip';
 
 process.on('exit', () => {
   for (const f of TEST_FLOORS) {
     try { remove('fixtures', f.id); } catch { /* the DB is already gone */ }
   }
+  try { deleteWorldRow(ROUND_TRIP); } catch { /* already gone */ }
 });
 
 for (const f of TEST_FLOORS) {
@@ -131,6 +159,19 @@ function fresh() {
 const groundAt = (g, x, z) => g.layout.tiles[z * g.layout.w + x];
 const shape = (g) => fixturesOf(g.layout)
   .map((f) => `${f.id}:${f.kind}@${f.x},${f.z}`).sort().join('|');
+
+/** A bare indoor floor cell with nothing standing on it — somewhere to buy a shelf. */
+function freeFloor(g) {
+  const L = g.layout;
+  for (let z = L.store.z + 1; z < L.store.z + L.store.h - 1; z++) {
+    for (let x = L.store.x + 1; x < L.store.x + L.store.w - 1; x++) {
+      if (groundAt(g, x, z) !== T.FLOOR) continue;
+      if (L.blocked[z * L.w + x]) continue;
+      return { x, z };
+    }
+  }
+  return null;
+}
 
 /** A patch of open grass south-east of the building, clear of path and pads. */
 function grassPatch(g, w = 2, h = 2) {
@@ -390,12 +431,31 @@ function grassPatch(g, w = 2, h = 2) {
   // walling in your own shelf gets.
   const oneCell = canPaintGround(L, [L.bay.cells[0]], 'floor', 'verify-floor-cheap');
   check(oneCell.ok, 'a corner of the delivery bay can be paved over');
-  check(!oneCell.warn, 'and says nothing, because the bay still has three cells left');
+  check(!oneCell.warn, 'and says nothing, because the bay is still a bay');
 
+  // ...and the WHOLE bay says nothing either, which is section 9's claim
+  // arriving in the one place it would otherwise have gone unnoticed. A floor
+  // does not take a pad away any more — it goes under it — so the warning that
+  // used to fire here is a warning about something that no longer happens, and a
+  // warning that goes off whatever you do is one nobody reads.
   const allOfIt = canPaintGround(L, L.bay.cells, 'floor', 'verify-floor-cheap');
   check(allOfIt.ok, 'and so can the whole thing');
-  check(/last delivery bay/.test(allOfIt.warn ?? ''),
-    'but that one warns, because an order would have nowhere to land', allOfIt.warn ?? 'none');
+  check(!allOfIt.warn,
+    'and flooring the lot of it warns about nothing, because the bay is still there',
+    allOfIt.warn ?? 'none');
+
+  // Paired with the two gestures that really do take it away, or the assertion
+  // above is satisfied by the warning having been deleted. A pad over a pad is
+  // the one that would actually happen — moving your bay onto your storage.
+  const overPad = canPaintGround(L, L.bay.cells, 'drop', 'verify-floor-drop');
+  check(overPad.ok, 'a pad may be painted over a pad');
+  check(/last delivery bay/.test(overPad.warn ?? ''),
+    'and THAT warns, because an order would have nowhere to land', overPad.warn ?? 'none');
+
+  const takenUp = canPaintGround(L, L.bay.cells, null, null);
+  check(takenUp.ok, 'and so may it be scraped off');
+  check(/last delivery bay/.test(takenUp.warn ?? ''),
+    'which warns for the same reason', takenUp.warn ?? 'none');
 
   // Empty floor indoors comes up as FLOOR, which is the whole of this change.
   //
@@ -483,6 +543,213 @@ function grassPatch(g, w = 2, h = 2) {
   eq(res.short, true, 'and saying it ran out');
   eq(res.cost, round2(CHEAP * 2), 'charged for exactly what was laid');
   check(g.cash >= 0, 'and never overdrawn', String(g.cash));
+}
+
+// ---------------------------------------------------------------------------
+// 9. A LOOK GOES UNDER A JOB, and everything in here is invisible twice over.
+//
+// A stockroom with a floor under it and a stockroom without one are the same
+// cell in the same colour with the same crates on it — the pad draws on top
+// either way, which is the point — and the shop afterwards is the same shop.
+// Only what you own moved.
+//
+// The bug it is the fix for was invisible in the other direction and worse for
+// it: dragging a floor across your own stockroom took the storage away, silently,
+// because painting over a pad is exactly how you MOVE one and the stroke could
+// not tell "put the bay over there" from "lay a nice floor through here". Nothing
+// refused, nothing warned once the last cell went — the warning fired and then
+// the thing it warned about happened — and what you noticed, days later, was that
+// deliveries had stopped arriving.
+//
+// Its control is the assertion that decides whether any of this is opt-in: a
+// stroke that never crosses a pad must write no second layer at all, in a shop
+// where every cell of ground already has an entry. Every save in existence is
+// one of those.
+//
+// Its centrepiece is the pair that is worthless split in half — the pad is still
+// a pad, AND the floor is remembered — because either half alone is satisfied by
+// the stroke having done nothing whatsoever.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const L = g.layout;
+  const bay = L.bay.cells;
+  check(bay.length >= 2, 'the seeded shop has a delivery bay to paint over');
+
+  // A shop nobody has layered: every cell of ground has a `k`, and not one of
+  // them has anything under it.
+  const under = (game) => new Map(game.ground.filter((f) => f.u).map((f) => [`${f.x},${f.z}`, f.u]));
+  eq(under(g).size, 0, 'a shop that has never painted under a pad has no second layer');
+
+  const before = {
+    tiles: g.layout.tiles.join(','),
+    blocked: g.layout.blocked.join(','),
+    indoor: g.layout.indoor.join(','),
+    bays: bay.length,
+  };
+
+  const cash = g.cash;
+  const laid = g.buildGround('me', {
+    x: bay[0].x, z: bay[0].z, piece: 'verify-floor-dear',
+    to: { x: bay[bay.length - 1].x, z: bay[bay.length - 1].z },
+  });
+  check(laid.ok, 'a floor may be dragged across the delivery bay', laid.error ?? '');
+
+  // THE PAIR. Neither half means anything without the other.
+  eq(g.layout.bay?.cells?.length, before.bays, 'and the bay still has every cell it had');
+  for (const c of bay) eq(groundAt(g, c.x, c.z), T.BAY, `and ${c.x},${c.z} is still bay`);
+  const u = under(g);
+  eq(u.get(`${bay[0].x},${bay[0].z}`)?.p, 'verify-floor-dear', 'with the floor remembered underneath');
+  eq(u.get(`${bay[0].x},${bay[0].z}`)?.k, 'floor', 'as a look rather than as a job');
+
+  // A LOOK UNDER A JOB IS NEVER A PERMISSION, which is section 2's claim asked
+  // of the second layer. It cannot move a tile, because the tile is the job's.
+  eq(g.layout.tiles.join(','), before.tiles, 'not one tile moved');
+  eq(g.layout.blocked.join(','), before.blocked, 'nothing became blocked or unblocked');
+  eq(g.layout.indoor.join(','), before.indoor, 'and the shop encloses exactly what it did');
+
+  // Charged in full, because nothing changed hands: the bay is still yours and
+  // still where it was, so there is nothing to hand back half of. Arithmetic on
+  // the authored price, never on `groundUnitCost`.
+  eq(laid.cost, round2(DEAR * bay.length), 'charged for the floor and refunded nothing for the pad');
+  eq(round2(cash - g.cash), round2(DEAR * bay.length), 'and that is what left the till');
+
+  // A second identical stroke is the no-op every other layer in here already
+  // guards. Without it the underlay is a cell you can be billed for for ever by
+  // holding the mouse still.
+  const again = g.buildGround('me', { x: bay[0].x, z: bay[0].z, piece: 'verify-floor-dear' });
+  eq(again.laid, 0, 'laying the same floor under the same pad again lays nothing');
+  eq(again.unchanged, true, 'and reports that it changed nothing');
+
+  // A RE-FLOW, because build mode re-flows on every wall segment of a drag and a
+  // layer that did not survive one could never live long enough to be revealed.
+  const free = freeFloor(g);
+  check(!!free, 'there is a bare floor cell to buy a shelf on');
+  const shelf = g.placeFixture('me', { kind: 'shelf', ...free, rot: 0 });
+  check(shelf.ok, 'a shelf can still be bought', shelf.error ?? '');
+  eq(under(g).get(`${bay[0].x},${bay[0].z}`)?.p, 'verify-floor-dear',
+    'and the layer survives the re-flow that purchase caused');
+  eq(g.layout.ground.find((f) => f.x === bay[0].x && f.z === bay[0].z)?.u?.p, 'verify-floor-dear',
+    'and is carried out to the layout, because the ghost reads it');
+  check(g.saveState().ground.some((f) => f.u?.p === 'verify-floor-dear'),
+    'and the save carries it — the way home is section 9c');
+
+  // THE REVEAL. What makes this a layer rather than a way of throwing money away.
+  const peel = g.buildGround('me', { x: bay[0].x, z: bay[0].z, piece: '' });
+  check(peel.ok, 'the pad can be taken up', peel.error ?? '');
+  eq(groundAt(g, bay[0].x, bay[0].z), T.FLOOR, 'and the floor underneath is what is left');
+  eq(g.ground.find((f) => f.x === bay[0].x && f.z === bay[0].z)?.p, 'verify-floor-dear',
+    'the design and all');
+  eq(under(g).get(`${bay[0].x},${bay[0].z}`) ?? null, null, 'with nothing left under it');
+
+  // ...paired with the control, or "it reveals" is satisfied by an eraser that
+  // has quietly stopped erasing. The drop-off is the pad this stroke never
+  // touched, so it has nothing under it and scrapes to bare ground exactly as it
+  // always did — outdoors, so grass.
+  const plain = g.layout.drop.cells[0];
+  const bare = g.buildGround('me', { x: plain.x, z: plain.z, piece: '' });
+  check(bare.ok, 'a pad with nothing under it still comes up', bare.error ?? '');
+  eq(groundAt(g, plain.x, plain.z), T.GRASS, 'and leaves bare ground rather than a floor');
+}
+
+// ---------------------------------------------------------------------------
+// 9b. The other direction, the money, and the one door that clears both.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const spot = grassPatch(g, 2, 1);
+  check(!!spot, 'there is a patch of grass to work on');
+  const a = { x: spot.x, z: spot.z };
+
+  // A JOB OVER A LOOK: the floor you already paid for goes down rather than
+  // away. Nothing is handed back for it — you still own it — and the proof is
+  // that scraping the pad gives it back rather than half its price.
+  const floor = g.buildGround('me', { ...a, piece: 'verify-floor-cheap' });
+  eq(floor.cost, CHEAP, 'a floor on bare grass costs the floor');
+  const pad = g.buildGround('me', { ...a, piece: 'verify-floor-drop' });
+  check(pad.ok, 'and storage may be painted over it', pad.error ?? '');
+  eq(pad.cost, PAD, 'charged for the pad, with nothing back for the floor it went over');
+  eq(groundAt(g, a.x, a.z), T.DROP, 'the cell is storage');
+  eq(g.ground.find((f) => f.x === a.x && f.z === a.z)?.u?.p, 'verify-floor-cheap',
+    'and the floor is underneath it');
+
+  // Swapping the underlay is the ordinary re-tile arithmetic, said one layer
+  // down: the dear floor, with half the cheap one back.
+  const swap = g.buildGround('me', { ...a, piece: 'verify-floor-dear' });
+  eq(swap.laid, 1, 'the underlay can be re-tiled');
+  eq(swap.cost, round2(DEAR - CHEAP * 0.5), 'charging the difference on the layer it lands on');
+  eq(groundAt(g, a.x, a.z), T.DROP, 'and the cell is still storage');
+
+  // THE CIRCUIT. A layer is a place two prices meet, and every one of those in
+  // this game has been a place money could be printed.
+  const start = g.cash;
+  g.buildGround('me', { ...a, piece: '' });                 // peel the pad
+  g.buildGround('me', { ...a, piece: 'verify-floor-drop' }); // put it back
+  check(g.cash < start, 'a circuit up and back always loses money', `${start} -> ${g.cash}`);
+
+  // AND THE ONE DOOR THAT CLEARS BOTH. A region being deleted is not a layer
+  // being peeled: a reveal here leaves a room-shaped stain of perfectly good
+  // flooring behind the stockroom it just deleted.
+  //
+  // The corners are what a box round that one cell lands on, named directly the
+  // way verify:stamp names them rather than through a camera this has not got.
+  const region = [
+    { x: a.x - 0.4, z: a.z - 0.4 }, { x: a.x + 0.4, z: a.z - 0.4 },
+    { x: a.x + 0.4, z: a.z + 0.4 }, { x: a.x - 0.4, z: a.z + 0.4 },
+  ];
+  const wipe = g.removeSelection('me', [], region);
+  check(wipe.ok, 'a region with a layered cell in it can be removed', wipe.error ?? '');
+  eq(g.ground.filter((f) => f.x === a.x && f.z === a.z && (f.k || f.p)).length, 0,
+    'and takes the look with the job, leaving nothing behind');
+  eq(groundAt(g, a.x, a.z), T.GRASS, 'the cell is back to bare ground');
+}
+
+// ---------------------------------------------------------------------------
+// 9c. ...AND IT COMES BACK, WHICH IS A DIFFERENT CLAIM FROM GOING OUT.
+//
+// verify:paint's section 6, said about the second ground layer, and it is here
+// for the reason that one exists: `paint` shipped with only the outward leg for
+// five steps, `Game.create` names every field it hands the constructor, and the
+// `??` fallback wrote an empty object back over what was stored — so a restart
+// did not fail to restore the layer, it DELETED it, while the save looked
+// perfectly correct in between.
+//
+// `ground` rides in wholesale rather than field by field, so this passes by
+// construction today. It is written down because the next person to tidy that
+// payload into a named list is the person this catches.
+//
+// It needs a real world row, because `Game.create` reads the store rather than
+// anything it is handed — hence a non-ephemeral game and the cleanup at the top.
+// ---------------------------------------------------------------------------
+{
+  // Nothing is reset here, deliberately: `Game.create` stamps the shell and the
+  // yard itself, so a sweep that cleared `ground` and re-stamped would be
+  // comparing two differently-shaped shops and the failure would read as the
+  // layer having moved.
+  const g = Game.create({ worldId: ROUND_TRIP, seed: 'floor', ephemeral: false });
+  g.cash = 50000;
+  g.addPlayer('me', 'Tester');
+  g.players.me.build = { on: true, tool: 'shelf' };
+
+  const cell = g.layout.bay.cells[0];
+  const res = g.buildGround('me', { ...cell, piece: 'verify-floor-dear' });
+  check(res.ok, 'a floor goes under the bay in a world that persists', res.error ?? '');
+  g.persist();
+  const layered = JSON.parse(JSON.stringify(g.ground));
+
+  const back = Game.create({ worldId: ROUND_TRIP, seed: 'floor', ephemeral: true });
+  eq(JSON.stringify(back.ground), JSON.stringify(layered),
+    'the layer is still there when the world is loaded again');
+  eq(back.layout.tiles[cell.z * back.layout.w + cell.x], T.BAY,
+    '...and the cell it is under is still a delivery bay');
+
+  // The second half of the deletion, and the reason "is it there" is not enough:
+  // what did the damage was the default being written back, so the STORED save
+  // has to still have it after a reloaded game has saved once.
+  back.persist();
+  const after = Game.create({ worldId: ROUND_TRIP, seed: 'floor', ephemeral: true });
+  eq(JSON.stringify(after.ground), JSON.stringify(layered),
+    '...and a reloaded shop that saves does not wipe it');
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }

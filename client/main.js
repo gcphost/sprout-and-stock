@@ -25,7 +25,6 @@ import { track, shopOpen } from './analytics.js';
 import { Tutor } from './tutor.js';
 import { wireDrag, restorePos } from './panel-drag.js';
 import { wireCorner } from './corner.js';
-import { inkEdges } from './ink-edge.js';
 import { cinemaOn, setCinema, onCinema } from './cinema.js';
 import { debugOn, onDebug } from './debug.js';
 import { mix } from './audio/mix.js';
@@ -204,10 +203,6 @@ music.start();
  * on a slow interval rather than every frame: a track changes about twice in
  * five minutes, and there is nothing else on it to keep up with.
  */
-/* The three big cards get a drawn contour rather than a border. Once, here,
-   because they are static containers in index.html that outlive everything
-   rendered into them — see client/ink-edge.js. */
-inkEdges();
 
 const radio = document.getElementById('radio');
 if (radio) {
@@ -1858,6 +1853,30 @@ const TAP_SLOP = 7;
 const LONG_PRESS_MS = 420;
 
 /**
+ * ...and how long a press on a crate you are STOOD AT has before it stops being
+ * a tap — which is `ACTION_TIMES.crate` and has to be.
+ *
+ * A lone crate grades by how long you hold it: a tap is one unit, a hold is the
+ * whole box. Two different clocks were deciding that, 230ms apart, and the band
+ * between them did nothing at all — the client ruled the press a hold at 420ms
+ * and stopped sending the tap, while the server's ring does not fire the lift
+ * until 650. So an ordinary unhurried click reached for a tin and got silence,
+ * with the box still there and nothing on screen to say why.
+ *
+ * It was hidden for as long as naming a crate meant walking to it: the walk ate
+ * the first quarter second of the ring and the press at least *moved* you, so a
+ * press that did nothing else still looked like it had been heard. Standing
+ * still, it is the whole gesture missing.
+ *
+ * So the tap lasts exactly as long as the ring takes to fire, and the two
+ * outcomes meet with no gap: released before it, one unit; after it, the lift
+ * has already happened and the release means nothing. Spelled here rather than
+ * imported because `ACTION_TIMES` is the server's, and the note that matters is
+ * the one on the other end — if that number moves, this one moves with it.
+ */
+const CRATE_HOLD_MS = 650;
+
+/**
  * ...and after this long, a drag off a fixture in build mode MOVES it rather
  * than turning the view.
  *
@@ -1931,6 +1950,9 @@ const drag = {
   moving: false,    // ...and it did: this drag is carrying something
   carried: false,   // ...or a HOLD lifted it, and the button is still down
   took: false,      // this press armed goods — so its hold is a pull, not a look
+  rummage: false,   // ...and those goods are a lone crate in reach, whose tap is
+                    // one unit. See `CRATE_HOLD_MS`: this press keeps its tap
+                    // until the ring fires rather than losing it at 420ms.
   touch: false,     // a finger or a pen, which has no hover to build with
   aiming: false,    // ...so this held press owns the ghost. See `TOUCH_AIM_LIFT`
 };
@@ -4023,8 +4045,9 @@ canvas.addEventListener('pointerdown', (e) => {
   drag.look = 0;
   drag.looked = false;
   drag.done = false;
-  // Cleared before the arming block below, which is what sets it.
+  // Cleared before the arming block below, which is what sets them.
   drag.took = false;
+  drag.rummage = false;
   drag.pressedAt = performance.now();
   // A finger has no hover, so the ring that says what you are pointing at has
   // never been asked for at the moment a touch lands — it only ever appeared
@@ -4072,7 +4095,16 @@ canvas.addEventListener('pointerdown', (e) => {
     // are pointing at and that is the box that comes away.
     const aimed = aimCrate(e.clientX, e.clientY);
     const hit = aimed ? null : pickAimed(e.clientX, e.clientY);
-    if (aimed) { net.send('take', { palletId: aimed.id }); drag.took = true; }
+    if (aimed) {
+      net.send('take', { palletId: aimed.id });
+      drag.took = true;
+      // ...and whether the release still has a job. Only a lone crate you are
+      // stood at has a finer answer than the lift (`crate-one`), and it is the
+      // one press that must keep its tap past `LONG_PRESS_MS` — see
+      // `CRATE_HOLD_MS`. Everything else keeps the old rule exactly: a pile
+      // offers whole boxes only, and one across the shop is a walk.
+      drag.rummage = !aimed.stacked && inReachOf(aimed);
+    }
     // ...but only for a unit you are STOOD at, which a crate does not have to
     // ask because a crate is a small thing in a yard and a shelf is most of a
     // wall. A mouse turns the view by dragging, and a drag that started on a
@@ -4124,7 +4156,13 @@ canvas.addEventListener('pointerdown', (e) => {
     //
     // The rule for the next thing a hold learns to do: if it happens, say
     // `done`; if the timer falls through it, the release is still a tap.
-    if (drag.took) { drag.done = true; return; }
+    // ...with one exception, and it is the press that grades finest: a lone
+    // crate you are stood at still owes its release a tap until the ring fires
+    // (`CRATE_HOLD_MS`). Marking it spent here is what left an unhurried click
+    // doing nothing whatever — see that constant. The tap branch measures the
+    // same clock and stands down once the lift has happened, so the two
+    // outcomes still cannot both fire.
+    if (drag.took) { drag.done = !drag.rummage; return; }
 
     // Build mode's own answer to a held press, and it comes before `HOLD_OPENS`
     // because it is not the same question: that flag is about whether holding
@@ -6726,6 +6764,13 @@ function tapAtPointer(cx, cy) {
       // where the only thing you can have is the box — and the server refuses
       // it there anyway, so this is the half that makes the tap do the right
       // thing rather than the half that stops the wrong one.
+      // Held past the ring? Then the lift has already happened and this release
+      // is the end of that gesture, not a second one — sending the rummage here
+      // would be refused for the box now on your shoulder, which reads as the
+      // tap being broken by the hold that worked. `drag.done` says this for
+      // every other press; a crate press is the one that keeps its tap this
+      // long, so it is the one that has to say when the tap is over.
+      if (drag.rummage && performance.now() - drag.pressedAt >= CRATE_HOLD_MS) return;
       if (!crate.stacked && inReachOf(crate)) {
         // ...unless the pill is where the verbs live. See `pillDrives`: the
         // press already named the crate on the way down, so stopping here is

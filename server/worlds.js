@@ -204,6 +204,9 @@ function startingState({ cash, tier, difficulty, shelves, plots }) {
   const hand = starterHire();
   state.roster = hand ? [hand] : [];
   state.nextWorkerId = state.roster.length + 1;
+
+  const order = starterOrder();
+  if (order) state.orders = { ...(DEFAULT_WORLD.orders ?? {}), pending: [order] };
   return state;
 }
 
@@ -249,6 +252,76 @@ function startingState({ cash, tier, difficulty, shelves, plots }) {
  * yet; writing this one hands the job to the code whose job it already is.
  */
 const STARTER_KIND = 'shop-hand';
+
+/**
+ * ...AND A VAN ALREADY ON ITS WAY.
+ *
+ * The tour's third beat used to be "buy a case of something cheap", and its
+ * seventh was "now go and pick it up" — with three beats in between chosen for
+ * one reason, which is that they are the ones that do not need the stock. That
+ * is a tutorial built around a delivery time: the ordering has to be taught
+ * first whether or not it is the first thing worth teaching, and the beats
+ * about your HANDS — which are the four gestures nothing else in the game
+ * explains — have to wait for a lorry.
+ *
+ * A crate on the pad at minute zero unpicks all of it. The gestures can come
+ * first because there is something to practise them on, and the supplier
+ * becomes a beat about *where more comes from* rather than the thing standing
+ * between you and the game.
+ *
+ * It is a real ORDER rather than a crate written onto the save, and that is the
+ * whole of why this is cheap: the van drives, the crate lands on the pad the
+ * shop actually painted, and `restoreOrders` turns `arrivesIn` back into a
+ * stamp exactly as it does for one you placed yourself. Nothing here invents a
+ * second way for goods to arrive — the trap `dropGoods` is named against.
+ *
+ * `cost: 0`, because this is what the shop came with rather than a purchase,
+ * the same call the free Shop Hand makes.
+ *
+ * The item is chosen by TAGS and never by id: content is edited live, so naming
+ * a row is a starting crate that silently stops existing the day somebody
+ * deletes it. Two tags decide it and both are about the first ten minutes.
+ * Nothing that needs a chiller or a warmer, because the shop owns neither yet
+ * and a crate that can only go in a fixture you have not bought is a first
+ * lesson you cannot finish. And `shelf-stable` ahead of cheap, which is the one
+ * that is easy to leave out: the whole point of this crate is that it sits on
+ * the pad while somebody reads, and a perishable one is a first delivery that
+ * rots during the tutorial.
+ */
+function starterOrder() {
+  const rows = Object.values(content().byId.items ?? {});
+  const plain = rows
+    .filter((i) => {
+      const tags = i.tags ?? [];
+      return !tags.includes('needs-freezer') && !tags.includes('needs-warmer');
+    })
+    .sort((a, b) => {
+      const keeps = (i) => ((i.tags ?? []).includes('shelf-stable') ? 0 : 1);
+      return keeps(a) - keeps(b) || (a.base_cost ?? 1e9) - (b.base_cost ?? 1e9);
+    });
+  const item = plain[0];
+  if (!item) return null;
+  return {
+    item_id: item.id,
+    qty: STARTER_CRATE,
+    cost: 0,
+    placedDay: 1,
+    placedAt: PREP_HOUR,
+    runHour: PREP_HOUR,
+    // Not zero. The van has to be seen ARRIVING — a crate that is simply on the
+    // pad when you look up is scenery, where one a lorry backs in and sets down
+    // is the sentence "goods come on a van" said without a card. Short enough
+    // that it lands while somebody is still reading the first card, so the beat
+    // that asks for the crate never waits on it.
+    arrivesIn: STARTER_WAIT,
+    wait: STARTER_WAIT,
+  };
+}
+
+/** One crate of it, and how long the first van takes, in seconds. */
+const STARTER_CRATE = 12;
+const STARTER_WAIT = 8;
+
 
 function starterHire() {
   const kind = content().byId.workers[STARTER_KIND];
@@ -328,7 +401,12 @@ export function createWorld({ name, seed, cash, tier, difficulty, shelves, plots
    * only population the easing is for.
    */
   saveWorld(id, {
-    ...DEFAULT_WORLD, seed: useSeed, open: false, time: PREP_HOUR / 24, reveal: true, ...start,
+    ...DEFAULT_WORLD,
+    seed: useSeed,
+    open: false,
+    time: PREP_HOUR / 24,
+    reveal: true,
+    ...start,
   });
   console.log(`[worlds] created "${label}" (${id}, seed ${useSeed}) `
     + `as a ${startTier(tier).name.toLowerCase()} on ${start.difficulty}: ${JSON.stringify(start)}`);

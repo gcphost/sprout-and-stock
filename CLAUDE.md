@@ -144,6 +144,33 @@ Thirty sweeps, about a minute:
   floors exist to fix, end to end — wall an annex, fail to put a shelf in it,
   floor it, succeed — and that paint survives three re-flows and a purchase,
   because an overlay that didn't would mean buying a shelf repaints the shop.
+  Since step 31 it also guards the LOOK THAT GOES UNDER THE JOB, and everything
+  in that half is invisible twice over: a stockroom with a floor under it and one
+  without are the same cell in the same colour, and the shop afterwards is the
+  same shop — only what you own moved. The bug it is the fix for was invisible in
+  the other direction and worse for it, because painting over a pad is *also* how
+  you move one: a floor dragged across your own stockroom took the storage away,
+  the last-cell warning fired and then the thing it warned about happened, and
+  what you noticed days later was that deliveries had stopped arriving. Its
+  control is the assertion that decides whether any of it is opt-in — a stroke
+  that never crosses a pad writes no second layer at all, in a shop where every
+  cell of ground already has an entry, which is every save in existence. Its
+  centrepiece is a pair worthless split in half: the pad is still a pad AND the
+  floor is remembered, since either half alone is satisfied by the stroke having
+  done nothing whatsoever. Then: that it is never a PERMISSION, asserted as a
+  byte comparison of `tiles`, `blocked` and `indoor` either side of flooring the
+  whole delivery bay; that the last-pad warning stops firing for a look and still
+  fires for the two gestures that really do take a pad away, or the guard above is
+  satisfied by the warning having been deleted; that a scrape REVEALS, paired with
+  a pad that has nothing under it still scraping to bare ground; that nothing is
+  refunded for a look that went under, since you still own it and it comes back,
+  against a circuit up and back that must always lose money; out and back through
+  a real world row, which is this file's named-field trap and passes by
+  construction today only because `ground` rides in wholesale; and that a REGION
+  remove clears both layers, or copy-and-delete leaves a room-shaped stain of
+  flooring behind the stockroom it just deleted. Three deliberate mutations were
+  run against it — a look replacing the job, a scrape that does not reveal, and a
+  pad carrying nothing down — and each was caught on the assertion that names it.
 - `verify:yard` guards the delivery bay and the drop-off, which stopped being
   generated furniture and became ground you paint. Four claims, none of them
   visible in a screenshot because a seeded pad and a generated one look
@@ -1357,7 +1384,7 @@ what the next step was meant to be.
 
 | Doc | Covers | Status |
 |---|---|---|
-| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, the fence that stopped being the only thing a boundary could be made of, and the head line — how tall a way through is, which stopped being a fact about the wall the day the walls grew, and which is what lets a doorway and a high window line up and be glazed as one piece | steps 1–9, 11, 13–27, 29–30 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
+| [docs/building.md](docs/building.md) | walls on tile edges, enclosure instead of a store rect, the kinds-vs-pieces catalog that makes lights and decorations authorable, prices that live on the catalog, and the ground brush that paints floor, the two yard pads, the break area and the ground outside alike, who a way through is for — staff only, entrance only, exit only — the ground pattern that has height, the modifier that demolishes whatever is under the pointer, the curtain that lets a conveyor through and a shopper not, the roller door that is a way through whose whole feature is the picture, taking a build press back, one meaning each for the two modifiers, and the four things an editor is expected to have — the pipette, the row, the stamp and the overlay key that is the shelf's own hover card said about the whole shop, the archway that is a way through with nothing in it, the fence that stopped being the only thing a boundary could be made of, and the head line — how tall a way through is, which stopped being a fact about the wall the day the walls grew, and which is what lets a doorway and a high window line up and be glazed as one piece, and the look that goes UNDER the job — because `GROUND` has partitioned into a look and a job since the yard stopped being furniture, and for as long as one overlay held one answer per cell those two were rivals, so a floor dragged across your own stockroom took the storage away | steps 1–9, 11, 13–27, 29–31 built; 10 cancelled; 12 next; 28 (turning a stamp) proposed |
 | [docs/workers.md](docs/workers.md) | workers as authored content, the roster, tier ladders, breaks, the props that make them visible, the break area they are taken in, the shop hand who takes goods back *off* a shelf, the three farm directives that became one, the rung that packs one full crate out of a bay of part ones, the rung that rearranges the shop around where customers actually walk, and the rung that plans its round, and the runner who works the stockrooms so one dock is not a walk every hire in a big shop has to make, and the crew who stood up — five identical parts of a thirty-six part cap at three-quarters of a shopper's height, against a limb that is one flag on a part and a rig everything downstream was already guarded for | steps 1–6, 8–16 built; 7 proposed |
 | [docs/belts.md](docs/belts.md) | the trip nobody walks — a conveyor that is GROUND rather than furniture, why it carries crates instead of loose units and therefore invents no seventh place for goods to live, corners that fall out of a facing, backpressure as the whole texture, the arm that is a pair of hands rather than a hire, who is allowed to put something on one — your hands, and a crew who post a box onto a run instead of walking it — and the junction that sorts by where the goods can GO rather than by a filter that falls behind your catalogue, and the same T read the other way — who goes first where two runs MEET, which is a fact about the cell rather than about the belt, so it is asked of whatever piece is standing where the lines arrive, and the piece that usually is is the sorter, and the transport LINE that replaced the tile as the unit, the loader that fills a hopper and lifts a tray so one machine feeds the next, and the farm the run finally reaches — a loader that COLLECTS a pen and a bed, which is the only thing on a run it takes goods out of rather than putting them in, the tunnel whose span belongs to nobody, and the CEILING, where a storey is a field on the placement rather than four more kinds and the lift is the one cell that spans both, and UP as a way out rather than a fixture — so an aisle can keep its endcap and still have a return leg, the tunnel that stopped being its own ecosystem — a span that DIPS to a storey below, so a mouth is a lift pointed down and the piston is the crate's own `deck` rather than two clocks beside it, plus the toggle that brings a span up onto the ceiling instead of the floor, and **Where a crate goes, in order** — the whole routing ladder in one place, with the audit's gap list at the foot, and the map that takes a SUBJECT — pick a shelf and everything but the shortest ways a box reaches it goes grey, because the reachable set is 15 runs of 23 whatever you pick, and the packer that stands still — a crate parked on a run that fills itself from the boxes going past, so a dock of part-crates is one trip instead of three | steps 1–4, 2b, 3b, 4b, 7–12 built; 5–6 proposed |
 | [docs/lanes.md](docs/lanes.md) | who may walk on a SQUARE, as opposed to who may cross a line — staff-only ground, the shop floor as somewhere your crew would rather not be, stocking a unit from the back, and one-way aisles | all proposed |
@@ -2102,6 +2129,40 @@ what the next step was meant to be.
   **not in `FIXTURES`** — a floor has no anchor, blocks nobody and is painted
   rather than placed, so `BUILD_KINDS` partitions in three now, which
   `verify:catalog` counts rather than trusting anyone to remember.
+- **…and a LOOK goes under a JOB, because for as long as one overlay held one
+  answer per cell those two were rivals.** `GROUND` has partitioned since the
+  yard stopped being furniture — `floor`, `road`, `path` and `lawn` are a look,
+  the five pads carry a job — and the brush read neither half: a floor dragged
+  across your own stockroom took the storage away. Not refused, and not even
+  warned about properly, because **painting over a pad is also how you MOVE
+  one**, so `canPaintGround` had no way to tell "put the bay over there" from
+  "lay a nice floor through here" — the last-cell warning fired and then the
+  thing it warned about happened, and what you notice days later is that
+  deliveries have stopped arriving. `groundPaint` (`shared/build.js`) is the
+  rule: a look painted onto a job is remembered *beneath* it (`u`, a kind and a
+  piece), the job draws and behaves exactly as it did, and taking the job up
+  hands the look back. It is `canPaintGround`'s own sentence about a conveyor —
+  **under a conveyor is still ground** — said about a pad. Five things about it.
+  `k` is still the top and still the only thing that decides the tile, so no
+  reader of `tiles`, `blocked`, `indoor`, a pad region or the renderer changed,
+  and the inverse shape (the look on top, the job beside it) makes "what is this
+  cell made of" a precedence question asked inside a pure generator that has
+  never seen the catalog. **One function owns the layering**, called by the
+  validator for the ghost and by `buildGround` for the press, because two copies
+  of it is the green-ghost bug with a paintbrush: a preview promising a floor
+  over a room the press leaves as a stockroom. The pad-loss and bare-cell
+  warnings are judged on **where the cell ends up** rather than on what was aimed
+  at it, or a floor stroke goes on warning about a bay it no longer takes — and a
+  warning that goes off whatever you do is one nobody reads. `u.p` is **never
+  null**, so a seeded pad, the generated street and plain shell floor cannot hand
+  back ground nobody paid for on a scrape, which is what keeps the money to one
+  question: nothing is refunded for a look that went under, since you still own
+  it. And `removeSelection` passes **`all`** — a region being deleted is not a
+  layer being peeled, and a reveal there leaves a room-shaped stain of perfectly
+  good flooring behind the stockroom it just deleted. The general shape, and it
+  is this file's third time: **a table that partitions into two kinds of thing is
+  a table whose readers have to ask which**, and a reader that does not is not
+  wrong about either half — it is wrong exactly where they meet.
 - **…and the grass was never drawn, which is not the same as not being
   authorable.** `T.GRASS` is 0 and `buildWorld`'s tile loop opened with
   `if (kind === 0) continue`, so a grass cell never became a mesh: what you were

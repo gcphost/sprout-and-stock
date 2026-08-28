@@ -52,8 +52,8 @@ import {
   deckOf, CEILING, BASEMENT, armReach, goesOverhead,
   conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, conveyorLines, alongPath, tunnelExit, derivedFlow, fixtureRunCells, runFollows, BELT_RUN_MAX, RUN_KINDS, SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
-  canPaintGround, groundStroke, strokeThick, groundIndex, GROUND_STROKE_MAX, quadCells,
-  GROUND, PAD_KINDS, GOODS_PADS, isGround, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
+  canPaintGround, groundPaint, groundStroke, strokeThick, GROUND_STROKE_MAX, quadCells,
+  GROUND, PAD_KINDS, GOODS_PADS, isGround, isPad, groundKindOfTile, padCells, isPadAt, workSpotOf, REACH, spotsOf,
   shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces, LIFT_WAYS,
   SORTER_ROUTES, sorterRoute, FAVOURING,
   MERGE_ROUTES, mergeRoute, conveyorFeeders, mergeStraight, CONVEYOR_KINDS,
@@ -3352,7 +3352,10 @@ export class Game {
         // The LOT rather than its item ids, because whether a box is rubbish is
         // a fact about the box — see `stockTargets`, which answers a waste
         // crate with the skips and nothing else.
-        takers: !p.staff ? this.stockTargets(p.carry ?? p.haul) : null,
+        // ...and WHICH of those would be a top-up rather than a fresh pile,
+        // which is the one thing one marker could never say — see `stockWire`.
+        // Spread rather than two fields, because both come off one walk.
+        ...this.stockWire(p),
         // How much these hands hold, which is the one number a press about
         // goods cannot be judged without. `pressHints` lists what a press would
         // do and greys what it would not, and "would this fit" is `lotRoom`
@@ -6052,6 +6055,43 @@ export class Game {
     // walk ends on are finally the same answer to the same question. It falls
     // back to the anchor for anything with no sides (`reachSpots`), which is
     // what this line used to be.
+    // ALREADY THERE IS NOT A WALK — it is a turn.
+    //
+    // `beside` answers with the crate's four sides, so a walk was sent whatever
+    // you were standing on: from the diagonal you are well inside reach and the
+    // nearest side is still a tile away, so pressing a box you could touch
+    // shuffled you sideways before anything happened. Worse in a full bay, where
+    // every side is another crate and the only tile left on the list is the
+    // crate's own — so the walk parks you ON the box you came to pick up, which
+    // is exactly the picture `beside` exists to stop.
+    //
+    // The test is `UNLOAD_REACH` because that is the one the verb on the other
+    // end measures (`tapCrate`, `liftCrate`) and the one the client asks to
+    // decide which message a tap is — three opinions about one distance is two
+    // too many. `canWalk` is the wall on the line between: reach is 1.8 and a
+    // wall is a boundary, so without it a crate on the far side of one would be
+    // lifted through it, where the walk would have gone round.
+    //
+    // Only a crate. A shelf is worked from a side and `spotsNearest` already
+    // puts the one you are standing on first, so it does not have this shape.
+    if (palletId && near(p, target, UNLOAD_REACH)
+        && this.canWalk(p.x, p.z, Math.round(target.x), Math.round(target.z))) {
+      // Turn to it, for `placeAt`'s reason: reaching into a box while square to
+      // the shop reads as the aim having been ignored.
+      if (Math.round(target.x) !== Math.round(p.x) || Math.round(target.z) !== Math.round(p.z)) {
+        p.facing = Math.atan2(target.x - p.x, target.z - p.z);
+      }
+      // Naming a crate still ends whatever walk you were on, which is what the
+      // route through `walkTo` did for free — and it has to, or the ring winds
+      // on a box while you walk away from it and `stepActions` throws the charge
+      // away for `moving`. The stale stick vector goes with it, for `walkTo`'s
+      // own reason.
+      p.path = null;
+      p.input = { dx: 0, dz: 0 };
+      p.errand = { at: palletId, itemId: null, btn: 'left' };
+      return ok({ walking: [] });
+    }
+
     const spots = palletId ? this.beside(p, target) : this.spotsNearest(p, target);
     let walk = null;
     for (const s of spots) {
@@ -6212,6 +6252,68 @@ export class Game {
       ...this.layout.shelves.filter((s) => ids.some((id) => this.shelfAccepts(s, id))),
       ...(this.layout.stations ?? []).filter((st) => ids.some((id) => this.stationWants(st, id))),
     ].map((f) => f.id);
+  }
+
+  /**
+   * ...and which of those would NOT open a board.
+   *
+   * `stockTargets` answers "would a press here be refused", and that is three
+   * sentences wearing one marker: the unit is already holding this and has room
+   * (a top-up), the unit is ticked for it and waiting (also a top-up, and the
+   * one a reservation exists to promise), or the unit is an unspoken-for shelf
+   * with a bare board, where the press *opens* one. The third is a decision —
+   * a new board is a second place the item lives, which `homeShelves` then has
+   * to settle and `restockQueue` may start buying for — and it was drawn
+   * identically to the other two. A row of empty shelves lights up exactly as
+   * brightly as the unit the goods came off, so "where does this go" and "where
+   * would this START something" were the same green cone.
+   *
+   * It is the **whole press** that decides it, not the best pile in it. One
+   * press pours every pile that fits (`pourInto`, and `stockTargets`' own note
+   * about `lotMain`), so a unit is only a top-up when every kind it would take
+   * already has a board or a reservation there. Half a press opening a board is
+   * a press that opens a board, and the marker is a promise about the press.
+   *
+   * Anything that is not a shelf is a top-up by construction and says so by
+   * falling through: a hopper's inputs are the recipe's, so there is no board
+   * to open, and a skip is where rubbish goes rather than a pile it starts.
+   *
+   * Takes the ids `stockTargets` just answered rather than recomputing them —
+   * two walks would be two chances for the marker and the pill to disagree
+   * about the same shelf, which is the thing `stockTargets` is centralised to
+   * prevent.
+   */
+  stockRefills(lot, ids) {
+    if (!ids?.length) return null;
+    if (lot.waste) return [...ids];
+    const wants = [...new Set(lotStacks(lot).map((s) => s.item_id).filter(Boolean))];
+    const shelves = new Map(this.layout.shelves.map((s) => [s.id, s]));
+    return ids.filter((id) => {
+      const sh = shelves.get(id);
+      if (!sh) return true;
+      const kept = toList(sh.assigned);
+      return wants.every((it) => !this.shelfAccepts(sh, it)
+        || kept.includes(it) || !!this.shelfStack(sh, it));
+    });
+  }
+
+  /**
+   * Both halves of "where do these go", off one walk of the shop.
+   *
+   * `takers` stays exactly the array it has always been — four readers on the
+   * client take it as one (`syncStockTargets`, `pressHints`, the tour, the edge
+   * arrows) — and `refills` is a SUBSET of it rather than a second answer, so
+   * nothing downstream has to reconcile two lists that could disagree.
+   *
+   * Humans only, for the reason `takers` already was: staff know where they are
+   * going, and five hires' worth of this recomputed ten times a second is bytes
+   * for a marker nobody draws.
+   */
+  stockWire(p) {
+    if (p.staff) return { takers: null, refills: null };
+    const lot = p.carry ?? p.haul;
+    const takers = this.stockTargets(lot);
+    return { takers, refills: takers ? this.stockRefills(lot, takers) : null };
   }
 
   /**
@@ -7836,8 +7938,55 @@ export class Game {
    * second one is a duplicate waiting to be minted. Whoever gets here first has
    * the goods and everyone after them starts at the door.
    */
+  /**
+   * Behind the counter, which is where a shopkeeper starts their day.
+   *
+   * `layout.spawn` is the SHOPPER spawn — five tiles down the path, outside the
+   * front door — and the player borrowed it because for a long time the two
+   * questions had one sensible answer. They stopped having one when the tour
+   * was reordered: you now arrive on the pavement, outside a shut shop, and the
+   * first thing you are asked to do is walk in. That is a card spent on a
+   * journey, and it reads as the game starting you in the wrong place because it
+   * is starting you where the customers start.
+   *
+   * It is the till's own working side (`workSpotOf`) rather than the till's
+   * tile, or you spawn inside the counter. A shop with no checkout, or one whose
+   * serving side is blocked, answers null and the door is the fallback — this is
+   * a nicety about where a shop opens, and it may never be the reason somebody
+   * cannot get in.
+   *
+   * `canStand` rather than a tile test, because that is the grid a walk is
+   * routed on: a spot this said yes to and the router said no to would be a
+   * player who spawns welded in place.
+   */
+  counterSpot() {
+    for (const c of this.layout.checkouts ?? []) {
+      const spot = workSpotOf(c);
+      if (spot && this.canStand(spot.x, spot.z)) return { x: spot.x, z: spot.z };
+    }
+    return null;
+  }
+
+  /**
+   * The nth free cell at or beside a spot.
+   *
+   * `n === 0` is the spot itself, which is the whole point: the first person
+   * through the door gets the place that was chosen for them, and only a second
+   * one has to be moved out of the way. The ring is four-connected and then the
+   * corners, and the spot itself is the last resort — two people standing in one
+   * square is untidy, where somebody spawned inside a wall cannot walk out.
+   */
+  spawnNear(spot, n) {
+    if (n <= 0 && this.canStand(spot.x, spot.z)) return { x: spot.x, z: spot.z };
+    const ring = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]];
+    const free = ring
+      .map(([dx, dz]) => ({ x: spot.x + dx, z: spot.z + dz }))
+      .filter((c) => this.canStand(c.x, c.z));
+    return free[(n - 1) % Math.max(1, free.length)] ?? { x: spot.x, z: spot.z };
+  }
+
   addPlayer(id, name, who = null) {
-    const spawn = this.layout.spawn;
+    const spawn = this.counterSpot() ?? this.layout.spawn;
     const colors = ['#5b8ff9', '#f2a03d', '#7cc46a', '#c98ad9'];
     // Hired staff share `this.players`, so count only the humans — otherwise
     // hiring a clerk renames and recolours the next person who joins.
@@ -7849,6 +7998,12 @@ export class Game {
     // cannot stand is worse than the door, because there is no way to walk out
     // of it — so the spot is offered, never trusted.
     const stood = back && this.canStand(back.x, back.z);
+    // Two people must not spawn inside one another, and the old answer — always
+    // step one tile sideways — was safe at a door standing in the open and is
+    // not behind a counter, where one of the two sides is the counter. So the
+    // first person takes the spot itself and everybody after them takes the
+    // first neighbouring cell they can actually stand in.
+    const at = stood ? back : this.spawnNear(spawn, humans);
     this.players[id] = {
       id,
       who: who ?? null,
@@ -7858,8 +8013,8 @@ export class Game {
       // one. A `maxlength` on the box is a hint to whoever is using the box, and
       // since co-op that is not always us. See shared/names.js.
       name: cleanName(name) || `Player ${humans + 1}`,
-      x: stood ? back.x : spawn.x + (humans % 2 === 0 ? -1 : 1),
-      z: stood ? back.z : spawn.z - 1,
+      x: at.x,
+      z: at.z,
       facing: stood ? (back.facing ?? 0) : 0,
       color: colors[humans % colors.length],
       // Hands and shoulder come back even when the SPOT could not, because
@@ -18722,7 +18877,13 @@ export class Game {
       // the floor.
       for (const g of [...this.ground]) {
         if (!sel.inBox(g.x, g.z)) continue;
-        const r = this.buildGround(playerId, { x: g.x, z: g.z, piece: '' });
+        // `all`, because a region is being deleted rather than a layer peeled.
+        // The bulldozer aimed at one cell hands back the look remembered under a
+        // pad, which is right for a press that means "stop being storage" and
+        // wrong for one that means "clear this room": a reveal here would leave a
+        // room-shaped stain of perfectly good flooring behind the stockroom it
+        // just deleted, which is the stain `verify:stamp` exists to catch.
+        const r = this.buildGround(playerId, { x: g.x, z: g.z, piece: '' }, { all: true });
         if (r.ok) { cleared += r.laid ?? 0; spend(r); }
       }
     });
@@ -18929,8 +19090,14 @@ export class Game {
    * you named decides whether the cell becomes floor, delivery bay or storage.
    * There is deliberately no second verb for "designate a bay": a pad you can
    * lay with the tool you already know is a pad you will actually move.
+   *
+   * Which of a cell's two layers a stroke lands on is `groundPaint`'s, in
+   * `shared/build.js`, because the ghost has to give the same answer. `all` is
+   * the one thing that does not come off the wire: a region being deleted takes
+   * the look under a pad with it, where the bulldozer aimed at one cell peels
+   * the pad and hands the look back.
    */
-  buildGround(playerId, spec = {}) {
+  buildGround(playerId, spec = {}, { all = false } = {}) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
     if (!p.build?.on) return err('not in build mode');
@@ -18965,11 +19132,15 @@ export class Game {
     if (!check.ok) return err(check.reason);
 
     const unit = piece ? this.groundUnitCost(piece.id) : 0;
-    const painted = groundIndex(this.layout);
     const kept = new Map(this.ground.map((f) => [`${f.x},${f.z}`, f]));
 
     let spent = 0;
     let laid = 0;
+    let tucked = 0;
+    // Which jobs it went under, so the line can name one. A drag can cross two,
+    // and "under the delivery bay" said about a stroke that also went under the
+    // break area is worse than not naming either.
+    const tuckedIn = new Set();
     let short = false;
     // `buildEdge`'s note said about cells: the overlay entry, not the kind, so
     // a cell nobody had painted goes back to having no entry rather than to an
@@ -18977,41 +19148,53 @@ export class Game {
     const undoCells = [];
     for (const c of cells) {
       const key = `${c.x},${c.z}`;
-      const had = painted.get(key) ?? null;
-      // What this cell ENDS UP as, which for the eraser is a question about
-      // where the cell is — floor indoors, grass outside. The same split
-      // `canPaintGround.leaves` makes, and it has to be the same split or the
-      // ghost promises a floor the stroke turns into a lawn.
-      const lay = piece ? kind : (insideStore(this.layout, c.x, c.z) ? 'floor' : null);
+      const was = kept.get(key) ?? null;
       // What kind of ground this cell IS, and `tiles` is not always the one to
       // ask. A belt stamps `T.BELT` over whatever was painted, so `groundKindAt`
-      // answers null on every cell of a run — and both skips below would then
-      // miss, so laying the same floor under the same conveyor would charge for
-      // it again on every stroke, for ever. The stored row is what survives the
-      // stamp, and it is the thing this loop is about to overwrite anyway.
-      const now = this.groundKindAt(c.x, c.z) ?? kept.get(key)?.k ?? null;
-      if (had === (piece?.id ?? null) && now === kind) continue;
-      // The bulldozer's own version of that skip, and it needs one of its own
-      // because taking ground up does not name a kind to compare against. It
-      // used to fall out of `groundKindAt` answering null on bare grass, which
-      // stopped being true the day the lawn got a row — so an eraser dragged
-      // across a field would write a `k: null` entry per cell and report the
-      // lot as taken up. What a stroke LEAVES is bare lawn with no design, so a
-      // cell that is already that is a cell this did nothing to.
-      if (!piece && had == null && now === (lay ?? 'lawn')) continue;
+      // answers null on every cell of a run — and the no-op skips inside
+      // `groundPaint` would then miss, so laying the same floor under the same
+      // conveyor would charge for it again on every stroke, for ever. The stored
+      // row is what survives the stamp, and it is the thing this loop is about
+      // to overwrite anyway.
+      const nowKind = this.groundKindAt(c.x, c.z) ?? was?.k ?? null;
+      // What this cell ENDS UP as — the layering rule, asked of the one function
+      // that owns it, which `canPaintGround` ran a moment ago for the ghost.
+      // Null is a cell this stroke does nothing to. The eraser's answer is a
+      // question about where the cell is (floor indoors, bare outside), and it
+      // has to be the same split the validator made or the ghost promises a
+      // floor the stroke turns into a lawn.
+      const next = groundPaint(
+        { k: nowKind, p: was?.p ?? null, u: was?.u ?? null },
+        kind,
+        piece?.id ?? null,
+        insideStore(this.layout, c.x, c.z) ? 'floor' : null,
+        { all },
+      );
+      if (!next) continue;
 
       // Pay the difference, exactly as swapping a wall for a window does: what
       // was underfoot is worth `FIXTURE_REFUND` of what it cost, whether you
-      // laid it or the shell came with it.
-      const cost = round2(unit - this.groundUnitCost(had) * FIXTURE_REFUND);
+      // laid it or the shell came with it. `from` rather than whatever was on
+      // top, because a look that went UNDER a pad has not changed hands — you
+      // still own it and a scrape hands it back, so refunding it as well would
+      // be a printer you run by painting a bay over your own parquet.
+      const cost = round2(unit - this.groundUnitCost(next.from) * FIXTURE_REFUND);
       if (cost > 0 && this.cash - spent < cost) { short = true; break; }
 
       spent = round2(spent + cost);
-      const was = kept.get(key) ?? null;
-      const entry = { x: c.x, z: c.z, k: lay, p: piece?.id ?? null };
+      const entry = { x: c.x, z: c.z, k: next.k, p: next.p };
+      // Absent rather than null when there is nothing under it, because this
+      // object is what the save carries and what `copyableGround` reads — a
+      // `u: null` on every cell in the shop is a field about nothing.
+      if (next.u) entry.u = { ...next.u };
       kept.set(key, entry);
       undoCells.push({ x: c.x, z: c.z, was: was ? { ...was } : null, now: entry });
       laid++;
+      // A cell that kept its job, which is the one outcome of this verb that
+      // LOOKS like nothing happening: the pad draws on top exactly as it did, so
+      // a drag through your stockroom is a charge and an unchanged picture. The
+      // feed is the only thing that can say where the money went.
+      if (isPad(nowKind) && next.k === nowKind) { tucked++; tuckedIn.add(nowKind); }
     }
 
     if (!laid) {
@@ -19025,11 +19208,17 @@ export class Game {
     this.regenerateLayout();
 
     const what = piece ? piece.name.toLowerCase() : 'ground';
+    const job = tuckedIn.size === 1
+      ? `the ${GROUND[[...tuckedIn][0]].label.toLowerCase()}`
+      : 'ground with a job on it';
     this.pushLog(piece
       ? `Laid ${laid} ${laid === 1 ? 'tile' : 'tiles'} of ${what}`
-        + `${spent > 0 ? ` for $${spent.toFixed(2)}` : ''}.`
+        + `${spent > 0 ? ` for $${spent.toFixed(2)}` : ''}`
+        + `${tucked ? ` — ${tucked === laid ? 'all' : tucked} of it under ${job}, which stays` : ''}.`
       : `Took up ${laid} ${laid === 1 ? 'tile' : 'tiles'} of ground.`);
-    return ok({ laid, cost: spent, short, warn: check.warn ?? null });
+    return ok({
+      laid, under: tucked, cost: spent, short, warn: check.warn ?? null,
+    });
   }
 
   /**

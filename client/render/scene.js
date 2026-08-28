@@ -18,7 +18,7 @@ import {
   buildStationBays,
   buildTextSprite, setTextSprite, buildMoneyLabel, moneySaid,
   buildPallet, CRATE_STEP, BELT_DECK, buildProgressRing, setRingProgress, buildGhost,
-  buildSoil, buildFixtureGhost, buildTargetMarker, buildEdgeArrow, buildCageMarker, buildContour, buildWorkSpot, disposeGroup, material,
+  buildSoil, RIDGE_TOP, buildFixtureGhost, buildTargetMarker, buildEdgeArrow, buildCageMarker, buildContour, buildWorkSpot, disposeGroup, material,
   buildGrowthBar, setGrowthBar,
   buildRipple,
   buildStamp,
@@ -8505,7 +8505,15 @@ export class Scene {
     // redraw the cage with it — keyed on the item alone, the box would stay the
     // size the stack was when you first pointed at it, which is a highlight
     // that stops agreeing with what you can see while you watch it.
-    const art = board ? this.shelfProps.get(f?.id)?.key ?? '' : '';
+    //
+    // ...and a plot's bed is the same argument again. Its outline is cut round
+    // what is GROWING in it (see `markerFor`), and that changes four times
+    // between seed and harvest without a re-flow, a move or a new id — so keyed
+    // on the record alone the ring would keep the shape the bed had when the
+    // pointer arrived and stop agreeing with the crop while you watch it.
+    const art = board
+      ? this.shelfProps.get(f?.id)?.key ?? ''
+      : this.plotProps.get(f?.id)?.key ?? '';
     const key = f ? `${f.id}:${mode}:${f.y ?? 0}:${board ?? ''}:${art}:${this.reflows}` : null;
     if (this.aimKey === key) return;
     this.aimKey = key;
@@ -8698,7 +8706,14 @@ export class Scene {
       // ...taken at REST, or a fixture you have just put down is outlined
       // where the drop animation had it. See `atRest`.
       const art = this.fixtureProps.get(f.id);
-      const hull = this.atRest(art, () => buildContour(art, at, mode,
+      // A plot is the one fixture whose art is in two places. Its FRAME is the
+      // catalog model in `staticRoot`; its bed — soil, ridges, what is growing
+      // in it — is built by `syncPlots` into `actorRoot`, and that is the part
+      // anybody means by "this plot". Asked for the fixture art alone the hull
+      // came back round a single edging plank: correct, and a marker that rings
+      // a stick beside a bed reads as the marker having missed.
+      const bed = this.plotProps.get(f.id)?.group ?? null;
+      const hull = this.atRest(art, () => buildContour(bed ? [art, bed] : art, at, mode,
         skip ? (o) => skip.has(o) : null));
       if (hull) {
         hull.position.copy(at);
@@ -8855,8 +8870,12 @@ export class Scene {
     // can leave identical: buy a shelf across the shop and the unit you have
     // open has not changed by a single field. What you see is the outline
     // stranded a few tiles away from the thing it belongs to.
+    // `plotProps` for the reason `setAim` gives: a bed's outline is cut round
+    // its crop, and a selection is the marker most likely to be up while that
+    // crop is growing under it.
     const key = f
-      ? `${f.x},${f.z},${f.rot ?? 0}|${at.map((s) => `${s.x},${s.z}`).join(';')}|${this.reflows}`
+      ? `${f.x},${f.z},${f.rot ?? 0}|${at.map((s) => `${s.x},${s.z}`).join(';')}`
+        + `|${this.plotProps.get(f.id)?.key ?? ''}|${this.reflows}`
       : null;
     if (this.selectedKey === key) return;
     this.selectedKey = key;
@@ -12075,28 +12094,43 @@ export class Scene {
    * for why the shop answers this rather than the client working it out. All
    * this does is find each one and float a pip over it.
    *
+   * ...and a HOLLOW one where the press would open a board rather than top one
+   * up. `refills` is the server's subset of the same list — see `stockRefills`
+   * for why a solid cone over a bare shelf and a solid cone over the unit the
+   * goods came off is one marker answering two questions.
+   *
    * Keyed by fixture id and rebuilt only when the *set* changes, because the
    * set is stable for a whole armful and this runs ten times a second. Heights
    * are re-read every sync all the same: a shelf that fills up as you stock it
    * drops out of the list, and one you moved has to take its pip with it — the
    * same reason `syncShelves` re-reads positions rather than trusting them.
+   *
+   * The key carries the LOOK as well as the id, and that is not tidiness: the
+   * first armful onto a bare shelf turns that unit into a top-up, and the set
+   * of ids does not move an inch when it happens. Keyed on ids alone the pip
+   * would stay hollow for the rest of the armful — a marker telling you it is
+   * about to start a pile, over a pile you just started.
    */
   syncStockTargets(me) {
     this.stockPips ??= new Map();
     const want = new Set(me?.takers ?? []);
-    const key = [...want].sort().join(',');
+    const refill = new Set(me?.refills ?? []);
+    const modeOf = (id) => (refill.has(id) ? 'stock' : 'stockOpen');
+    const key = [...want].sort().map((id) => `${modeOf(id)}:${id}`).join(',');
 
     if (key !== this.stockPipKey) {
       this.stockPipKey = key;
       for (const [id, pip] of this.stockPips) {
-        if (want.has(id)) continue;
+        if (want.has(id) && pip.userData.mode === modeOf(id)) continue;
         this.actorRoot.remove(pip);
         disposeGroup(pip);
         this.stockPips.delete(id);
       }
       for (const id of want) {
         if (this.stockPips.has(id)) continue;
-        const pip = buildTargetMarker('stock');
+        const mode = modeOf(id);
+        const pip = buildTargetMarker(mode);
+        pip.userData.mode = mode;
         // Offset so a shop full of them doesn't bob in lockstep, which reads as
         // one flashing object rather than several separate signposts. The same
         // trick the thought bubbles use, off the same kind of stable number.
@@ -12156,11 +12190,34 @@ export class Scene {
       // they belong to something in the shop and this belongs to the frame.
       // `this.ortho` and not `this.camera`: a perspective camera has no `top`,
       // so in first person this would be NaN over NaN and every arrow in the
-      // shop would be placed at the origin of the frame. The ortho zoom is
-      // pinned at its top rung while you are in there (`setFirstPerson`), so
-      // what this answers is a constant — which is the right answer anyway,
-      // since an arrow riding the edge of the frame belongs to the frame.
-      const world = (this.ortho.top - this.ortho.bottom) / this.ortho.zoom / h;
+      // shop would be placed at the origin of the frame.
+      //
+      // ...and it is only ever the ORTHO's answer, which is the half that was
+      // wrong in first person. An orthographic camera has one scale everywhere,
+      // so "how many world units is a pixel" is a property of the camera; a
+      // perspective one has a different answer at every depth, and the depth
+      // this arrow sits at is not up to it. `unproject` at z = 0 is the middle
+      // of the frustum, which for the ortho is the shop and for `FPV_NEAR`
+      // 0.06 against `FPV_FAR` 400 is **0.12 units in front of your eye**. So
+      // the arrow was placed a hand's breadth from the camera and then sized
+      // for a view forty tiles across: correct arithmetic, both halves, against
+      // a distance one of them had never heard of. What it draws as is an
+      // arrowhead over half the screen — which reads as the marker being broken
+      // rather than as the one camera in the game it was never measured on.
+      //
+      // Asked of the camera rather than of `this.fpv`, because that flag says
+      // where the player is and this is a question about how the thing in front
+      // of them projects.
+      const orthoUnit = (this.ortho.top - this.ortho.bottom) / this.ortho.zoom / h;
+      // How many world units one pixel is, at the point the arrow ends up. A
+      // perspective camera shows `2 * d * tan(fov/2)` world units of height at
+      // distance `d`, so this is the ortho's constant with the depth put back
+      // into it — and `fov` is read live, since it is a setting the player can
+      // move (`setFov`).
+      const unitAt = (v) => (this.camera.isPerspectiveCamera
+        ? (2 * v.distanceTo(this.camera.position)
+          * Math.tan(this.camera.fov * THREE.MathUtils.DEG2RAD / 2)) / h
+        : orthoUnit);
 
       const off = [];
       for (const pip of this.stockPips.values()) {
@@ -12216,7 +12273,9 @@ export class Scene {
 
         EDGE_V.set(fx / (w / 2), -fy / (h / 2), 0).unproject(this.camera);
         arrow.position.copy(EDGE_V);
-        arrow.scale.setScalar(EDGE_SIZE * world);
+        // Sized where it LANDED rather than by a number worked out before the
+        // loop, which is the only way a perspective camera can be asked this.
+        arrow.scale.setScalar(EDGE_SIZE * unitAt(EDGE_V));
         // Flat to the camera, then turned about the view axis until its +Y — the
         // way it was modelled — runs the way the thing it stands for lies. The
         // screen's y counts downward and the rotation's does not, hence the sign.
@@ -13751,18 +13810,23 @@ export class Scene {
       disposeGroup(rec.group);
       rec.group.clear();
 
+      // Where the plants are going, decided BEFORE the soil is built: the
+      // ridges are cut to the rows, so a bed of four is two fat ridges and a
+      // bed of twelve is four. A bed nobody has sown gets the default four.
+      const spots = p.crop_id && crop ? plantSpots(count, hashId(p.id)) : null;
+
       // Turned earth vs rough turf. A planted bed is always broken soil, so a
       // crop never looks like it's growing straight out of the lawn.
-      rec.group.add(buildSoil(p.crop_id ? 'tilled' : soil, PALETTE));
+      rec.group.add(buildSoil(p.crop_id ? 'tilled' : soil, PALETTE, spots?.map((s) => s.z)));
 
-      if (!p.crop_id || !crop) continue;
+      if (!spots) continue;
 
       // One plant per unit the bed will yield, so what is growing there is what
       // picking it hands over. Built into a bed of their own and welded, the way
       // stock is — a bed of twelve is twelve plants and one object, and nothing
       // growing in it moves independently of the rest.
       const bed = new THREE.Group();
-      for (const spot of plantSpots(count, hashId(p.id))) {
+      for (const spot of spots) {
         const plant = buildModel(crop.model, { t: grown });
         // A crop that draws its own stages has already said what growing looks
         // like — scaling it as well would shrink the sprout it deliberately drew.
@@ -13772,20 +13836,26 @@ export class Scene {
         // Then shrink to share the bed. Multiplied, not assigned, or a crowded
         // bed of unstaged crops would lose its growth ramp entirely.
         plant.scale.multiplyScalar(spot.scale);
-        plant.position.set(spot.x, 0, spot.z);
+        // On the ridge rather than on the ground the ridge stands on. The soil
+        // used to be a flat slab and 0 was its top; it has a top and a bottom
+        // now, and a plant left at 0 grows out of the bottom of the furrow with
+        // its own row banked up either side of it.
+        plant.position.set(spot.x, RIDGE_TOP, spot.z);
         bed.add(plant);
       }
       rec.group.add(weld(bed));
 
-      if (p.ready) {
-        const glow = new THREE.Mesh(
-          new THREE.RingGeometry(0.35, 0.48, 16),
-          new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.75, side: THREE.DoubleSide }),
-        );
-        glow.rotation.x = -Math.PI / 2;
-        glow.position.y = 0.02;
-        rec.group.add(glow);
-      }
+      // A ripe bed used to get a flat yellow ring lying on the soil, and it is
+      // gone rather than redrawn. Two reasons, and the second is the one that
+      // settles it. It was the last unlit quad in the picture — `buildTargetMarker`
+      // makes the argument at length about the tile frame the cel ink retired,
+      // and this was the same object with the same problem: a UI layer that fell
+      // into the world, on a bed that is now a *thing* with a contour round it.
+      // And it was the THIRD way this plot says the same sentence.
+      // `syncPlotOverlay` already puts the crop itself in a thought bubble the
+      // moment it is ready — the same bubble a shopper uses — and it deliberately
+      // drops the growth bar at that point so the plot is not saying it twice.
+      // The ring made it three, on a square.
     }
   }
 
@@ -14492,9 +14562,8 @@ export class Scene {
    * are looking, and it is the one that was missing — leant in over the middle of
    * an empty shop floor, the far wall is still turned at you and still fades,
    * with nothing anywhere near it, which reads as the effect firing at random
-   * because from where you are sitting it did. A wall has to be facing you, and
-   * close to what you are looking at, and you have to be close enough for it to
-   * matter.
+   * because from where you are sitting it did. A wall has to be across what you
+   * are looking at, and you have to be close enough for it to matter.
    *
    * BOTH OF THEM ARE FACTS ABOUT THE PITCH, and neither knew the pitch could
    * move — which is the whole of what this got wrong. The paragraph above says
@@ -14522,10 +14591,16 @@ export class Scene {
    * third trap). Both-indoors fades; both-outdoors stays solid. Fold those two
    * together and knocking one hole in a wall turns the entire building to glass.
    *
-   * The test is against `camOffset`, which is the direction from what is being
-   * looked at TOWARD the camera — so a positive dot is a face turned at the
-   * viewer. No epsilon: at a yaw where a wall is exactly edge-on the dot is zero
-   * and it stays solid, which is right, since a wall seen end-on is a line.
+   * FACING IS NOT THE RULE, and it read as one for as long as this existed. The
+   * dot against `camOffset` says which side of a wall the camera is on, which
+   * stands in for "between the camera and the shop" only while the shop is the
+   * only place you ever are. Walk out to the yard and the building is between
+   * you and the camera: the wall across your view is the one whose outside
+   * points away, so it stayed solid over the crate you had walked out there to
+   * pick up, while the front of the same building faded correctly the whole
+   * time. That is the shape of the report — half the effect working. `inTheWay`
+   * already answers the honest question, and facing is now what guards its
+   * corner-lean band alone. See the note there.
    *
    * And FIRST PERSON keeps everything. The cutaway is a convention of the
    * overhead view — down at eye level the wall in front of you is the room.
@@ -14548,9 +14623,11 @@ export class Scene {
     for (const o of this.edgeGroup.children) {
       const f = o.userData.outward;
       if (!f || !o.userData.hue) continue;
-      const ghost = cut
-        && (f.always || f.fx * x + f.fz * z > 0)
-        && this.inTheWay(o.userData.spots, look);
+      // Which side of the wall the CAMERA is on. It is no longer a veto — see
+      // `inTheWay`, which now asks it only of the walls standing BEHIND what you
+      // are looking at.
+      const facing = f.always || f.fx * x + f.fz * z > 0;
+      const ghost = cut && this.inTheWay(o.userData.spots, look, facing);
       // `material` is a cache keyed by colour and alpha, so both of these are
       // shared objects that already exist — this is an identity compare and an
       // assignment, never an allocation. Writing `.opacity` instead is the trap
@@ -14663,13 +14740,31 @@ export class Scene {
    * multiplies. The list is deduped at build (`cellsOf`) because the boxes are
    * not: a painted wall is a dozen of them on every cell.
    */
-  inTheWay(spots, { hx, hz, deep }) {
+  inTheWay(spots, { hx, hz, deep }, facing) {
     if (!spots) return true;
     for (let i = 0; i < spots.length; i += 2) {
       const dx = spots[i] - this.camLook.x;
       const dz = spots[i + 1] - this.camLook.z;
       const along = dx * hx + dz * hz;
-      if (along > deep || along < -WALL_GHOST_REACH) continue;
+      if (along > deep) continue;
+      // In FRONT of what you are looking at is the whole question, and facing is
+      // not asked of it: a wall standing between the camera and the look point
+      // is in the way whichever of its two faces happens to be turned at you.
+      // That distinction only ever mattered because the shop is not the only
+      // place you stand — walk round the back to the yard and the building is
+      // between you and the camera, so the wall across your view is the one
+      // whose outside points the other way, and asking it stayed solid over the
+      // one thing on screen. Which reads as the cutaway being broken, because
+      // the front of the same building is fading correctly the whole time.
+      //
+      // BEHIND it is the corner-lean concession rather than the rule, and that
+      // is the half facing still has to guard. It is there because leaning into
+      // a corner has to fade both of its walls and one of the two is always a
+      // step past the look point — but a room's far wall is a step past it too,
+      // and fading that is the shop turning to glass around somebody standing
+      // in the middle of it. A face turned away from the camera at that range is
+      // the far wall; one turned toward it is the near wall of the next room.
+      if (along < 0 && (!facing || along < -WALL_GHOST_REACH)) continue;
       const side = dx * hz - dz * hx;
       if (side <= WALL_GHOST_REACH && side >= -WALL_GHOST_REACH) return true;
     }

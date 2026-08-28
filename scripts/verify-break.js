@@ -437,7 +437,12 @@ const secondsOf = (id) => Math.max(1, content().byId.pastimes[id]?.seconds ?? 20
 
   // Losing the last of it is a consequence you are told about, never a refusal:
   // a shop with no break area is a shop, which is the whole fallback.
-  const back = g.buildGround('me', { ...spot, piece: 'verify-break-floor' });
+  //
+  // Taken UP rather than floored over. A look goes under a job now
+  // (`groundPaint`), so a floor dragged through your break room leaves the break
+  // room with a floor under it — which is verify:floor §9, and is what stops a
+  // redecoration quietly costing your crew somewhere to charge.
+  const back = g.buildGround('me', { ...spot, piece: '' });
   check(back.ok, 'and it can be taken back up', back.error ?? '');
   check(/last break tile/.test(back.warn ?? ''), 'with a warning that it was the last of it',
     back.warn ?? 'none');

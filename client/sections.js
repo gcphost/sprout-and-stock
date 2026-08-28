@@ -1533,8 +1533,20 @@ function upgradeWhat(u) {
     const what = FIXTURES[u.kind]?.label?.toLowerCase() ?? 'one';
     return `${Math.round(p.discount * 100)}% off every ${what} you build`;
   }
-  if (p.carry != null) return `carry ${p.carry} at once, up from six`;
-  if (p.speedMult != null) return `walk ${p.speedMult}× faster`;
+  /* A PAYLOAD IS A BONUS, AND THIS LINE READ IT AS A TOTAL. `carryCapacity` is
+     `base + bonus` and `countUpgrade` SUMS every owned row of a kind, so
+     `{carry: 6}` takes your hands from six to twelve — and the caption said
+     "carry 6 at once, up from six", which is a working upgrade advertising
+     itself as a button that does nothing.
+     Said as a DELTA it needs no base constant (the six lives in
+     server/sim/index.js and a copy of it here would be a caption that is right
+     until somebody retunes it) and it stays true when a second capacity row is
+     authored, where any absolute number would quietly describe only the last
+     one bought. `reach` was already written this way and is correct. */
+  if (p.carry != null) return `carry ${p.carry} more at a time`;
+  /* ...and 1.3× FASTER is 230% of walking pace. The payload is a multiplier on
+     the speed, not on the gain. */
+  if (p.speedMult != null) return `walk ${p.speedMult}× as fast`;
   if (p.reach != null) return `+${p.reach} people within reach of the shop`;
   return u.description;
 }
@@ -2450,6 +2462,17 @@ export const SECTIONS = [
     key: 'b',
     title: 'Supplier',
     facet: 'tag',
+    // THE WORST TAB SPREAD IN THE GAME, and the reason this is `fixed` rather
+    // than `steady`. To do holds whatever has gone wrong — often one row, often
+    // none — and Buy holds the whole catalogue at sixty. `steady` is an ESTIMATE
+    // off a row pitch, which is the right answer when the tabs are roughly the
+    // same shape and no answer at all when one of them is a single line: the
+    // window would still double in height on the press.
+    // A declared height is not a guess, and this is a menu you tab ACROSS —
+    // To do, then Buy to fix it — so the strip under your pointer moving a
+    // hundred pixels between two presses is the whole complaint. `#panel-body`
+    // already scrolls, so the long tab gives inside a box that does not.
+    fixed: true,
     // A shelf sat empty is money not being made, and it is the one thing you
     // cannot see from across the shop.
     badge: (ui) => {
@@ -2574,6 +2597,16 @@ export const SECTIONS = [
     name: 'Shop',
     key: 't',
     title: 'How the shop is doing',
+    // THE ONE SECTION THAT IS A PICTURE, and the one that does not want the
+    // bottom of the screen. Everything else in here is a LIST you read while
+    // working, so the panel is pinned above the build bar — near the buttons,
+    // with the shop still visible over it. This is two columns of chart you
+    // stop and look at, it is the tallest thing the panel ever draws, and
+    // anchored to the stack it was clipping the week bar off the foot of the
+    // window on anything short of a big monitor.
+    // A STARTING PLACE RATHER THAN A PIN: the header is still a grab handle,
+    // and a double-click still hands the panel back to the stylesheet.
+    mid: true,
     // Today's numbers, and now the finished days behind them: `state.ledger` is
     // the last week, oldest first. Before it the server kept yesterday in
     // `_lastDayStats` and never sent it, so every readout here compared today
@@ -2648,7 +2681,7 @@ export const SECTIONS = [
     icon: ICONS.upgrades,
     name: 'Upgrades',
     key: 'u',
-    title: 'What there is to buy, once',
+    title: 'Upgrades',
     // Seven rows on one tab and two on another, so the window would double in
     // height as you pressed along the strip — and this is a list you press
     // along precisely to compare. See `steadyHeight`.
@@ -2866,8 +2899,9 @@ export const SECTIONS = [
     // whole change — the four are still there, in order, one scroll apart.
     rows: (ui) => [
       /**
-       * TWO NAMED GROUPS AND A FOOT, and the names are what makes this a tab
-       * rather than a pile.
+       * NAMED GROUPS AND A FOOT, and the names are what makes this a tab
+       * rather than a pile. (Two of them where the build can host somebody;
+       * one where it cannot — see "This shop" below.)
        *
        * It ran for a long time as one undifferentiated stack — a shop name, a
        * grid, then three centred slabs — which is readable at four rows and
@@ -2889,10 +2923,12 @@ export const SECTIONS = [
        */
       { sep: 'Game', icon: ICONS.settings },
 
-      // WHICH SHOP. The name, and who else is in it — one subject, which is why
-      // the co-op row moved up here from the bottom of the tab.
-      { sep: 'This shop' },
-      { name: ui.net?.world?.name ?? 'This shop', sub: 'the save you are playing', plain: true },
+      // WHICH SHOP — who else is in it, and nothing else. The name used to sit
+      // here as a plain row saying "the save you are playing", which is a label
+      // reading back a fact the title bar and the shop itself already state; it
+      // is gone, and the heading went with it rather than standing over an empty
+      // group. On a build that cannot host, this group is now absent entirely.
+      //
       // Letting somebody in. A row here rather than the floating pill it was,
       // and the argument is docs/ui-shell.md's own: anything offering an action
       // belongs in `#panel`. What settled it is a phone — the pill was pinned
@@ -2904,10 +2940,9 @@ export const SECTIONS = [
       // build has nothing to offer, because both people open the same URL, and
       // a greyed row is a promise that something would happen if you were
       // somewhere else. `coopStatus` answers null there, and the spread is what
-      // makes a row optional — which is also why this group is allowed to be one
-      // row on the desktop build, since the alternative is a heading that comes
-      // and goes with the transport.
-      ...(coopStatus(ui.net) ? [{
+      // makes both the row and its heading optional — a heading that comes and
+      // goes with the transport is better than one standing over nothing.
+      ...(coopStatus(ui.net) ? [{ sep: 'This shop' }, {
         icon: ICONS.staff,
         name: coopStatus(ui.net).name,
         sub: coopStatus(ui.net).sub,
@@ -2997,22 +3032,6 @@ export const SECTIONS = [
        */
       { sep: 'View', icon: ICONS.camera },
       ...viewGrid(ui),
-      // How wide first person is, which is HERE and not with the switches on
-      // Game. It sat there on the argument that this tab is the next ninety
-      // seconds and nothing on it is remembered, where a lens width survives
-      // leaving the shop the way the tutorial and the sound do — true, and
-      // sorting by that put the one row in the menu that is about the CAMERA
-      // under a heading called "You", two tabs away from every other control
-      // that decides what the screen looks like. What persists is a fact about
-      // where the value is kept; what a tab is for is where somebody goes
-      // looking. Anybody wanting a wider view opens View.
-      //
-      // It is a row rather than a tile for `surroundRows`' reason turned round:
-      // a tile is a switch and this is a number with two ends, so it needs the
-      // `stp` stepper and a caption saying which way is which. And it is only
-      // ever about first person, so it says so — a row that moves nothing you
-      // can see while you read it is a row you have to be told the shape of.
-      ...(ui.scene ? [fovRow(ui)] : []),
       // ...and where the shop stands, which is the one row on this tab that
       // rides in the SAVE — see shared/surrounds.js. It sat with the switches
       // on the Game tab on the argument that it is something you DO to this
@@ -3022,11 +3041,10 @@ export const SECTIONS = [
       // so it is on the tab for pictures, and it is the one thing here a
       // screenshot could tell you had changed.
       //
-      // BELOW the grid rather than above it. Rows under tiles is the order the
-      // whole menu reads in — the small persistent controls, then the list you
-      // choose from — and a `sep` under a grid is a heading doing its job,
-      // where the same heading above one would be a caption for tiles it does
-      // not name.
+      // BELOW the grid rather than above it. The block you press, then the
+      // one you choose from — and a `sep` under a grid is a heading doing its
+      // job, where the same heading above one would be a caption for tiles it
+      // does not name.
       ...surroundRows(ui),
 
       { sep: 'Controls', icon: ICONS.walk },
@@ -3103,7 +3121,7 @@ function volRow(ui, bus, icon, name, sub) {
 }
 
 /**
- * How wide first person is, as the same stepper.
+ * How wide first person is, as the same stepper — on a TILE.
  *
  * `volRow`'s argument about sliders holds word for word — a drag inside a panel
  * fights the panel's own drag, and the range is seven presses end to end — so
@@ -3113,6 +3131,17 @@ function volRow(ui, bus, icon, name, sub) {
  * the two into one helper would be a function taking six arguments to save four
  * lines.
  *
+ * IT WAS A ROW, under the grid, and the argument for that was the shape of the
+ * control: a tile is a switch, and this is a number with two ends, so it wanted
+ * the stepper and a caption saying which way is which. What that missed is the
+ * shape of the BLOCK. Seven tiles is three, three and one, so the grid ended in
+ * two empty squares — and immediately under them, a full-width row about the
+ * camera, which is what the tile beside those holes is about too. One thing
+ * spelled two ways in eighty pixels. The caption is what it costs: it goes to
+ * `title`, the same call every switch up there already makes — and it still
+ * names the DEFAULT, which is the one thing a lens setting owes anybody. There
+ * is no right answer, so the only useful sentence is where to get back to.
+ *
  * The ends and the step come off the scene (`fpvFovRange`) rather than being
  * typed here, or this stepper walks past a range client/render/scene.js has
  * since moved and the value comes back clamped one press later — which reads as
@@ -3120,11 +3149,11 @@ function volRow(ui, bus, icon, name, sub) {
  * because a press that answers the number it already had is the one state a
  * stepper can be caught lying in.
  *
- * The caption says the DEFAULT rather than what the number means, and that is
- * the one thing a lens setting has to offer: there is no right answer, so the
- * only useful sentence is where to get back to.
+ * It hands back its acts as well as its cell, because a chip's presses are
+ * named on the GRID's map — `wireRows` wires `[data-act]` against the container
+ * that declared `data-acts`, which for a tile is the whole block.
  */
-function fovRow(ui) {
+function fovChip(ui) {
   const { min, max, step, def } = ui.scene.fpvFovRange();
   const now = ui.scene.fpvFov();
   const nudge = (d) => () => {
@@ -3136,49 +3165,68 @@ function fovRow(ui) {
   const btn = (act, on, label, glyph) => `<button class="rbtn"${on ? '' : ' disabled'} `
     + `data-act="${act}" aria-label="${label}">${glyph}</button>`;
   return {
-    icon: ICONS.camera,
-    name: 'First person',
-    sub: now === def
-      ? `How wide the view is with F. ${def}° is the ordinary lens.`
-      : `How wide the view is with F. ${def}° is where it started.`,
-    rule: `<span class="rule"><span class="stp">
-      ${btn('down', now > min, 'narrower first-person view', '−')}
-      <b>${now}°</b>
-      ${btn('up', now < max, 'wider first-person view', '+')}
-    </span></span>`,
-    acts: { down: nudge(-step), up: nudge(step) },
+    cell: {
+      // No `esc` in this file and none needed: every part of this sentence is
+      // typed here or is a number off the scene.
+      chip: `<div class="gtile chip"
+        title="How wide the view is with F. ${def}° is the ordinary lens.">
+        <span class="gico">${ICONS.camera}</span>
+        <span class="gname">First person</span>
+        <span class="stp">
+          ${btn('fov:down', now > min, 'narrower first-person view', '−')}
+          <b>${now}°</b>
+          ${btn('fov:up', now < max, 'wider first-person view', '+')}
+        </span>
+      </div>`,
+    },
+    acts: { 'fov:down': nudge(-step), 'fov:up': nudge(step) },
   };
 }
 
 /**
- * Where the shop stands — one row per surround, the picked one marked.
+ * Where the shop stands — three tiles side by side, the picked one lit.
  *
- * ROWS RATHER THAN A GRID TILE, and the two are not interchangeable: a tile is
- * a switch and answers on/off, where this is three alternatives and exactly one
- * of them is true. Put on the grid it would be three switches you can turn all
- * of off, which is a state the shop does not have.
+ * ONE ROW OF THREE, and it was three full-width rows for a long time on an
+ * argument that is half right: a tile is a switch and answers on/off, where
+ * this is three alternatives with exactly one true, so on the grid they would
+ * read as three switches you can turn all of off. That is the half `pick`
+ * answers — the state word is dropped and the lit tile carries it — and what
+ * the rows were paying for it was a third of the tab. Three stacked rows, each
+ * a glyph and two lines of prose, to make ONE choice you make once per shop and
+ * about which the honest question is "which of these three pictures do I want".
+ * Side by side, that question is answered by looking at them; stacked, it is
+ * answered by reading three captions in turn.
+ *
+ * The captions are the cost and they go to `title`, which is the same trade
+ * every switch on the grid above already makes. They are worth less here than
+ * anywhere else in the menu: "woodland and hedgerow, open fields" is a longer
+ * way of saying Countryside.
  *
  * A plain `sep` with no icon, which is what keeps this a heading INSIDE the
- * Game tab rather than a fourth tab of its own — the same call `Credits` makes
- * further down. It is three rows about the view; it is not a subject.
+ * View tab rather than a fourth tab of its own — the same call `Credits` makes
+ * further down. It is one choice about the view; it is not a subject.
  *
- * `picked` rather than a disabled row for the one you are on: pressing the
- * surround you already have is idempotent all the way down to `setSurround` on
- * the server, so there is nothing to protect anybody from, and a greyed row is
- * a promise that something would happen if you were somewhere else.
+ * Lit rather than disabled for the one you are on: pressing the surround you
+ * already have is idempotent all the way down to `setSurround` on the server,
+ * so there is nothing to protect anybody from, and a greyed tile is a promise
+ * that something would happen if you were somewhere else.
  */
 function surroundRows(ui) {
   const now = ui.state?.surround ?? DEFAULT_SURROUND;
   const ART = { [S.COUNTRY]: ICONS.outdoors, [S.SUBURB]: ICONS.house, [S.CITY]: ICONS.city };
   return [
     { sep: 'Surroundings' },
-    ...SURROUNDS.map((s) => ({
-      icon: icon(ART[s.id], ICONS.outdoors),
-      name: s.name,
-      sub: s.sub,
-      picked: now === s.id,
-      run: () => ui.setSurround(s.id),
-    })),
+    {
+      grid: SURROUNDS.map((s) => ({
+        id: s.id,
+        pick: true,
+        icon: icon(ART[s.id], ICONS.outdoors),
+        name: s.name,
+        title: s.sub,
+        on: now === s.id,
+      })),
+      acts: Object.fromEntries(SURROUNDS.map((s) => [s.id, () => ui.setSurround(s.id)])),
+    },
   ];
 }
 
@@ -3319,11 +3367,17 @@ function switchRows(ui) {
  * the same shop; turn the tutorial off and the next one you open is different.
  *
  * The ORDER is the whole of the layout here, because these are four kinds of
- * thing on one grid and the grid cannot say so: the mode first, then the two
+ * thing on one grid and the grid cannot say so: the camera first, then the two
  * widgets you put away, then the three things drawn on the shop floor, then the
  * readout. Roughly most-players-first, which is what stands in for the headings
  * a grid does not have — and it is also what keeps the developer end out of the
  * way without gating it.
+ *
+ * The lens is the one CHIP among the switches (`fovChip`), and it leads for the
+ * same reason cinema used to: they are the two controls up here about the
+ * camera rather than about something drawn on top of the shop, and the row they
+ * share is the one anybody reads first. Its acts are spread into this block's
+ * own map, since a grid declares `data-acts` once for every press inside it.
  *
  * Both spreads are the point rather than a shortcut. `CORNERS` and `DEBUGS`
  * mean a widget you can close, or a readout you can turn on, is on this grid
@@ -3333,8 +3387,12 @@ function switchRows(ui) {
  * open to turn the music down.
  */
 function viewGrid(ui) {
+  // Only where there is a scene to ask, which is every real client and no
+  // sweep. A stepper with no range behind it is a control that cannot answer.
+  const fov = ui.scene ? fovChip(ui) : null;
   return [{
     grid: [
+      ...(fov ? [fov.cell] : []),
       /**
        * ...and the one switch in the game that turns the screen it is on off.
        *
@@ -3397,6 +3455,7 @@ function viewGrid(ui) {
     // honest test of a switch is that it moved, and all of these move something
     // in another corner of the screen where you would not see it happen.
     acts: {
+      ...(fov ? fov.acts : {}),
       // Repainted before it goes, like the rest of them: turning cinema OFF
       // from the key leaves this panel open behind it, and a tile still lit for
       // a mode that has ended is the one state this switch can actually be

@@ -258,8 +258,13 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
   // the yard is deep enough for one (`defaultPads`), so a single-row drag paves
   // over half a bay and leaves the shop with a bay — which is a pass on every
   // assertion below and a test of nothing.
-  const res = g.buildGround('me', { ...rectOver(g.layout.bay.cells), piece: 'verify-yard-floor' });
-  check(res.ok, 'the whole bay can be paved over', res.error ?? '');
+  //
+  // Taken UP rather than paved over, and that swap is worth reading: flooring
+  // over a pad used to be how you got rid of one, and a look goes under a job
+  // now (`groundPaint`), so the gesture that deletes a bay is the eraser. See
+  // verify:floor §9, which asserts the other half — that paving it leaves it.
+  const res = g.buildGround('me', { ...rectOver(g.layout.bay.cells), piece: '' });
+  check(res.ok, 'the whole bay can be taken up', res.error ?? '');
   check(/last delivery bay/.test(res.warn ?? ''), 'and warns that it was the last one', res.warn ?? 'none');
   check(g.layout.bay === null, 'leaving the shop with no delivery bay');
 
@@ -377,8 +382,12 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
 
   // Back to floor, and the cell is buildable again. A one-way brush would mean
   // one misplaced drag costs you a tile of shop forever.
+  //
+  // Taken UP, which is the gesture that means "stop being storage" since a look
+  // goes under a job (`groundPaint`) — and indoors what an eraser leaves is shop
+  // floor, so the claim is the same claim and only the press moved.
   g.deliveries = [];
-  const back = g.buildGround('me', { ...spot, piece: 'verify-yard-floor' });
+  const back = g.buildGround('me', { ...spot, piece: '' });
   check(back.ok, 'and it goes back to floor', back.error ?? '');
   eq(L().tiles[spot.z * L().w + spot.x], T.FLOOR, 'leaving shop floor where the storage was');
   check(g.placeFixture('me', { kind: 'shelf', x: spot.x, z: spot.z, rot: 0 }).ok,
@@ -395,9 +404,13 @@ const orderable = () => content().items.filter((i) => i.stack > 0).map((i) => i.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
+  // Scraped rather than floored over. A look goes UNDER a job now
+  // (`groundPaint`), so paving your bay leaves you with a bay that has a floor
+  // under it — which is the whole of verify:floor §9 and would make every
+  // assertion below a test of nothing.
   const wipe = (kind) => {
     const cells = padCells(g.layout, kind);
-    for (const c of cells) g.buildGround('me', { x: c.x, z: c.z, piece: 'verify-yard-floor' });
+    for (const c of cells) g.buildGround('me', { x: c.x, z: c.z, piece: '' });
   };
   wipe('bay');
   wipe('drop');

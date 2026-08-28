@@ -766,6 +766,23 @@ export const ShopRoom = (Base) => class extends Base {
       client.send('action-result', this.game.setPaused(!!m?.paused, by, !!m?.quiet));
     });
 
+    /**
+     * Down tools while somebody is being shown round.
+     *
+     * The tutorial is client-side and sends no message the game did not already
+     * have — except this one, and it is worth being honest about why it is the
+     * exception. Every other beat asks the player to do something the game can
+     * already do; this one asks the SHOP to hold off, and there was no verb for
+     * that because until the shop came with a hire there was nobody to hold off.
+     *
+     * It carries no `by` and writes no log line: a hire standing still for two
+     * minutes is not an event, and a feed that announced it would be announcing
+     * the tutorial, which nothing else in the game does.
+     */
+    this.onMessage('crew-idle', (client, m) => {
+      this.game.crewIdle = !!m?.idle;
+    });
+
     // Whether the build palette unfolds with the ladder. No layout to send —
     // this moves no fixture and no tile; it decides which tiles the BAR draws,
     // and the bar is redrawn off the snapshot that carries `reveal`.

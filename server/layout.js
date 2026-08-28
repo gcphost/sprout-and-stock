@@ -195,6 +195,12 @@ const PLOT_PITCH = 1;
  *   reason a placement stores both: this function is pure and has never seen the
  *   catalog, and a generator that had to resolve a piece id to decide what a
  *   cell is made of would need one.
+ *
+ *   `u` is the optional second half — `{k, p}`, the LOOK remembered under a job,
+ *   which is what stops a floor dragged across your stockroom taking the storage
+ *   away with it (`groundPaint`, `shared/build.js`). It is carried out because
+ *   the build ghost reads it, and it decides nothing here: `k` is the tile, and
+ *   a cell with a floor under its delivery bay is a delivery bay.
  * @param {object} [opts.shell]     a building that already exists, {w, h}. Given
  *   one, this stops searching for a size and builds exactly that — see below.
  */
@@ -576,7 +582,15 @@ function compose(req, storeW, storeH, allowDrops = true) {
     const kind = f.k ?? (f.p ? FLOOR_KIND : null);
     const tile = kind ? groundTile(kind) : null;
     set(fx, fz, tile ?? T.GRASS);
-    if (tile != null) groundOut.push({ x: fx, z: fz, k: kind, p: f.p ?? null });
+    if (tile == null) continue;
+    // Rebuilt field by field rather than spread, which is `surfaceOf`'s trap and
+    // is deliberate: what crosses into the layout is a closed list. `u` — the
+    // look remembered under a job — is here because the GHOST reads it. It moves
+    // no tile and never could: the tile is `k`'s, one line up, and a second
+    // opinion about that is the two-layer shape docs/building.md turned down.
+    const out = { x: fx, z: fz, k: kind, p: f.p ?? null };
+    if (f.u?.p) out.u = { k: f.u.k, p: f.u.p };
+    groundOut.push(out);
   }
 
   // ---- where the pads ended up --------------------------------------------

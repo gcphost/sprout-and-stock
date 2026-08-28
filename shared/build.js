@@ -1883,6 +1883,133 @@ export function groundIndex(L) {
 export const groundPieceAt = (L, x, z) => groundIndex(L).get(`${x},${z}`) ?? null;
 
 /**
+ * Which look is remembered UNDER each cell, as a lookup.
+ *
+ * `groundIndex`'s sibling, and it exists for the reason that one keeps only `p`:
+ * a cell has two answers now, and every caller that wants the top one must not
+ * have to learn that. Sparse in the same way and for the same reason — only a
+ * job painted over a design somebody laid has an entry here at all, so a shop
+ * that has never painted a floor under a pad sends nothing.
+ */
+export function groundUnders(L) {
+  const m = new Map();
+  for (const f of L?.ground ?? []) if (f.u) m.set(`${f.x},${f.z}`, f.u);
+  return m;
+}
+
+/**
+ * WHAT ONE CELL BECOMES WHEN A BRUSH LANDS ON IT — or null for a cell this
+ * stroke does nothing to.
+ *
+ * The one place the layering rule lives, called by `canPaintGround` for the
+ * ghost and by `Game.buildGround` for the press, because the two disagreeing
+ * about what a stroke *does* is the green-ghost bug with a paintbrush: a
+ * preview that promises a floor over a room the press leaves as a stockroom.
+ *
+ * ### A look goes UNDER a job, and that is the whole of it
+ *
+ * `GROUND` partitions in two and the split has been in that table since the
+ * yard stopped being furniture: a floor, a road, a pavement and the land are a
+ * *look*, and the five pads carry a *job*. One overlay held one answer per cell,
+ * so those two were rivals — dragging a floor across your stockroom took the
+ * storage away, and the only tell was that the crates stopped arriving. Nothing
+ * warned, because painting over a pad is exactly how you MOVE one, and the
+ * stroke could not tell the difference between "put the bay over there" and "lay
+ * a nice floor through here".
+ *
+ * They were never rivals. A cell that says "deliveries land here" is carrying
+ * meaning no colour ever could, and a colour is not an answer to it — so a look
+ * painted onto a job is remembered *beneath* it (`u`, a kind and a piece), the
+ * job draws and behaves exactly as it did, and taking the job up hands the look
+ * back rather than scraping the cell to nothing. It is the same sentence
+ * `canPaintGround` already says one cell over about a conveyor: **under a
+ * conveyor is still ground**, and a run laid across your parquet does not owe
+ * you a repaint. Under a pad is still ground too.
+ *
+ * Four things about it are load-bearing.
+ *
+ * **`k` is still the top**, so `groundTile(k)` is still the tile and not one
+ * reader of `tiles`, `blocked`, `indoor`, a pad region or the renderer changed.
+ * The alternative — the look on top with the job beside it — is the two-layer
+ * shape docs/building.md turned down, and it turns the tile into a precedence
+ * question asked in a pure generator that has never seen the catalog.
+ *
+ * **An underlay is only ever a look, and only ever one somebody BOUGHT.** A
+ * seeded pad, the generated street and plain shell floor all arrive with no
+ * piece, and a `u` with no piece would hand back ground nobody paid for on every
+ * scrape. So `u.p` is never null, which is what makes the refund arithmetic
+ * below a single question rather than a table.
+ *
+ * **Nothing is refunded for a look that went under.** You still own it — it is
+ * remembered, and it comes back — so handing half its price over as well is a
+ * printer you run by painting a pad over your own floor.
+ *
+ * **A selection remove clears BOTH** (`all`), or copy-and-delete stops being
+ * symmetrical: `removeSelection` reaches every cell once, and a reveal there
+ * would leave a room-shaped stain of perfectly good flooring behind the
+ * stockroom it just deleted — which is the stain `verify:stamp` exists to catch,
+ * arriving through the one door that was allowed to peel a layer.
+ *
+ * @param {?object} was   `{k, p, u}` — the kind the cell IS (off `tiles`, with
+ *                        the stored row as the fallback a conveyor needs), the
+ *                        design painted on it, and the look under it.
+ * @param {?string} kind  the ground kind being laid, or null to take it up.
+ * @param {?string} piece which design of it — never null while `kind` is set,
+ *                        because the kind is read off the catalog row.
+ * @param {?string} bare  the kind an eraser leaves HERE: `floor` indoors and
+ *                        null outdoors, which is `canPaintGround.leaves` said as
+ *                        a kind rather than as a tile.
+ * @returns {?object} `{k, p, u, from}` — the new entry, plus which piece's
+ *                    refund this cell earns.
+ */
+export function groundPaint(was, kind, piece, bare, { all = false } = {}) {
+  const now = { k: was?.k ?? null, p: was?.p ?? null, u: was?.u ?? null };
+  // Bare ground outdoors is stored as NO kind and reads back off the tile as
+  // `lawn`, and they are the same cell — an entry saying `lawn` would be carried
+  // out into the layout, where "nobody has painted here" is spelled by there
+  // being nothing. So the two are one answer for the purpose of "did anything
+  // move", which is the eraser's own no-op skip: dragging Bare Ground across a
+  // field must charge nothing and warn about nothing.
+  const norm = (k) => k ?? 'lawn';
+  const same = (next) => norm(next.k) === norm(now.k) && next.p === now.p
+    && (next.u?.k ?? null) === (now.u?.k ?? null)
+    && (next.u?.p ?? null) === (now.u?.p ?? null);
+  const done = (next) => (same(next) ? null : next);
+
+  if (kind == null) {
+    // Ground with a job that is not a ground kind — a bed, a wall, a doorway.
+    // There is nothing painted here to take up, which is the answer
+    // `canPaintGround` has always given and the answer the press did not: it
+    // wrote a floor entry over the bed's own cell and reported a tile taken up,
+    // which the next re-flow stamped straight back over. Harmless and untrue.
+    if (now.k == null) return null;
+    // The reveal. Not under `all`, which is a whole region being deleted rather
+    // than one layer being peeled.
+    if (!all && now.u) return done({ k: now.u.k, p: now.u.p, u: null, from: now.p });
+    return done({ k: bare ?? null, p: null, u: null, from: now.p });
+  }
+
+  // A LOOK OVER A JOB: the job stays, and what you laid is remembered under it.
+  if (!isPad(kind) && isPad(now.k)) {
+    return done({ k: now.k, p: now.p, u: { k: kind, p: piece }, from: now.u?.p ?? null });
+  }
+
+  if (isPad(kind)) {
+    // A JOB OVER A JOB — moving your bay onto your storage. The design on top
+    // changes hands; whatever was already remembered underneath stays
+    // remembered, because neither stroke has touched it.
+    if (isPad(now.k)) return done({ k: kind, p: piece, u: now.u, from: now.p });
+    // A JOB OVER A LOOK. `keep` is null exactly when there was no design to
+    // keep, which is why nothing is handed back on this branch either way.
+    const keep = now.p ? { k: now.k, p: now.p } : null;
+    return done({ k: kind, p: piece, u: keep, from: null });
+  }
+
+  // A LOOK OVER A LOOK is the whole of what this used to be.
+  return done({ k: kind, p: piece, u: null, from: now.p });
+}
+
+/**
  * Every cell of one pad, read off `tiles`.
  *
  * A read, deliberately, rather than a list kept beside the ground — the same
@@ -2021,9 +2148,15 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
    * just laid.
    *
    * Per cell rather than per stroke, because a drag can cross the wall.
+   *
+   * A KIND rather than a tile, because `groundPaint` writes the overlay entry
+   * and the overlay speaks in kinds — null outdoors, which is how "nobody has
+   * painted here" is spelled, since an entry saying `lawn` would be carried out
+   * into the layout as a cell somebody chose.
    */
-  const leaves = (x, z) => (laying ? lay : (insideStore(L, x, z) ? T.FLOOR : T.GRASS));
+  const bareAt = (x, z) => (insideStore(L, x, z) ? FLOOR_KIND : null);
   const painted = groundIndex(L);
+  const unders = groundUnders(L);
 
   // What the pads have now, so the stroke can be judged against what it would
   // leave rather than against each cell in isolation. Painting over the last
@@ -2041,7 +2174,6 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
 
     const ground = tileAt(L, x, z);
     const was = groundKindOfTile(ground);
-    const want = leaves(x, z);
 
     // UNDER A CONVEYOR IS STILL GROUND, and this is the one cell where a stroke
     // changes the look without changing the tile.
@@ -2080,41 +2212,47 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
       continue;
     }
 
-    if (laying) {
-      // Only ever over ground. Everything else a cell can be made of is
-      // something with a job of a different sort — a bed, the path out to the
-      // fields, a wall — and paving one over would take that job away silently,
-      // with no fixture removed and nothing to put back.
-      if (ground !== T.GRASS && was == null) return no(groundIsBusy(ground));
-      // Restyling counts. Ground that is already this kind still changes hands
-      // when the design differs, which is most of what this tool is for —
-      // asking only whether the TILE moved would report a whole shop re-tiled
-      // as "nothing to do".
-      if (ground !== want || (painted.get(`${x},${z}`) ?? null) !== piece) changed++;
-    } else {
-      if (was == null) continue;                     // nothing to take up
-      // ...and neither is ground that is ALREADY what taking it up leaves.
-      // Every cell in the world is a kind now that the lawn has a row, so `was`
-      // stopped being the whole test the day grass got one: a drag of the eraser
-      // across a field would otherwise report every cell of it as a change,
-      // charge for the stroke, and warn about the holes it left in a shop where
-      // nothing moved. The design is the real question — bare lawn is the bare
-      // ground this stroke produces, and lawn somebody painted is not. Indoors
-      // `want` is floor, so plain shop floor is the same no-op in here that
-      // plain grass is outside, and an eraser dragged across a bare aisle
-      // charges nothing and warns about nothing.
-      if (ground === want && (painted.get(`${x},${z}`) ?? null) == null) continue;
-      // See above: this would drop the fixture rather than strand it.
-      if (blockedAt(L, x, z)) return no('something is standing on it');
-      changed++;
-    }
+    // Only ever over ground. Everything else a cell can be made of is
+    // something with a job of a different sort — a bed, the path out to the
+    // fields, a wall — and paving one over would take that job away silently,
+    // with no fixture removed and nothing to put back.
+    if (laying && ground !== T.GRASS && was == null) return no(groundIsBusy(ground));
 
-    if (ground === want && was === kind) continue;
-    // Two consequences, counted the same way in both directions: a cell that
-    // ends up indoors and is not floor is one nothing can ever be built or dug
-    // on, and a pad cell this stroke paints over is one that pad no longer has.
-    if (was && was !== kind && padWas.has(was)) padLost.set(was, padLost.get(was) + 1);
-    if (want !== T.FLOOR && insideStore(L, x, z)) bared++;
+    // What this cell would become, asked of the one function that answers it —
+    // `groundPaint`, which the press runs too. Null is a cell this stroke does
+    // nothing to, and the three no-ops it folds in were three separate skips
+    // here: restyling counts but re-laying the same design does not, taking up
+    // ground that is already bare does not, and there is nothing to take up off
+    // a bed.
+    const next = groundPaint(
+      {
+        k: was,
+        p: painted.get(`${x},${z}`) ?? null,
+        u: unders.get(`${x},${z}`) ?? null,
+      },
+      kind,
+      piece,
+      bareAt(x, z),
+    );
+    if (!next) continue;
+    // See above: this would drop the fixture rather than strand it.
+    if (!laying && blockedAt(L, x, z)) return no('something is standing on it');
+    changed++;
+
+    // Two consequences, and both are about the TILE rather than about the
+    // stroke, which is what makes a look laid UNDER a job free of either: the
+    // cell it lands on is the cell it was. A cell that ends up indoors and is
+    // not floor is one nothing can ever be built or dug on, and a pad cell this
+    // stroke really does paint over is one that pad no longer has.
+    //
+    // Judged on where the cell ENDS UP rather than on what was aimed at it, or
+    // a floor dragged across a stockroom warns that it is taking your last
+    // storage tile away and then does not take it — a warning that goes off
+    // whatever you do is one nobody reads.
+    const tile = next.k ? groundTile(next.k) : T.GRASS;
+    if (tile === ground) continue;
+    if (was && padWas.has(was)) padLost.set(was, padLost.get(was) + 1);
+    if (tile !== T.FLOOR && insideStore(L, x, z)) bared++;
   }
 
   if (!changed) return { ok: true, unchanged: true };

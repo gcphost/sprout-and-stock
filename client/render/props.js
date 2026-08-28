@@ -70,6 +70,25 @@ const CHARACTER_GEO = {
  */
 const SHARED_GEO = new Set([...Object.values(GEO), ...Object.values(CHARACTER_GEO)]);
 
+/**
+ * The chevron's own outline, for the hollow one — see `stockOpen`.
+ *
+ * Module-level and shared, because a marker is built and torn down every time
+ * the set of them changes, which is every armful. Not in `GEO` because it is
+ * not a primitive — it is a *derivation* of one, and a table of shapes anybody
+ * may draw with is the wrong place for a shape that only makes sense wrapped
+ * round `GEO.cone`. In `SHARED_GEO` all the same: `disposeGroup` only frees
+ * what answers `isMesh` and a `LineSegments` does not, so today nothing would
+ * touch it — which is a fact about that function rather than a promise, and
+ * this outliving one marker is the point either way.
+ *
+ * The base fan is coplanar, so `EdgesGeometry` keeps the base ring and the ten
+ * slant edges and drops the spokes across the bottom — a faceted cone rather
+ * than the mess `wireframe: true` would give.
+ */
+const CONE_EDGES = new THREE.EdgesGeometry(GEO.cone);
+SHARED_GEO.add(CONE_EDGES);
+
 const materialCache = new Map();
 const characterMaterialCache = new Map();
 
@@ -2017,32 +2036,53 @@ export function buildStationBays({
   return g;
 }
 
+/** Top of the earth inside a bed's frame, and the top of a ridge standing on it. */
+export const SOIL_TOP = 0.06;
+export const RIDGE_H = 0.07;
+export const RIDGE_TOP = SOIL_TOP + RIDGE_H;
+/** Inside the frame the model draws round it — see the plot row's planks. */
+const BED_INNER = 0.86;
+
 /**
  * What the soil in a plot looks like right now.
  *
- * Untilled ground has to read as *not ready* from across the farm, or the new
- * till step is just an invisible error message. So rough ground keeps its turf:
- * pale, scrubby, with weeds still standing on it. Turned earth is dark, damp,
- * and cut into furrows — the same shape a seed is about to go into.
+ * Untilled ground has to read as *not ready* from across the farm, or the till
+ * step is just an invisible error message. So rough ground keeps its turf: pale,
+ * scrubby, with weeds still standing on it. Turned earth is cut into furrows —
+ * the same shape a seed is about to go into.
+ *
+ * The furrows are RIDGES rather than stripes, and that is the whole of what was
+ * wrong with this. Four dark bars painted on a dark slab is a texture, and this
+ * renderer does not draw textures — it draws a contour, and it finds one at a
+ * depth step. `soilFurrow` on `soilTilled` was 0.076 against 0.111 linear
+ * luminance, both under the 0.20 the ink needs to land at all, so a bed drew as
+ * one flat brown square in a shop where everything else is outlined. Standing
+ * the ridge PROUD and pale puts the dark in the groove between two of them,
+ * which is the one place this art spends it.
+ *
+ * `rows` is where the plants are actually going, so the ridges line up with what
+ * is growing in them — a bed of four is two fat ridges and a bed of twelve is
+ * four. Nothing is planted in an unturned bed, so a bare tilled bed gets four.
  */
-export function buildSoil(state, palette) {
+export function buildSoil(state, palette, rows = null) {
   const g = new THREE.Group();
   const tilled = state === 'tilled';
 
-  const bed = new THREE.Mesh(GEO.box, material(tilled ? palette.soilTilled : palette.soilRough));
-  bed.scale.set(0.98, 0.06, 0.98);
-  bed.position.y = 0.01;
+  const bed = new THREE.Mesh(GEO.box, material(tilled ? palette.soilFurrow : palette.soilRough));
+  bed.scale.set(BED_INNER, SOIL_TOP, BED_INNER);
+  bed.position.y = SOIL_TOP / 2;
   bed.receiveShadow = true;
   g.add(bed);
 
   if (tilled) {
-    // Four furrows. Ridged earth is the universal shorthand for "sown-ready",
-    // and it catches the low sun, so it separates from turf even in shadow.
-    for (let i = 0; i < 4; i++) {
-      const furrow = new THREE.Mesh(GEO.box, material(palette.soilFurrow));
-      furrow.scale.set(0.84, 0.05, 0.1);
-      furrow.position.set(0, 0.05, -0.3 + i * 0.2);
-      g.add(furrow);
+    const lanes = ridgeLanes(rows);
+    for (const lane of lanes) {
+      const ridge = new THREE.Mesh(GEO.box, material(palette.soilTilled));
+      ridge.scale.set(BED_INNER - 0.06, RIDGE_H, lane.depth);
+      ridge.position.set(0, SOIL_TOP + RIDGE_H / 2, lane.z);
+      ridge.castShadow = true;
+      ridge.receiveShadow = true;
+      g.add(ridge);
     }
   } else {
     // Tufts of grass that never got cleared, plus a stone or two.
@@ -2050,16 +2090,35 @@ export function buildSoil(state, palette) {
       const tuft = new THREE.Mesh(GEO.cone, material(palette.soilWeed));
       const a = (i / 5) * Math.PI * 2 + 0.7;
       tuft.scale.set(0.13, 0.2, 0.13);
-      tuft.position.set(Math.cos(a) * 0.28, 0.12, Math.sin(a) * 0.28);
+      tuft.position.set(Math.cos(a) * 0.28, SOIL_TOP + 0.06, Math.sin(a) * 0.28);
       tuft.castShadow = true;
       g.add(tuft);
     }
     const stone = new THREE.Mesh(GEO.sphere, material(palette.soilDark));
     stone.scale.set(0.14, 0.09, 0.12);
-    stone.position.set(0.1, 0.06, -0.12);
+    stone.position.set(0.1, SOIL_TOP + 0.01, -0.12);
     g.add(stone);
   }
   return g;
+}
+
+/**
+ * The ridges to build, from where the plants are going.
+ *
+ * Rows arrive as one z per plant, so they repeat — a bed of twelve is twelve
+ * spots on four rows, and a ridge per spot is four ridges built three times in
+ * the same place, which is z-fighting rather than farming. They are also
+ * *wobbled* (`plantSpots`), so "the same row" is a handful of values a few
+ * thousandths apart: they cluster rather than match.
+ */
+function ridgeLanes(rows) {
+  const zs = [...new Set((rows ?? []).map((z) => Math.round(z * 40) / 40))].sort((a, b) => a - b);
+  if (!zs.length) return [-0.30, -0.10, 0.10, 0.30].map((z) => ({ z, depth: 0.14 }));
+  // Fill the bed rather than leaving a margin whose size is an accident of how
+  // many plants this crop happens to yield: the gap between ridges is what reads
+  // as a furrow, so it is the gap that stays fixed and the ridge that gives.
+  const pitch = zs.length > 1 ? (zs[zs.length - 1] - zs[0]) / (zs.length - 1) : BED_INNER / 2;
+  return zs.map((z) => ({ z, depth: Math.max(0.10, Math.min(0.26, pitch - 0.06)) }));
 }
 
 const GHOST_MATS = {};
@@ -2383,7 +2442,11 @@ const contourMat = (ch) => (CONTOUR_MATS[ch] ??= new THREE.MeshBasicMaterial({
  * at that rate is a stall you would feel as the pointer moving; sharing them is
  * free, and `disposeGroup` is told so it cannot free the shelf on the way out.
  *
- * @param {THREE.Object3D} source  the fixture's own group, in `staticRoot`
+ * @param {THREE.Object3D|Array} source  the fixture's own group, in `staticRoot`
+ *        — or SEVERAL groups, for the one fixture whose art is not all in one
+ *        place. A plot's frame is its catalog model and a plot's *bed* is built
+ *        by `syncPlots` into `actorRoot`, so asking the fixture art alone rings
+ *        one edging plank and calls it a bed.
  * @param {THREE.Vector3}  origin  where the returned group will stand, so the
  *        clones can carry their offsets relative to it. The TILE rather than the
  *        art, and unrotated, because work spots are added to this group as
@@ -2399,9 +2462,10 @@ const contourMat = (ch) => (CONTOUR_MATS[ch] ??= new THREE.MeshBasicMaterial({
  */
 export function buildContour(source, origin, mode = 'aim', skip = null) {
   const look = MARKER_LOOK[mode] ?? MARKER_LOOK.aim;
-  if (look.mark == null || !source) return null;
+  const sources = (Array.isArray(source) ? source : [source]).filter(Boolean);
+  if (look.mark == null || !sources.length) return null;
 
-  source.updateMatrixWorld(true);
+  for (const s of sources) s.updateMatrixWorld(true);
   const g = new THREE.Group();
   g.userData.color = look.color;
   // What `setMarkedSet` and the Ink pass both ask, rather than re-deriving it
@@ -2410,7 +2474,7 @@ export function buildContour(source, origin, mode = 'aim', skip = null) {
   g.userData.mark = true;
   const rel = new THREE.Matrix4().makeTranslation(-origin.x, -origin.y, -origin.z);
 
-  source.traverse((o) => {
+  const take = (o) => {
     if (!o.isMesh || !o.visible || !o.geometry) return;
     // An invisible hit volume is not art. The lift keeps one shaft-sized box so
     // the pointer has something to catch, and stencilled it would ring a
@@ -2428,7 +2492,8 @@ export function buildContour(source, origin, mode = 'aim', skip = null) {
     c.layers.set(MARK.LAYER);
     c.userData.borrowed = true;
     g.add(c);
-  });
+  };
+  for (const s of sources) s.traverse(take);
   return g.children.length ? g : null;
 }
 
@@ -2520,7 +2585,28 @@ const MARKER_LOOK = {
   // of these at once, and eight squares painted on the floor is a shop you
   // cannot read. A chevron floats over the thing and stacks visually the way a
   // row of signposts does.
+  //
+  // SOLID is a top-up: the unit already holds this, or is ticked for it, and
+  // the press lands on a board that is already standing. See `stockOpen` for
+  // the other half — the two were one marker for as long as this existed, and
+  // what that cost is in `stockRefills`.
   stock: { color: 0x7cc46a, chevron: true, outline: false },
+  // ...and the same signpost for a unit where the press would OPEN a board.
+  //
+  // Hollow rather than a second colour, and that is this table's own rule: the
+  // geometry is the load-bearing part. A new green would be a third vocabulary
+  // to learn, and these two are not two answers — they are one answer with a
+  // consequence attached, so they have to read as the same marker at different
+  // weights. It is `kin`'s trade exactly: keep the silhouette, give up the
+  // fill.
+  //
+  // Both halves, deliberately. The outline alone is one pixel wide and WebGL
+  // ignores `lineWidth`, so at the far end of a shop it is a marker that has
+  // gone out; the ghosted fill alone is a solid chevron somebody turned down,
+  // which reads as distance rather than as a different sentence. Together the
+  // edge holds it legible when it is small and the missing fill is what you
+  // actually read when it is near.
+  stockOpen: { color: 0x7cc46a, chevron: true, outline: false, fade: 0.3, edges: true },
   // Somebody the pointer is over. Amber, because it is the same sentence the
   // aim frame says — "this is what you are pointing at" — and tighter, because
   // a person occupies about a third of a tile and a tile-sized frame under one
@@ -2614,11 +2700,24 @@ export function buildTargetMarker(mode = 'aim') {
   // rather than "this is armed" points at nothing.
   if (look.chevron) {
     const arrow = new THREE.Mesh(GEO.cone, new THREE.MeshBasicMaterial({
-      color: look.color, transparent: true, opacity: 0.95, depthTest: false,
+      // `fade` is a marker drawn at reduced weight — the ring above reads it
+      // for the same reason. On a look with no ring it is the chevron's.
+      color: look.color, transparent: true, opacity: look.fade ?? 0.95, depthTest: false,
     }));
     arrow.scale.set(0.26, 0.3, 0.26);
     arrow.rotation.x = Math.PI;
     arrow.renderOrder = 10;
+    // A CHILD of the arrow rather than of the group, which is the whole reason
+    // this is not two objects: `animate` bobs `userData.arrow.position.y` and
+    // nothing else, so an outline hung beside it would sit still while the
+    // chevron it belongs to floated out from under it.
+    if (look.edges) {
+      const wire = new THREE.LineSegments(CONE_EDGES, new THREE.LineBasicMaterial({
+        color: look.color, transparent: true, opacity: 0.95, depthTest: false,
+      }));
+      wire.renderOrder = 11;
+      arrow.add(wire);
+    }
     g.add(arrow);
     g.userData.arrow = arrow;
   }
