@@ -403,7 +403,21 @@ Thirty sweeps, about a minute:
   merge are refused (`dropGoods` into rubbish is the one that would actually
   happen); and the four places a new kind dies quietly — `compose`'s `else` is
   `makeShelf`, so a bin with no branch is not refused, it is silently BUILT AS
-  SHELVING. It authors two items, a piece and a worker, and removes them on exit.
+  SHELVING. Since the round trip it also guards the flag itself, which is the
+  half of "rubbish is a fact about the BOX" nothing was enforcing: `waste` rides
+  on the crate and every place a lot is rebuilt out of `lotStacks` is a place it
+  can be dropped, since the piles that come out are perfectly ordinary
+  `{item_id, qty, day}`. Three did — `liftCrate`, `dropLot` and `beltPut` — so
+  the walk to the skip was the one job in the shop you could opt out of by
+  *doing* it: pick the box up and it was stock again, at full price, shelvable
+  by anybody who passed, with `stockShelf`'s own `p.haul.waste` refusal sitting
+  there as unreachable code. The one thing on screen that could have said so
+  agreed with the bug, because `syncHaul` never asked either — a crate of rot
+  and a crate of stock are the same box in a different wood, and on a shoulder
+  they were the same box in the SAME wood. Every claim in it is PAIRED with the
+  same gesture made with ordinary goods, or a flag that is always true and one
+  that is always false each pass half of it. It authors two items, a piece and a
+  worker, and removes them on exit.
 
 - `verify:pack` guards the rung that makes a crate instead of finding one, and
   every claim in it is about a trip that did NOT have to happen — a hire
@@ -1141,6 +1155,54 @@ Thirty sweeps, about a minute:
   all and touches no database — every body it needs it authors in memory, the
   way `verify:motion` does.
 
+- `verify:reveal` guards the palette that unfolds, and everything in it is
+  invisible by construction: a shop whose conveyors have not turned up yet and
+  a shop that never had conveyors are the same screenshot of the same bar, and
+  the shop afterwards is the same shop — only what you can FIND moved. Its
+  control is doubled, because two populations have to come through untouched: a
+  save that has never heard of the field (`reveal` absent ⇒ false ⇒ every tool,
+  exactly as the bar shipped, which is every shop in existence), and one that
+  has deliberately switched it off — asserted with the cache signature as well,
+  or a shop that opted out rebuilds its whole palette every time a rung ticks
+  over. Its centrepiece is the rule that reading the table cannot check: **a
+  gate may never be the thing it gates.** Five rungs of the ladder measure
+  HAVING BUILT the thing — `first-kitchen` is "put an appliance on the floor",
+  and `break-room`, `car-park`, `stockroom` and `first-warmer` are the same
+  shape — so gating `station` behind `first-kitchen` is a button that appears at
+  the exact moment you no longer need it to, which is a feature that is off for
+  ever while every id resolves, the table reads as sensible and nothing errors.
+  So it is asserted EMPIRICALLY rather than against a banned list: for every
+  gate, standing the gated kind up in a shop must not move the gating
+  milestone's own measure, which cannot go stale the way a hand-written list
+  would the day somebody writes a forty-sixth rung. Then: that a reveal is not a
+  PERMISSION, since MCP, a sweep, the balance bot and a co-op guest whose bar is
+  further along all send builds the local palette would not have offered — the
+  day `placeFixture` consults this, every one of those breaks; that unlisted is
+  VISIBLE, which is the safe direction, or a fixture authored tomorrow prices,
+  places, renders and can never be found; that exactly one rung opens each tool,
+  swept against every OTHER rung being earned; that it is a ladder rather than a
+  switch, or the table is a boolean wearing a milestone id and the whole bar
+  arrives at once; that nothing the TUTORIAL points at is gated, which is the
+  claim that found the one real bug here and is a NEAR miss rather than an
+  obvious one — `client/tutor.js` names palette entries by selector, its `hire`
+  step is done on `roster.length > 0` and `first-hire` measures exactly that, so
+  gating the chiller behind the hire is almost right and fails only on the race
+  against a 1Hz milestone sweep, which is an intermittent tutorial bug found by
+  the people least able to name it; and out and back through `serialize`, `saveState` and the
+  create payload, which is this file's named-field trap and the half that bit
+  `paint` for five steps. Its last claim is that turning it OFF is not one-way —
+  `done` goes on climbing while the ladder is off, so a shop that unlocked
+  everything on day 40 and changed its mind on day 41 gets back the bar it had
+  earned rather than the opening four buttons. That falls out of gating on
+  `milestones.done` rather than on a list of what has been shown, and is the
+  whole reason no such list exists. What it cannot reach is the client filter:
+  `client/sections.js` pulls the audio manifest, so `computeBuildTools` is
+  unloadable in node, and the two claims that live there are written down rather
+  than skipped quietly — the cache key (a rung landing must invalidate
+  `toolCache`, or the bar grows no button until somebody authors content, which
+  reads as the reward not having been paid) and removal-rather-than-flagging.
+  It writes nothing at all.
+
 Each of the first twelve found real bugs the day it was written, and so did
 `verify:hot` — two, both of them a list of kinds somebody had written out by
 hand — and so did `verify:orphans`, which is the only one so far written to a
@@ -1255,6 +1317,10 @@ shared/     tags.js       the tag vocabulary + what tags DO
             reputation.js the seven things that move the shop's reputation, and
                           the words for them — the sim writes the keys, the Shop
                           report draws them, `simulate` names the worst one
+            reveal.js     when a build button turns up. A gate table read by the
+                          palette and by NOTHING on the server — it hides a tile
+                          you could always afford, so it is a reveal rather than
+                          an unlock, and the shop's rules never ask
 server/     db.js         SQLite, content tables, content_version trigger
             content.js    in-memory registry; reloads when content_version bumps
             layout.js     procedural store + farm, sized to what you own
@@ -1303,7 +1369,7 @@ what the next step was meant to be.
 | [docs/pens.md](docs/pens.md) | the animal that is a building — why a cow you re-sow every time you milk her is a bed's rhythm borrowed by something that is not planted, one `pen` kind against seven authored pieces, a ladder where `speed_mult` is how often you must come and `capacity_mult` is how long you may leave it, the full pen that STOPS rather than banking batches overnight, and the first fixture in the game to take more than one tile — plus the eight places "a fixture is a tile" was load-bearing; and the paddock you PAINT rather than fence, where a head is a divisor on the one clock, the paddock that SUPPLIES animals against the rung that is their CEILING, the animal that came out of the art and onto the grass, and the third population that is neither a player nor a customer | steps 1–2 built |
 | [docs/production.md](docs/production.md) | everything on the shelf came from something — why a recipe book whose outputs nothing eats is a factory with no factory in it, the three tiers and the line between what you buy and what you make, an ingredient as an item with property tags only (so nobody ever buys it and it costs no code), the crafting margin that stops depth being a tax, the six primary-processing machines the shop never had, and the van that stopped selling you 68 of 103 items the day you could make them — and sells them again, because making is cheaper on 67 of the 68 and the arithmetic was defending the appliances all along, so what is left is a crew who leave a recipe output to the kitchen and a player who may order anything | built; the van fork is closed |
 | [docs/kits.md](docs/kits.md) | what a shopper is carrying their shopping *in* — a content table of things somebody has on them, the moment/tags pair that assigns one, why the draw is a hash rather than an rng, and the basket you walk over and fetch | step 1 built; 2–4 proposed |
-| [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), and the card that stops the world to say so | step 1 built |
+| [docs/progress.md](docs/progress.md) | the milestone ladder — twelve rungs that are *measurements* rather than quests, the three rewards a rung may pay (money, a free run of stock on the next van, and the town growing), the card that stops the world to say so, and the build palette that unfolds with the ladder — a REVEAL rather than an unlock, which is the only reason it may exist beside a rule that says a reward may not be a thing you unlock | steps 1–4 built |
 | [docs/difficulty.md](docs/difficulty.md) | why a neglected shop finds a level instead of going under — the settle spring, the floor under demand, and a game where standing still is free; difficulty as a second axis beside the starting tier, upkeep as the first fixed cost, why today's constants are the *easy* preset rather than the default, and the grace a new shop's first week gets because the presets were only ever measured on a day-60 save | steps 1 and 1b built; 2–4 proposed |
 | [docs/roof.md](docs/roof.md) | the ceiling you can only see from under it — why the roof already exists twice (`openness` dims every indoor cell to `ROOF_LEVEL`, and `WAYS` authors `roofs` per opening) and has never had a mesh, the one rule every game with this problem shares, the indoor mask as the ceiling, and the clerestory that falls out of hanging it high enough to clear the overhead ducts — where the solid wall stops exactly at the overhead deck and the glass is the clearance the lift baskets needed | steps 1–2 built; 3–4 proposed, and step 2's light half open |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |

@@ -95,6 +95,44 @@ export const WAVE_BACK_MAX = 0.75;
 export const WAVE_MOOD = 0.08;
 
 /**
+ * ...and how long the greeting HOLDS, which is the half the top-up could not do.
+ *
+ * `WAVE_MOOD` is a one-shot deposit into an account that is being drained every
+ * tick, so what it buys is measured in seconds and there are not many of them: a
+ * queueing Foodie gets about seven, a Snack Kid about two and a half. From the
+ * outside that is a wave landing on somebody who is *still visibly cross a
+ * moment later*, which reads as the gesture not having worked — and the reason
+ * it reads that way is that it half hadn't. Anger is `(MOOD_ANNOYED - mood) /
+ * (MOOD_ANNOYED - MOOD_FUMING)`, derived rather than stored, so the only way to
+ * quell somebody is to move that number and the only way to KEEP them quelled is
+ * to stop it moving back.
+ *
+ * So a greeting pauses `stepMood` outright for this long. Being said hello to
+ * does not make the queue shorter, it makes it not count for a moment, which is
+ * both the more honest sentence and the one you can see.
+ *
+ * Every bound `WAVE_MOOD` argues for is inherited rather than re-stated, and
+ * that is deliberate: this is set in the same `!who.greeted` branch, so it is
+ * the SAME once-per-visit flag and not a second budget beside it. There is no
+ * way to hold a key and keep somebody calm, and no cooldown to grind.
+ *
+ * What it does NOT do is lift anybody. The top-up stays 0.08 and the ceiling
+ * stays 1, so `WAVE_MOOD`'s claim above — that a wave never turns a storm-out
+ * into a sale on its own — survives: somebody fuming is held at fuming rather
+ * than rescued from it. It buys you the time to fix the actual problem, which is
+ * the till.
+ *
+ * Six seconds because it has to be shorter than the shortest patience in the
+ * game is long: an authored `patience` is seconds-to-storm-out since the `mood0`
+ * scaling landed, and the meanest archetypes sit near 25. A pause worth a
+ * quarter of somebody's entire visit is a queue you clear by waving at it.
+ *
+ * ⚠️ `simulate` is blind to this for `WAVE_MOOD`'s reason exactly — the balance
+ * bot never emotes.
+ */
+export const WAVE_CALM = 6;
+
+/**
  * id → what it is called and how long it lasts.
  *
  * `icon` is a name in `client/icons.js` rather than a glyph, because the strip

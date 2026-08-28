@@ -41,7 +41,7 @@ import { DEFAULT_TIER, tierFixtures } from '../../shared/start.js';
 import { difficultyOf } from '../../shared/difficulty.js';
 import { cleanName } from '../../shared/names.js';
 import {
-  isEmote, emoteSeconds, REPLIED, WAVE_REACH, WAVE_BACK_MAX, WAVE_MOOD,
+  isEmote, emoteSeconds, REPLIED, WAVE_REACH, WAVE_BACK_MAX, WAVE_MOOD, WAVE_CALM,
 } from '../../shared/emotes.js';
 import { makeNamer } from './names.js';
 import { stepStaff, syncStaff, breakProgress, carryOf, givenUp, hasHome } from './staff.js';
@@ -1845,6 +1845,12 @@ export class Game {
     };
     this.totals = { revenue: 0, sold: 0, harvested: 0, ...(state.totals ?? {}) };
     /**
+     * Whether the palette unfolds with the ladder. Carried, never consulted —
+     * see the `create` payload and `shared/reveal.js`. The sim's only job with
+     * it is to put it on the wire and write it back out again.
+     */
+    this.reveal = state.reveal ?? false;
+    /**
      * What is waiting to be announced, drained by the room.
      *
      * A queue rather than a callback for the reason the director's headline is
@@ -2302,6 +2308,24 @@ export class Game {
       // about it is — see the constructor.
       milestones: w.milestones ?? {},
       totals: w.totals ?? {},
+      /**
+       * Whether the build palette unfolds with the ladder or arrives whole.
+       *
+       * **`false` is the default and that is the entire compatibility story.**
+       * `createWorld` writes `true` on a new shop, so a save that does not
+       * mention the field is a shop that predates the reveal and keeps every
+       * button it has been using — see `shared/reveal.js`, and note this is the
+       * one field in the payload whose default is deliberately the *opposite*
+       * of what a new world gets.
+       *
+       * It reaches the sim at all only so it can ride the snapshot: nothing on
+       * this side of the wire reads it. A gate is a fact about which tiles the
+       * bar draws, so `placeFixture` never asks — a shop with the ladder on can
+       * still be sent a `build` for a conveyor by MCP, by a sweep or by a
+       * second player whose bar is further along, and every one of those has to
+       * work or the reveal has stopped being a reveal and become a rule.
+       */
+      reveal: w.reveal ?? false,
       // Who actually works here. Derived once from the old staff upgrades for a
       // save that predates the roster, and authoritative from then on.
       roster,
@@ -2427,6 +2451,10 @@ export class Game {
       demand: this.demand,
       milestones: this.milestones,
       totals: this.totals,
+      // Carried out as well as in — CLAUDE.md's named-field trap, whose quiet
+      // half is that `??` in the constructor answers instead and the next
+      // `persist()` writes the default back over what was stored.
+      reveal: this.reveal,
       roster: this.roster,
       nextWorkerId: this.nextWorkerId,
       placements: this.placements,
@@ -2565,6 +2593,10 @@ export class Game {
       // has been thrown away.
       milestones: this.milestones,
       totals: this.totals,
+      // Carried out as well as in — CLAUDE.md's named-field trap, whose quiet
+      // half is that `??` in the constructor answers instead and the next
+      // `persist()` writes the default back over what was stored.
+      reveal: this.reveal,
       roster: this.roster,
       nextWorkerId: this.nextWorkerId,
       // `placements` is what the shop *is*. The three counts under it are
@@ -3169,6 +3201,16 @@ export class Game {
       // makes progression something you can watch rather than something you are
       // told about once. The client never invents a row — see `goals.js`.
       milestones: milestoneProgress(this),
+      /**
+       * ...and whether the palette is unfolding with it.
+       *
+       * On the wire for `repSettle`'s reason exactly: it is a fact about THIS
+       * world, and the client has no other way to know which shop it is in —
+       * hardcoding it would put a fresh shop and a day-322 one on the same bar,
+       * which is the whole thing this is here to avoid. The client filters its
+       * own palette off this plus `milestones` above; the server never does.
+       */
+      reveal: this.reveal,
       // Whether anybody is being served, which is the two questions ANDed.
       isOpen: this.isOpen(),
       /**
@@ -3307,8 +3349,10 @@ export class Game {
         // press pours every pile that fits, so naming only the biggest one left
         // the other kinds' units dark and takeable — see `stockTargets`, which
         // carries the argument this line used to make for the other answer.
-        takers: !p.staff && (p.carry ?? p.haul)
-          ? this.stockTargets(lotStacks(p.carry ?? p.haul).map((s) => s.item_id)) : null,
+        // The LOT rather than its item ids, because whether a box is rubbish is
+        // a fact about the box — see `stockTargets`, which answers a waste
+        // crate with the skips and nothing else.
+        takers: !p.staff ? this.stockTargets(p.carry ?? p.haul) : null,
         // How much these hands hold, which is the one number a press about
         // goods cannot be judged without. `pressHints` lists what a press would
         // do and greys what it would not, and "would this fit" is `lotRoom`
@@ -3999,6 +4043,36 @@ export class Game {
     // rollover — which a paused shop never reaches at all.
     this.persist();
     return ok({ surround: this.surround });
+  }
+
+  /**
+   * Unfold the palette with the ladder, or hand over the whole bar.
+   *
+   * A world switch rather than a per-player one, which is the fork this was
+   * built on: the point is that a fresh shop can ease somebody in while an
+   * existing save keeps everything, and a setting on the browser could not say
+   * that — flip it once and every shop you ever open is the same bar.
+   *
+   * It `persist()`s for `setPaused`'s reason turned round. That one saves
+   * because a paused game never steps again; this one saves because the press
+   * is rare and the next `persist()` may be a long way off, and a preference
+   * that quietly reverts on a restart reads as the toggle not working.
+   *
+   * Turning it OFF is one-way in the only sense that matters: `done` keeps
+   * climbing while the ladder is off, so switching back on hides nothing you
+   * have already earned — a shop that turned it off on day 40 and back on at
+   * day 41 sees the same bar it had, not the opening four buttons. That falls
+   * out of gating on `milestones.done` rather than on a counter of its own, and
+   * it is why there is no "have you been shown this" list anywhere in here.
+   */
+  setReveal(reveal, by = null) {
+    const want = !!reveal;
+    if (want === this.reveal) return ok({ reveal: this.reveal });
+    this.reveal = want;
+    const who = by ? `${by} ` : '';
+    this.pushLog(want ? `${who}set the palette to unfold as the shop grows.` : `${who}unlocked the whole build palette.`);
+    this.persist();
+    return ok({ reveal: this.reveal });
   }
 
   /**
@@ -6115,9 +6189,24 @@ export class Game {
    * The dilution the old note feared is bounded by `LOT_KINDS` and by the rule
    * itself: a unit still has to be the right kind, unreserved, and have a board
    * with room, so three kinds in hand is nothing like three times the shop.
+   *
+   * **Rubbish has ONE answer, and it is the skip.** A waste crate is a lot like
+   * any other as far as `lotStacks` is concerned — it holds piles of items, and
+   * those items are things shelves and appliances would happily have — so
+   * asking the piles lit up half the shop for a box every one of those units
+   * refuses (`stockShelf`: *that is rubbish — take it to the skip*). Which is
+   * the green-ghost rule in the place it costs the most: the marker is the only
+   * thing that says where a thing may go, and here it was pointing at every
+   * unit except the one. `waste` is a fact about the CRATE and never about the
+   * piles in it, which is why it has to be asked of the lot rather than folded
+   * into `shelfAccepts` — the same loaf is stock in one box and rot in the
+   * next. The pill reads the same list (`pressHints` greys anything not in it),
+   * so both halves of the disagreement close on one line.
    */
-  stockTargets(items) {
-    const ids = [...new Set((Array.isArray(items) ? items : [items]).filter(Boolean))];
+  stockTargets(lot) {
+    if (!lot) return null;
+    if (lot.waste) return (this.layout.bins ?? []).map((b) => b.id);
+    const ids = [...new Set(lotStacks(lot).map((s) => s.item_id).filter(Boolean))];
     if (!ids.length) return null;
     return [
       ...this.layout.shelves.filter((s) => ids.some((id) => this.shelfAccepts(s, id))),
@@ -8107,6 +8196,17 @@ export class Game {
     if (!who.greeted && typeof who.mood === 'number') {
       who.greeted = true;
       who.mood = clamp(who.mood + WAVE_MOOD, 0, 1);
+      // ...and it holds, which is the half the top-up alone could not buy. See
+      // `WAVE_CALM`. Inside this branch on purpose rather than beside it: the
+      // `greeted` flag above is the whole bound on both, so a pause set anywhere
+      // else would be a second budget with no flag guarding it.
+      //
+      // A stamp against `elapsed` is this file's standing trap (`plantedAt`,
+      // `yieldedAt`, `bornAt`, `arrivesAt` have each sprung it) and is safe here
+      // for the one reason `cust.emote.at` beside it is: a shopper never reaches
+      // the save. Nothing about this may ever be persisted — on a reload
+      // `elapsed` restarts at zero and a stored deadline is one in the future.
+      who.calmUntil = this.elapsed + WAVE_CALM;
     }
   }
 
@@ -10422,11 +10522,22 @@ export class Game {
    *
    * So it is a verb of its own rather than a loop written out four times, and
    * `dropGoods` stays the single place a crate is made.
+   *
+   * **A lot can be RUBBISH, and then `dropGoods` is the wrong verb** — for the
+   * reason `dropWaste`'s own note gives: it tops up any box within a couple of
+   * tiles, and the box it would top up is full of things somebody is going to
+   * sell. That is not a bad merge, it is rot becoming stock. Asked here rather
+   * than at each of the four call sites, because all four are the ones
+   * CLAUDE.md lists as conservation holes by construction — setting a crate
+   * down, leaving the game, a second tab taking your `who`, firing a hire — and
+   * the fifth would have arrived the same way.
    */
   dropLot(lot, at, opts) {
     let first = null;
     for (const s of lotStacks(lot)) {
-      const made = this.dropGoods(s.item_id, s.qty, at, opts);
+      const made = lot?.waste
+        ? this.dropWaste(s.item_id, s.qty, at, s.day)
+        : this.dropGoods(s.item_id, s.qty, at, opts);
       first = first ?? made;
     }
     return first;
@@ -10873,11 +10984,22 @@ export class Game {
     // that needs no aim.
 
     this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
-    // The box goes onto the shoulder exactly as it stood — every pile, and the
-    // spoilage stamp on each. Rebuilding it from one item and one number is how
-    // a mixed crate would arrive at the shelves as whichever pile was biggest,
-    // with the other two gone and nothing to say where.
-    p.haul = { stacks: lotStacks(crate) };
+    // The box goes onto the shoulder exactly as it stood — every pile, the
+    // spoilage stamp on each, AND whether it is rubbish. Rebuilding it from one
+    // item and one number is how a mixed crate would arrive at the shelves as
+    // whichever pile was biggest, with the other two gone and nothing to say
+    // where.
+    //
+    // `waste` is a fact about the BOX and not about the piles in it, which is
+    // exactly why it was the field that got left behind here: every pile in a
+    // crate of rot is an ordinary `{item_id, qty, day}`, and the shoulder was
+    // rebuilt out of those. So picking rubbish up laundered it — the chevrons
+    // lit every shelf that takes bread, `stockShelf`'s own
+    // `p.haul.waste` refusal was unreachable code, and setting the box down
+    // again left a crate of perfectly good stock where the rot had been. The
+    // walk to the skip was the one thing in the shop you could opt out of by
+    // doing it.
+    p.haul = { stacks: lotStacks(crate), ...(crate.waste ? { waste: true } : {}) };
     const lifted = lotTotal(p.haul);
 
     // Rummaging replaces whatever you had named. The press that opened this
@@ -14084,6 +14206,13 @@ export class Game {
       z: cell.z,
       belt: cell.id,
       off: 0,
+      // ...and whether it is rubbish, for the same reason the stamp rides: a
+      // box that laundered the flag on the way onto a belt would make the
+      // conveyor the way to turn rot into stock, and it would be *stocked* at
+      // the far end rather than merely riding. `mayRide` and `clearRails` are
+      // then free to answer honestly — rubbish on a run with no skip on it is
+      // moved clear rather than delivered to a shelf.
+      ...(lot?.waste ? { waste: true } : {}),
     };
     this.deliveries.push(del);
     return ok({ crate: del.id, belt: cell.id, qty: lotTotal(del) });
@@ -17588,10 +17717,16 @@ export class Game {
    * be able to stop the farm, and the walk from the aisle to the skip is the
    * thing you are meant to be able to see happening.
    */
-  dropWaste(itemId, qty, at) {
+  dropWaste(itemId, qty, at, day = null) {
     if (!(qty > 0) || !at) return null;
     const x = Math.round(at.x);
     const z = Math.round(at.z);
+    // The stamp it already had, where there is one. Nothing ages rubbish —
+    // `spoilStock` walks shelves and `stockCrates`, and this is in neither — so
+    // this buys nothing today and costs nothing to keep honest: a pile that
+    // laundered its clock every time somebody picked the box up and put it
+    // down again is the trap `packCrate` and `beltPut` each carry a note about.
+    const stamp = day ?? this.dayNow();
     const here = this.deliveries.find((d) => d.waste && d.x === x && d.z === z);
     if (here) {
       // No cap. A crate holds twelve because a crate is a TRIP, and nobody is
@@ -17603,8 +17738,12 @@ export class Game {
       // day of spoilage quietly failing to appear.
       const own = (here.stacks ??= []);
       const at0 = own.find((k) => k.item_id === itemId);
-      if (at0) at0.qty += qty;
-      else own.push({ item_id: itemId, qty, day: this.dayNow() });
+      // The OLDER stamp wins a merge, which is `packCrate`'s rule said about
+      // rubbish — the destination keeping its own is the dodge, and it is the
+      // one shape of this that would matter the day anything reads a waste
+      // pile's age.
+      if (at0) { at0.qty += qty; at0.day = Math.min(at0.day ?? stamp, stamp); }
+      else own.push({ item_id: itemId, qty, day: stamp });
       return here;
     }
     const crate = {
@@ -17618,7 +17757,7 @@ export class Game {
       // declining to reorder what just went off, and a bay that says it is
       // full of rubbish it is not standing on.
       waste: true,
-      stacks: [{ item_id: itemId, qty, day: this.dayNow() }],
+      stacks: [{ item_id: itemId, qty, day: stamp }],
     };
     this.deliveries.push(crate);
     return crate;
@@ -21756,6 +21895,18 @@ export class Game {
     // the same clause about somebody who has not even parked yet. Patience is a
     // budget the SHOP draws on, and a drive is not the shop's doing.
     if (cust.state === 'ENTER' || cust.state === 'LEAVE' || inACar(cust)) return false;
+
+    // Somebody said hello. See `WAVE_CALM` — for these few seconds the shop does
+    // not draw on them at all, which is what makes a greeting something you can
+    // watch land rather than 0.08 of a budget draining back.
+    //
+    // A whole-tick early-out and not a multiplier on `annoy` below, deliberately:
+    // the queue, the crush and the mess are all reasons to be cross and a
+    // greeting is not an answer to any of them, so what it buys is *time*. It
+    // therefore also pauses the storm-out at the bottom of this function, which
+    // is the point rather than a side effect — and is bounded by the same
+    // once-per-visit `greeted` flag that bounds the top-up.
+    if (this.elapsed < (cust.calmUntil ?? 0)) return false;
 
     let annoy = ANNOY_IN_SHOP;
     // `till` is set the moment a slot is claimed, so walking up the line costs

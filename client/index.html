@@ -1331,20 +1331,22 @@
        sparkline falls depends on how many digits are in the balance. Two rows
        of three things each, none of them over the other — which is the "hard to
        read" and it is not a spacing problem, it is the absence of a column.
-       Three columns, both rows in them: day over balance, hour over the day's
-       take, season over the week. Widths are `auto`, so a column is as wide as
-       the wider of its two cells and neither row can push the other about.
-       `#flow` is `display: contents` (below) so its number and its sparkline are
-       two cells here rather than one, or the money row would have two cells to
-       the date row's three and the third column would mean nothing. */
+       Two columns, both rows in them: day over balance, hour over the day's
+       take. Widths are `auto`, so a column is as wide as the wider of its two
+       cells and neither row can push the other about.
+
+       There were THREE, and the third held the season over the week's shape.
+       Both were consultations rather than readings and both are gone; the
+       column went with them, because a grid column is as wide as its widest
+       cell and an absent cell is not a narrower one — left at three, the card
+       would end in 56px of nothing. `#flow` is still `display: contents`
+       (below) even though it is now one cell: it has to be, or the money row
+       would be a single wrapper cell against the date row's two and the second
+       column would mean nothing. */
     .rows {
-      display: grid; grid-template-columns: auto auto auto;
+      display: grid; grid-template-columns: auto auto;
       column-gap: 12px; row-gap: 1px; align-items: center;
     }
-    /* The last column ends the card, so it is set against the right edge rather
-       than left-aligned inside whatever slack the wider of the two cells left —
-       that slack is the hole that was between the season and the sparkline. */
-    #season, .spark { justify-self: end; }
     /* Dividers only where a SUBJECT changes. Named rather than "every child
        after the first", because the door is not a group — it is the sign for
        the whole card, standing down the left of both rows the way it used to
@@ -1565,7 +1567,6 @@
        so the day number stays a bare string — `#when` is written every snapshot
        and the count is the half of it that changes. */
     #day::before { content: '·'; opacity: .55; margin-right: 4px; }
-    #season { text-transform: capitalize; opacity: .5; font-size: 8.5px; }
     /* ---- the clock, which IS the pause button ----------------------------
        The time was a readout for as long as opening was something the clock did
        to you. It is a control now: whether time runs at all is a decision you
@@ -1701,33 +1702,28 @@
     /* ---- cashflow: the rate, beside the balance -------------------------------
        Cash on hand was the only money on screen, and a balance is not a rate —
        you can watch it climb all week while every single day loses money against
-       the wages. This is today's net, an arrow against yesterday, and the week's
-       shape, in that order: the number you want most, then the comparison, then
-       the trend. Tabular numerals because it changes ten times a second and
-       proportional digits make it jitter sideways as it does. */
-    /* THERE IS NO `min-width` HERE ANY MORE, and it is worth saying so, because
-       the bug it was written for is the one this cell keeps having. It was a
-       floor for the same reason `#cash` has one — this is the fastest changing
-       number on screen — and it had to be kept equal to `SPARK_W` by hand, since
-       a floor of 70 over a 38px sparkline is 32px of empty column that all pools
-       on one side: what you see is the clock adrift, half a panel away from the
-       readout it is nearest, and neither the floor nor the sparkline is wrong.
-       The grid retired both halves. `#flow` is `display: contents`, so the
-       number and the week's shape are two cells in two `auto` columns, and a
-       column is exactly as wide as the wider of the two things in it — which is
-       the floor, computed, for every cell in the card at once. So `SPARK_W` is
-       still what sets the right-hand end of the panel; it is simply no longer a
-       number anything else has to be told about. */
-    /* A ROW now, not a column: the number and the week's shape are both about
-       the money, so they belong on the money LINE — stacked, they were a second
-       two-line cell inside a panel that is already two lines, and the card had
-       four different ideas of where a row was. */
-    /* `contents`, not a box: the day's take and the week's shape are two
-       CELLS of the card's grid (see `.rows`) — one under the clock, one under
-       the season — and a wrapper round them would be a single cell holding both,
-       which is exactly the alignment this card kept failing to have. It is still
-       one element in the markup and one `innerHTML` write, because the two are
-       drawn together by `cashflowHtml`. */
+       the wages. This is today's net and an arrow against yesterday: the number
+       you want most, then the comparison. Tabular numerals because it changes
+       ten times a second and proportional digits make it jitter sideways as it
+       does. The week's SHAPE used to be here too, as a sparkline in a third
+       column; the Shop report draws the same seven days at four times the size
+       and with labels on it, which is where a trend is actually read. */
+    /* THERE IS NO `min-width` HERE, and it is worth saying so, because the bug
+       it was written for is the one this cell keeps having. It was a floor for
+       the same reason `#cash` has one — this is the fastest changing number on
+       screen — and it had to be kept equal to the sparkline's width by hand,
+       since a floor of 70 over a 38px widget is 32px of empty column that all
+       pools on one side: what you see is the clock adrift, half a panel away
+       from the readout it is nearest, and neither the floor nor the widget is
+       wrong. The grid retired both halves: a column is exactly as wide as the
+       wider of the two things in it, which is the floor, computed, for every
+       cell in the card at once. */
+    /* `contents`, not a box: the day's take is a CELL of the card's grid (see
+       `.rows`), under the clock — and a wrapper round it would be a cell holding
+       a cell, which is exactly the alignment this card kept failing to have. It
+       held two cells while the week's shape was beside it, and the reason it is
+       still `contents` with one child is that the money row would otherwise have
+       one cell to the date row's two. */
     #flow { display: contents; }
     .flow {
       display: inline-flex; align-items: baseline; gap: 3px;
@@ -1744,10 +1740,6 @@
     .flow i.up { color: var(--good); }
     .flow i.down { color: var(--accent); }
     .flow i.flat { color: var(--ink); opacity: .35; }
-    .spark { display: block; overflow: visible; }
-    .spark rect.up { fill: var(--good); opacity: .75; }
-    .spark rect.down { fill: var(--accent); opacity: .8; }
-    .spark line.axis { stroke: rgba(58, 49, 40, .22); stroke-width: .75; }
     /* ---- the three gauges -------------------------------------------------
        Reputation is the shop's long memory, mood is how the room feels right
        now, and full is whether there is room for anybody else. One was an
@@ -2013,6 +2005,44 @@
     }
     .todo svg { width: 12px; height: 12px; opacity: .7; flex: none; }
     .todo b { font-weight: 800; }
+    /* The goal chip's progress, as a rule along the bottom edge.
+
+       A bar and not a fraction: "$106 / $500" has to be divided before it means
+       anything, where a length is read without looking at it — the same call the
+       demand meter makes about twelve departments.
+
+       It was a WASH across the chip's own background, and that was wrong in a
+       way only visible once a rung was part way along: the fill's edge lands
+       somewhere in the middle of the words, so the chip reads as two boxes
+       shoved together rather than as one chip with a measure on it. A rule under
+       the text has an edge that belongs to nothing but itself.
+
+       `overflow: hidden` on the chip, or the 2px rule squares off the rounded
+       bottom corners it is sitting inside. */
+    /* A TRACK as well as a fill, which is what makes the length mean anything.
+       A lone green rule stopping at 45% is an underline that ends early — you
+       cannot see how far it had to go, so it reads as a rendering fault rather
+       than as a measure. The track is the distance and the fill is the part
+       done. 3px because 2 disappeared into the chip's own shadow. */
+    /* Bigger than the chips behind it, and the only one in the strip that is.
+       It is the line that says what all the others are FOR, it is true all day
+       where they come and go, and it is the one thing here you can press. A
+       goal drawn at the same weight as "1 shelf empty" is a goal nobody reads
+       twice. */
+    .todo.goal {
+      position: relative; overflow: hidden;
+      font-size: 12.5px; padding: 4px 11px 5px 9px;
+      box-shadow: 0 3px 10px rgba(58, 49, 40, .16);
+    }
+    .todo.goal svg { width: 14px; height: 14px; opacity: .85; }
+    .todo.goal::before {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+      background: rgba(58, 49, 40, .16);
+    }
+    .todo.goal::after {
+      content: ''; position: absolute; left: 0; bottom: 0; height: 3px;
+      width: var(--pct, 0%); background: var(--good);
+    }
     /* The one that is costing you money right now, rather than merely pending. */
     .todo.hot { background: #ffd66b; box-shadow: 0 2px 9px rgba(200,150,20,.32); }
     .todo.hot svg { opacity: .9; }
@@ -2798,15 +2828,11 @@
     /* Pulling in. The one state worth colouring: it is the difference between a
        number to plan around and a thing about to happen on the floor. */
     .pnl-note .clock.now { background: #ffd66b; opacity: 1; }
-    /* The one thing in the note you can press, so it opts back into the pointer
-       its parent gave up. Sized off the close button beside it — two controls in
-       one header that are different sizes read as one of them being broken. */
-    .pnl-note .pnl-btn {
-      pointer-events: auto; border: 0; background: none; padding: 2px; margin: -2px;
-      color: var(--ink); opacity: .45; cursor: pointer; font-size: 12px; line-height: 0;
-      border-radius: var(--r);
-    }
-    html.can-hover .pnl-note .pnl-btn:hover { opacity: 1; background: rgba(58,49,40,.08); }
+    /* Nothing in the note is pressable, which is the whole reason it may live in
+       the drag handle at all — see `.pnl-note` above. It held one button for a
+       while (`data-resort`, "Take a fresh list") and that button is gone: a press
+       you make once a session does not belong on the strip you grab to move the
+       window, one target from the way out. */
     #panel-close {
       border: 0; background: none; font: inherit; cursor: pointer; font-size: 15px;
       color: var(--ink); opacity: .5; padding: 0;
@@ -2894,8 +2920,24 @@
 
     /* Search and tag chips. A comprehensive catalogue you cannot search is
        what mods get written to fix, and ours grows live while you play. */
-    #panel-filter { padding: 5px 7px; border-bottom: 1px solid var(--line); }
+    #panel-filter { padding: 6px var(--panel-pad, 9px); border-bottom: 2px solid var(--line); }
     #panel-filter[hidden] { display: none; }
+    /* The opener, in the one strip that is never rebuilt. Same square, ring and
+       drop as `#panel-close` beside it — two controls in one header that are
+       different shapes read as one of them being broken — and it goes LIT
+       rather than pressed-looking while the box is open, which is the same
+       "this is the state you are in" the lit tab wears. */
+    #panel-find {
+      width: 28px; height: 28px; display: grid; place-items: center; margin-right: 6px;
+      border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 13px;
+      color: var(--ink); opacity: .8; border-radius: 6px;
+      background: var(--panel-solid);
+      box-shadow: inset 0 0 0 2px var(--ink-line), var(--edge);
+    }
+    #panel-find[hidden] { display: none; }
+    #panel-find.on { background: #ffd66b; opacity: 1; }
+    html.can-hover #panel-find:hover { opacity: 1; }
+    #panel-find svg { display: block; width: 1em; height: 1em; }
     #panel-searchwrap {
       display: flex; align-items: center; gap: 7px; padding: 0 9px;
       background: rgba(58,49,40,.06); border-radius: var(--r);
@@ -3084,7 +3126,11 @@
          — see `.tabs`. This is the one that leaked onto the list itself: a row
          slid under the column heads and showed through the 3px between them.
          The side figure is the row's own 7px PLUS the panel padding the margin
-         just cancelled, or the heads stop naming the columns they sit over. */
+         just cancelled, or the heads stop naming the columns they sit over.
+         Seven and not the roomier figure INK WEIGHT gives a section row: a head
+         strip only ever stands over a `.cols` list (`cols` is `!!heads`), and
+         `.cols` keeps the tighter padding — see the exemption at the foot of
+         that block. The two figures have to be changed together. */
       margin-inline: calc(-1 * var(--panel-pad));
       padding: var(--bar-y) calc(7px + var(--panel-pad));
       background: var(--panel-solid);
@@ -3219,6 +3265,32 @@
     .row .name > .t { overflow: hidden; text-overflow: ellipsis; }
     .row .meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
     .row .meta .tags { min-width: 0; }
+    /* What a rung opens on the build bar — its own line under the caption.
+       `display: block` and outside `.meta` on purpose: it is the one fact on a
+       milestone row that is not a description of the row, so it may not share a
+       flex line with the sentence it is not part of, which is where it was
+       unreadable. Weight and colour rather than size — it sits at the same
+       10.5px as the caption so the row keeps one rhythm, and carries `--good`
+       at full opacity so it reads as the thing you are working toward rather
+       than as more grey explanation. `:empty` for `.award-town`'s reason: the
+       thirty-nine rungs that open nothing draw no gap. */
+    .row .opens {
+      margin-top: 2px;
+      font-size: 10.5px; line-height: 1.3; font-weight: 700;
+      /* NOT `--good`, and this is the same contrast pass the Shop report's
+         warning tiles took. `--good` is a MARK colour, measured against the
+         panel and correct on a 10px bar: as text on cream it is 3.01:1, and
+         10.5px owes a reader 4.5:1. This green is 5.05:1 on the same ground.
+         The trap here is a later tidy-up that "unifies" it back onto the
+         variable — that looks like removing a magic number and is losing a
+         contrast pass. And nothing in the row rests on the colour: the line is
+         prefixed with its own glyph and starts with the word Opens. */
+      color: #3f7a3c;
+      white-space: normal; overflow: hidden;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    }
+    .row .opens:empty { display: none; }
+    .row.muted .opens, .row .opens.done { opacity: .55; font-weight: 600; }
     /* A state the row is in, as one glyph with the sentence in its tooltip —
        see `rowHtml`. `flex: none` for the reason the heat pill has it: this
        shares the line with the only elastic thing in the panel, and a glyph
@@ -3411,6 +3483,16 @@
     .sec-row { align-items: flex-start; }
     .sec-row.clickable { cursor: pointer; }
     .sec-row.picked { background: #fff3d0; box-shadow: inset 0 0 0 2px #ffd66b; }
+    /* A SWITCH ROW WEARS THE SAME LIT TREATMENT, which took two goes to get
+       back to. `picked` does mean two things — "this one, out of these" in a
+       palette or a seed list, and "this is on" in a stack of switches — and for
+       one step the switches got a quieter mark of their own on the argument
+       that a lit fill answers a question a switch stack never asks. That was
+       right about the panel it was written against and stopped being right
+       here: with `.sec-row` a card at rest (see INK WEIGHT below) a lit row is
+       a STATE OF a card rather than a stripe in whitespace, and the rocker
+       beside it says which kind of row it is far louder than any fill could.
+       One vocabulary, and the mark is spent where it is unambiguous. */
     /* A row is a chip and a list of them is not a table, so they need air
        between them. Without it the failure is only visible when two rows are
        LIT: their rings meet and the pair reads as one block with a rule through
@@ -3440,6 +3522,220 @@
     .sec-row .bico.art svg { width: 100%; height: 100%; display: block; }
     .sec-row .name { gap: 2px; }
     .sec-row .tags { line-height: 1.35; }
+
+    /* ---- INK WEIGHT ------------------------------------------------------
+       THE PANEL WAS DRAWN BY A DIFFERENT HAND THAN THE SHOP, and this block is
+       the whole of the fix.
+
+       The world outside this window is built out of thick contours — there is a
+       render pass devoted to putting a line round things — and the two variables
+       that say so in the chrome are `--sil` (the ring) and `--edge` (a hard
+       `0 2px 0` drop, a sticker sitting on the page rather than a blur). The
+       panel owned both and spent them at 1px on two elements, and set its rows
+       at 12px over a 10.5px caption. Nothing about that is wrong; it is simply
+       a settings pane, and it was sitting on top of a cartoon.
+
+       So: everything you press gets the weight the game draws with, and the
+       type comes up a size. `--sil` and `--edge` are untouched — the HUD, the
+       build bar and the corner readouts all read them, and this is a claim
+       about the PANEL rather than about the game's line weight.
+
+       WHAT IT DELIBERATELY DOES NOT DO is ink the rows. `.row button`'s own
+       note is the rule and it still holds: "a button is an OBJECT standing on
+       the panel, where a row is a line of type printed on it... ink every box in
+       here and eight rows carry twenty-four more strokes in 300px, at which
+       point you read the grid instead of the names." A resting row gains a FILL
+       and no stroke; the one that is lit gains the line, which is the state
+       rather than the furniture. Same for the glyph's well. Eight rows are
+       still eight names.
+
+       And `.cols` is exempt below. A supplier row is a table cell, not a
+       setting — it already has its own widths and its own head strip, and
+       fourteen-point type down two hundred items is a different panel's
+       problem. Two densities, on purpose, the way a spreadsheet and a
+       preferences window are two densities. */
+
+    /* THE CARD ITSELF. Solid paper, a real corner and the hard drop — the three
+       things that separate a thing sitting ON the world from a sheet of glass
+       laid over it. The translucency was right while the panel was a HUD
+       overlay and is wrong now that it is an object: at .94 the shop reads
+       through every row, which is exactly the muddiness a cartoon menu cannot
+       have. `--cast`'s blur stays under the hard drop rather than instead of
+       it, because the card is lifted as well as outlined.
+
+       The corner is 9px where the rest of the chrome is `--r`, and it is the
+       one place in the HUD that gets one: this is the only element with an
+       `.ink-edge` stroke round it AND enough size to carry a curve. That stroke
+       now reads the radius off the element (client/ink-edge.js) rather than
+       assuming 2px, or the drawn line squares off inside a rounded card. */
+    #panel {
+      width: min(470px, calc(100vw - 24px));
+      background: var(--panel-solid);
+      border-radius: 9px;
+      box-shadow: var(--cast), 0 4px 0 rgba(23, 18, 25, .28);
+    }
+    /* THE TITLE BAR as a band rather than a line of text. The gold is the same
+       one the lit tab and the armed build slot wear, at the top of the card
+       where a game puts the name of the thing you are in. `--line` is the
+       crease inside this subtree, so the rule under it is a heavy crease and
+       not a second colour. */
+    #panel header {
+      padding: 11px 12px; border-bottom-width: 2px;
+      background: linear-gradient(180deg, #fff8e6, #fff1cf);
+    }
+    #panel-title { font-size: 16px; font-weight: 900; letter-spacing: -.01em; }
+    /* ...and the close is a BUTTON, which it has never looked like. Same well,
+       ring and drop as everything else you press in here. */
+    #panel-close {
+      width: 28px; height: 28px; display: grid; place-items: center;
+      font-size: 14px; opacity: .85; border-radius: 6px;
+      background: var(--panel-solid);
+      box-shadow: inset 0 0 0 2px var(--ink-line), var(--edge);
+    }
+    html.can-hover #panel-close:hover { opacity: 1; background: #fff; }
+
+    /* THE BODY gets room at the SIDES and none at the top. `--panel-pad` is the
+       one figure the sticky bars cancel with a negative margin, so raising it
+       moves the rows in and leaves the tab strip, the aisle strip and the head
+       row full-bleed exactly as they were — but that cancelling is horizontal
+       only, so the same figure applied vertically is a band of nothing between
+       the header and the tabs that nothing ever fills.
+
+       AND THE TOP IS ZERO, which is the half that is a bug rather than a
+       spacing preference. A sticky `top: 0` pins to the scrollport's PADDING
+       edge, so every pixel of `padding-top` here is a slot the list scrolls
+       through above the pinned bar. That was 3px and had been for as long as
+       the panel has existed, and it was invisible for exactly as long: a row
+       was bare text on the panel's own cream, so the 3px of it showing over the
+       tab strip was cream on cream. Rows are cards now (see INK WEIGHT), so the
+       same 3px is a sliver of grey — or of a lit yellow — sliding along the top
+       of the strip, and it reads as the bars being transparent. It is the
+       failure `.heads`' own note describes, arriving through the container
+       rather than through a margin.
+
+       Nothing is lost by zeroing it: every menu in here opens with a bar, a
+       heading or a border directly under the header, and the ones that do not
+       want their first row against the header's own rule rather than floating
+       three pixels off it. */
+    #panel-body { --panel-pad: 9px; padding: 0 var(--panel-pad) 3px; }
+
+    /* THE TAB STRIP. Taller targets, a heavier ring, and the lit tab DOES take
+       the full contour — which reverses `.tab.on`'s own note above, and the
+       reversal is the point of this block. That note is right in a panel drawn
+       with hairlines: there, a black box beside three grey ones is read before
+       the yellow, so the fill had to be the only state. Here every pressable
+       thing already carries a 2px ring, so the step from crease to contour is
+       one notch on a scale rather than a second vocabulary, and a tab that kept
+       the thin line while sitting proud in gold reads as unfinished. */
+    .tabs { gap: 5px; padding: 8px var(--panel-pad); border-bottom-width: 2px; }
+    .tab {
+      padding: 10px 0; border-radius: 7px; opacity: .5; font-size: 15px;
+      --sil: inset 0 0 0 2px var(--crease);
+    }
+    .tab.on { box-shadow: inset 0 0 0 2px var(--ink-line), var(--edge); }
+    .tab.named { gap: 6px; padding-inline: 6px; }
+    .tab .tlabel { font-size: 12.5px; font-weight: 800; }
+
+    /* THE ROW. A card at rest — fill only — and a card with a line round it
+       when it is on. `+` for the gap, so a heading is not double-spaced, which
+       is the rule that was already here. */
+    .sec-row {
+      padding: 9px 10px; border-radius: 8px;
+      background: rgba(58,49,40,.05);
+    }
+    .sec-row + .sec-row { margin-top: 5px; }
+    html.can-hover .sec-row.clickable:hover { background: rgba(58,49,40,.10); }
+    .sec-row .name { font-size: 14px; }
+    .sec-row .tags { font-size: 11.5px; opacity: .6; }
+
+    /* THE GLYPH gets a well, and the well is a fill until the row is lit — see
+       the stroke-count rule above. `.bico.art` is untouched: it is a PICTURE of
+       a fixture and already stands in a well of its own. */
+    .sec-row > .lead { width: 30px; }
+    .sec-row .bico:not(.art) {
+      width: 30px; height: 30px; border-radius: 7px; font-size: 15px;
+      display: grid; place-items: center;
+      background: var(--panel-solid); box-shadow: inset 0 0 0 2px var(--crease);
+    }
+    .sec-row.picked .bico:not(.art) { box-shadow: inset 0 0 0 2px var(--ink-line); }
+    /* ...and the PICTURE well matches the glyph well, or a list holding both —
+       an item drawn from its model beside an item with none — steps in and out
+       by four pixels down the lead column. */
+    .sec-row .bico.art { width: 30px; height: 26px; }
+    .sec-row.picked .bico.art { box-shadow: inset 0 0 0 2px var(--ink-line); }
+
+    /* THE HEADING, at the weight of the things it names. */
+    .sep {
+      font-size: 10px; font-weight: 900; letter-spacing: .12em;
+      padding: 11px 7px 5px; border-top-width: 2px; margin-top: 5px;
+    }
+
+    /* THE SWITCH, which stops being a word in a bubble and becomes a thing you
+       can see is a switch. The word stays INSIDE it, because `.row .rule .sw`'s
+       own note is that the word is the only thing telling two switch rows apart
+       for somebody who cannot see the yellow — a knob on its own would be the
+       one state in this panel resting on colour.
+
+       The knob is a `::before` rather than an element, so no markup moves and
+       `switchRows` goes on emitting the `<b>` it always did. */
+    .row .rule .sw {
+      position: relative; display: inline-flex; align-items: center;
+      width: 62px; height: 24px; padding: 0 9px 0 0; border-radius: 999px;
+      justify-content: flex-end; font-size: 9px;
+      background: rgba(58,49,40,.10);
+      box-shadow: inset 0 0 0 2px var(--crease);
+    }
+    /* The knob is inset EQUALLY on all four sides — 4px against a 24px track
+       for a 16px knob — which is the one number a rocker cannot get wrong
+       without looking broken. It shipped at 2px, so it sat 2px high in a 24px
+       pill and touched the ring on the end it had travelled to: a knob resting
+       against its own housing reads as a switch jammed rather than as one
+       thrown. */
+    .row .rule .sw::before {
+      content: ""; position: absolute; top: 4px; left: 4px;
+      width: 16px; height: 16px; border-radius: 999px;
+      background: var(--panel-solid); box-shadow: inset 0 0 0 2px var(--crease);
+      transition: left .12s ease, box-shadow .12s;
+    }
+    /* On: the knob travels, the word swaps sides with it, and the ring steps up
+       to the full contour — which the fill has earned, since a lit switch is the
+       one thing on a settings tab you want to find from across the panel. */
+    .row .rule .sw.on {
+      padding: 0 0 0 9px; justify-content: flex-start;
+      background: #ffd66b; color: var(--ink);
+      box-shadow: inset 0 0 0 2px var(--ink-line);
+    }
+    .row .rule .sw.on::before {
+      left: calc(100% - 20px);
+      box-shadow: inset 0 0 0 2px var(--ink-line);
+    }
+    @media (prefers-reduced-motion: reduce) { .row .rule .sw::before { transition: none; } }
+
+    /* THE PRESSES. A hard drop and a real ring, which is what a button in this
+       game looks like everywhere except in here. */
+    .row button {
+      padding: 5px 11px; font-size: 11.5px; border-radius: 6px;
+      --sil: inset 0 0 0 2px var(--crease);
+    }
+    .row .rbtn { width: 19px; height: 19px; font-size: 13px; }
+    .row .rbtn.wide { height: 24px; padding: 0 11px; font-size: 11.5px; border-radius: 6px; }
+    .row .rbtn.tog { width: 24px; height: 24px; border-radius: 6px; }
+    .row .stp { border-radius: 999px; padding: 2px; box-shadow: inset 0 0 0 2px var(--crease); }
+    .row .stp b { font-size: 11.5px; min-width: 17px; }
+    .row .stp .rbtn { border-radius: 999px; }
+    .midrow { padding: 9px 10px 10px; border-radius: 7px; --sil: inset 0 0 0 2px var(--crease); }
+    .midtop { font-size: 13.5px; font-weight: 800; }
+    .midsub { font-size: 11.5px; }
+
+    /* ...AND THE TABLE IS EXEMPT. See the note at the top of this block. */
+    .cols .sec-row { padding: 5px 7px; }
+    .cols .sec-row + .sec-row { margin-top: 3px; }
+    .cols .sec-row .name { font-size: 12px; }
+    .cols .sec-row .tags { font-size: 10.5px; }
+    .cols .sec-row > .lead { width: 26px; }
+    .cols .sec-row .bico:not(.art) {
+      width: auto; height: auto; border-radius: 0; font-size: 14px; background: none;
+    }
     /* A row that is a button — see `rowHtml`, which draws it as one rather than
        as a centred `.row`. The glyph is on the label's line and the caption is
        under both, which is the arrangement a two-line button has; a row centred
@@ -3532,6 +3828,71 @@
       font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
       opacity: .45; padding: 6px 7px 2px; border-top: 1px solid var(--line); margin-top: 4px;
     }
+    /* ---- THE FOOT OF A TAB ------------------------------------------------
+       Two presses side by side, against the bottom of the panel, under a dashed
+       rule. See `rowHtml`'s `footBar` for why this is neither a `grid` nor a
+       pair of `midrow`s.
+
+       PINNED, and that is the half a heading could never buy them. The Menu's
+       two ways out had been centred tiles, then ordinary rows, then a bar — each
+       trying to buy presence with WEIGHT, when what they wanted was position:
+       the settings sit at the top, these sit at the bottom, and the gap between
+       is what says they are not the same kind of thing. It is free, because the
+       panel is already held at the height of its tallest tab (`steadyHeight`),
+       so the space this pushes into is space that was there and empty. On a tab
+       whose content fills the panel it does nothing at all, which is right
+       rather than a limitation: no slack, no gap.
+
+       A DASHED rule and not the solid one `.sep` draws. Every other separator
+       in the panel means "and now another group"; this one means "and now the
+       way out", and it is the only place in the menu that needs to say it.
+
+       NOTHING STRETCHES. A `flex: 1` on the tip jar is the obvious way to tell
+       it apart from the way out, and it turns the button into a field of colour
+       with four words floating in it the moment the window is wider than the
+       mock-up it was drawn against. A button's job is to be the size of what it
+       says; the two are told apart by their labels being different lengths,
+       which is true at any width and is what keeps a thumb travelling down the
+       tab off the one press it cannot take back. `wrap` for the narrowest
+       panel, since a button that shrank would be the same mistake from the
+       other end.
+
+       `:has()` rather than a flag the section has to set: the body holds every
+       menu in the game and only this one wants a column, so the question being
+       asked is exactly "is there a foot in here". `flex: none` on the children
+       is the guard that costs nothing and saves a real bug — a flex child
+       defaults to shrinking, so a tab longer than the panel would squash its
+       rows instead of scrolling.
+
+       ACCENT ON THE TIP JAR, and it is the stepped-down `#a8442f` rather than
+       `--accent` for the reason the boot error and the Shop report's warning
+       tiles give: `--accent` is a *mark* colour measured against a panel, and a
+       14px word on a tinted keyline owes its reader 4.5:1. This pair is 4.8. */
+    #panel-body:has(> .footbar) { display: flex; flex-direction: column; }
+    #panel-body:has(> .footbar) > * { flex: none; }
+    .footbar {
+      margin-top: auto; padding-top: 14px; border-top: 2px dashed var(--crease);
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch;
+    }
+    .fbtn {
+      flex: none; border: 0; cursor: pointer; font: inherit;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 10px 15px 11px; border-radius: 8px;
+      font-size: 13.5px; font-weight: 800; line-height: 1.25;
+      color: var(--ink); background: var(--panel-solid);
+      box-shadow: inset 0 0 0 2px var(--ink-line), 0 3px 0 var(--ink-line);
+      transition: background .1s;
+    }
+    /* Sized off the words beside it, the same call `.midtop svg` makes. */
+    .fbtn svg { display: block; width: 1em; height: 1em; flex: none; opacity: .6; }
+    /* The tip jar takes the left and pushes the way out to the far end, which is
+       the pairing argument said in space: two presses that both leave the screen
+       want a gap between them, not a 8px gutter. */
+    .fbtn.love { background: #ffe0d9; color: #a8442f; margin-right: auto; }
+    .fbtn.love svg { color: var(--accent); opacity: 1; }
+    html.can-hover .fbtn:hover { background: #fff; }
+    html.can-hover .fbtn.love:hover { background: #ffd0c5; }
+    .fbtn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
     .foot { font-size: 10px; opacity: .55; padding: 6px 7px; line-height: 1.35; }
 
     /* ---- the shop report -------------------------------------------------
@@ -5554,39 +5915,12 @@
     #tutor { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
     #tutor[hidden] { display: none; }
 
-    /* The blackout, and it is a PICTURE — `pointer-events: none`.
-
-       It used to block, which is the obvious way to build this and is wrong
-       about the one thing under it: the world. The four boxes cover the whole
-       screen bar the hole, so on any step pointing at the HUD — the sign, a
-       panel, a tile of the bar — they covered the entire canvas, and the camera
-       died. You cannot drag a view you cannot press, so the shop froze solid
-       for no reason you could see and with no button you had pressed to blame.
-
-       Muting is done on the HUD instead (`body.tutoring .hud`), which is where
-       a wrong press actually costs something. A stray press on the WORLD is at
-       worst a walk, and being able to look around while somebody explains your
-       shop to you is not a wrong press at all. */
-    .tt-veil {
-      position: absolute; pointer-events: none;
-      background: rgba(28, 24, 20, .58);
-      opacity: 0; transition: opacity .2s ease;
-    }
-    #tutor.show .tt-veil { opacity: 1; }
-
-    /* Everything in the HUD is inert while the tour is up, and `place` hands
-       the pointer back to whichever panel or bar the hole is cut in. Set on the
-       container rather than per-button: a panel you can scroll and read is part
-       of the step, and it is the RAIL and the other menus that a press must not
-       reach. */
-    body.tutoring .hud { pointer-events: none; }
     /* The card's BUTTONS, and never the card — and never `#tutor`, which is a
        full-screen fixed box that would swallow every press aimed at the shop.
-       The card is a big pale slab in the middle of the screen and the camera is
-       dragged across the middle of the screen, so anything live on it is a
-       gesture that can end on it. There is nothing on the card to press except
-       two buttons; the rest of it should be as transparent to the mouse as the
-       dark around it. */
+       The card is a pale slab over the shop and the camera is dragged across
+       the shop, so anything live on it is a gesture that can end on it. There
+       is nothing on the card to press but its buttons; the rest of it should be
+       as transparent to the mouse as the air around it. */
     body.tutoring .tt-card { pointer-events: none; }
     body.tutoring .tt-card button { pointer-events: auto; }
 
@@ -5611,52 +5945,27 @@
       50% { box-shadow: 0 0 0 3px var(--good), 0 0 0 15px rgba(90, 163, 86, 0); }
     }
 
-    /* ...and the same mark for something standing in the shop, which has no
-       rectangle — a crate, a shelf, a tile. Centred on the point rather than
-       cornered at it, because what it is marking is a position and not a box.
+    /* Something standing in the shop — a crate, a shelf, a tile — has no
+       rectangle on the page, and it is marked IN THE SHOP rather than over it:
+       `MARKER_LOOK.tutor`, a green frame on the tile with a chevron over it,
+       which is the vocabulary every other marker in the game already speaks.
+       There used to be a circle here, projected through `worldToScreen` every
+       frame, and what was wrong with it is that it stayed a circle: everything
+       else in the picture turns and foreshortens with the camera, so a
+       fixed-size coin tracking a point perfectly still reads as unpinned. */
 
-       Three layers, because a single expanding ring was genuinely hard to find:
-       over a shop floor at this camera angle it is a thin green line among a
-       hundred other thin lines, and it spends most of its cycle nearly
-       transparent. So there is a solid disc that never moves (something is
-       ALWAYS there to see), a hard ring round it, and the two pulses radiating
-       off it (which way to look). The disc is translucent rather than opaque:
-       it sits ON the crate, and a mark that hides what it is pointing at is
-       the same bug as a card that covers it. */
-    .tt-aim {
-      position: absolute; width: 0; height: 0; pointer-events: none;
-      filter: drop-shadow(0 1px 3px rgba(28, 24, 20, .55));
-    }
-    .tt-aim[hidden] { display: none; }
-    /* Circles, and they stay circles: this is drawn over the WORLD rather than
-       over the page — a reticle pointing at a shelf — so it takes the shop's
-       vocabulary and not the chrome's. See `.award-medal` for the line. */
-    .tt-aim b, .tt-aim i {
-      position: absolute; left: 50%; top: 50%; border-radius: 50%;
-    }
-    .tt-aim b {
-      width: 46px; height: 46px; margin: -23px 0 0 -23px;
-      background: rgba(90, 163, 86, .3); border: 3.5px solid #6fcf68;
-      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .5);
-    }
-    .tt-aim i {
-      width: 46px; height: 46px; margin: -23px 0 0 -23px;
-      border: 3px solid #8fe08a; opacity: 0;
-      animation: ttaim 2s ease-out infinite;
-    }
-    /* Two pulses, half a beat apart, so the mark reads as radiating rather than
-       as one circle appearing and disappearing. */
-    .tt-aim i:last-of-type { animation-delay: 1s; }
-    @keyframes ttaim {
-      0% { transform: scale(1); opacity: .9; }
-      100% { transform: scale(2.4); opacity: 0; }
-    }
+    /* Parked, and never pinned beside what it is pointing at.
 
-    /* The card. Pinned beside whatever is lit (`pin`), or centred when nothing
-       is — the first and last beats, which are read rather than acted on. */
+       It used to be measured onto whichever side of the target had room, which
+       is the right answer while a blackout means the card and the lit thing are
+       the only two objects on screen. Without one it is a slab that moves every
+       time the step does — over the panel you were reading, over the bar, over
+       the shop — and a thing that jumps about is a thing you re-find rather
+       than read. Out of the way on the right, same place every card, and the
+       mark does the pointing. */
     .tt-card {
-      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-      width: min(360px, calc(100vw - 24px));
+      position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+      width: min(340px, calc(100vw - 24px));
       display: grid; grid-template-columns: 62px 1fr; gap: 12px;
       align-items: start; pointer-events: auto;
       background: var(--panel-solid); color: var(--ink);
@@ -5664,15 +5973,10 @@
       box-shadow: 0 14px 34px rgba(58, 49, 40, .34);
       animation: ttpop .22s cubic-bezier(.2, 1.4, .4, 1);
     }
-    /* Once JS has measured a place for it the transform has to go, or the card
-       is offset half its own size from the point it was carefully put at. */
-    .tt-card.pinned { transform: none; }
     .tt-card.big { width: min(420px, calc(100vw - 24px)); }
     @keyframes ttpop {
-      from { opacity: 0; transform: translateY(8px) scale(.96); }
+      from { opacity: 0; transform: translateY(calc(-50% + 8px)) scale(.96); }
     }
-    .tt-card.pinned { animation-name: ttpop-pinned; }
-    @keyframes ttpop-pinned { from { opacity: 0; } }
 
     .tt-bot { grid-row: span 2; }
     .tt-face { width: 62px; height: 62px; display: block; }
@@ -5711,13 +6015,27 @@
     }
     /* Where you are, as ticks. A "4 of 18" invites you to work out how much is
        left, which is not the question the card wants asked. */
-    .tt-dots { display: flex; gap: 3px; flex: 1; flex-wrap: wrap; }
-    .tt-dots i {
-      width: 5px; height: 5px; border-radius: var(--r);
-      background: rgba(58, 49, 40, .18);
+    .tt-nav { display: flex; align-items: center; gap: 5px; flex: 1; }
+    .tt-arrow {
+      font: inherit; cursor: pointer; padding: 0 4px; border: 0; background: none;
+      color: rgba(58, 49, 40, .38); font-size: 15px; line-height: 1;
     }
-    .tt-dots i.was { background: rgba(58, 49, 40, .38); }
-    .tt-dots i.at { background: var(--good); transform: scale(1.5); }
+    .tt-arrow:disabled { opacity: .3; cursor: default; }
+    html.can-hover .tt-arrow:not(:disabled):hover { color: var(--ink); }
+    .tt-dots { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
+    /* A 5px dot is not a press, and the hit area may not cost a pixel of
+       layout: padded out, twelve of them no longer fit the feet, and the row
+       wraps onto a second line that the dots themselves are too tall to sit on.
+       So the target is a pseudo-element hung off the dot — off the flow, so the
+       row is the width and height it always was. */
+    .tt-dots button {
+      position: relative; width: 5px; height: 5px; border-radius: var(--r);
+      background-color: rgba(58, 49, 40, .18);
+      border: 0; padding: 0; cursor: pointer;
+    }
+    .tt-dots button::after { content: ''; position: absolute; inset: -8px -1.5px; }
+    .tt-dots button.was { background-color: rgba(58, 49, 40, .38); }
+    .tt-dots button.at { background-color: var(--good); transform: scale(1.5); }
     .tt-next, .tt-skip {
       font: inherit; cursor: pointer; border-radius: var(--r); padding: 5px 11px;
       border: 1px solid var(--line); background: transparent; color: rgba(58, 49, 40, .6);
@@ -5728,7 +6046,26 @@
       font-weight: 650; font-size: 12px; padding: 6px 16px;
     }
     .tt-next[hidden] { display: none; }
+    /* The step's own offer, and it is a SENTENCE rather than a button on
+       purpose. A labelled button in the feet is a press with no question
+       attached — somebody who has never played does not know what a build tool
+       is, let alone that the game is holding some back — so the words do the
+       asking and the answer is a link inside them, the shape everything else on
+       this card already uses. It sits with the hint rather than in the feet,
+       because it is small print about the shop and the feet are about the tour. */
+    .tt-offer {
+      margin: 8px 0 0; font-size: 11.5px; line-height: 1.42;
+      color: rgba(58, 49, 40, .68);
+    }
+    .tt-offer[hidden] { display: none; }
+    .tt-link {
+      font: inherit; cursor: pointer; padding: 0; border: 0; background: none;
+      color: var(--good); font-weight: 650; text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .tt-link[hidden] { display: none; }
     html.can-hover .tt-skip:hover { color: var(--ink); border-color: rgba(58, 49, 40, .3); }
+    html.can-hover .tt-link:hover { text-decoration-thickness: 2px; }
 
     /* The drawn tooltip is a shorter, worse version of the sentence already on
        the card, and it lands on top of it — the card is pinned beside the lit
@@ -5886,6 +6223,18 @@
     }
 
     @media (max-width: 720px) {
+      /* Top, not the right-hand edge. A phone is portrait, so "out of the way"
+         stops being a side and becomes an end — parked halfway up, the card
+         lands square over the shop, which is the one thing every beat is
+         pointing at. The top is also the half a thumb never reaches, and the
+         bar along the bottom is where the verbs are. */
+      .tt-card {
+        right: 8px; left: 8px; top: 64px; transform: none;
+        width: auto; max-width: none;
+      }
+      .tt-card.big { width: auto; }
+      @keyframes ttpop { from { opacity: 0; transform: translateY(-8px) scale(.98); } }
+
       #log { display: none; }
       .tool { min-width: 52px; padding: 6px 8px 5px; }
       /* Narrower, but still ONE width — see the rule above. A roster that
@@ -5914,9 +6263,9 @@
        So the card becomes a BAR: full width, hard against the top, and ONE ROW
        — it never wraps. The "nothing in here shrinks" rule above is right and
        is right for the same reason at any width, so what buys the row back is
-       cells LEAVING rather than being squeezed: the gauges' three labels here,
-       and at a narrower width still the season and the sparkline (see the
-       second query below, which is a different question and has its own number).
+       cells LEAVING rather than being squeezed — which is what the gauges' three
+       labels did here for a while, and what the season and the sparkline did at
+       a narrower width still, until both left the card at every width.
 
        The demand meter and the radio go entirely, and that is the same call one
        step further: they are the two things up here you CONSULT, both of them
@@ -5977,7 +6326,6 @@
       #cash { font-size: 15.5px; }
       #clock { font-size: 12px; }
       #dow, #day { font-size: 10.5px; }
-      #season { font-size: 9px; }
       .flow { font-size: 11.5px; }
       #town { font-size: 12px; }
       #town .tw { font-size: 8.5px; }
@@ -5993,7 +6341,7 @@
       /* The tags STAY. They were dropped here on the arithmetic — three 6.5px
          words is about 22px of a row that had none to spare — and the arithmetic
          stopped being true two changes ago, once the row was one line and the
-         season and the sparkline had their own width to leave at. Three
+         season and the sparkline had left the card entirely. Three
          unlabelled bars is the readout `.gg-tag` exists to prevent: they are a
          reputation, a mood and a room, they all fill rightwards, and which is
          which is a thing you would have to have learnt. The bars give the width
@@ -6283,12 +6631,13 @@
          it was, so nothing below it moves. The title goes up a size with it: it
          names what you are looking at, and at 12.5px it was the smallest thing
          on a full-screen sheet. */
-      #panel header { padding: 9px 8px 9px 12px; }
+      #panel header { padding: 10px 10px 10px 12px; }
       #panel-title { font-size: 15px; gap: 8px; }
-      #panel-close {
-        font-size: 19px; padding: 6px 10px; margin: -6px -6px -6px 0;
-        opacity: .65; line-height: 1;
-      }
+      /* The close is a square button now (see INK WEIGHT), so the phone gets a
+         BIGGER square rather than the padding-and-negative-margin trick that
+         used to grow a bare glyph's target — that trick was right about a glyph
+         and would blow the shape out of a thing with an edge on it. */
+      #panel-close { width: 34px; height: 34px; font-size: 16px; opacity: .9; }
       /* ---- the nav ---------------------------------------------------------
          Seven 40px buttons on a 6px pitch is 322px of row, so anything under
          about 340 wraps — and three rows of nav is a third of a phone screen
@@ -6357,23 +6706,6 @@
       .menu-box h1 { font-size: 34px; -webkit-text-stroke-width: 5px; }
     }
 
-    /* ---- and below THAT, the two cells the bar can do without ---------------
-       A second width rather than more rules in the one above, because it is a
-       second question: 640 is where the corner column stops being a corner, and
-       this is where the ROW itself stops fitting. A phone is 390 across and the
-       whole bar fits on one there — dropping anything at 640 would be taking
-       the week's shape off a screen with 90px of the card unused, which is what
-       it did for exactly one round of looking at it.
-
-       The season is a word that changes four times a game and the sparkline is
-       a week of finished days: both are consultations rather than readings, and
-       the money, the clock and whether the room is coping are not. They GO
-       rather than get smaller — a 34px sparkline is not a smaller sparkline, it
-       is seven bars nobody can tell apart.
-
-       Named as one rule with `.rows` because dropping either without the other
-       leaves an empty third column holding 56px of nothing: a grid column is as
-       wide as its widest cell, and an absent cell is not a narrower one. */
     /* ---- no mouse, no mouse glyph -----------------------------------------
        A question about the INPUT and not about the width, which is why it is
        its own query: a narrow window on a desktop is still a desktop, and
@@ -6382,11 +6714,6 @@
        row leads with the reason you cannot do it. */
     @media (hover: none) and (pointer: coarse) {
       #prompt .pr-mouse { display: none; }
-    }
-
-    @media (max-width: 380px) {
-      #season, .spark { display: none; }
-      .rows { grid-template-columns: auto auto; }
     }
 
     /* ---- THE PRESS -------------------------------------------------------
@@ -6555,7 +6882,6 @@
         <button id="clock" type="button" title="Stop the clock (Space)">
           <span id="clock-t">8am</span><i id="clock-pp" aria-hidden="true"></i>
         </button>
-        <span id="season">spring</span>
         <span id="cash">$0.00</span>
         <div id="flow"></div>
       </div>
@@ -6738,7 +7064,16 @@
   <div id="tutor" hidden></div>
 
   <div id="panel" class="hud">
-    <header><span id="panel-title">Panel</span><button id="panel-close">✕</button></header>
+    <!-- FIND is a button in the title bar and the box only exists once you have
+         pressed it. It was a permanently open field between the header and the
+         tabs: a row of chrome on every menu in the game, above the thing you
+         came to look at, for a control most sessions never touch. Static HTML
+         like the box itself, and for the same reason — `paintSection` rebuilds
+         everything below the header ten times a second, and a find button that
+         was re-rendered would be re-rendered out from under the press that
+         opened it. -->
+    <header><span id="panel-title">Panel</span><button id="panel-find" hidden
+      title="Find" aria-label="Find"></button><button id="panel-close">✕</button></header>
     <div id="panel-filter" hidden>
       <label id="panel-searchwrap">
         <span class="ico" id="search-icon"></span>

@@ -1132,7 +1132,15 @@ function refreshGhost(force = false) {
   // well as the marker — `heldBoard` does the same, and a pick nothing can draw
   // is a subject the pill would go on offering verbs about.
   if (pick.id && !picked) pick = { id: null, board: null };
-  scene.setPickedBoard(picked?.f ?? null, picked?.board ?? null);
+  // ...and a pile that is not what you are carrying STANDS DOWN rather than being
+  // dropped — see `boardInHands`. The line above is for a pick that has ceased to
+  // exist, which is a decision that cannot be honoured; this is a decision that
+  // has nothing to say for as long as your hands are full of something else, and
+  // it comes back the moment they are empty. Binning it here instead would mean
+  // picking up an armful quietly forgot the board you were working out of, which
+  // is a second thing the press did that nothing on screen mentioned.
+  const showPick = picked && boardInHands(picked.board) ? picked : null;
+  scene.setPickedBoard(showPick?.f ?? null, showPick?.board ?? null);
 
   // IS THE POINTER AN AIM, OR A FACT ABOUT A PRESS THAT IS OVER?
   //
@@ -1643,25 +1651,10 @@ function refreshGhost(force = false) {
     // means something here. Computed off the same four things the markers were
     // just drawn from, so the pill cannot describe a target the highlights
     // disagree about — see `pressHints`.
+    // ...and WHICH THING they are about, which rides on the same list: see
+    // `about` in `pressHints`, which owns both halves so they can never name two
+    // different units.
     const hints = pressHints({ aim, board, onPile, drop: show ? drop : null });
-    // ...AND WHICH THING THE ROWS ARE ABOUT, which the pill has never said.
-    //
-    // Every row here is a verb with no subject — "Open it", "Turn it", "Take it
-    // there" — and the only thing naming the *it* was the build bar's own hint
-    // line, which is gated on the mode being on and on the pointer being over
-    // something (`buildHintText`). So out of build mode nothing named it at all,
-    // and in build mode it went the moment you looked away. What the shop draws
-    // instead is a ring, and a ring tells you WHERE the thing is, not what it
-    // is: three conveyor cells, a plot and a loader all ring identically.
-    //
-    // The pointer first and the selection second, which is the same order
-    // `pressHints` puts them in — so the name and the rows can never be about
-    // two different units. Only a fixture: a crate says what is in it on the box
-    // itself and a square is not a thing with a name.
-    const about = aim?.crate || onPile
-      ? null
-      : aim?.fixture ?? scene.fixtureById(ui.fixtureRef?.id) ?? null;
-    if (about) hints.about = ui.fixtureName(about);
     ui.setPressHints(hints);
     return;
   }
@@ -5261,6 +5254,45 @@ function pickWay(cx, cy, blocked = false) {
 const boardTakes = () => !ui.paletteArmed && !ui.holding && !ui.demolishArmed() && !ui.paused;
 
 /**
+ * ...and **what is in your hands closes the other piles**, which is the one
+ * clause here that is about a particular board rather than about the gesture.
+ *
+ * Everything above is a mode: the bar is up, the bulldozer is armed, the clock is
+ * stopped. This is the shelf itself. A stocked unit is three piles a few pixels
+ * apart and every one of them was nameable whatever you were holding — which is
+ * right for the empty-handed shopkeeper walking an aisle reading the shop, and
+ * exactly wrong for the one carrying six tomatoes looking for somewhere to put
+ * them. There the only question is *which unit*, and the answer was being drawn
+ * over by somebody else's bread: the cage rests on the pile, the pill's rows are
+ * about the pile, and the shelf you are actually aiming at is the thing behind
+ * all of it. A pick made before you picked the goods up is worse again, because
+ * it does not even move with the pointer — a teal box parked on the lettuce for
+ * the whole walk across the shop.
+ *
+ * So while you are holding stock a pile is a target only if it is stock you are
+ * holding, which is the *one* pile that has anything to say in that moment: it is
+ * "top this one up", and it is the board the goods would land on. Every other
+ * pile falls back to the unit, and the unit is what a full pair of hands means.
+ *
+ * **What it costs is plucking one of something else**, and that is worth being
+ * honest about: `boardTakes` deliberately dropped full hands as an exclusion when
+ * the direction moved onto the button, so that walking round taking one or two of
+ * each would work. It still does with your hands empty, and one item deep with
+ * your hands full — what is gone is a left-tap on the lettuce while carrying
+ * tomatoes, which is the unit's own menu now. The trade is that the marker in the
+ * shop is once again about the press you are actually making.
+ *
+ * Both hands and shoulder, the same union `takers` is built from: a crate of
+ * tomatoes on your back is goods looking for a home as much as an armful is.
+ */
+const inMyHands = (itemId) => [myCarry(), myHaul()]
+  .filter(Boolean)
+  .some((lot) => lotStacks(lot).some((s) => s.item_id === itemId));
+
+/** ...and empty-handed the rule is off, which is every press that reads a shop. */
+const boardInHands = (itemId) => !handsFull() || inMyHands(itemId);
+
+/**
  * A TAP IS A QUESTION HERE, NOT A VERB.
  *
  * On a desktop a tap can be a verb because there is a second button to be the
@@ -5624,6 +5656,11 @@ function liveBoard(at) {
  */
 function ripeBoard(f, board) {
   if (!f || !board) return null;
+  // Above the pick, and that is the point of putting it here rather than in the
+  // hover: a pile named before you picked the goods up is exactly the one that
+  // sits there through the whole walk. `boardInHands` is off with empty hands, so
+  // nothing below this line has changed for anybody reading a shop.
+  if (!boardInHands(board)) return null;
   // A picked pile needs no dwell — naming one is paid for once, so the second
   // loaf and the third cost no holding still. It does NOT close the other piles
   // though, and that is deliberate: you walk an aisle with a board selected and
@@ -5685,21 +5722,38 @@ function pressHints({ aim, board, onPile, drop }) {
   // already decided — the hint line above the bar is what says so, because
   // neither is a question about what the pointer is on.
   if (ui.holding || ui.demolishArmed()) return [];
-  // ...and a stopped clock is the fourth, for the reason the other three are:
-  // every sentence in here is a press this pill promises will do something, and
-  // while the world is held not one of them can. A walk has legs and a hold is a
-  // ring, and both are spent in `stepActions` — so "Set the crate down here" over
-  // a paused shop is a button that takes the press, lights up, fills nothing and
-  // hands back a shop that has not moved, which is exactly what a game that has
-  // crashed looks like.
+  // ...and a stopped clock is the fourth — except that it is not, and it was
+  // one for as long as this pill has existed.
   //
-  // Gone rather than greyed, which is the call the three above already make: a
-  // disabled row is still a row you read, and there is nothing to decide between
-  // while the answer to all of them is the same. The reason is not dropped, it
-  // moves to where it is asked for — press anything anyway and the shop says so
-  // (`ShopRoom.frozen`), which is a sentence at the moment you wanted one rather
-  // than a caption you have been scrolling past all along.
-  if (ui.paused) return [];
+  // Half of it is right and is the half `walkRow` and the `hold` line in `add`
+  // now carry: a walk has legs and a hold is a ring, both are spent in
+  // `stepActions`, and neither can happen while the world is held — so "Set the
+  // crate down here" over a paused shop is a button that takes the press, lights
+  // up, fills nothing and hands back a shop that has not moved, which is exactly
+  // what a game that has crashed looks like.
+  //
+  // The other half was a rule the sim does not have, and `ShopRoom.frozen` says
+  // so in its own words: *a tap that takes one unit off a board, a build, an
+  // order, opening a menu — all of those are one immediate mutation and all of
+  // them still work stopped, which is most of what looking round a paused shop
+  // is for.* Every one of those has a row here, and the blanket veto took the
+  // lot: pause to lay out an aisle — which is what a pause is FOR — and the one
+  // surface naming what you are pointing at and what R and M would do to it goes
+  // dark, in the mode built to be used with the clock held.
+  //
+  // So the veto is per ROW and it is the press's own fact rather than a list of
+  // words: a walk says so at the site (there are eight, and each is the only
+  // place that knows it is a walk), and a ring says so by being tagged `hold`.
+  // Everything else — Select, Open, Move, Turn, and the single-unit taps that go
+  // straight to `crate-one`/`shelf-one`/`station-one` — is legal stopped and now
+  // says it is.
+  //
+  // What is left when a target has nothing but walks and rings is a card with a
+  // NAME in it and no rows, which `setPressHints` draws only while the clock is
+  // held. Gone rather than greyed, the way the three above are: a disabled row
+  // is still a row you read, and the reason is not lost — press anything anyway
+  // and the shop says so (`ShopRoom.frozen`), at the moment you wanted a
+  // sentence rather than as a caption you have been scrolling past all along.
   const out = [];
   // `tag` is what makes the press something other than a click — the length of
   // it (`hold`) or the number of them (`twice`). It is a word rather than a
@@ -5742,14 +5796,62 @@ function pressHints({ aim, board, onPile, drop }) {
   // row before — on a desktop this pill is a caption naming which mouse button
   // does what, and a caption for a press that does nothing is noise there.
   const add = (btn, tag, say, run = null, off = null) => {
+    // A RING IS THE WORLD RUNNING, so a held row goes with the clock. Every
+    // `hold` in this function ends in `place`, `take` or `walk-to` — the three
+    // verbs `ShopRoom.frozen` guards — and it is the one kind of press whose
+    // failure is invisible: the row takes the press, `pillPress` sends the
+    // errand, and nothing winds it. `hold-drag` is deliberately not this: that
+    // one is `build-lift`, which is a purchase and works stopped.
+    if (ui.paused && tag === 'hold') return;
     const twin = out.find((h) => h.say === say && h.tag === tag
       && h.btn !== btn && (h.off ?? null) === off);
     if (twin) { twin.btn = 'lr'; return; }
     if (out.length < 4) out.push({ btn, tag, say, run, off });
   };
+  /**
+   * ...and the same for a row whose press is a JOURNEY.
+   *
+   * A walk cannot say so by its tag the way a ring can — `Go to it`, `Take it
+   * there` and `Harvest it` are a plain left press, a plain right press and a
+   * proximity job, and the only thing they have in common is `walk-to`. So it
+   * is said at the site, which is this function's own rule for `run`: the site
+   * is the one place that already knows which press this sentence is about, and
+   * a lookup from the words back to a call would be the second opinion the whole
+   * of `pressHints` is written not to be.
+   */
+  const walkRow = (btn, tag, say, run = null, off = null) => {
+    if (ui.paused) return;
+    add(btn, tag, say, run, off);
+  };
   const carry = myCarry();
   const haul = myHaul();
   const crate = aim?.crate ?? null;
+  // ...AND WHICH THING THE ROWS ARE ABOUT, which the pill has never said.
+  //
+  // Every row here is a verb with no subject — "Open it", "Turn it", "Take it
+  // there" — and the only thing naming the *it* was the build bar's own hint
+  // line, which is gated on the mode being on and on the pointer being over
+  // something (`buildHintText`). So out of build mode nothing named it at all,
+  // and in build mode it went the moment you looked away. What the shop draws
+  // instead is a ring, and a ring tells you WHERE the thing is, not what it is:
+  // three conveyor cells, a plot and a loader all ring identically.
+  //
+  // The pointer first and the selection second, which is the same order the
+  // rows below are decided in — so the name and the rows can never be about two
+  // different units. Only a fixture: a crate says what is in it on the box
+  // itself and a square is not a thing with a name.
+  //
+  // In here rather than at the call site, and that is what the two `return []`s
+  // above buy: a carried fixture and an armed bulldozer are a press whose
+  // subject is already decided and said above the bar, so neither should grow a
+  // second caption naming it — and they cannot, because they leave before this
+  // line. Since a rowless card is drawn while the clock is held
+  // (`setPressHints`), a name computed outside would have turned both of them
+  // into one.
+  const named = crate || onPile
+    ? null
+    : aim?.fixture ?? scene.fixtureById(ui.fixtureRef?.id) ?? null;
+  if (named) out.about = ui.fixtureName(named);
   // THE THING YOU SENT YOURSELF TO IS STILL THE THING, and that is what makes
   // "Go there" finish its own sentence. The list is re-derived from the POINTER
   // every snapshot, and a walk moves the camera under a pointer that is not
@@ -5850,8 +5952,8 @@ function pressHints({ aim, board, onPile, drop }) {
     if (!inReachOf(crate)) {
       const go = () => net.send('take', { palletId: crate.id });
       // Both buttons are the same journey, so with one pointer it is one row.
-      if (pillDrives()) { add('l', null, 'Go there', go); return out; }
-      add('l', null, 'Go to it', go);
+      if (pillDrives()) { walkRow('l', null, 'Go there', go); return out; }
+      walkRow('l', null, 'Go to it', go);
       // Both buttons walk. The right one's own jobs all need you standing there
       // (`armPut` opens with `dropping()` and refuses a box out of reach), so
       // out here it falls down its ladder to the same tail the left button has
@@ -5860,7 +5962,7 @@ function pressHints({ aim, board, onPile, drop }) {
       // nothing at eight reads as the shop being unreliable. Both rows are still
       // written, because the fact is about two buttons; `add` is what folds them
       // into the one sentence with a mouse at each end.
-      add('r', null, 'Go to it', go);
+      walkRow('r', null, 'Go to it', go);
       return out;
     }
     const lift = () => pillPress(() => net.send('take', { palletId: crate.id }), true);
@@ -5949,7 +6051,7 @@ function pressHints({ aim, board, onPile, drop }) {
       // Selecting is not lost, it is the tap itself (`tapAtPointer`), so a row
       // for it here would be the press you just made.
       if (pillDrives()) {
-        add('l', null, (carry || haul) ? 'Take it there' : 'Go there',
+        walkRow('l', null, (carry || haul) ? 'Take it there' : 'Go there',
           () => walkTo({ fixture: f.id, put: !!(carry || haul) }));
         // ...and the menu, which is the other thing you can mean about a unit
         // across the shop and the one this branch used to swallow. Pricing a
@@ -5972,7 +6074,7 @@ function pressHints({ aim, board, onPile, drop }) {
       // naming a gesture that does nothing is the green-ghost bug with words on
       // it, and the other two rows still say what the buttons do.
       if (!flying()) add('l', 'twice', 'Go to it', () => walkTo({ fixture: f.id }));
-      add('r', null, (carry || haul) ? 'Take it there' : 'Go to it',
+      walkRow('r', null, (carry || haul) ? 'Take it there' : 'Go to it',
         () => walkTo({ fixture: f.id, put: !!(carry || haul) }));
       return out;
     }
@@ -6028,7 +6130,7 @@ function pressHints({ aim, board, onPile, drop }) {
     //     same pill just told you to make.
     const stepOver = () => {
       if (carry || haul || onWorkSpotOf(f) || ui.escape(true)) return;
-      add('r', null, 'Go to it', () => walkTo({ fixture: f.id }));
+      walkRow('r', null, 'Go to it', () => walkTo({ fixture: f.id }));
     };
     // `readyToTake` and never a field on `f`: the pointer hands back the LAYOUT
     // record, and whether there is a tray to empty or fruit on the bed is on the
@@ -6072,16 +6174,20 @@ function pressHints({ aim, board, onPile, drop }) {
     if (f.kind === 'plot') {
       // The one action that charges with no button down (`auto`), so naming the
       // bed is the whole of it — there is nothing for the pill to hold.
-      if (readyToTake(f)) add('l', null, 'Harvest it', () => walkTo({ fixture: f.id }));
-      else select();
+      // `out.length` and not `readyToTake` again: the harvest is a walk, so a
+      // stopped clock drops it (`walkRow`) — and a ripe bed with its one row
+      // gone must still fall back to the selection, or the two kinds in the shop
+      // that offer nothing else are the two you cannot pick while building.
+      if (readyToTake(f)) walkRow('l', null, 'Harvest it', () => walkTo({ fixture: f.id }));
+      if (!out.length) select();
       stepOver();
       return out;
     }
     // A pen offers one job and nothing ever goes in, so there is no right press
     // and no direction to say — the bin's shape rather than the appliance's.
     if (f.kind === 'pen') {
-      if (readyToTake(f)) add('l', null, 'Collect it', () => walkTo({ fixture: f.id }));
-      else select();
+      if (readyToTake(f)) walkRow('l', null, 'Collect it', () => walkTo({ fixture: f.id }));
+      if (!out.length) select();
       stepOver();
       return out;
     }
@@ -6165,7 +6271,7 @@ function pressHints({ aim, board, onPile, drop }) {
       // Not a dead end: the walk carries the direction with it, so one press
       // still ends with the goods going on. Same row the out-of-reach branch
       // above offers, said one tile closer.
-      add('r', null, 'Take it there', () => walkTo({ fixture: f.id, put: true }));
+      walkRow('r', null, 'Take it there', () => walkTo({ fixture: f.id, put: true }));
     } else if (carry || haul) {
       add('r', null, 'Put one on', () => {
         const itemId = ripeBoard(f, board);

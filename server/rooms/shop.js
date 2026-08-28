@@ -766,6 +766,14 @@ export const ShopRoom = (Base) => class extends Base {
       client.send('action-result', this.game.setPaused(!!m?.paused, by, !!m?.quiet));
     });
 
+    // Whether the build palette unfolds with the ladder. No layout to send —
+    // this moves no fixture and no tile; it decides which tiles the BAR draws,
+    // and the bar is redrawn off the snapshot that carries `reveal`.
+    this.onMessage('reveal', (client, m) => {
+      const by = this.game.players[client.sessionId]?.name;
+      client.send('action-result', this.game.setReveal(!!m?.reveal, by));
+    });
+
     this.onMessage('buy-upgrade', (client, m) => {
       const res = this.game.buyUpgrade(m?.upgradeId);
       client.send('action-result', res);

@@ -3,7 +3,8 @@
 *A robot who shows you round a shop you have just made, and holds the rest of
 the game still while it does.*
 
-Status: **step 1 built**, plus the guest tour (1b). Steps 2–4 proposed.
+Status: **step 1 built**, plus the guest tour (1b). Steps 2–4 proposed; step 5
+(the cinematic rework) is the one being built next.
 
 ---
 
@@ -37,20 +38,47 @@ blacked out and unpressable.
 ## Step 1 — the tour *(built)*
 
 `client/tutor.js`, plus a `#tutor` element and its styles, plus two rows in the
-Menu and one attribute in `bar.js`. **Ten beats:**
+Menu and one attribute in `bar.js`. **Twelve beats:**
 
 | | teaches |
 |---|---|
 | 1 Hello | who is talking, and that there is a way out |
 | 2 Walk | left-click the floor; and that left-clicking a *thing* is a walk plus a job |
 | 3 Buy stock | the supplier, and that goods arrive on a lorry rather than out of a menu |
-| 4 Take on a Clerk | the crew are leased machines; the strip; the two-click confirm |
+| 4 Meet your Shop Hand | the crew are leased machines; the strip; opening somebody up |
 | 5 Their shift | that a hire's day is a ratio **and** a budget |
 | 6 Build a chiller | the palette, the price, the green/amber ghost |
 | 7 Take one out | **left takes one, hold-left takes the lot, right puts one back, hold-right pours** |
 | 8 Shelve it | the chevrons — the shop tells you which unit will have it |
 | 9 Shoulder the crate, tip it in | the same four presses at scale, and why a box beats your arms |
-| 10 Open up | the shutters, which is why the shop was quiet the whole time |
+| 10 Hold for the menu | that a hold is how you reach what a thing can *do* |
+| 11 Keep it for something | a reservation, and that the shop will then buy for it |
+| 12 Open up | the shutters, which is why the shop was quiet the whole time |
+
+A new shop **comes with a Shop Hand** (`starterHire`, server/worlds.js), which
+is why beat 4 opens somebody up rather than buying one. A bare building with
+nobody in it is a still frame: nothing moved until the player made it move, and
+the one thing a shop is *for* — a machine putting stock out while you decide
+where the freezer goes — was four minutes and $200 away. A hand rather than a
+clerk because a hand serves, unloads, shelves, farms and tidies, so one of them
+is the shop ticking over where a clerk in an empty shop has nothing to do at all.
+
+The beat that swap breaks is the interesting part. It used to end on
+`roster.length > 0`, which is now true on the frame the card opens — so it
+completed instantly and flashed past. Asking for a *second* hire is the obvious
+repair and the wrong one: it spends $200 of a $250 float on a shop with nothing
+on its shelves. The lesson was never the purchase. It is that the crew exist,
+that they are leased, and that the strip is where they live — all of which is
+still there to show, and now there is somebody standing in it to show it with.
+
+The last beat also carries the one **offer** in the tour: whether the build
+palette should unfold with the ladder (`shared/reveal.js`) or arrive whole. It
+is deliberately a *sentence with a link in it* rather than a labelled button —
+somebody four minutes into their first shop has never seen the palette hold
+anything back, so a button reading "Show all build tools" is a press with no
+question attached, which is a dare rather than a choice. What it leaves behind
+names the Menu row that changes it back, because a setting you cannot find again
+is one nobody should be touching on their first day.
 
 It was eighteen — one card per press — and eighteen cards is a lecture: you stop
 reading around the fifth and start hunting for Skip. The saving is not in
@@ -92,14 +120,34 @@ forwarding, no synthetic events, no second opinion about what a click on a shelf
 does.
 
 **It refuses to block the world.** Every step whose target is a thing standing
-in the shop lights the canvas whole and drops a pulsing ring on the target,
-pinned through `Scene.worldToScreen` every frame. Two reasons it is not a
-rectangle. A shelf is a three-quarter-tile box drawn most of a tile *up-screen*
-of the ground it stands on, so a box round where the pointer ought to go is a
-box in the wrong place — the same trap `pickFixture` exists to answer. And a
-crate is not a fixture, so `setMarkedSet` (which wants an `f`) has nothing to
-hang on; one ring in screen space answers for a crate, a shelf, and the bare
-tile you are asked to walk to, which is none of the above.
+in the shop lights the canvas whole and marks the target instead. The mark is
+**in the shop** — `Scene.setTutorTarget`, drawn as `MARKER_LOOK.tutor`, a green
+frame on the tile with a chevron over it — rather than a rectangle on the page,
+and both halves of that are load-bearing.
+
+Not a rectangle, because a shelf is a three-quarter-tile box drawn most of a
+tile *up-screen* of the ground it stands on, so a box round where the pointer
+ought to go is a box in the wrong place — the same trap `pickFixture` exists to
+answer.
+
+And not on the page at all, which is the correction. It was a pulsing circle
+projected through `Scene.worldToScreen` every frame, and the projection was
+never wrong: it sat exactly over its point, at every angle, on every frame. What
+it could not do is *belong* to the point. A fixed-size coin does not turn as the
+camera comes round and does not foreshorten as the ground does, so the one thing
+it reads as is a sticker on the glass tracking something behind it — which is
+precisely the complaint, and no amount of tuning a radius or a pulse addresses
+it, because the fault is that it is drawn in the wrong space. A frame lying on
+the tile grid is pinned by construction.
+
+It takes a POINT rather than a fixture, and that is what lets one call answer
+all three targets: a crate is not a fixture, so the renderer's own
+`setAimTarget` (which wants an `f`) has nothing to hang on, and the bare tile
+you are asked to walk to is not a thing at all. It is also why it cannot be the
+*contour* every other marker uses for a unit — a contour is a stencil cut from
+the object's own meshes, and there is no object for two of the three. The mask
+would refuse it anyway: it carries three channels, R, G and B, and amber, teal
+and red are all spoken for (`MARK`, `client/render/look.js`).
 
 **A hole is a place to work, and it cannot name a press.** The buying beat lights
 the whole supplier, deliberately — *which* case you buy is the half of that step
@@ -129,6 +177,20 @@ mid-render. It does not know what to light, and a blackout with no hole in it is
 a game nobody can play. `lost` is that third answer, and after six seconds of it
 the card grows a *Carry on* button — the smaller press, which gives up on the
 step rather than on the tour.
+
+**The feet are navigable, and that is a reviewing tool that had to be safe to
+ship.** The ticks are buttons and there is a chevron either side of them, so any
+beat can be reached from any other. Three things keep it from undoing the design
+the card count is about. They are the **quietest** controls on the card — the
+same weight as the dots they flank, never a second green pill beside Next, which
+is still the only thing that looks like the way forward. The hit area is a
+pseudo-element (`inset` off the dot) rather than padding, because padding twelve
+5px dots out to a pressable size overflows the feet, and the row then wraps onto
+a second line the dots are too tall to sit on — which draws as a smear of bars
+rather than as ticks. And the forward chevron **stops on the last card** instead
+of finishing the tour: an arrow that quits is Skip wearing a different glyph.
+Every jump goes through `go`, so a beat reached this way opens exactly as it
+opens in play — its `start`, its `arm`, and its `skipWhen`.
 
 **It may never trap you.** Skip is on every card. Esc skips, on capture, so the
 game's own Esc cannot close the menu the veil is pointing at and leave the card
@@ -260,6 +322,112 @@ gesture drawn: a hand over the ring, the ring winding, the crate filling. The
 renderer already draws the ring; a HUD sprite of the press over the lit target
 is a small thing and is worth more than the paragraph under it.
 
+## Step 5 — the tour stops being a UI element *(next)*
+
+The robot in the corner of the card is a drawing, and it is a drawing because
+when this was built there was nothing else it could have been: bodies could not
+wave, could not point, and the camera had one job, which was following you
+about. All three of those changed underneath it. `shared/emotes.js` gives every
+body four things to say with its arms; `rec.tyaw` is the *drawn* heading, eased
+at `ACTOR_TURN`, so which way somebody is looking is already the client's own
+answer; and `viewState`/`applyView` will hand the camera a pitch, a yaw and a
+centre and ease it there. So the tour can be *shot* rather than illustrated, and
+the thing the card is pointing at can be a person standing in the room.
+
+### It is YOU, and it was nearly a hire
+
+The obvious character is a robot shop-fitter — the fiction is already right for
+it (every hire is a machine, and one turning up on day one to fit the place out
+is exactly the story the cards tell), and it solves the oddness of your own
+avatar greeting you.
+
+**It does not survive the running order.** Beats 1–3 come before the crew strip
+has been opened, let alone paid: a guide you have to hire cannot be the one who
+introduces the shop, and hiring him at beat 4 means beats 1–3 are shot on an
+empty floor with a card floating over it, which is what we already have. Making
+him free, or pre-hired, buys the shot back and empties beat 4 of its lesson.
+
+So it is the player's own body, and the oddness is a framing problem rather than
+a real one: **he is not greeting you, he is your shopkeeper standing in a shop
+that has just been handed over**. The opening is a shot of him, not a
+conversation with him — the card is the game talking, the same voice it has now.
+The wave is a title shot rather than a hello. Everything downstream falls out of
+that for free, because he is the one body in the shop the client already owns
+end to end: he walks because you walk him, he turns because `tyaw` is ours, and
+he is on screen at every beat by definition.
+
+### The shot language
+
+Three states, and the whole design is that a card is only ever in one of them:
+
+- **LOOK** — camera drops to a low front-on angle on him, he does something (a
+  wave, a point, a short walk), and the card opens beside where he projects.
+  Nothing is being asked of you.
+- **DO** — the camera goes back to the iso view it was on, the veil cuts its
+  hole, and the beat is exactly what it is today: a predicate over the snapshot.
+- **LOOK** again for the next card.
+
+The rule that keeps it from being a cutscene you fight: **the tour may move the
+camera and the body only while the card is not waiting on your press.** A step
+with a `done` predicate is yours from the frame it opens. That is the same line
+`big` already draws, and it is why the read-only cards are the ones that get the
+shots.
+
+### Walking him is the point, and it is also the sharp edge
+
+The instinct is to leave the walking alone — `walk-to` moves the *real* body, so
+a tour that walks you is a tour holding the controls. But a body that only ever
+turns on the spot is a statue with an arm, and the reason to want this at all is
+that the shop feels inhabited.
+
+What makes it safe is *what the walk is for*: *the tour walks you into the region
+the next lesson happens in, and never anywhere else.* The chiller beat is about
+the ghost and the price, not about finding a clear bit of floor; the shelf beats
+are about four presses, not about which of six units. Today every one of those
+cards spends its first sentence on a journey — "click the crate, you walk over
+and pick the whole box up" — and that sentence is scaffolding round the lesson
+rather than the lesson.
+
+Two orderings follow and both are load-bearing. **Beat 2 still teaches the
+walk**, and nothing may walk you before it: a tour that moved you before showing
+you how to move has taught you that the game plays itself. And **a walk is a
+LOOK**, so it is over before the card starts asking for anything — which also
+means a walk the server refuses, or one you interrupt with WASD, costs the tour
+nothing at all. It never had to arrive.
+
+### Pointing needs a direction, and an emote has none
+
+`point` moves the shoulder pivots and knows nothing about the shelf. The
+direction is `rec.tyaw` — set it at the target, let `ACTOR_TURN` ease him round,
+then `sendEmote('point')`. Which is the same split `vehicleYaw` names: an emote
+is a pose in the body's own space, and where the body is FACING is a separate
+fact that nothing in `shared/emotes.js` has an opinion about.
+
+### What it rests on, and what it must not cost
+
+Everything above is a call the client already has, which is what keeps the
+promise this file opens with: **nothing in `server/` knows the tour exists.**
+`walk-to` and `emote` are messages the game already had, `tyaw` and the camera
+are the renderer's own state, and none of it is on the save.
+
+Four things to get right, each of which is invisible when wrong:
+
+- **The view has to be given back.** `viewState()` before the first shot and
+  `applyView` after the last, or a tour that is skipped mid-shot strands
+  somebody at a cinematic pitch with no way to name what happened.
+- **The camera has one owner at a time.** `camPan` is a leash off your body,
+  build mode swaps it for `setFreeRoam`, and `clampPan` is the one place either
+  bound is applied — a shot that writes the pan while build mode owns it is the
+  same fight the free-roam note in CLAUDE.md describes, and it reads as the pan
+  jamming for no reason.
+- **A shot is not a stage.** It moves the camera and one body; the shop keeps
+  running, shoppers keep walking, and the clock keeps going. Freezing the world
+  for a card would make the tour the one place the game stops behaving like
+  itself.
+- **Co-op sees all of it.** An emote is broadcast, so your tutorial makes your
+  avatar wave in somebody else's shop. That is charming rather than a bug, and
+  it is worth knowing before it is reported as one.
+
 ---
 
 ## Traps found writing this one
@@ -282,20 +450,23 @@ is a small thing and is worth more than the paragraph under it.
   round it is a hole round a dead button, with the `−` that would make room for
   it out in the blackout. The step lights the whole row and accepts *any* change
   to the shift.
-- **A mark is projected at a HEIGHT, and getting it wrong does not look like a
-  wrong number.** `worldToScreen` takes a `y`, and on a 45° camera a metre of
-  height is most of a tile of *screen*, up and to the right. A crate marked at
-  head height gets a ring hanging in the air off its top corner — which reads as
-  the marker being broken rather than as one argument being wrong. Each target
-  names its own height (`CRATE_Y`, `SHELF_Y`), measured against the art.
-- **A card set beside a ring has to clear the ring's RADIUS.** The world mark is
-  ~46px across and *centred* on the point, so an 18px gap puts the card over the
-  bottom of its own highlight and half of what it is highlighting.
-- **A single expanding ring is nearly invisible over a shop floor.** It is a
-  thin green line among a hundred thin lines and it spends most of its cycle
-  transparent. The mark is three layers: a solid disc that never moves, so
-  something is *always* there to find, and two pulses off it saying which way to
-  look.
+- **A mark carries a HEIGHT, and it means something else now.** It was there
+  because `worldToScreen` takes one, and on a 45° camera a metre of height is
+  most of a tile of *screen*, up and to the right — so a crate marked at head
+  height got a circle hanging in the air off its top corner, and a `y` too low
+  put the mark on the floor beside the thing rather than on it. In the world
+  none of that applies: the frame is on the ground, which is already under the
+  thing. So the height is spent on the CHEVRON instead, and getting it wrong is
+  the opposite mistake — a frame raised to `SHELF_Y` is a square hanging through
+  the middle of the shelf. Each target still names its own (`CRATE_Y`,
+  `SHELF_Y`), measured against the art.
+- **A marker in the world beats at the pace of what it is for.** The aim and
+  target frames swing at 4 because they are about a press you are half way
+  through making. The tour's is a beacon you are meant to *find*, on a screen
+  you have never seen before, so it is wider and slower (2.4) and breathes its
+  opacity as well — a single thin outline over a shop floor is one green line
+  among a hundred, which is what made the circle it replaced hard to find in the
+  first place and would do the same to a frame drawn flat.
 - **"Tap" is the wrong word and it was in eleven places.** This is a mouse game
   whose whole vocabulary is left, right, and held — the one sentence the tour
   exists to deliver is *left takes one, hold-left takes the lot, right puts one

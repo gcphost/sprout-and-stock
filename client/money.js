@@ -77,10 +77,10 @@ const COMPACT_OVER = 10000;
  * as amounts you are about to spend or have made, and `$31.4k` in the HUD would
  * be a balance you cannot check against a price tag.
  */
-export function compact(n) {
+export function compact(n, dp) {
   const v = Number(n) || 0;
   const size = Math.abs(v);
-  if (size < COMPACT_OVER) return money(v);
+  if (size < COMPACT_OVER) return money(v, dp);
   const [scale, suffix] = size >= 1e6 ? [1e6, 'm'] : [1e3, 'k'];
   const short = size / scale;
   // A decimal only where it separates two figures the eye would otherwise read

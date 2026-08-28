@@ -8557,6 +8557,47 @@ export class Scene {
   }
 
   /**
+   * WHAT THE TOUR IS POINTING AT — the one marker the shop does not decide.
+   *
+   * Every other marker in here is answered by the pointer or by a menu, and
+   * this one is answered by a card on the right hand side of the screen. It is
+   * still a marker in the world rather than a mark on the page, and that is the
+   * whole of the change: the tour drew a circle in screen space, projected
+   * through `worldToScreen` every frame, which is a fixed-size coin that stays a
+   * coin however the ground under it foreshortens. It tracks the point
+   * perfectly and reads as unpinned, because everything else in the picture
+   * turns with the camera and it does not — which is exactly what a quarter turn
+   * of the view shows you.
+   *
+   * `{x, z, y}` rather than a fixture, because the three things the tour points
+   * at are a crate, a unit and a bare square of floor, and only one of those has
+   * a record.
+   *
+   * The frame goes on the GROUND and the height is spent on the chevron, which
+   * is the one thing that changed meaning on the way in here. Projected, the `y`
+   * was where the mark itself was drawn, and it had to be — a circle over a
+   * crate's tile is a circle on the floor beside it, since a metre of height is
+   * most of a tile of screen. Laid on the ground the frame is already under the
+   * thing, and a frame raised to 0.85 to point at a shelf is a square hanging
+   * through the middle of it.
+   */
+  setTutorTarget(at) {
+    const key = at ? `${at.x},${at.z},${at.y ?? 0}` : null;
+    if (this.tutorKey === key) return;
+    this.tutorKey = key;
+    if (this.tutorMarker) {
+      this.actorRoot.remove(this.tutorMarker);
+      disposeGroup(this.tutorMarker);
+      this.tutorMarker = null;
+    }
+    if (!at) return;
+    this.tutorMarker = buildTargetMarker('tutor');
+    this.tutorMarker.position.set(at.x, 0, at.z);
+    this.tutorMarker.userData.lift = (at.y ?? 0) + 0.55;
+    this.actorRoot.add(this.tutorMarker);
+  }
+
+  /**
    * A frame on the tile, or a cage round the thing.
    *
    * A unit takes the CONTOUR, and that used to be a frame on its tile. The
@@ -13461,8 +13502,14 @@ export class Scene {
       model: this.catalog.items[s.item_id]?.model ?? null,
       name: this.catalog.items[s.item_id]?.name ?? '',
     }));
+    // `waste` is in the key because it is in the picture, which is `syncPallet`'s
+    // reason said about the same box one pair of hands along. A crate of rot on
+    // a shoulder drew as an ordinary crate, so the walk to the skip looked like
+    // any other trip and setting it down "un-spoiled" it on screen — the shop
+    // knew, and the only thing that could have told you did not.
+    const waste = haul?.waste === true;
     const key = piles.length
-      ? `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${cap}` : null;
+      ? `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${cap}${waste ? ':w' : ''}` : null;
     if (rec.haulKey === key) return;
     rec.haulKey = key;
 
@@ -13476,7 +13523,7 @@ export class Scene {
     // `covered: false` so you can see into it — what is in the box is the whole
     // question when somebody walks past you with one, and with a mixed crate it
     // is the only way to tell that the box is doing three jobs at once.
-    const box = buildPallet(piles, { covered: false, cap });
+    const box = buildPallet(piles, { covered: false, cap, waste });
     box.scale.setScalar(0.72);
     box.position.set(0, 0.52, 0.3);
     rec.obj.add(box);
@@ -14439,15 +14486,28 @@ export class Scene {
    * there are a few dozen.
    *
    * ...and only while they are actually IN THE WAY, which is TWO tests and needs
-   * both. `WALL_CUT_VIEW` is how closely you are leant in: pulled right out you
+   * both. `wallCutView` is how closely you are leant in: pulled right out you
    * are looking at a building rather than into a room, the near walls are a
-   * tenth of the screen and hide almost nothing. `WALL_GHOST_REACH` is WHERE you
+   * tenth of the screen and hide almost nothing. `inTheWay` is WHERE you
    * are looking, and it is the one that was missing — leant in over the middle of
    * an empty shop floor, the far wall is still turned at you and still fades,
    * with nothing anywhere near it, which reads as the effect firing at random
    * because from where you are sitting it did. A wall has to be facing you, and
    * close to what you are looking at, and you have to be close enough for it to
-   * matter. See `nearCamLook`.
+   * matter.
+   *
+   * BOTH OF THEM ARE FACTS ABOUT THE PITCH, and neither knew the pitch could
+   * move — which is the whole of what this got wrong. The paragraph above says
+   * it and then does not use it: a wall conceals `h / tan(pitch)` of floor, so
+   * every number here is written against the 40° the view opens at and drifts
+   * the moment somebody drags the camera down. `PITCH_MIN` is 3°. At 12° — an
+   * ordinary lean, looking along an aisle — a 2.1 wall hides ten tiles of shop
+   * and is nine of them from what you are looking at, so it failed a four-tile
+   * reach and stayed solid while being the only thing on screen. Tilted the
+   * other way it is the opposite mistake: from overhead a wall hides nothing
+   * and faded anyway, which is a plan view of your own shop with its plan
+   * rubbed out. Both are read off `camPitch` now, and both are still exactly
+   * their old numbers at `PITCH_HOME` — see the two methods.
    *
    * Three more things about which walls qualify.
    *
@@ -14479,13 +14539,18 @@ export class Scene {
   ghostNearWalls() {
     if (!this.edgeGroup) return;
     const { x, z } = this.camOffset;
-    const cut = !this.fpv && this.viewTiles() <= WALL_CUT_VIEW;
+    const cut = !this.fpv && this.viewTiles() <= this.wallCutView();
+    // The view axis on the ground, pointing TOWARD the camera, and how deep a
+    // wall reaches along it — both fixed for the frame rather than per batch,
+    // since a few dozen batches ask the same two questions about one camera.
+    const flat = Math.hypot(x, z) || 1;
+    const look = { hx: x / flat, hz: z / flat, deep: this.wallHides() };
     for (const o of this.edgeGroup.children) {
       const f = o.userData.outward;
       if (!f || !o.userData.hue) continue;
       const ghost = cut
         && (f.always || f.fx * x + f.fz * z > 0)
-        && this.nearCamLook(o.userData.spots, WALL_GHOST_REACH);
+        && this.inTheWay(o.userData.spots, look);
       // `material` is a cache keyed by colour and alpha, so both of these are
       // shared objects that already exist — this is an identity compare and an
       // assignment, never an allocation. Writing `.opacity` instead is the trap
@@ -14531,7 +14596,45 @@ export class Scene {
   }
 
   /**
-   * Is any of these cells within `reach` tiles of the middle of the view.
+   * How deep a wall reaches, in tiles of floor, at the pitch being drawn.
+   *
+   * `ghostNearWalls`' own first paragraph: a wall of height `h` seen at `pitch`
+   * hides `h / tan(pitch)` of the floor behind it, which is the entire reason
+   * the walls could never grow. It is 2.5 tiles at the 40° the view opens at and
+   * 40 at `PITCH_MIN`, and that spread is what a fixed reach could never say.
+   *
+   * Floored at `WALL_GHOST_REACH` rather than replacing it, which is what keeps
+   * the ordinary view byte-identical: at `PITCH_HOME` and anywhere above it the
+   * geometric answer is *smaller* than the four tiles this shipped with, so the
+   * floor wins and nothing moves. Only a camera dragged below about 28° widens
+   * it, and there it is widening to what the wall is actually hiding.
+   */
+  wallHides() {
+    return Math.max(WALL_GHOST_REACH,
+      EDGE_STYLE[E.WALL].h / Math.tan(this.camPitch));
+  }
+
+  /**
+   * How much shop has to be on screen before a wall counts as being in the way,
+   * at the pitch being drawn.
+   *
+   * The other number the tilt moves, and it moves it the opposite way. A wall
+   * covers `h * cos(pitch)` of the frustum's height — nearly all of `h` down at
+   * eye level and almost none of it from overhead — so a threshold quoted in
+   * tiles of view height is a threshold on how much SCREEN a wall takes only at
+   * the pitch it was tuned at. `WALL_CUT_VIEW` stays that number, quoted at
+   * `PITCH_HOME` where it was chosen, and this is it said for the frame: the
+   * cutaway starts wider as you lie the camera down, and from a plan view — where
+   * a wall is a stripe hiding nothing — it stops happening at all, which is the
+   * half that used to rub the plan out of a plan view.
+   */
+  wallCutView() {
+    return WALL_CUT_VIEW * (Math.cos(this.camPitch) / Math.cos(PITCH_HOME));
+  }
+
+  /**
+   * Is any of these cells standing between the middle of the view and the
+   * camera, near enough to matter.
    *
    * The half of `ghostNearWalls` that is about WHERE you are looking rather than
    * how closely. Facing and zoom between them still fade a wall on the far side
@@ -14539,21 +14642,36 @@ export class Scene {
    * nowhere near anything you can see. Which reads as the effect firing at
    * random, because from where you are sitting it did.
    *
+   * It was a RADIUS, and a radius is the one shape this question does not have.
+   * Under an orthographic camera a wall only ever occludes along one direction —
+   * the view axis — so the honest measure is two numbers rather than one: how far
+   * along that axis toward the camera it stands, which is what `wallHides`
+   * bounds and is where all the pitch lives, and how far off it to the side,
+   * which is a fact about the width of the shot and stays `WALL_GHOST_REACH`.
+   * Rolled into a distance the two fight: widen the radius enough to catch the
+   * wall genuinely in front of you at a low pitch and it also catches every wall
+   * forty tiles to the left, which is the test turning itself off. Behind the
+   * look point keeps the old reach, because a wall past what you are looking at
+   * is not in the way — but leaning into a corner has to fade both walls of it,
+   * and one of the two is always a step beyond.
+   *
    * A whole batch fades if ONE of its cells qualifies, which is right rather than
    * approximate: a batch is one face of one building, so the cells in it are a
    * line, and half a wall fading is worse than all of it.
    *
-   * Squared throughout and it breaks on the first hit, so the usual answer costs
-   * a handful of multiplies. The list is deduped at build (`cellsOf`) because
-   * the boxes are not: a painted wall is a dozen of them on every cell.
+   * It breaks on the first hit, so the usual answer costs a handful of
+   * multiplies. The list is deduped at build (`cellsOf`) because the boxes are
+   * not: a painted wall is a dozen of them on every cell.
    */
-  nearCamLook(spots, reach) {
+  inTheWay(spots, { hx, hz, deep }) {
     if (!spots) return true;
-    const r2 = reach * reach;
     for (let i = 0; i < spots.length; i += 2) {
       const dx = spots[i] - this.camLook.x;
       const dz = spots[i + 1] - this.camLook.z;
-      if (dx * dx + dz * dz <= r2) return true;
+      const along = dx * hx + dz * hz;
+      if (along > deep || along < -WALL_GHOST_REACH) continue;
+      const side = dx * hz - dz * hx;
+      if (side <= WALL_GHOST_REACH && side >= -WALL_GHOST_REACH) return true;
     }
     return false;
   }
@@ -14856,6 +14974,17 @@ export class Scene {
       // running — so the marker answers before the ring has visibly moved.
       this.targetMarker.userData.arrow.position.y = held ? 1.5 : 1.62 + Math.sin(t * 4) * 0.11;
       this.targetMarker.userData.ring.scale.setScalar(held ? 1.12 : 1 + Math.sin(t * 4) * 0.045);
+    }
+    if (this.tutorMarker) {
+      // Wider and slower than anything armed. The others beat at 4 because they
+      // are about a press you are half way through making; this one is a beacon
+      // you are meant to FIND, on a screen you have never seen before, so it
+      // swings further and does it at reading pace.
+      const t = now / 1000;
+      const s = Math.sin(t * 2.4);
+      this.tutorMarker.userData.ring.scale.setScalar(1 + s * 0.09);
+      this.tutorMarker.userData.ring.material.opacity = 0.75 + s * 0.2;
+      this.tutorMarker.userData.arrow.position.y = this.tutorMarker.userData.lift + s * 0.14;
     }
     // A held press winds the aim ring in and speeds it up, so the thing you are
     // pointing at is the thing that reacts. Drawn on `aimMarker` — what your
@@ -15476,6 +15605,11 @@ const BUBBLE_VIEW_GONE = 11;
  * It is the weaker of the two tests and always was: zoom says how closely you
  * are looking and says nothing at all about WHAT, so on its own it fades the
  * walls of a room you are nowhere near. `WALL_GHOST_REACH` is the other half.
+ *
+ * Quoted at `PITCH_HOME`, which is where 5 was chosen and was the unstated half
+ * of it: what this is really a threshold on is how much of the SCREEN a wall
+ * takes, and a wall covers `h * cos(pitch)` of the frustum. See `wallCutView`,
+ * which says the same number for the pitch actually being drawn.
  */
 const WALL_CUT_VIEW = 5;
 
@@ -15505,6 +15639,12 @@ const WALL_GHOST = 0.15;
  * 4, which is about an aisle and a half: near enough that a wall is genuinely
  * across what you are looking at, far enough that leaning into a corner fades
  * both walls of it rather than one.
+ *
+ * It is the SIDEWAYS half of that measurement now, plus the floor under the
+ * other one. How far off to the side of the shot a wall may be is a fact about
+ * how wide the shot is and this is still the whole of it; how far TOWARD the
+ * camera it may stand is a fact about the pitch, and 4 is only what that comes
+ * to at `PITCH_HOME`. See `wallHides` and `inTheWay`.
  */
 const WALL_GHOST_REACH = 4;
 

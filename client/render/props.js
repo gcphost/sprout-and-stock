@@ -2563,6 +2563,14 @@ const MARKER_LOOK = {
   // gives up weight instead. Full-strength it reads as a grid painted over the
   // shop rather than as some shelves being marked.
   kin: { color: 0x5fd6c4, half: 0.5, band: 0.04, chevron: false, fade: 0.34 },
+  // What the tour is pointing at. Green because it is nobody's verb — the
+  // amber, teal and red are all sentences about a press you are making, and
+  // this one is the game talking — and it is the one marker with no `mark`
+  // channel it could have had: the mask carries three, RGB, and they are spoken
+  // for. So it stays a frame on the tile, which is also the only answer that
+  // covers all three things the tour points at, since a bare square of floor
+  // has no art to draw a contour round.
+  tutor: { color: 0x6fcf68, half: 0.5, band: 0.09, chevron: true },
 };
 
 /**

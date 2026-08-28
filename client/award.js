@@ -29,6 +29,7 @@
 import { ICONS } from './icons.js';
 import { money } from './money.js';
 import { SUPPORT_URL, SUPPORT_LABEL, awardSupport } from './links.js';
+import { opensAt } from '../shared/reveal.js';
 
 export class Award {
   /**
@@ -135,7 +136,7 @@ export class Award {
 
     this.el.querySelector('.award-name').textContent = won.name;
     this.el.querySelector('.award-blurb').textContent = won.blurb;
-    this.el.querySelector('.award-got').innerHTML = rewardHtml(won);
+    this.el.querySelector('.award-got').innerHTML = rewardHtml(won, this.ui.state?.reveal === true);
     // The town, on every card rather than only the ones that grew it — this
     // number has never been on screen anywhere else, and a line that appeared
     // only when it moved would be a number with no scale to read it against.
@@ -188,7 +189,7 @@ export class Award {
  * exception is stock — what the van is actually bringing is chosen by the shop
  * and only the server knows what it picked, so that row prints what it said.
  */
-function rewardHtml(won) {
+function rewardHtml(won, revealOn) {
   const r = won.reward ?? {};
   const rows = [];
   if (r.cash > 0) rows.push(['💰', money(r.cash), 'straight into the till']);
@@ -201,6 +202,28 @@ function rewardHtml(won) {
     const sent = (won.got ?? []).find((g) => g.includes('free'));
     rows.push(['📦', sent ? sent.replace(', free', '') : `${r.supplies} units of stock`,
       sent ? 'free, on the next van' : 'nowhere at the bay to land it']);
+  }
+  /**
+   * ...and what has just turned up on the bar, which is the one reward here
+   * that is not in `reward` at all.
+   *
+   * It is not a grant — `shared/reveal.js` and `goals.js` rule three both turn
+   * on that — so it cannot ride in the payload beside cash and town without
+   * becoming one. It is derived on this side from the rung's id instead, which
+   * is also what keeps the SERVER from having to know the palette exists.
+   *
+   * **Last row on purpose.** Cash and crates are what the shop just got; a new
+   * button is what the shop can now DO, and it is the only line that sends you
+   * somewhere when you close the card. Put above the money it reads as the
+   * headline of a reward it is not part of.
+   *
+   * Silent when the ladder is off, which is every existing save — see
+   * `opensWords`, whose control this is a second copy of because the card and
+   * the panel are two readers of one table.
+   */
+  const opens = revealOn ? opensAt(won.id) : [];
+  if (opens.length) {
+    rows.push(['🔧', opens.join(', '), 'now on the build bar']);
   }
   return rows.map(([ico, big, sub]) => `<li>
       <span class="aico">${ico}</span>

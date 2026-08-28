@@ -252,9 +252,18 @@ export function showFixture(ui, f) {
   // for. The label cannot do that job — a heading is a sentence about the
   // fixture ("Keep it for", "Sow it with") and reads as nonsense with `search`
   // in front of it.
+  //
+  // `tab` is the SHORT one — one word, on the strip. It cannot be `label`,
+  // because a label here is a sentence about the fixture ("Keep it for", "Sow
+  // it with", "More of these") and a tab is a thing you aim at: three words
+  // ellipsised into 80px is a strip of half-words. It cannot be `find` either,
+  // which is a plural noun for the search placeholder and reads as a category
+  // of goods rather than a part of this menu ("shapes", "deals"). So it is its
+  // own field, and it is the only one of the four that is allowed to be a
+  // fragment.
   const groups = [];
-  const group = (label, icon, rows, find) => {
-    if (rows?.length) groups.push({ label, icon, rows, find });
+  const group = (label, icon, rows, find, tab) => {
+    if (rows?.length) groups.push({ label, icon, rows, find, tab });
   };
 
   // What to plant belongs to the plot you're stood at, not to a menu of its own
@@ -269,7 +278,7 @@ export function showFixture(ui, f) {
   // a kitchen making six of the same thing out of one hopper's worth of stock.
   if (f.kind === 'plot' && !live?.ready && !bulk) {
     group(live?.crop_id ? 'Sow something else' : 'Sow it with', ICONS.seeds,
-      seedRows(ui, f, live), 'seeds');
+      seedRows(ui, f, live), 'seeds', 'Seed');
   }
 
   // Anything that holds stock gets the same treatment a bed gets: what goes in
@@ -292,15 +301,15 @@ export function showFixture(ui, f) {
     // shelf almost every time: the whole catalogue is what you open when the
     // shortlist did not have it. No `find`, and none needed — `QUICK_ROWS`
     // keeps it under the line the search box appears at, on purpose.
-    group('Quick pick', ICONS.quick, quickRows(ui, items));
-    group(live?.assigned?.length ? 'Kept for' : 'Keep it for', ICONS.crate, items, 'items');
+    group('Quick pick', ICONS.quick, quickRows(ui, items), null, 'Quick');
+    group(live?.assigned?.length ? 'Kept for' : 'Keep it for', ICONS.crate, items, 'items', 'Stock');
   }
 
   // What an appliance is set to make. The same argument the shelf above makes:
   // what a thing is FOR is decided at the thing, and for a machine that knows
   // four recipes and runs one, it is the only decision there is.
   if (kind === 'station' && !bulk) {
-    group('Set it to make', ICONS.station, recipeRows(ui, f, live), 'recipes');
+    group('Set it to make', ICONS.station, recipeRows(ui, f, live), 'recipes', 'Recipe');
   }
 
   // Every standing decision about THIS unit rather than about its design — the
@@ -313,7 +322,7 @@ export function showFixture(ui, f) {
   // that: the sixth switch would push the row into two, and by the tenth nobody
   // could find any of them. A list has room for the sentence each one needs, and
   // adding the next is a row in `MODIFIERS` rather than a decision about layout.
-  group('Settings', ICONS.settings, settingRows(ui, f, live, { many, lives }));
+  group('Settings', ICONS.settings, settingRows(ui, f, live, { many, lives }), null, 'Settings');
 
   // A shape is free and keeps whatever is on it, so it is a browse rather than a
   // decision — which is exactly what belongs in the scrolling half. One shape is
@@ -326,12 +335,12 @@ export function showFixture(ui, f) {
   // press — where the point of the row is that it is one decision.
   const oneDesign = many.every((g) => ui.designOf(g) === ui.designOf(f));
   const styles = oneDesign ? styleRows(ui, f, { many }) : [];
-  if (styles.length > 1) group('Shape', ICONS.fixtures, styles, 'shapes');
+  if (styles.length > 1) group('Shape', ICONS.fixtures, styles, 'shapes', 'Shape');
 
   // A deal is bought once and applies to everything you build afterwards, so it
   // is not a thing a selection changes the meaning of — and a menu about six
   // shelves is not where anybody is shopping. It comes back with the selection.
-  if (!bulk) group('More of these', ICONS.build, moreOfTheseRows(ui, f), 'deals');
+  if (!bulk) group('More of these', ICONS.build, moreOfTheseRows(ui, f), 'deals', 'Buy');
 
   // ---- the head: what it is ------------------------------------------------
   //
@@ -435,9 +444,16 @@ export function showFixture(ui, f) {
   if (groups.length > 1) {
     parts[tabSlot] = `<div class="tabs">${groups.map((g, n) => {
       const hits = ui.query ? ui.applyFilter(g.rows ?? []).length : null;
-      return `<button class="tab${n === at ? ' on' : ''}${hits === 0 ? ' none' : ''}"
+      // NAMED, the way a section's tabs are. An icon row is a shape you learn
+      // and a word is a thing you read, and this strip has five pictograms on
+      // it that nobody has met before — the `sep` under the tabs exists purely
+      // because "on first open nobody knows which pictogram is the seed one",
+      // which is a caption apologising for the strip above it. `title` keeps
+      // the full sentence, since `tab` is a fragment by design.
+      return `<button class="tab named${n === at ? ' on' : ''}${hits === 0 ? ' none' : ''}"
         data-fxtab="${n}" title="${esc(g.label)}${hits != null ? ` — ${hits}` : ''}"
-        aria-label="${esc(g.label)}">${g.icon}${
+        aria-label="${esc(g.label)}">${g.icon}<span class="tlabel">${
+  esc(g.tab ?? g.label)}</span>${
   hits != null ? `<i class="tcount">${hits}</i>` : ''}</button>`;
     }).join('')}</div>`;
   }
@@ -957,7 +973,29 @@ function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
         // to scroll. Splitting this list in two would do it again — you would
         // have to know which half a thing is in before you could look for it,
         // and the answer is what you came here to find out.
+        //
+        // IT MOVED OFF THE LEAD, though, because the lead had a better job going
+        // spare. `artForModel` is what the supplier's rows, the item menu and
+        // this menu's own board list already draw — the goods themselves, off
+        // the same catalog row the shelf builds its stock from — and a list of
+        // forty identical crates is a list you read entirely by name in a game
+        // whose whole point is that you can see what is on the shelf. So the
+        // picture is the lead and the where-it-comes-from is a `mark`, which is
+        // the slot for exactly this: a glyph that says something the caption
+        // cannot spare a line for.
+        //
+        // Only on the CRAFTED ones. The crate is what most of the catalogue is,
+        // and a mark on every row is a column of noise that says nothing by
+        // being everywhere — the news is "your kitchen makes this and no van
+        // will ever bring it", which is a minority and is the half that changes
+        // what you would do. `icon` stays as the fallback for an item with no
+        // model authored, or a row with no art is a row with no lead at all.
+        art: it.model ? artForModel(it.model) : null,
         icon: crafted.has(it.id) ? ICONS.station : ICONS.crate,
+        mark: crafted.has(it.id) ? {
+          icon: ICONS.station,
+          title: `${it.name} is made here — your crew will never order it.`,
+        } : null,
         name: it.name,
         note,
         // How many the shop has and how many are coming, in the column the

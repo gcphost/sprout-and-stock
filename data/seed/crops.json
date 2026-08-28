@@ -4,8 +4,8 @@
     "name": "Apple Trees",
     "item_id": "apple",
     "grow_minutes": 2,
-    "yield_min": 6,
-    "yield_max": 10,
+    "yield_min": 3,
+    "yield_max": 5,
     "seed_cost": 2,
     "seasons": [
       "summer",
@@ -34,11 +34,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cylinder",
@@ -57,11 +59,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -86,11 +90,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -109,11 +115,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -138,11 +146,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -161,11 +171,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -184,11 +196,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -207,11 +221,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -223,8 +239,8 @@
     "name": "Berry Canes",
     "item_id": "berries",
     "grow_minutes": 1.3,
-    "yield_min": 4,
-    "yield_max": 7,
+    "yield_min": 2,
+    "yield_max": 4,
     "seed_cost": 1.2,
     "seasons": [
       "summer",
@@ -253,11 +269,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -282,11 +300,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cylinder",
@@ -305,11 +325,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -328,11 +350,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -357,11 +381,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -380,11 +406,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -403,11 +431,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -426,11 +456,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -449,11 +481,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -465,8 +499,8 @@
     "name": "Carrot Row",
     "item_id": "carrot",
     "grow_minutes": 0.6,
-    "yield_min": 5,
-    "yield_max": 8,
+    "yield_min": 3,
+    "yield_max": 4,
     "seed_cost": 0.6,
     "seasons": [
       "spring",
@@ -495,10 +529,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -517,10 +554,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -539,10 +579,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -561,10 +604,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -589,10 +635,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -617,10 +666,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -645,10 +697,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cone",
@@ -667,10 +722,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -682,8 +740,8 @@
     "name": "Chilli Row",
     "item_id": "chilli",
     "grow_minutes": 1,
-    "yield_min": 3,
-    "yield_max": 6,
+    "yield_min": 2,
+    "yield_max": 3,
     "seed_cost": 0.7,
     "seasons": [
       "summer"
@@ -711,11 +769,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -740,11 +800,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -763,11 +825,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -792,11 +856,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -815,11 +881,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cone",
@@ -838,11 +906,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cone",
@@ -861,11 +931,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -877,8 +949,8 @@
     "name": "Flower Bed",
     "item_id": "flowers",
     "grow_minutes": 1.1,
-    "yield_min": 4,
-    "yield_max": 7,
+    "yield_min": 2,
+    "yield_max": 4,
     "seed_cost": 1.4,
     "seasons": [
       "spring",
@@ -907,11 +979,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -936,11 +1010,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cylinder",
@@ -959,11 +1035,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -982,11 +1060,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1011,11 +1091,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cylinder",
@@ -1034,11 +1116,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1057,11 +1141,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1080,11 +1166,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -1096,8 +1184,8 @@
     "name": "Groundnut Row",
     "item_id": "groundnuts",
     "grow_minutes": 1.2,
-    "yield_min": 4,
-    "yield_max": 8,
+    "yield_min": 2,
+    "yield_max": 4,
     "seed_cost": 0.6,
     "seasons": [
       "summer",
@@ -1126,11 +1214,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1155,11 +1245,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1178,11 +1270,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1207,11 +1301,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1230,11 +1326,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "capsule",
@@ -1253,11 +1351,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "capsule",
@@ -1276,11 +1376,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -1292,8 +1394,8 @@
     "name": "Kale Patch",
     "item_id": "kale",
     "grow_minutes": 0.9,
-    "yield_min": 4,
-    "yield_max": 7,
+    "yield_min": 2,
+    "yield_max": 4,
     "seed_cost": 0.7,
     "seasons": [
       "autumn",
@@ -1322,10 +1424,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1350,10 +1455,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1372,10 +1480,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1400,10 +1511,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1422,10 +1536,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1444,10 +1561,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -1459,8 +1579,8 @@
     "name": "Lettuce Bed",
     "item_id": "lettuce",
     "grow_minutes": 0.5,
-    "yield_min": 3,
-    "yield_max": 5,
+    "yield_min": 2,
+    "yield_max": 3,
     "seed_cost": 0.5,
     "seasons": [
       "spring",
@@ -1490,10 +1610,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1512,10 +1635,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1534,10 +1660,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1556,10 +1685,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1584,10 +1716,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1606,10 +1741,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1634,10 +1772,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1656,10 +1797,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1684,10 +1828,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1706,10 +1853,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1728,10 +1878,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -1743,8 +1896,8 @@
     "name": "Mustard Row",
     "item_id": "mustard-seed",
     "grow_minutes": 0.9,
-    "yield_min": 4,
-    "yield_max": 7,
+    "yield_min": 2,
+    "yield_max": 4,
     "seed_cost": 0.5,
     "seasons": [
       "summer"
@@ -1772,11 +1925,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1801,11 +1956,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cylinder",
@@ -1824,11 +1981,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1853,11 +2012,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1876,11 +2037,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -1899,11 +2062,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -1915,8 +2080,8 @@
     "name": "Pea Row",
     "item_id": "peas",
     "grow_minutes": 0.7,
-    "yield_min": 4,
-    "yield_max": 7,
+    "yield_min": 2,
+    "yield_max": 4,
     "seed_cost": 0.5,
     "seasons": [
       "spring",
@@ -1945,11 +2110,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -1974,11 +2141,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cylinder",
@@ -1997,11 +2166,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2026,11 +2197,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "capsule",
@@ -2049,11 +2222,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "capsule",
@@ -2072,11 +2247,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -2088,8 +2265,8 @@
     "name": "Potato Patch",
     "item_id": "potato",
     "grow_minutes": 1,
-    "yield_min": 5,
-    "yield_max": 9,
+    "yield_min": 3,
+    "yield_max": 5,
     "seed_cost": 0.5,
     "seasons": [
       "spring",
@@ -2118,11 +2295,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2147,11 +2326,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2170,11 +2351,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2199,11 +2382,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2222,11 +2407,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2245,11 +2432,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2268,11 +2457,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -2284,8 +2475,8 @@
     "name": "Sugar Beet Row",
     "item_id": "sugar-beet",
     "grow_minutes": 1.1,
-    "yield_min": 5,
-    "yield_max": 8,
+    "yield_min": 3,
+    "yield_max": 4,
     "seed_cost": 0.5,
     "seasons": [
       "autumn"
@@ -2313,11 +2504,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2342,11 +2535,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cone",
@@ -2365,11 +2560,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2394,11 +2591,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2417,11 +2616,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "cone",
@@ -2440,11 +2641,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
               "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -2456,8 +2659,8 @@
     "name": "Tomato Vine",
     "item_id": "tomato",
     "grow_minutes": 0.9,
-    "yield_min": 4,
-    "yield_max": 6,
+    "yield_min": 2,
+    "yield_max": 3,
     "seed_cost": 1,
     "seasons": [
       "spring",
@@ -2486,10 +2689,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2508,10 +2714,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2530,10 +2739,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2552,10 +2764,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2580,10 +2795,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2602,10 +2820,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2624,10 +2845,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2652,10 +2876,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2674,10 +2901,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2696,10 +2926,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2724,10 +2957,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2746,10 +2982,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2768,10 +3007,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }
@@ -2783,8 +3025,8 @@
     "name": "Wheat Field",
     "item_id": "wheat",
     "grow_minutes": 1.8,
-    "yield_min": 6,
-    "yield_max": 10,
+    "yield_min": 3,
+    "yield_max": 5,
     "seed_cost": 0.8,
     "seasons": [
       "summer",
@@ -2813,10 +3055,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2835,10 +3080,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2857,10 +3105,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2879,10 +3130,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2907,10 +3161,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2929,10 +3186,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -2957,10 +3217,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -2979,10 +3242,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         },
@@ -3007,10 +3273,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -3029,10 +3298,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             },
             {
               "shape": "sphere",
@@ -3051,10 +3323,13 @@
               "surface": false,
               "seam": false,
               "alpha": 1,
+              "glow": false,
               "shadow": false,
               "drift": false,
+              "back": false,
               "motion": null,
-              "tint": null
+              "tint": null,
+              "bone": null
             }
           ]
         }

@@ -28,23 +28,33 @@
  * gets stuck the moment somebody uses the keyboard shortcut instead, and one
  * that can be satisfied by a press that failed.
  *
- * **The veil is four boxes, not a hole punched in one.** A `clip-path` with a
- * gap in it still swallows the pointer over the gap in Safari, and a veil with
- * `pointer-events: none` blacks out without muting — which is the half that
- * matters, since the whole promise is that the wrong button cannot be pressed.
- * Four blockers round a rectangle means the hole is a genuine absence, and the
- * press that goes through it is the ordinary press the game already handles.
+ * **It marks rather than corners you.** There was a blackout here — four boxes
+ * round one lit hole, so exactly one press was possible while a card was up.
+ * It is gone, and what it was is worth keeping written down, because it is the
+ * obvious way to build this: what somebody learns from a tutorial they can only
+ * get through one way is *how to get through the tutorial*. The shop is not a
+ * corridor and this is the one screen that was treating it like one. So the
+ * card marks its target and waits, everything else stays live, and going off to
+ * do something else first costs nothing — which the predicates below already
+ * allowed for and the blackout was the only thing preventing.
  *
  * **It refuses to block the world.** Every step whose target is a thing standing
  * in the shop — a crate, a shelf, the tile you walk to — lights the canvas
- * whole and drops a pulsing ring on the target instead, pinned through
- * `Scene.worldToScreen` every frame. Two reasons it is not a rectangle. A shelf
- * is a three-quarter-tile box drawn most of a tile up-screen of the ground it
- * stands on, so a box round where the pointer *ought* to go is a box in the
- * wrong place — see `pickFixture` for the same trap said about aiming. And a
- * crate is not a fixture, so the renderer's own marker (`setMarkedSet`, which
- * wants an `f`) has nothing to hang on: one ring in screen space answers for
- * both, and for the tile you are being asked to walk to, which is neither.
+ * whole and marks the target instead. The mark is IN the shop
+ * (`Scene.setTutorTarget`, `MARKER_LOOK.tutor`) rather than on the page, and
+ * that is the whole of what was wrong with the pulsing circle it replaced: a
+ * circle projected through `worldToScreen` every frame tracks its point
+ * perfectly and still reads as unpinned, because everything else in the picture
+ * turns and foreshortens as the camera comes round and a fixed-size coin does
+ * not. A frame on the tile lies on the ground with the tile grid, which is the
+ * vocabulary every other marker in the game already speaks.
+ *
+ * It takes a POINT rather than a fixture, which is what makes one call answer
+ * all three: a crate is not a fixture, and the tile you are asked to walk to is
+ * not a thing at all, so the renderer's own `setAimTarget` (which wants an `f`)
+ * has nothing to hang on for two of the three. And it cannot be the contour
+ * every marker uses for a unit, because that mask carries three channels — see
+ * `MARK` — and amber, teal and red are all spoken for.
  *
  * The one thing it may never do is trap you. Skip is on every step, Esc skips,
  * and the whole thing can be switched off from the Menu — which is also where
@@ -195,13 +205,10 @@ const lotSize = (lot) => {
  * shelf step did not.
  *
  * Read straight through, it fails in the one way nothing catches. `at` hands the
- * marker `{ world: shelf }`, `holeFor` calls `worldToScreen(world.x, world.z)`,
- * and that builds a `THREE.Vector3` — whose constructor defaults a missing
- * component to **0**. So a ring aimed at any shelf in the game was drawn at
- * world origin: the corner of the map, out in the field, with the card politely
- * pinned beside it. Nothing is undefined by the time anything could complain,
- * nothing is NaN, nothing is logged, and the tour looks like it is confidently
- * pointing somewhere.
+ * marker `{ world: shelf }` and `holeFor` reads `world.x`/`world.z` off it, so a
+ * shelf carrying neither hands the renderer an undefined position — a mark that
+ * is on screen as far as every flag in here is concerned and is nowhere at all
+ * in the picture, with the card sitting beside it saying to look.
  *
  * `dist` took the same road to a different end — `undefined - number` is NaN, so
  * `atIt` was false at every shelf in the shop, for ever. That is the half that
@@ -362,9 +369,6 @@ function cheapestFreezer(t) {
  * the van, mostly — so the card can say so instead of reading as an instruction
  * you are failing to follow.
  */
-/** The Clerk kind, which is the one the tour takes on. */
-const clerkKind = (t) => (t.ui.catalog?.workers ?? []).find((w) => /clerk/i.test(w.id)) ?? null;
-
 /**
  * The tour, in order. TEN beats, and the count is the design.
  *
@@ -372,7 +376,7 @@ const clerkKind = (t) => (t.ui.catalog?.workers ?? []).find((w) => /clerk/i.test
  * stop reading at about the fifth and start hunting for Skip. The saving is not
  * in cutting what it teaches: it teaches the same ten things. It is that a step
  * **moves its own spotlight**. `at` and `say` are asked every frame, so "open the
- * crew strip, then press the Clerk on it" is one card whose hole walks from the
+ * crew strip, then press the Shop Hand on it" is one card whose hole walks from the
  * rail button to the tile the moment the strip is up — which is what the player
  * was going to do anyway, with one fewer thing to read on the way.
  *
@@ -485,33 +489,51 @@ const STEPS = [
   {
     id: 'hire',
     kicker: 'The crew',
+    /**
+     * MEET THE ONE YOU ALREADY HAVE.
+     *
+     * This beat used to buy somebody: "take on a Shop Hand", ending on
+     * `roster.length > 0`. A new shop comes with one now (`starterHire` in
+     * server/worlds.js), so that predicate is true on the frame the card opens
+     * — the beat completed instantly, and what you saw was a card that flashed
+     * past on its way to the next one.
+     *
+     * Asking for a SECOND hire is the obvious repair and it is the wrong one:
+     * it spends $200 of a $250 float on a shop with two shelves and nothing on
+     * them, which is the tour teaching somebody to go broke. And the lesson was
+     * never the purchase — it is that the crew exist, that they are leased
+     * machines, and that the strip along the bottom is where they live. All of
+     * that is still there to be shown, and now there is somebody standing in it
+     * to be shown WITH.
+     *
+     * So it opens their tile instead, which is a press you can make with no
+     * money at all, and `done` is the panel being up rather than the roster
+     * having grown.
+     */
     say: (t) => (t.ui.bar === 'staff'
-      ? perInput('Click the Clerk twice. The second click is the confirm.',
-        'Tap the Clerk twice. The second tap is the confirm.')
-      : 'While that drives over — open the crew strip.'),
-    hint: (t) => {
-      const row = clerkKind(t);
-      return t.ui.bar === 'staff'
-        ? `${row ? `${money(row.cost)} now, plus a lease every morning. ` : ''}A `
-          + 'clerk works the till. Without one nobody can pay.'
-        : 'Everyone here is a machine you lease. Pick a kind and it turns up.';
-    },
+      ? perInput('Click their tile to open them up.', 'Tap their tile to open them up.')
+      : 'Somebody already works here. Open the crew strip.'),
+    hint: (t) => (t.ui.bar === 'staff'
+      ? 'The shop came with a hand. They serve, they fill shelves, they work '
+        + 'the beds — and the lease comes off the takings every morning.'
+      : 'Everyone here is a machine you lease. This is where you take on more '
+        + 'of them, and where you look at the ones you have.'),
     at: (t) => {
       if (t.ui.bar !== 'staff') return { el: '[data-rail="staff"]' };
-      const row = clerkKind(t);
-      return { el: row ? `[data-entry="kind:${row.id}"]` : null, pad: 6 };
+      const who = (t.state?.roster ?? [])[0];
+      return { el: who ? `[data-entry="hire:${who.id}"]` : null, pad: 6 };
     },
     arm(t) { t.ui.closePanel?.(); },
     // The strip files who works here under one tab per kind and who you could
-    // take on under `hire`, so the tile is only in the document while that tab
-    // is open. Held rather than set once, because a step whose hole is a tab
-    // away is a step that reads as pointing at nothing.
+    // take on under `hire`, so the tile is only in the document while the right
+    // tab is open. `all` rather than `hire` now: the tile being pointed at is
+    // somebody who already works here.
     nudge(t) {
-      if (t.ui.bar !== 'staff' || t.ui.barTab.staff === 'hire') return;
-      t.ui.barTab.staff = 'hire';
+      if (t.ui.bar !== 'staff' || t.ui.barTab.staff === 'all') return;
+      t.ui.barTab.staff = 'all';
       t.ui.renderHotbar();
     },
-    done(t) { return (t.state?.roster ?? []).length > 0; },
+    done(t) { return t.ui.openPanel === 'worker'; },
   },
 
   {
@@ -872,6 +894,46 @@ const STEPS = [
       + 'town starts turning up. Good luck.',
     at: () => ({ el: '#sign', pad: 8 }),
     done(t) { return t.state?.shutters === true; },
+    /**
+     * ...and the one question the tour is uniquely placed to ask.
+     *
+     * A new shop's build bar unfolds as it grows (`shared/reveal.js`) — a few
+     * buttons at the start, conveyors once there have been five hundred sales.
+     * That is right for the person the tutorial is for and wrong for the person
+     * who has played before, and until now the only way to say so was to find it
+     * in the Menu, which is precisely what somebody on their first shop does not
+     * know to do.
+     *
+     * **Here rather than as a card of its own**: a card whose whole content is a
+     * setting ends the tour on admin rather than on opening the shop, and this
+     * is a question most people should answer by ignoring it.
+     *
+     * **And it is a SENTENCE, not a labelled button.** It shipped as one reading
+     * "Show all build tools", and the words were the whole problem: somebody who
+     * has been playing for four minutes does not know what a build tool is, has
+     * never seen the palette hold anything back, and cannot tell a button that
+     * turns something ON from one that turns a limit OFF. A press with no
+     * question attached is not a choice, it is a dare. So the words do the
+     * asking — what is happening, why, and the answer as a link inside them —
+     * and what it leaves behind says where to change your mind, because a
+     * setting you cannot find again is one nobody should touch on their first
+     * day.
+     *
+     * `when` is the half that keeps it honest: a shop that already has the whole
+     * bar is never asked, so this is never a no-op wearing a choice — and it is
+     * where somebody who turned it off in the Menu five minutes ago would
+     * otherwise be asked to turn it off again.
+     */
+    offer: {
+      ask: 'One last thing: the build menu only shows a few things to start '
+        + 'with, and unlocks the rest as the shop grows. If you have played '
+        + 'games like this before, you can have the whole lot now —',
+      label: 'unlock everything',
+      took: 'Done — every build tool is yours from the off. Menu › Ease me in '
+        + 'changes it back whenever you like.',
+      when: (t) => t.ui?.state?.reveal === true,
+      run: (t) => t.ui?.setReveal?.(false),
+    },
   },
 ];
 
@@ -1095,6 +1157,11 @@ export class Tutor {
     this.state = null;
     this.i = -1;
     this.step = null;
+    // Whether the step's own press has been taken this run. On the tour rather
+    // than on the step, because a step object is a module-level literal shared
+    // by every tour this page ever runs — a flag stored there would make Replay
+    // open the last card with the offer already spent.
+    this.offerTaken = false;
     // WHICH tour. The host's by default, and swapped whole rather than filtered:
     // a guest's beats are not the owner's with the money ones taken out, they
     // are phrased for a shop that is somebody else's and already trading.
@@ -1177,6 +1244,9 @@ export class Tutor {
     this.i = -1;
     this.camMoved = false;
     this.crateSeen = false;
+    // Beside the other two run-scoped latches: Replay is a second run of the
+    // same tour, and it has to be able to ask again.
+    this.offerTaken = false;
     this.el.hidden = false;
     document.body.classList.add('tutoring');
     this.go(0);
@@ -1194,10 +1264,14 @@ export class Tutor {
     if (!this.on) return;
     this.on = false;
     this.step = null;
+    // The one part of the tour that is not inside `this.el`, so hiding the card
+    // does not take it with it — a green frame left standing on a shelf after
+    // Skip is the tour still pointing at something.
+    this.aim = null;
+    this.scene?.setTutorTarget?.(null);
     this.el.hidden = true;
     this.el.classList.remove('show');
     document.body.classList.remove('tutoring');
-    this.live(null);
     if (this.guest) write(GUEST_KEY, '1');
     else if (this.world) { addTo(DONE_KEY, this.world); dropFrom(NEW_KEY, this.world); }
     // The key list is a keyboard thing, so it is not offered to a hand that has
@@ -1268,20 +1342,34 @@ export class Tutor {
 
   render() {
     this.el.innerHTML = `
-      <div class="tt-veil tt-n"></div><div class="tt-veil tt-s"></div>
-      <div class="tt-veil tt-w"></div><div class="tt-veil tt-e"></div>
       <div class="tt-mark tt-ring" hidden></div>
       <div class="tt-mark tt-pulse" hidden></div>
-      <div class="tt-aim" hidden><i></i><i></i><b></b></div>
       <div class="tt-card">
         <div class="tt-bot">${FACE}</div>
         <div class="tt-said">
           <div class="tt-kicker"></div>
           <p class="tt-say"></p>
           <p class="tt-hint"></p>
+          <!-- A step's own question about the SHOP, asked in words with the
+               answer as a link inside them. See the offer slot on the last
+               step. Hidden on every other card, and on this one once the shop
+               has no question left to be asked.
+
+               No backticks in here: they would end the template literal this
+               comment is written inside. -->
+          <p class="tt-offer" hidden><span></span>
+            <button class="tt-link" type="button"></button></p>
         </div>
         <div class="tt-feet">
-          <div class="tt-dots"></div>
+          <!-- Back and on, either side of the ticks. Quiet on purpose: the card
+               is one instruction and the way past it is doing the thing, so
+               these are the same weight as the dots they flank rather than a
+               second pair of buttons competing with Next. -->
+          <div class="tt-nav">
+            <button class="tt-arrow tt-back" type="button" aria-label="Back">&lsaquo;</button>
+            <div class="tt-dots"></div>
+            <button class="tt-arrow tt-fwd" type="button" aria-label="On">&rsaquo;</button>
+          </div>
           <button class="tt-next" type="button" hidden>Next</button>
           <button class="tt-skip" type="button">Skip tutorial</button>
         </div>
@@ -1289,9 +1377,45 @@ export class Tutor {
     this.card = this.el.querySelector('.tt-card');
     this.ring = this.el.querySelector('.tt-ring');
     this.pulse = this.el.querySelector('.tt-pulse');
-    this.aimEl = this.el.querySelector('.tt-aim');
     this.el.querySelector('.tt-skip').onclick = () => this.quit('skipped');
     this.el.querySelector('.tt-next').onclick = () => this.next();
+    /**
+     * The step's own answer. Wired once here rather than re-bound in `paint`,
+     * which is the same call the two above make and for the same reason: `paint`
+     * runs on every step change and an `onclick` written there is a handler
+     * replaced twelve times a tour. It reads the CURRENT step at press time, so
+     * a card with no offer cannot be pressed into somebody else's action.
+     *
+     * It answers rather than advancing the tour — this is a choice about the
+     * shop, and a press that also moved you on would read as a way past the
+     * step. What it leaves behind is a sentence saying what just happened and
+     * where to undo it, which is the half a button could not carry.
+     */
+    this.el.querySelector('.tt-link').onclick = () => {
+      const o = this.step?.offer;
+      if (!o || this.offerTaken) return;
+      o.run(this);
+      this.offerTaken = true;
+      this.paint();
+    };
+    /**
+     * Jump to a beat. Delegated on the row rather than bound per dot, because
+     * `paint` rewrites the row's `innerHTML` on every step — handlers written
+     * there would be a fresh set of them a card.
+     *
+     * It goes through `go` and nothing else, so a beat reached this way opens
+     * exactly as it opens in play: its `start`, its `arm`, and its `skipWhen`
+     * if the shop has nothing for it to teach.
+     */
+    this.el.querySelector('.tt-dots').onclick = (e) => {
+      const i = e.target?.dataset?.i;
+      if (i != null) this.go(Number(i));
+    };
+    this.el.querySelector('.tt-back').onclick = () => this.go(Math.max(0, this.i - 1));
+    // Never off the end: `go` past the last beat is `quit`, and an arrow that
+    // ends the tour is Skip wearing a chevron. The last card is left to its own
+    // predicate.
+    this.el.querySelector('.tt-fwd').onclick = () => this.go(Math.min(this.steps.length - 1, this.i + 1));
   }
 
   /** The shell of a card: run once, when a step opens. */
@@ -1306,19 +1430,46 @@ export class Tutor {
     this.lostAt = 0;
     next.textContent = 'Next';
     next.hidden = !!s.done;
+    this.offer();
     this.card.classList.toggle('big', !!s.big);
     this.said = null;
     this.words();
     // Where you are, as ticks rather than "4 of 10" — a count invites you to
     // work out how much is left, which is not the question the card wants asked.
     this.el.querySelector('.tt-dots').innerHTML = this.steps
-      .map((_, i) => `<i class="${i < this.i ? 'was' : ''}${i === this.i ? ' at' : ''}"></i>`)
+      .map((s, i) => `<button type="button" data-i="${i}" title="${s.id}"`
+        + ` class="${i < this.i ? 'was' : ''}${i === this.i ? ' at' : ''}"></button>`)
       .join('');
+    this.el.querySelector('.tt-back').disabled = this.i <= 0;
+    this.el.querySelector('.tt-fwd').disabled = this.i >= this.steps.length - 1;
     // Restart the pop, or every card after the first arrives already on screen.
     this.card.style.animation = 'none';
     void this.card.offsetWidth;
     this.card.style.animation = '';
     this.el.classList.add('show');
+  }
+
+  /**
+   * The question this step is asking about the shop, and what it says once it
+   * has been answered.
+   *
+   * `when` is asked rather than stored, because the answer can stop being true
+   * while the card is up — it is a question about the shop, which somebody in
+   * co-op can change from the other side of the room. `offerTaken` is checked
+   * FIRST and beats it: the moment the link is pressed the setting flips, so
+   * `when` goes false, and reading it first would take the sentence away in the
+   * same frame as the press it is meant to acknowledge.
+   */
+  offer() {
+    const el = this.el.querySelector('.tt-offer');
+    const o = this.step?.offer;
+    const show = !!o && (this.offerTaken || o.when?.(this) !== false);
+    el.hidden = !show;
+    if (!show) return;
+    el.querySelector('span').textContent = this.offerTaken ? o.took : o.ask;
+    const link = el.querySelector('.tt-link');
+    link.hidden = this.offerTaken;
+    link.textContent = o.label;
   }
 
   /**
@@ -1346,12 +1497,29 @@ export class Tutor {
   }
 
   /**
-   * Measure the hole and put the four blockers round it.
+   * Mark whatever this step is pointing at.
    *
    * Everything in here is in CSS pixels off `getBoundingClientRect`, so it
    * survives a resize, a scrolled panel and a bar that changed height — none of
    * which the tour is told about, and all of which move the thing it is pointing
    * at.
+   *
+   * IT USED TO BLACK THE SCREEN OUT, and taking that away is the whole of this
+   * pass. Four boxes round a lit hole meant one press was possible at a time,
+   * which is the shape Factorio threw out of their own tutorial for the reason
+   * that applies here word for word: what somebody learns from it is *how to
+   * get through the tutorial*, not how to run a shop. It also fought the game
+   * on three fronts nobody would have predicted — the HUD had to be muted and
+   * then handed back a panel at a time, the card had to be measured and pinned
+   * to whatever side of the target was free, and every step had to have an
+   * answer for "I cannot find what I am pointing at", because a blackout with
+   * no hole in it is a game nobody can play.
+   *
+   * What is left is a mark and a sentence. The mark says which thing; the card
+   * sits out of the way on the right and waits. Wander off, open something
+   * else, go and do a different job first — the step is a predicate over the
+   * snapshot, so it was never watching your presses anyway, and it is still
+   * there when you come back.
    */
   place() {
     if (!this.on || !this.step) return;
@@ -1370,55 +1538,19 @@ export class Tutor {
     // one without the other.
     this.pulseAt(want?.pulse ?? null);
 
-    const W = window.innerWidth;
-    const H = window.innerHeight;
-    const el = (sel) => this.el.querySelector(sel);
+    // The mark on the thing standing in the shop, laid in the shop.
+    this.scene?.setTutorTarget?.(this.aim);
 
-    // The ring on the thing in the shop. Behind the veil in z-order rather than
-    // in front of it, so a target that has walked off the lit area — a crate
-    // somebody else picked up — dims with everything else instead of glowing
-    // over the top of a blackout.
-    this.aimEl.hidden = !this.aim;
-    if (this.aim) {
-      this.aimEl.style.left = `${Math.round(this.aim.x)}px`;
-      this.aimEl.style.top = `${Math.round(this.aim.y)}px`;
-    }
-
-    if (!box) {
-      // Either the veil covers everything (a card that is read, not acted on)
-      // or it covers nothing (`lost` — we do not know what to light, so we get
-      // out of the way). Same branch, opposite sizes, because both end with the
-      // card in the middle and no ring anywhere.
-      const full = this.lost ? 0 : H;
-      Object.assign(el('.tt-n').style, { top: '0px', left: '0px', width: `${W}px`, height: `${full}px` });
-      for (const q of ['.tt-s', '.tt-w', '.tt-e']) {
-        Object.assign(el(q).style, { width: '0px', height: '0px' });
-      }
-      this.ring.hidden = true;
-      this.card.classList.remove('pinned');
-      this.card.style.left = '';
-      this.card.style.top = '';
-      this.strand();
-      return;
-    }
-    this.strand();
-
-    const { x, y, w, h } = box;
-    Object.assign(el('.tt-n').style, { top: '0px', left: '0px', width: `${W}px`, height: `${Math.max(0, y)}px` });
-    Object.assign(el('.tt-s').style, { top: `${y + h}px`, left: '0px', width: `${W}px`, height: `${Math.max(0, H - y - h)}px` });
-    Object.assign(el('.tt-w').style, { top: `${y}px`, left: '0px', width: `${Math.max(0, x)}px`, height: `${h}px` });
-    Object.assign(el('.tt-e').style, { top: `${y}px`, left: `${x + w}px`, width: `${Math.max(0, W - x - w)}px`, height: `${h}px` });
-
-    // `soft` is a hole the size of the whole world view. Ringing that is drawing
-    // a box round the screen, which says nothing and hides the marker in it.
-    this.ring.hidden = this.soft;
-    if (!this.soft) {
+    // `soft` is a target the size of the whole world view. Ringing that is
+    // drawing a box round the screen, which says nothing — the world mark above
+    // is what is pointing at anything on those steps.
+    this.ring.hidden = !box || this.soft;
+    if (box && !this.soft) {
       Object.assign(this.ring.style, {
-        top: `${y}px`, left: `${x}px`, width: `${w}px`, height: `${h}px`,
+        top: `${box.y}px`, left: `${box.x}px`, width: `${box.w}px`, height: `${box.h}px`,
       });
     }
-
-    this.pin(box);
+    this.strand();
   }
 
   /**
@@ -1464,20 +1596,6 @@ export class Tutor {
       width: `${Math.round(r.width + 6)}px`,
       height: `${Math.round(r.height + 6)}px`,
     });
-  }
-
-  /**
-   * Give one HUD container its pointer back, and take it off the last one.
-   *
-   * Exactly one at a time, tracked rather than swept: a loop over every `.hud`
-   * on every frame is a write per element at 10Hz, and forgetting to clear the
-   * old one leaves a panel live behind a card that has moved on to the bar.
-   */
-  live(el) {
-    if (this._live === el) return;
-    if (this._live) this._live.style.pointerEvents = '';
-    this._live = el ?? null;
-    if (el) el.style.pointerEvents = 'auto';
   }
 
   /**
@@ -1535,38 +1653,28 @@ export class Tutor {
     // that points into the shop and then back at the bar is two arrivals, and
     // the strip may well have been dragged in between.
     if (!want || 'world' in want || !want.el) this.shown = null;
-    if (!want) { this.aim = null; this.lost = false; this.soft = false; this.live(null); return null; }
+    if (!want) { this.aim = null; this.lost = false; this.soft = false; return null; }
     const pad = want.pad ?? 4;
 
     if ('world' in want) {
-      // A point in the shop. The card is pinned beside where it projects to and
-      // the hole is the canvas — see the header for why a rectangle round a
-      // fixture is a rectangle in the wrong place.
-      // The height matters more than it looks. `worldToScreen` takes one, and on
-      // a 45° camera a metre of height is most of a tile of SCREEN — up and to
-      // the right. So a crate marked at head height gets a ring hanging in the
-      // air off its top corner, which reads as the mark being broken rather
-      // than as the wrong number: everything about it is correct except which
-      // y it was asked about. Each target says its own — a box on the floor is
-      // low, a shelf is marked at its boards.
-      const p = want.world
-        ? this.scene?.worldToScreen?.(want.world.x, want.world.z, want.y ?? 0.8) ?? null
+      // A point in the shop, handed to the renderer to mark in the shop — see
+      // the header for why it is not a rectangle on the page. The height is
+      // still each target's own and is now what the chevron floats at rather
+      // than where the mark is drawn — see `Scene.setTutorTarget`.
+      this.aim = want.world
+        ? { x: want.world.x, z: want.world.z, y: want.y ?? 0.8 }
         : null;
-      this.aim = p && Number.isFinite(p.x) ? { x: p.x, y: p.y } : null;
       this.lost = !want.world;
       // A world target is always `soft`: the hole is the whole canvas, so the
-      // ring would be a box round the screen and the card would pin to a corner
-      // of it. The ring on the thing itself and the card beside where it
-      // projects are the two halves the flag switches on.
+      // veil's own frame would be a box round the screen and the card would pin
+      // to a corner of it. The mark in the shop is what points at anything here.
       this.soft = true;
-      this.live(null);
       const c = document.getElementById('game')?.getBoundingClientRect();
       return c && want.world ? { x: c.left, y: c.top, w: c.width, h: c.height } : null;
     }
 
     this.aim = null;
     this.soft = !!want.soft;
-    this.live(null);
     // `up` climbs from the thing that can be NAMED to the thing that should be
     // LIT. A stepper's + carries the only attribute worth selecting on and is
     // half the control — see the jobs step.
@@ -1595,61 +1703,6 @@ export class Tutor {
     const r = t?.getBoundingClientRect();
     if (!r?.width || !r?.height) { this.lost = true; return null; }
     this.lost = false;
-    // The HUD is inert while the tour is up (see `body.tutoring .hud`), so the
-    // panel or bar the hole is cut in has to be handed the pointer back — a lit
-    // button inside a muted container is the green-ghost bug with a ring on it.
-    this.live(t.closest('.hud'));
     return { x: r.left - pad, y: r.top - pad, w: r.width + pad * 2, h: r.height + pad * 2 };
-  }
-
-  /**
-   * Put the card beside the hole, on whichever side has room for it.
-   *
-   * The card is what tells you what the lit thing is FOR, so a card that covers
-   * the lit thing is the one arrangement that cannot work. It is measured rather
-   * than placed by rule: the rail is up the right-hand side, the bar is across
-   * the bottom and the panel is in the middle, so no single side is free for
-   * every step.
-   */
-  pin(box) {
-    const W = window.innerWidth;
-    const H = window.innerHeight;
-    const cw = this.card.offsetWidth || 340;
-    const ch = this.card.offsetHeight || 190;
-    // Clearance, not politeness. A world mark is a ring about 70px across
-    // CENTRED on the point, so a card set 18px off the point lands on top of
-    // the bottom of the ring and half of what it is ringing. The gap has to
-    // clear the mark's own radius before it starts being a gap at all.
-    const gap = this.aim ? 64 : 20;
-
-    // A world step aims at the projected point rather than at the hole, which is
-    // the whole canvas — pinning to that would put the card in a corner of the
-    // screen with nothing to do with where you are being pointed.
-    const at = this.aim ? { x: this.aim.x, y: this.aim.y, w: 0, h: 0 } : box;
-
-    const room = {
-      below: H - (at.y + at.h) - gap,
-      above: at.y - gap,
-      right: W - (at.x + at.w) - gap,
-      left: at.x - gap,
-    };
-
-    let left;
-    let top;
-    if (room.below >= ch) { top = at.y + at.h + gap; left = at.x + at.w / 2 - cw / 2; }
-    else if (room.above >= ch) { top = at.y - ch - gap; left = at.x + at.w / 2 - cw / 2; }
-    else if (room.left >= cw) { left = at.x - cw - gap; top = at.y + at.h / 2 - ch / 2; }
-    else if (room.right >= cw) { left = at.x + at.w + gap; top = at.y + at.h / 2 - ch / 2; }
-    else {
-      // Nowhere beside it. Whichever half of the screen the target is NOT in,
-      // which is the last honest answer before overlapping the thing being
-      // pointed at.
-      top = at.y > H / 2 ? gap : H - ch - gap;
-      left = W / 2 - cw / 2;
-    }
-
-    this.card.classList.add('pinned');
-    this.card.style.left = `${Math.round(Math.min(W - cw - 8, Math.max(8, left)))}px`;
-    this.card.style.top = `${Math.round(Math.min(H - ch - 8, Math.max(8, top)))}px`;
   }
 }

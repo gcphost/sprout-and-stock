@@ -102,7 +102,6 @@ export function inkEdge(el, z, seed = 0, nib = 'card', obs = null) {
   const rect = document.createElementNS(NS, 'rect');
   rect.setAttribute('x', inset);
   rect.setAttribute('y', inset);
-  rect.setAttribute('rx', 2);
   svg.appendChild(rect);
   el.appendChild(svg);
 
@@ -117,6 +116,16 @@ export function inkEdge(el, z, seed = 0, nib = 'card', obs = null) {
     svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     rect.setAttribute('width', Math.max(0, w - inset * 2));
     rect.setAttribute('height', Math.max(0, h - inset * 2));
+    /* ...and the corner is READ off the host rather than written here, which it
+       was (`rx: 2`, the old universal `--r`). Three cards share this file and
+       they no longer share a radius: the panel is rounded like a card in the
+       game now and the two corner widgets are not, so a fixed rx draws a square
+       corner inside a round one — a stroke that leaves the card and comes back,
+       which reads as the outline being broken rather than as a number being
+       wrong. Measured in `fit` and not once at build, because a stylesheet is
+       the thing that decides it and the host may be restyled under us. */
+    const r = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
+    rect.setAttribute('rx', Math.max(2, r - inset));
   };
 
   fit();

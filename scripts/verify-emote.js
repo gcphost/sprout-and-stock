@@ -51,7 +51,7 @@ import { Game } from '../server/sim/index.js';
 import { silenceMilestones } from '../server/sim/goals.js';
 import { makeRng } from '../shared/rng.js';
 import { hash01 } from '../shared/hash.js';
-import { EMOTES, EMOTE_LIST, isEmote, WAVE_MOOD } from '../shared/emotes.js';
+import { EMOTES, EMOTE_LIST, isEmote, WAVE_MOOD, WAVE_CALM } from '../shared/emotes.js';
 
 const failures = [];
 let checks = 0;
@@ -501,6 +501,92 @@ const waving = (g, who) => !!g.emoteWire(who);
   g5.emote('me', 'wave');
   eq(g5.reputation, rep, 'greeting somebody moves no reputation of its own');
   eq(g5.cash, cash, '...and no money');
+}
+
+// ---------------------------------------------------------------------------
+// 10b. THE PAUSE, which is the half of a greeting you can actually watch.
+//
+//      `WAVE_MOOD` is a deposit into an account being drained every tick, so on
+//      its own it is worth a handful of seconds and reads as a wave that landed
+//      on somebody still visibly cross a moment later. `WAVE_CALM` stops the
+//      drain instead — and a rule about a number NOT moving is the easiest kind
+//      to satisfy by accident, because a sweep whose shopper was never being
+//      drained in the first place passes every assertion below.
+//
+//      So every claim here is PAIRED with the thing it refuses actually
+//      happening, in the same shop, to the same queueing shopper. The control is
+//      first and is the one that gives the rest of them meaning.
+// ---------------------------------------------------------------------------
+{
+  // A shopper in a line, which is the state the whole feature is about — and
+  // the two fields `stepMood` divides by, which `shopperAt` does not set because
+  // nothing above this section ever drained anybody.
+  const queueing = (g, id) => Object.assign(shopperAt(g, id, 1, 0.6), {
+    till: 'fx-1', patience: 60, mood0: 1,
+  });
+
+  // THE CONTROL. Ungreeted, this shopper measurably loses patience over the
+  // window — without it "a greeted shopper does not drain" is satisfied by a
+  // sweep in which nobody drains at all, which is every other section in here.
+  {
+    const g = fresh();
+    const cu = queueing(g, 'zz-drain');
+    g.stepMood(cu, WAVE_CALM);
+    check(cu.mood < 0.6, 'a shopper nobody greeted loses patience in a queue');
+  }
+
+  // ...and greeted, the same seconds cost them nothing at all. `mood` is the
+  // top-up and no more: the drain did not merely slow down, it did not run.
+  {
+    const g = fresh();
+    const cu = queueing(g, 'zz-held');
+    g.emote('me', 'wave');
+    const after = cu.mood;
+    g.stepMood(cu, WAVE_CALM - 0.5);
+    close(cu.mood, after, 'a greeting pauses the drain outright');
+  }
+
+  // It ENDS. A pause that outlived its window would be a shopper who can never
+  // run out of patience — the storm-out is at the bottom of the same function —
+  // so this is the claim that keeps a greeting from being a way to switch a
+  // customer off. Asserted as the drain running again rather than as a stamp
+  // having passed, because the stamp is the implementation and this is the
+  // behaviour.
+  {
+    const g = fresh();
+    const cu = queueing(g, 'zz-ends');
+    g.emote('me', 'wave');
+    g.elapsed += WAVE_CALM + 1;
+    const after = cu.mood;
+    g.stepMood(cu, 1);
+    check(cu.mood < after, '...and it wears off, so patience runs out again');
+  }
+
+  // ONCE, which is `WAVE_MOOD`'s own bound and not a second one beside it: the
+  // pause is set inside the same `!greeted` branch, so a held key cannot keep
+  // anybody calm. Waved at again *after* the window, the drain still runs.
+  {
+    const g = fresh();
+    const cu = queueing(g, 'zz-again');
+    g.emote('me', 'wave');
+    g.elapsed += WAVE_CALM + 1;
+    g.emote('me', 'wave');
+    const after = cu.mood;
+    g.stepMood(cu, 1);
+    check(cu.mood < after, 'waving again does not re-arm the pause');
+  }
+
+  // And nobody the greeting never reached is calmed — the pair to §10's "a
+  // shopper out of reach is not cheered up", said about the clock instead of
+  // about the number. Either half alone is satisfied by the pause not working.
+  {
+    const g = fresh();
+    const cu = Object.assign(queueing(g, 'zz-nowhere'), { x: g.players.me.x + REACH + 1 });
+    g.emote('me', 'wave');
+    const after = cu.mood;
+    g.stepMood(cu, 1);
+    check(cu.mood < after, 'a shopper out of reach goes on losing patience');
+  }
 }
 
 // ---------------------------------------------------------------------------

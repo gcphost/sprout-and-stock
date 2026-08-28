@@ -15,6 +15,7 @@ import { homeKind } from '../shared/tags.js';
 // grows a member above it.
 import { E, wayDefault } from '../shared/edges.js';
 import { kindOf, countKey } from '../shared/pieces.js';
+import { toolRevealed, revealSig, opensAt, gateFor } from '../shared/reveal.js';
 import { variantsOf } from '../shared/model.js';
 import { artForModel, artForTool, artForWorker } from './thumb.js';
 import { doingNow, bodyOf, kindSummary, ARM_MS } from './worker-menu.js';
@@ -856,11 +857,43 @@ export function buildTools(ui) {
   // catalogue once per kind.
   let vsig = '';
   for (const k of Object.keys(variants)) vsig += `${k}=${variants[k]};`;
-  if (toolCache && toolCache.rows === rows && toolCache.ups === ups && toolCache.vsig === vsig) {
+  /**
+   * ...and which rungs have landed, which HAS to be in the key.
+   *
+   * The cache is keyed on the catalogue, and a milestone is not the catalogue —
+   * so without this the bar would not grow a button until somebody authored a
+   * fixture. The award card would go up, the ladder would tick, and the palette
+   * would show exactly what it showed before, which reads as the reward not
+   * having been paid rather than as a stale cache. It is the one failure this
+   * feature has that looks like a broken promise instead of a bug.
+   *
+   * Free in the shop that is not using it: `revealSig` answers a constant while
+   * the ladder is off, so a save that predates this rebuilds exactly as often as
+   * it always did.
+   */
+  const rsig = revealSig(doneSet(ui), !!ui?.state?.reveal);
+  if (toolCache && toolCache.rows === rows && toolCache.ups === ups
+    && toolCache.vsig === vsig && toolCache.rsig === rsig) {
     return toolCache.out;
   }
   const out = computeBuildTools(ui);
-  toolCache = { rows, ups, vsig, out };
+  toolCache = { rows, ups, vsig, rsig, out };
+  return out;
+}
+
+/**
+ * The rungs this shop has passed, as a set.
+ *
+ * Off `state.milestones` — the same list the Goals panel draws — rather than a
+ * second thing to keep in step. The rows carry `done` already, so this is a
+ * filter and not a source, and a shop whose snapshot has not landed yet answers
+ * the empty set, which is the bottom of the ladder and the right thing to draw
+ * for one frame.
+ */
+function doneSet(ui) {
+  const rows = ui?.state?.milestones ?? [];
+  const out = new Set();
+  for (const m of rows) if (m?.done) out.add(m.id);
   return out;
 }
 
@@ -1048,7 +1081,25 @@ function computeBuildTools(ui) {
   // its art is built from that same record. See `client/thumb.js`.
   const shell = BUILD_TOOLS.map((t) => ({ ...t, art: artForTool(t, null) }));
 
-  return [...pieces, ...shell, ...stations];
+  /**
+   * ...and then the ladder takes back what this shop has not reached yet.
+   *
+   * Filtered ONCE, at the end, over the three lists together, which is the only
+   * place all three exist — a piece, a shell tool and an appliance are built by
+   * three different loops and gated by one table (`shared/reveal.js` says why it
+   * can key on either `kind` or `id`).
+   *
+   * **Removed rather than flagged.** Everything downstream resolves a tool by
+   * id — the ghost, the hint, the pipette, the server's disarm — so a gated tool
+   * left in the list wearing a `locked` flag is a tool every one of those can
+   * still land on, and the first thing that would is `toolOff`: the bar would
+   * grey a tile it also refuses to explain. It is also the design (see the
+   * header there): absent reads as a game unfolding, and a padlock reads as one
+   * withholding.
+   */
+  const on = !!ui?.state?.reveal;
+  const done = doneSet(ui);
+  return [...pieces, ...shell, ...stations].filter((t) => toolRevealed(t, done, on));
 }
 
 /**
@@ -1266,7 +1317,24 @@ export function staffGroups(ui) {
   // where a tile you cannot afford spends a press and gets an error. Same test
   // `hire` makes on the server, in the same words the palette uses.
   const cash = ui.state?.cash ?? 0;
-  const forHire = kinds.map((w) => ({
+  // Cheapest first, because the one thing the tile does not say is which of
+  // these you can have. Catalog order is the order the rows were authored in,
+  // which is no order at all to a reader — and this strip scrolls, so the kinds
+  // a new shop can actually afford were as likely to be off the right-hand end
+  // as not. Price is also what `poor` is decided on, so sorting by it puts every
+  // greyed tile together at the far end rather than scattered through the run.
+  //
+  // A COPY: `kinds` is `ui.catalog.workers`, which is the live catalog and is
+  // read by `nameOfKind` and `kindRow` above. Sorting in place would reorder the
+  // catalog for everything else that reads it.
+  //
+  // Broken by name rather than left to the sort's stability, or two kinds at one
+  // price swap places whenever the catalog reloads — the palette is rebuilt on
+  // every `content_version` bump, so that is a strip that reshuffles as you
+  // watch it.
+  const forHire = [...kinds]
+    .sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0) || a.name.localeCompare(b.name))
+    .map((w) => ({
     id: `kind:${w.id}`,
     kind: w.id,
     poor: w.cost > cash,
@@ -1394,7 +1462,32 @@ const RETIRED = {
  * one of that kind you ever put down. See `fixtureDiscount` on the server.
  */
 export function buyableUpgrades(ui) {
-  return (ui?.catalog?.upgrades ?? []).filter((u) => !RETIRED[u.kind]);
+  /**
+   * ...and the ones for a fixture this shop cannot build yet.
+   *
+   * A fixture upgrade sells a standing discount on every one of that kind you
+   * ever put down, so a Hot Counter Deal in front of somebody with no hot
+   * counter on their bar is a purchase with nothing on the other end of it —
+   * the same "too many buttons" complaint the palette ladder answers, one panel
+   * over, and worse here because this list has PRICES on it and reads as things
+   * you are supposed to be saving for.
+   *
+   * The gate is asked of the upgrade's `kind`, which for a fixture row IS the
+   * build kind — that is what makes this one line rather than a second table.
+   * Everything that is not a fixture upgrade (a rucksack, a postcode) answers
+   * `gateFor` null and is untouched, and so is every row in a shop with the
+   * ladder off.
+   *
+   * It goes here rather than in the tab grouping so that `affordableUpgrades`
+   * — the badge on the tab — counts the same rows the list draws. A badge
+   * promising a purchase the panel does not offer is the green-ghost bug
+   * wearing a number.
+   */
+  const on = !!ui?.state?.reveal;
+  const done = doneSet(ui);
+  return (ui?.catalog?.upgrades ?? [])
+    .filter((u) => !RETIRED[u.kind])
+    .filter((u) => toolRevealed({ kind: u.kind }, done, on));
 }
 
 /**
@@ -2091,20 +2184,20 @@ const TODO = { DROPPED: 0, SHORT: 1, WANTED: 2, NONE: 9 };
  */
 export function vanNote(ui) {
   const pending = ui.state?.orders?.pending ?? [];
-  // The one control in here, and it is always drawn: a button that came and
-  // went with the van would be a button you cannot find when you want it, and
-  // re-sorting is worth asking for on a quiet morning too.
-  // "Take the list again", which is now two things — the order and the tabs —
-  // and the title says the consequence rather than the mechanism, because what
-  // you press it for is a row that has stopped being where it ought to be.
-  const sort = '<button class="pnl-btn" data-resort title="Take a fresh list">'
-    + `${ICONS.report}</button>`;
-  if (!pending.length) return `<span class="pnl-note">${sort}</span>`;
+  // It is a READOUT and nothing else. There was a re-sort button on the end of
+  // it — "Take a fresh list", always drawn, on the argument that a control which
+  // came and went with the van is one you cannot find when you want it. What
+  // that argument skips is that this strip is the panel's DRAG HANDLE and the
+  // close button's next-door neighbour: a press you make once a session, sat
+  // where you grab the window and one target from the way out. Reopening the
+  // supplier already takes a fresh list (`thawOrder` in `showSection`), which is
+  // a gesture nobody has to be taught and one you make anyway.
+  if (!pending.length) return '';
   const units = pending.reduce((n, p) => n + (p.qty ?? 0), 0);
   const next = pending.reduce((a, b) => ((b.in ?? 0) < (a.in ?? 0) ? b : a));
   return `<span class="pnl-note"><span class="n">${units} on the way</span>`
     + `<span class="clock${next.onVan ? ' now' : ''}">${
-      next.onVan ? 'arriving' : String(next.at ?? '').replace(/[^0-9:]/g, '')}</span>${sort}</span>`;
+      next.onVan ? 'arriving' : String(next.at ?? '').replace(/[^0-9:]/g, '')}</span></span>`;
 }
 
 /**
@@ -2113,8 +2206,8 @@ export function vanNote(ui) {
  * Both freezes are the same list-you-work-down argument and neither is worth
  * much without the other: pinning where a row *sits* while letting it change
  * which tab it sits in means the row still disappears out from under the press
- * that moved it, just tidily. The refresh button in the title bar
- * (`vanNote`'s `data-resort`) takes a fresh list of both.
+ * that moved it, just tidily. Closing the supplier and opening it again takes a
+ * fresh list of both — see `thawOrder`.
  */
 function stockRows(ui) {
   const pin = (r, live) => ui.freezeBin('stock:tab', r.id, live);
@@ -2281,20 +2374,72 @@ export const STAFF_BAR = {
  * overflowed the panel. Nothing under $10,000 is abbreviated, so every rung a
  * shop is actually working on still reads exactly.
  */
-function amount(n, unit) {
-  if (unit === 'money') return compact(n);
+export function amount(n, unit) {
+  // Whole dollars. A rung is a distance travelled, not a balance — "$0.00 of
+  // $100" spends four characters saying the shop has no change in it, on the
+  // one readout where the question is how far along you are. `money`'s own
+  // note draws the same line the other way: cash and prices keep their cents
+  // because you check them against a price tag, and nobody checks a target.
+  if (unit === 'money') return compact(n, 0);
   if (unit === 'percent') return `${Math.round(n * 100)}%`;
   if (unit === 'day') return `day ${Math.round(n)}`;
   return String(Math.round(n));
 }
 
 /** What a rung pays, short enough to sit in a caption under the name. */
+/**
+ * What a rung pays, as bold fragments on one dot-separated line.
+ *
+ * **Bold, and no leading arrow.** The `→` said "and then you get", which is one
+ * more kind of punctuation on a line that already separates with `·` — so the
+ * row had a blurb, an arrow, and then dots, and the three rewards read as a
+ * continuation of the sentence rather than as a list of things. Every fragment
+ * is bolded instead and the arrow becomes another dot: same separator all the
+ * way along, and the only emphasis on the line is on the numbers, which is what
+ * somebody is scanning the panel for.
+ *
+ * It returns the fragments WITHOUT a leading separator, and the callers put one
+ * in. That is the whole of why this changed shape: a done row draws the rewards
+ * alone with no blurb in front of them, so a `·` baked in here would open that
+ * row with a floating dot.
+ */
 function rewardWords(reward = {}) {
   const bits = [];
   if (reward.cash > 0) bits.push(money(reward.cash));
   if (reward.supplies > 0) bits.push(`${reward.supplies} free units`);
   if (reward.town > 0) bits.push(`+${reward.town} town`);
-  return bits.length ? `→ ${bits.join(' · ')}` : '';
+  return bits.map((b) => `<b>${b}</b>`).join(' · ');
+}
+
+/** The blurb and the rewards, with a dot between them only if both exist. */
+const blurbAnd = (blurb, rewards) => [blurb, rewards].filter(Boolean).join(' · ');
+
+/**
+ * ...and the reward that is not a number: what turns up on the bar.
+ *
+ * The fourth thing a rung can pay, and until the palette started unfolding it
+ * was the only one with no words anywhere — which made the reveal read as the
+ * game growing buttons at random. `goals.js` rule three still holds and this is
+ * why it can: nothing here is *granted*, so the panel says "Opens" rather than
+ * "Unlocks", and what it names is a button turning up rather than a thing you
+ * come to own.
+ *
+ * **Silent while the ladder is off**, which is the same control the palette
+ * filter has. A shop with the whole bar from the start has no rung that opens
+ * anything, so a line saying otherwise would be describing a game that player is
+ * not playing — and it is on the DONE rows too, because a rung you passed is
+ * where somebody looks to find out where a button came from.
+ */
+function opensWords(ui, m) {
+  if (!ui?.state?.reveal) return '';
+  const opens = opensAt(m.id);
+  if (!opens.length) return '';
+  // Past tense on a rung already earned, or every finished row in the list is a
+  // promise about something that turned up days ago. Same words, same place —
+  // the tense is the only thing that has to move, because on a done row this
+  // has stopped being a reward and become the answer to "where did that button
+  // come from", which is the other question this line exists to answer.
+  return `${m.done ? '🔧 Opened' : '🔧 Opens'} ${opens.join(', ')}`;
 }
 
 export const SECTIONS = [
@@ -2549,7 +2694,28 @@ export const SECTIONS = [
     rows: (ui) => {
       const all = ui.state?.milestones ?? [];
       if (!all.length) return [];
-      const todo = all.filter((m) => !m.done);
+      /**
+       * NEAREST FIRST, which the authored order only approximates.
+       *
+       * `MILESTONES` is written "roughly in the order a shop meets them", and
+       * roughly is the operative word — it is one list serving every shop, so a
+       * farm-heavy save has `harvest-100` in touching distance sitting eleven
+       * rows below a `take-2000` it is nowhere near. What a player wants off
+       * this panel is one question — *what am I about to get* — and a list in
+       * authored order answers it by making them scan forty-six rows for the
+       * fullest bar.
+       *
+       * Sorted on the fraction rather than on what is left, or the ladder reads
+       * as "the cheap ones first" for ever: 90 of 100 sales and 90,000 of
+       * 100,000 dollars are the same distance from the top of the bar and
+       * nothing like the same distance in units, and it is the bar somebody is
+       * looking at. Ties keep the authored order, which is what stops two rungs
+       * at 0% swapping places every time one of them twitches.
+       */
+      const at = (m) => (m.need > 0 ? Math.min(1, m.have / m.need) : 0);
+      const rank = new Map(all.map((m, i) => [m.id, i]));
+      const todo = all.filter((m) => !m.done)
+        .sort((a, b) => at(b) - at(a) || rank.get(a.id) - rank.get(b.id));
       const done = all.filter((m) => m.done);
       return [
         ...(todo.length ? [{ sep: 'To go', icon: ICONS.milestone }] : []),
@@ -2571,7 +2737,8 @@ export const SECTIONS = [
         ...todo.map((m) => ({
           icon: ICONS.milestone,
           name: m.name,
-          sub: `${m.blurb} ${rewardWords(m.reward)}`,
+          sub: blurbAnd(m.blurb, rewardWords(m.reward)),
+          opens: opensWords(ui, m),
           tail: `${amount(m.have, m.unit)} / ${amount(m.need, m.unit)}`,
           bar: m.need > 0 ? m.have / m.need : 0,
           plain: false,
@@ -2581,6 +2748,7 @@ export const SECTIONS = [
           icon: ICONS.medal,
           name: m.name,
           sub: rewardWords(m.reward),
+          opens: opensWords(ui, m),
           // The same column the fractions above are in, or the one row in the
           // list that is finished puts its mark somewhere none of the others
           // look.
@@ -2698,8 +2866,8 @@ export const SECTIONS = [
     // whole change — the four are still there, in order, one scroll apart.
     rows: (ui) => [
       /**
-       * THREE NAMED GROUPS, and the names are what makes this a tab rather than
-       * a pile.
+       * TWO NAMED GROUPS AND A FOOT, and the names are what makes this a tab
+       * rather than a pile.
        *
        * It ran for a long time as one undifferentiated stack — a shop name, a
        * grid, then three centred slabs — which is readable at four rows and
@@ -2713,6 +2881,11 @@ export const SECTIONS = [
        * `switchRows` names about "In the corner": a heading over one row costs
        * more height than the row it names. Each of these has two or three under
        * it, and each name is true of all of them.
+       *
+       * There were three, and the third gave its heading back: the two ways out
+       * of the shop are a `footBar` pinned to the bottom of the panel now, which
+       * says the one thing a heading cannot — that they are not the next thing
+       * down the list, they are where the tab ends. See the note above it.
        */
       { sep: 'Game', icon: ICONS.settings },
 
@@ -2747,69 +2920,59 @@ export const SECTIONS = [
       // open. See `switchRows`.
       { sep: 'You' },
       ...switchRows(ui),
-      // ...and the one of them that is a number rather than a switch, which is
-      // why it is here and not in `switchRows` — that function's name is a
-      // promise about its rows. It is on THIS tab and not View for the line
-      // `switchRows` draws and View's own heading restates: everything on View
-      // is about the next ninety seconds and none of it is remembered, and how
-      // wide the lens is survives leaving the shop the way the tutorial and the
-      // sound do. It is only ever about first person, so it says so — a row
-      // that moves nothing you can see is a row you have to be told the shape
-      // of.
-      ...(ui.scene ? [fovRow(ui)] : []),
 
-      // ...AND THE TWO WAYS OUT, which were already argued to belong together —
-      // "two rows in a stack that both take you off this screen, with the
-      // irreversible one second, is a misread waiting to happen". That pairing
-      // was in a comment; it is a heading now, which is the same fact said where
-      // somebody reading the menu can see it.
+      // ...AND THE TWO WAYS OUT, as a FOOT pinned to the bottom of the tab.
       //
-      // Both are ROWS rather than the centred tiles they were, and that reverses
-      // an argument this file used to make on purpose: a tile was right "because
-      // every other row on this tab that does something is a centred tile with
-      // an inline SVG on it", and that stopped being true when the switches went
-      // back to rows. Two centred grey slabs under six left-aligned rows is two
-      // vocabularies in one short list, and the slabs read as leftovers rather
-      // than as the two things you might have come here to do.
-      { sep: 'Leaving' },
-      // The tip jar, on the tab `/` opens on rather than down in Credits with
+      // They have now been four things, and the run is worth the space because
+      // each move answered the last one's cost. Two centred `midrow` tiles
+      // first — right about their weight, wrong beside six left-aligned rows,
+      // which is two vocabularies in one short list. Then two ordinary rows
+      // under a `Leaving` heading, which fixed that and left them looking like
+      // more settings at the bottom of a tab that simply stopped. Then a bar
+      // that was correct in shape and drawn at the panel's old hairline weight,
+      // so it read as a strip of web buttons.
+      //
+      // What they were missing was two things at once and only ever got one at
+      // a time: POSITION and WEIGHT. `.footbar` is pinned to the foot of the
+      // panel under a dashed rule, so the settings are at the top and these are
+      // at the bottom and the gap says they are not the same kind of thing —
+      // and each is a proper inked button, which is what the rest of the game
+      // looks like. That also retires the heading: a bar of buttons under a
+      // dashed rule needs no word over it to say it is not more list, which is
+      // the better version of what `Leaving` was doing.
+      //
+      // It keeps the pairing argument that put a heading here — "two rows in a
+      // stack that both take you off this screen, with the irreversible one
+      // second, is a misread waiting to happen" — and answers it in shape
+      // rather than in words: the tip jar is as wide as its own long label and
+      // sits at the left, the way out is as small as "Leave to menu" and sits at
+      // the far right, so a thumb travelling down the tab cannot arrive on the
+      // one press it cannot take back.
+      //
+      // What it costs is the captions. "opens a page — the shop keeps running"
+      // and "saves, and back to the shop list" are both true and neither fits a
+      // button. The first is the one worth mourning, and what carries it now is
+      // the word `Leave` sitting at the other end — the contrast that says this
+      // one does not.
+      //
+      // The tip jar is on the tab `/` opens on rather than down in Credits with
       // the sound licences. Credits is the honest *home* for it and is `passive`
       // — the one tab the menu key never lands on — so a link put there is a
       // link nobody is ever shown, which is the whole thing this is not meant to
-      // be. It is one row, it says what it is, and it is the only row in the
-      // game that leaves the game.
-      //
-      // ABOVE the way out and never below it, which is what the heading is now
-      // also saying. See client/links.js for why it is opened rather than
-      // navigated to — this tab is holding a shop. `ICONS.support` comes through
-      // the generator like the other fifty-four, never a glyph typed in here — a
-      // font's emoji is a different drawing on every machine. It was a coffee
-      // mug for a day; see client/links.js for why the mug had to go.
+      // be. See client/links.js for why it is OPENED rather than navigated to:
+      // this tab is holding a shop. `ICONS.support` comes through the generator
+      // like the other fifty-four, never a glyph typed in here — a font's emoji
+      // is a different drawing on every machine. It was a coffee mug for a day;
+      // see client/links.js for why the mug had to go.
       {
-        icon: ICONS.support,
-        name: SUPPORT_LABEL,
-        // The caption is about the PRESS and not about the game, which is the
-        // one thing it is allowed to say. It has carried two other things and
-        // both were wrong: the URL (a bare domain is a thing to verify rather
-        // than a thing to read) and a tag line, which is a pitch — and a pitch
-        // under a link whose label already says the whole thing can only argue
-        // with somebody who has not asked. See client/links.js. What is left is
-        // the fact every other row on this tab would want stated about itself:
-        // this one leaves the game, and your shop keeps running behind it.
-        sub: 'opens a page — the shop keeps running',
-        run: () => openLink(SUPPORT_URL),
-      },
-      // The way out, LAST. It used to sit second, directly under the name of the
-      // shop, on the argument that the shop and the way out of it are one
-      // thought — which is true and puts the one press you can't take back at
-      // the top of the tab you open to turn the music down. It is also the
-      // rarest thing on the tab, and a list is read top down: the switches are
-      // what you came for, so they come first and this closes the tab off.
-      {
-        icon: ICONS.close,
-        name: 'Leave to menu',
-        sub: 'saves, and back to the shop list',
-        run: () => ui.leaveToMenu(),
+        footBar: [
+          { id: 'support', tone: 'love', icon: ICONS.support, name: SUPPORT_LABEL },
+          { id: 'leave', icon: ICONS.close, name: 'Leave to menu' },
+        ],
+        acts: {
+          support: () => openLink(SUPPORT_URL),
+          leave: () => ui.leaveToMenu(),
+        },
       },
 
       /**
@@ -2834,6 +2997,22 @@ export const SECTIONS = [
        */
       { sep: 'View', icon: ICONS.camera },
       ...viewGrid(ui),
+      // How wide first person is, which is HERE and not with the switches on
+      // Game. It sat there on the argument that this tab is the next ninety
+      // seconds and nothing on it is remembered, where a lens width survives
+      // leaving the shop the way the tutorial and the sound do — true, and
+      // sorting by that put the one row in the menu that is about the CAMERA
+      // under a heading called "You", two tabs away from every other control
+      // that decides what the screen looks like. What persists is a fact about
+      // where the value is kept; what a tab is for is where somebody goes
+      // looking. Anybody wanting a wider view opens View.
+      //
+      // It is a row rather than a tile for `surroundRows`' reason turned round:
+      // a tile is a switch and this is a number with two ends, so it needs the
+      // `stp` stepper and a caption saying which way is which. And it is only
+      // ever about first person, so it says so — a row that moves nothing you
+      // can see while you read it is a row you have to be told the shape of.
+      ...(ui.scene ? [fovRow(ui)] : []),
       // ...and where the shop stands, which is the one row on this tab that
       // rides in the SAVE — see shared/surrounds.js. It sat with the switches
       // on the Game tab on the argument that it is something you DO to this
@@ -3038,6 +3217,22 @@ function surroundRows(ui) {
  * nothing behind it. `wireRows` stops its click reaching the row, or replaying
  * the tour would also switch the tour off.
  */
+/**
+ * How many build tools this shop has not reached yet.
+ *
+ * Counted off the same table the filter reads rather than "26 minus what is on
+ * the bar", which would answer nonsense for the shop that has the ladder OFF —
+ * everything is on the bar there, so the honest count of what is still to come
+ * is the one the switch would show you if you flipped it, and that is the whole
+ * question the row is asking.
+ */
+function hiddenTools(ui) {
+  const done = doneSet(ui);
+  const n = computeBuildTools({ ...ui, state: { ...(ui?.state ?? {}), reveal: false } })
+    .filter((t) => !toolRevealed(t, done, true)).length;
+  return n === 1 ? '1 tool' : `${n} tools`;
+}
+
 function switchRows(ui) {
   const tutOff = tutorOff();
   const soundOff = mix.muted;
@@ -3066,6 +3261,30 @@ function switchRows(ui) {
           ui.tutor?.maybeStart(ui.worldId);
         },
       },
+    }),
+    /**
+     * The palette's own ladder, and the one row on this panel that is a fact
+     * about the SHOP rather than about the browser.
+     *
+     * It sits next to Tutorial because it is the same promise — meet the game a
+     * bit at a time — and the two are the whole of the opening. What it does not
+     * share is where it lives: Tutorial is `localStorage` and this is on the
+     * save, so the sub line says "this shop" out loud. Somebody who turns it off
+     * here has not turned it off for the next shop they make, and a row that did
+     * not say so would read as one that had.
+     *
+     * The counts are the honest half. "Everything" and a number are the two
+     * states, and naming how many are still to come is what makes the switch a
+     * choice rather than a warning — without it the off position is the only one
+     * with any information in it, which is a thumb on the scale.
+     */
+    sw(!!ui?.state?.reveal, {
+      icon: ICONS.fixtures,
+      name: 'Ease me in',
+      sub: ui?.state?.reveal
+        ? `This shop's palette unfolds as it grows. ${hiddenTools(ui)} still to come.`
+        : 'This shop has the whole build palette from the start.',
+      run: () => { ui.setReveal(!ui?.state?.reveal); ui.paintSection(); },
     }),
     sw(!soundOff, {
       icon: soundOff ? ICONS.muted : ICONS.speaker,

@@ -17,6 +17,7 @@ import { EMOTE_LIST } from '../shared/emotes.js';
 import { pillDrives } from './input.js';
 import {
   buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups, DECK_GROUPS,
+  amount,
 } from './sections.js';
 import { renderBar, groupAt, nextGroup, KEYED } from './bar.js';
 import { deptsIn, deptStrip, inDept, wireDepts } from './aisles.js';
@@ -36,6 +37,7 @@ import { artForVariant, artForModel, artForWorker } from './thumb.js';
 import { rciHtml, cashflowHtml } from './hud-meters.js';
 import { footfallShown, setFootfallShown } from './footfall.js';
 import { money } from './money.js';
+import { opensAt } from '../shared/reveal.js';
 
 /**
  * Tag and label text reaches these panels from the database, which anyone can
@@ -221,6 +223,21 @@ const FIXTURE_ICON = {
 const refIs = (r, f) => !!r && !!f
   && (r.id === f.id || (r.x === f.x && r.z === f.z && r.kind === f.kind));
 
+/**
+ * Two names and a count, never a list.
+ *
+ * "Appliance, Road, Car Park, Decoration, Hanging" is a correct answer that
+ * makes the chip wider than the shop. Two is enough to say what kind of thing
+ * is coming; the rest is a number, which reads as "and more" without spending
+ * a line on which.
+ */
+function shortList(names) {
+  if (!names.length) return '';
+  const head = names.slice(0, 2).join(', ');
+  const rest = names.length - 2;
+  return `unlocks ${head}${rest > 0 ? ` +${rest}` : ''}`;
+}
+
 export class UI {
   constructor(net) {
     this.net = net;
@@ -346,7 +363,6 @@ export class UI {
       rep: document.getElementById('rep'),
       mood: document.getElementById('mood'),
       full: document.getElementById('full'),
-      season: document.getElementById('season'),
       town: document.getElementById('town'),
       toast: document.getElementById('toast'),
       boardtip: document.getElementById('boardtip'),
@@ -390,6 +406,7 @@ export class UI {
       rail: document.getElementById('rail'),
       search: document.getElementById('panel-search'),
       filter: document.getElementById('panel-filter'),
+      find: document.getElementById('panel-find'),
     };
     // Per-section, and wiped when the section closes — a filter you can't see
     // the cause of is worse than no filter at all.
@@ -490,6 +507,8 @@ export class UI {
       if (chip) this._todoRuns?.[Number(chip.dataset.i)]?.();
     });
     document.getElementById('search-icon').innerHTML = ICONS.search;
+    this.el.find.innerHTML = ICONS.search;
+    this.el.find.onclick = () => this.toggleFind();
     this.el.town.querySelector('.ico').innerHTML = ICONS.town;
     this.el.search.oninput = () => { this.query = this.el.search.value; this.repaint(); };
 
@@ -2325,8 +2344,8 @@ export class UI {
    *
    * A `ResizeObserver` and not a call at the end of `update`, because almost
    * everything that changes this width is invisible from here: the cash crossing
-   * a digit, a season word of a different length, the demand meter gaining a
-   * row, the radio's track title. Watching the box itself is the only version
+   * a digit, the day number crossing one, the demand meter gaining a row, the
+   * radio's track title. Watching the box itself is the only version
    * that cannot be forgotten by the next thing added to that column.
    *
    * `offsetWidth` rather than the observer's own `contentRect`, which excludes
@@ -2351,8 +2370,8 @@ export class UI {
       // the other axis and only has an answer on a narrow screen: under 640px
       // the card is a full-width bar across the top (see the query at the foot
       // of index.html), so there is no width left to clear and the clearance is
-      // its height. It wraps onto a second line when the shop grows a longer
-      // season word or a fifth digit, so this is a measurement for exactly the
+      // its height. It wraps onto a second line when the shop grows a fifth
+      // digit or a longer track title, so this is a measurement for exactly the
       // reason the width is one. Published always rather than behind a
       // `matchMedia`: the var costs nothing where nothing reads it, and a
       // second place that has to be told which layout is up is a second place
@@ -2996,7 +3015,7 @@ export class UI {
     // Arriving from somewhere else is a clean slate, and a clean slate is what
     // earns the caret — see `showFilter`.
     if (this.openPanel !== id && !keep) {
-      this.releaseMenuMode(); this.clearFilter(); this.resetTab();
+      this.releaseMenuMode(); this.clearFilter(); this._find = false; this.resetTab();
       // The aisle goes with the query, and for its reason: it is a narrowing,
       // and a list showing four of forty rows because of something you chose in
       // another menu is a menu that looks broken.
@@ -3121,9 +3140,9 @@ export class UI {
    * So a row keeps the tab it was in when the list was taken, until you ask for
    * a new list. That is the same bargain `freezeOrder` makes and it costs the
    * same thing: a shelf that runs dry while you read stays under Rest until the
-   * refresh button, which is the one control this rests on — see the caveat on
-   * `thawOrder`. The counts on the headings are counts of the frozen bins for
-   * the same reason, or the tab would say 4 over a list of three.
+   * menu is reopened — see `thawOrder`. The counts on the headings are counts of
+   * the frozen bins for the same reason, or the tab would say 4 over a list of
+   * three.
    *
    * A row nobody has seen before is filed where it belongs *now*, exactly as a
    * new row is appended rather than sorted: there is no remembered place to
@@ -3136,7 +3155,12 @@ export class UI {
   }
 
   /**
-   * Take the list as it stands now — the refresh button, and opening a panel.
+   * Take the list as it stands now, which is what OPENING a panel means.
+   *
+   * It had a button in the title bar as well, and that button is gone: the
+   * title strip is the panel's drag handle and sits next to the close, which
+   * is the wrong place for a press you make once a session. Reopening the menu
+   * is the gesture now, and it needs no teaching.
    *
    * Clearing everything rather than one key is deliberate now that a section
    * freezes two things: a list whose rows had been re-sorted into tabs they are
@@ -3324,15 +3348,6 @@ export class UI {
         if (cell) el.style.width = `${cell.offsetWidth}px`;
       });
     }
-    // The one control that lives in the title bar. Wired here rather than in
-    // `showPanel` because the note is a section's own HTML — and `stopPropagation`
-    // because that strip is the drag handle, so a press on it would otherwise
-    // start moving the window as well as sorting the list.
-    this.el.panelTitle.querySelector('[data-resort]')?.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      this.thawOrder();
-      this.paintSection();
-    });
   }
 
   /**
@@ -3469,7 +3484,8 @@ export class UI {
       // nothing, so headings only survive an unfiltered list. A drawn block is
       // the same case: it has no name to match and is not a result — and so is
       // a block of switches, which has several names and is not one of them.
-      if (r.sep || r.html != null || r.grid) return false;
+      // A `footBar` is the same case again — several presses, no name of its own.
+      if (r.sep || r.html != null || r.grid || r.footBar) return false;
       return `${r.name} ${r.sub ?? ''} ${(r.facets ?? []).join(' ')}`.toLowerCase().includes(q);
     });
   }
@@ -3499,13 +3515,40 @@ export class UI {
    * of the panel you just opened, which nobody asked for by tapping a shelf.
    */
   showFilter(on) {
-    this.el.filter.hidden = !on;
-    if (!on || !this._filterFresh) return;
+    // `on` is whether this menu CAN be searched, which is what decides the
+    // button. The box is a second question — whether you have asked — and the
+    // two used to be one: the field was open on every filterable menu, which is
+    // a row of chrome above the list on almost every panel in the game, for a
+    // control most sessions never touch. A query surviving a repaint keeps it
+    // open on its own, or typing would close the box you are typing into.
+    this.el.find.hidden = !on;
+    if (!on) this._find = false;
+    const open = !!(on && (this._find || this.query));
+    this.el.find.classList.toggle('on', open);
+    this.el.filter.hidden = !open;
+    if (!open || !this._filterFresh) return;
     this._filterFresh = false;
     if (matchMedia('(pointer: coarse)').matches) return;
     // `preventScroll` because focus otherwise scrolls the box into view, and
     // the box is inside a panel that has its own remembered scroll offset.
     this.el.search.focus({ preventScroll: true });
+  }
+
+  /**
+   * Open the find box, or shut it and forget what was typed.
+   *
+   * Shutting CLEARS, because a hidden filter is the worst state this panel can
+   * be in: the list is short, nothing on screen says why, and the reason is a
+   * word in a box that is not there. Same argument as `showSection`'s thaw.
+   *
+   * `_filterFresh` is set on the way open rather than only on arrival at a
+   * menu, since pressing this IS the arrival as far as the caret is concerned.
+   */
+  toggleFind(want = null) {
+    const open = want ?? !(this._find || this.query);
+    this._find = open;
+    if (open) this._filterFresh = true; else this.clearFilter();
+    this.repaint();
   }
 
   /**
@@ -3596,6 +3639,34 @@ export class UI {
      * under both — which is a button, and is what this row always was. `data-row`
      * on the button itself, so `wireRows` needs no more than it already has.
      */
+    /**
+     * THE FOOT OF A TAB — several presses side by side, pinned to the bottom.
+     *
+     * Neither a `grid` (that is a block of switches, each answering on/off about
+     * itself) nor a pair of `mid` rows (two centred slabs stacked under a list
+     * of left-aligned rows is two vocabularies in one short tab). A bar is the
+     * third answer and it says the thing neither of the others can: the list has
+     * ENDED. The one caller is the Menu's two ways out of the shop.
+     *
+     * Every entry is the size of its own label and nothing stretches — see
+     * `.footbar` in index.html, where a `flex: 1` on the first one turned a tip
+     * jar into a banner. The two are told apart by their labels being different
+     * lengths, which keeps a thumb travelling down the tab off the press it
+     * cannot take back.
+     *
+     * `footBar` rather than `foot`, which is taken twice over: `.foot` is the
+     * footnote line at the bottom of a panel, and `sec.foot` is the SECTION
+     * field that fills it. A row field spelled like a section field is one grep
+     * that answers two questions.
+     *
+     * Through `data-acts` like a stepper, so `wireRows` needs to know nothing
+     * about it and a foot bar in some other menu wires identically.
+     */
+    if (r.footBar) {
+      return `<div class="footbar" data-acts="${i}">${r.footBar.map((b) => `
+        <button class="fbtn${b.tone ? ` ${b.tone}` : ''}"
+          data-act="${b.id}">${b.icon ?? ''}<span>${b.name}</span></button>`).join('')}</div>`;
+    }
     if (r.mid) {
       return `<button class="midrow" data-row="${i}">
         <span class="midtop">${r.icon ?? ''}<b>${r.name}</b></span>
@@ -3641,6 +3712,23 @@ export class UI {
     // built from copy rather than from a number.
     r.mark ? `<span class="mark${r.mark.warn ? ' warn' : ''}" title="${esc(r.mark.title)}">${r.mark.icon}</span>` : ''}${
     r.sub ? `<span class="tags${r.subWarn ? ' warn' : ''}">${r.sub}</span>` : ''}</span>` : ''}${
+  /**
+   * ...and a line of its own for what a row OPENS.
+   *
+   * It rode on the end of `sub` first and that is where it was found: `.tags`
+   * is 10.5px at 55% opacity and clamped to two lines, which is exactly right
+   * for a caption and exactly wrong for the one fact on a milestone row that is
+   * not a description of it. "Opens Hot Counter, Bin, Roller Door" reads as more
+   * of the blurb, wraps into it, and is the same grey as the sentence it is not
+   * part of — so the reward that is not a number was the hardest thing on the
+   * row to see.
+   *
+   * Its own element rather than a bolder `sub`, because the two say different
+   * KINDS of thing: everything in `.tags` describes the row, and this describes
+   * what happens to the shop when the row completes. Outside `.meta` so it takes
+   * the whole width and can never share a flex line with the caption.
+   */
+  r.opens ? `<span class="opens">${r.opens}</span>` : ''}${
   // How far along something is, 0..1. Inside the name's column rather than
   // beside it, because that column is the only elastic thing in the row — a bar
   // in the row itself would compete with the name for width and lose, and a
@@ -3888,11 +3976,19 @@ export class UI {
       const example = this.catalog.items
         .filter((i) => i.tags?.includes(missed.tag))
         .sort((a, b) => a.base_cost - b.base_cost)[0];
+      // The tag and the multiplier are the WORKING, not the answer. They were
+      // on the chip because they are how the row was chosen — but a chip is
+      // read at a glance over a shop floor, and "gluten-free x1.91" is a
+      // number nobody acts on differently at 1.9 than at 1.4. What you do
+      // about it is get the thing in. The reasoning goes on the hover, which
+      // is where the demand meter already keeps its own.
       out.push({
-        icon: 'supplier', hot: true,
-        text: example
-          ? `Get <b>${esc(example.name)}</b> in — ${esc(missed.tag)} ×${missed.demand}`
-          : `Get <b>${esc(missed.tag)}</b> in — wanted ×${missed.demand}`,
+        icon: 'supplier',
+        hot: true,
+        text: `Get <b>${esc(example ? example.name : missed.tag)}</b> in`,
+        tip: example
+          ? `The town is asking for ${missed.tag} at x${missed.demand} and you have none out.`
+          : `${missed.tag} is wanted at x${missed.demand} and you have none out.`,
       });
     }
 
@@ -3909,7 +4005,83 @@ export class UI {
     const unsown = plots.filter((p) => p.soil === 'tilled' && !p.crop_id).length;
     if (unsown) out.push({ icon: 'seeds', text: `<b>${unsown}</b> plot${unsown > 1 ? 's' : ''} to sow` });
 
+    // The next rung, and it is appended AFTER the cap rather than competing for
+    // one of the three places. Everything above is something going wrong right
+    // now — a bare shelf, a crate on the floor, a tag the town wants — and this
+    // is the opposite: the thing worth doing when nothing is going wrong. Rank
+    // them together and the goal is squeezed out by exactly the busy shop that
+    // is furthest along the ladder, which is backwards, while putting it first
+    // would nag about a target over a shop that is shut.
+    const next = this.nextGoal(state);
+    // Three chips, still — the cap is what keeps this a glance rather than a
+    // list, and the goal takes one of the three rather than being a fourth.
+    //
+    // FIRST, which is the opposite of where it started. Everything else in the
+    // strip is something going wrong right now, and ordering by urgency put the
+    // one line about where the shop is *going* underneath the one about a shelf
+    // being empty — so it wrapped onto a second row and read as the runt of the
+    // list. It is the only chip here that is true all day and the only one that
+    // says what any of this is for, so it goes at the head and the problems
+    // queue behind it.
+    if (next) return [next, ...out.slice(0, 2)];
     return out.slice(0, 3);
+  }
+
+  /**
+   * What the shop is working toward, as one chip — AND IT MUST UNLOCK SOMETHING.
+   *
+   * The forty-six rungs are not a quest list and reading them as one is the bug
+   * this exists because of. A rung is a *measurement*, so the ladder holds two
+   * completely different kinds of thing side by side: goals you go and achieve
+   * (`take-100`, `range-6`, `first-harvest`) and events that simply happen to a
+   * shop — `first-storm` is "a shopper ran out of patience and left with
+   * nothing", which is bad news, is nobody's plan, and cannot be worked toward.
+   * Taking the next undone rung offered *that* as the thing to aim for.
+   *
+   * `opensAt` is the filter and it is the right one rather than a hand-written
+   * list of the good ones: a rung that opens a build tool is a rung somebody can
+   * be told to go and earn, and the thing they get for it is nameable. The seven
+   * that gate the palette are exactly the seven worth pointing at, and the
+   * thirty-nine that open nothing stay where they belong, in the Milestones
+   * panel, as a record of what the shop has done.
+   *
+   * It follows the ladder's own order rather than "closest to finishing".
+   * Closest-first reads as the shop choosing your goal for you and changes its
+   * mind whenever a number moves; a sequence somebody wrote stays still long
+   * enough to be worth reading.
+   */
+  nextGoal(state) {
+    const m = (state.milestones ?? []).find((g) => !g.done && opensAt(g.id).length);
+    if (!m) return null;
+    // `unit` is a TYPE and never a word — `money`, `count`, `day`, `percent` —
+    // so printing it read "100 money", and a rung measured in takings printed
+    // its raw float beside it: "1.05 /100 money" for a shop that had taken a
+    // dollar five. `amount` is the Milestones panel's own formatter and there
+    // is no second opinion about it here.
+    const pct = Math.max(0, Math.min(1, m.need ? m.have / m.need : 0));
+    return {
+      icon: 'milestone',
+      // The bar is the readout and the numbers are the caption, which is the
+      // way round the demand meter already argues for: a fraction has to be
+      // divided before it means anything, where a length is read at a glance.
+      // It rides `--pct` on the chip rather than a nested element, so the strip
+      // stays one flat row of chips and a goal is not the one entry with a
+      // structure inside it.
+      pct,
+      // Short enough to stay ONE line. It carried the rung's name, both
+      // figures and every tool the rung opens, which at `take-500` is five of
+      // them — the chip wrapped to two rows, and a wrapped chip in a strip of
+      // one-line chips reads as a panel that has come loose.
+      //
+      // So the unlocks are COUNTED past the second. Two names say what kind of
+      // thing is coming, which is the whole job of the line; the third, fourth
+      // and fifth are a list nobody reads standing over a shop floor, and the
+      // full set is on the hover with the instruction.
+      text: `<b>${m.name}</b> &middot; ${amount(m.have, m.unit)} / ${amount(m.need, m.unit)}`
+        + ` &middot; ${shortList(opensAt(m.id))}`,
+      tip: `${m.blurb ?? ''} Unlocks ${opensAt(m.id).join(', ')}.`.trim(),
+      run: () => this.showSection('goals'),
+    };
   }
 
   /**
@@ -3958,6 +4130,25 @@ export class UI {
    */
   setPaused(paused, quiet = false) {
     this.net.send('pause', { paused: !!paused, quiet: !!quiet });
+  }
+
+  /**
+   * Unfold the build palette with the ladder, or hand over the whole bar.
+   *
+   * Sent rather than kept here, for `setSurround`'s reason: it rides in the
+   * save, so it is a fact about the shop and the other person has to see it. A
+   * setting on the browser would also be the wrong shape for the decision it
+   * exists to serve — see `setReveal` on the server.
+   *
+   * Written locally as well, which is the one thing on top and is the same call
+   * the surround picker makes: the switch is repainted from `this.state`, and
+   * the snapshot is up to a tick away, so without it the row reads Off for a
+   * beat after you press it and the toggle looks like it missed.
+   */
+  setReveal(reveal) {
+    const want = !!reveal;
+    if (this.state) this.state.reveal = want;
+    this.net.send('reveal', { reveal: want });
   }
 
   /**
@@ -4204,7 +4395,6 @@ export class UI {
     // wire and no field on the save.
     this.el.dow.textContent = weekdayLabel(state.day);
     this.el.day.textContent = `Day ${state.day}`;
-    this.el.season.textContent = state.season;
     // The reputation bar moved into `setGauges` with the other two, because it
     // grew a colour and the rule about what an amber step may be is stated once
     // there for all three. Setting the width here as well would be two writers
@@ -4381,7 +4571,10 @@ export class UI {
     // innerHTML at 10Hz would throw away the DOM under the cursor every tick,
     // so redraw only when the list actually reads differently.
     const todo = this.todoList(state);
-    const key = todo.map((t) => t.icon + t.text).join('|');
+    // The bar's length is in the signature as well as the words, or a goal chip
+    // never redraws between the tick it appears and the tick its number changes
+    // the sentence — which is most of a rung.
+    const key = todo.map((t) => `${t.icon}${t.text}${t.pct?.toFixed(3) ?? ''}`).join('|');
     // Outside the redraw guard on purpose: the words are what the guard diffs
     // on, so an identical list about a *later* snapshot does not rebuild the DOM
     // — and a run captured at the last rebuild would then be acting on a shop
@@ -4393,10 +4586,18 @@ export class UI {
       // there is not, which is the pill's rule again: a chip that looks
       // pressable and is not is the green ghost with words on it.
       this.el.todo.innerHTML = todo
-        .map((t, i) => (t.run
-          ? `<button type="button" class="todo${t.hot ? ' hot' : ''}" data-i="${i}">`
-            + `${ICONS[t.icon]}${t.text}</button>`
-          : `<span class="todo${t.hot ? ' hot' : ''}">${ICONS[t.icon]}${t.text}</span>`))
+        .map((t, i) => {
+          // A length rather than a fraction. It is a background on the chip
+          // itself (`--pct`) rather than a child element, so a goal is still one
+          // flat chip in a strip of flat chips.
+          const cls = `todo${t.hot ? ' hot' : ''}${t.pct === undefined ? '' : ' goal'}`;
+          const style = t.pct === undefined ? '' : ` style="--pct:${(t.pct * 100).toFixed(1)}%"`;
+          const tip = t.tip ? ` title="${t.tip}"` : '';
+          return t.run
+            ? `<button type="button" class="${cls}"${style}${tip} data-i="${i}">`
+              + `${ICONS[t.icon]}${t.text}</button>`
+            : `<span class="${cls}"${style}${tip}>${ICONS[t.icon]}${t.text}</span>`;
+        })
         .join('');
     }
 
@@ -4605,8 +4806,24 @@ export class UI {
     // So an empty update is refused while the pointer is on the pill. Only an
     // empty one: a list that changed to a different list is a real answer about
     // a real target and must land, or the rows would freeze under your hand.
-    if (!hints?.length && this._overPill && this._hints) return;
-    this._hints = hints?.length ? hints : null;
+    // A CARD WITH NO ROWS IS A LABEL, and a label belongs to a stopped clock.
+    //
+    // The pill has always been a list of presses, so no presses meant no card —
+    // which is right while the shop is running, because the one thing it would
+    // then be saying is the name of a thing you cannot do anything to. It is
+    // wrong the moment the clock is held: nearly every row goes (`pressHints`
+    // drops the walks and the rings), and what is left to want is the half the
+    // pill added last and nothing else in the game says — *which* unit that is.
+    // A ring tells you where a thing is; three conveyor cells, a plot and a
+    // loader all ring identically.
+    //
+    // Gated on `paused` rather than allowed everywhere, or a shelf that will not
+    // take what you are holding — no rows, by design — grows a caption on a
+    // running shop that nobody asked for.
+    const label = !hints?.length && !!hints?.about && this.paused;
+    const empty = !hints?.length && !label;
+    if (empty && this._overPill && this._hints) return;
+    this._hints = empty ? null : hints;
     this.paintPrompt();
   }
 
@@ -5471,7 +5688,9 @@ export class UI {
     this._panelPressed = false;
     this.el.panel.classList.remove('show');
     this.el.filter.hidden = true;
+    this.el.find.hidden = true;
     this.clearFilter();
+    this._find = false;
     this.rail.setOpen(null);
     // Order matters: the mode is released once nothing is open, because
     // `toggleBuild` shuts an open fixture menu itself and would re-enter this.
@@ -5507,7 +5726,11 @@ export class UI {
     // Outermost rung of all: it floats over everything, it owns no world state,
     // and it is the most recent thing you opened whenever it is up.
     if (this.shapesOn) return yes(() => this.toggleShapes(false));
-    if (this.openPanel && this.query) return yes(() => { this.clearFilter(); this.repaint(); });
+    // Escape backs out of the find box before it backs out of the menu — and it
+    // closes the box rather than only emptying it, or the first press leaves an
+    // empty field open and the second shuts the panel, which reads as one press
+    // having done nothing.
+    if (this.openPanel && (this.query || this._find)) return yes(() => this.toggleFind(false));
     if (this.openPanel) return yes(() => this.closePanel());
     // A pile you pressed is a selection too, and the lightest one there is: it
     // owns no world state, nothing is armed by it, and it is almost always the
@@ -5716,7 +5939,8 @@ export class UI {
     wireScroll(scrollerOf(this.el.panelBody), { axis: 'y' });
     // Only a section has anything to filter. `paintSection` turns it back on
     // straight after; a fixture menu never does, so it can't inherit the
-    // supplier's search box.
+    // supplier's search box — nor its find button.
     this.el.filter.hidden = true;
+    this.el.find.hidden = true;
   }
 }

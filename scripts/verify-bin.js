@@ -608,6 +608,95 @@ function withBin(g) {
 }
 
 // ---------------------------------------------------------------------------
+// 12. Rubbish is a fact about the BOX, and every hand it passes through has to
+//     carry it.
+//
+// `waste` rides on the crate rather than on the piles in it, which section 3
+// argues for and which is right — but it means every place a lot is rebuilt out
+// of `lotStacks` is a place the flag can be quietly dropped, and the piles that
+// come out are perfectly ordinary `{item_id, qty, day}`. Three did:
+// `liftCrate` (onto the shoulder), `dropLot` (back onto the floor) and
+// `beltPut` (onto a run). So the walk to the skip was the one job in the shop
+// you could opt out of by *doing* it — pick the box up and it was stock again,
+// worth full price, shelvable by anybody who passed.
+//
+// Nothing about it is visible, and this is the file's usual reason made worse:
+// a crate of rot and a crate of stock are the same box in a different wood, and
+// on a shoulder they were the same box in the SAME wood, because `syncHaul`
+// never asked. So the one thing on screen that could have told you agreed with
+// the bug.
+//
+// Every claim below is PAIRED with the same gesture made with ordinary stock,
+// because a flag that is always true and a flag that is always false both pass
+// half of this, and "rubbish stays rubbish" is satisfied by a shop where
+// everything is rubbish.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const bin = withBin(g);
+  check(!!bin, 'the shop owns a skip');
+
+  const shelf = g.layout.shelves[0];
+  board(g, shelf, ROTS, 7, 99);
+  g.spoilStock();
+  const rot = wasteCrates(g)[0];
+  check(!!rot, 'a shelf of rot becomes a box');
+  const rotted = lotTotal(rot);
+  check(rotted > 0, 'with something in it', `${rotted}`);
+
+  const p = g.players.me;
+  const lift = (crate) => { p.x = crate.x; p.z = crate.z; return g.liftCrate('me', crate.id); };
+
+  // Half one, and it is the whole bug: the shoulder remembers.
+  check(lift(rot).ok, 'you can shoulder a crate of rot');
+  check(p.haul?.waste === true, 'and it is still rubbish up there');
+  eq(lotTotal(p.haul), rotted, 'with everything that was in it');
+
+  // The chevrons. Not "a bin is in the list" — the shop is FULL of shelves that
+  // would take this item, and the claim is that not one of them is offered.
+  const binIds = new Set((g.layout.bins ?? []).map((b) => b.id));
+  const wanted = g.stockTargets(p.haul) ?? [];
+  check(wanted.length > 0, 'the marker points somewhere', `${wanted.length}`);
+  check(wanted.every((id) => binIds.has(id)),
+    'and every unit it points at is a skip', wanted.join(','));
+
+  // ...and the press agrees with the marker, which is the disagreement that
+  // made this worth finding: `stockShelf`'s own `p.haul.waste` refusal was
+  // unreachable code for as long as the shoulder could not be rubbish.
+  const put = g.stockShelf('me', shelf.id, ROTS.id);
+  check(!put.ok, 'and a shelf turns the box away', put.error ?? 'it took it');
+
+  // Down again, and it is still rubbish — `dropLot` and not `dropGoods`, or it
+  // merges into whatever box of stock happens to be standing a tile away.
+  const down = g.dropCrate('me');
+  check(down.ok, 'you can set it down', down.error ?? '');
+  eq(p.haul, null, 'and your shoulder is empty');
+  const back = wasteCrates(g);
+  eq(back.length, 1, 'what is on the floor is one box of rubbish');
+  eq(lotTotal(back[0]), rotted, 'holding what it held before the round trip');
+  eq(g.stockCrates().length, 0, 'and the shop counts none of it as stock');
+
+  // The pair. Same two verbs, ordinary goods, and nothing anywhere is marked —
+  // or `waste` is a constant and every assertion above passes for free.
+  // On the rubbish's own tile, deliberately: `dropGoods` will not top up a
+  // waste box (`!d.waste`), so this is also the assertion that the two never
+  // merge even standing on the same square — and it is a tile the round trip
+  // above has already proved a crate may be set down on.
+  const made = g.dropGoods(KEEPS.id, 6, { x: back[0].x, z: back[0].z });
+  check(!!made, 'a crate of good stock stands beside it');
+  check(made.id !== back[0].id, 'as its own box rather than folded into the rot');
+  check(lift(made).ok, 'you can shoulder that one too');
+  check(!p.haul?.waste, 'and it is NOT rubbish on your shoulder');
+  const stockWanted = g.stockTargets(p.haul) ?? [];
+  check(stockWanted.some((id) => !binIds.has(id)),
+    'so the marker points at shelving again', stockWanted.join(','));
+  check(g.dropCrate('me').ok, 'and it goes down');
+  eq(wasteCrates(g).length, 1, 'still exactly one box of rubbish in the shop');
+  eq(g.stockCrates().reduce((n, d) => n + lotQty(d, KEEPS.id), 0), 6,
+    'and the good stock is still good stock');
+}
+
+// ---------------------------------------------------------------------------
 
 console.log(`\nverify:bin — ${checks} assertions`);
 if (failures.length) {

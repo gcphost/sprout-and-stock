@@ -59,7 +59,7 @@ exactly when a new player most needs it.
 | `client/icons.js` | **Generated.** Inline SVG strings. `npm run icons`. |
 | `client/fixture-menu.js` | Everything one fixture can do, including its seed list. |
 | `client/ui.js` | `showSection`/`paintSection` — the one renderer — plus the HUD, the panel and the seed wheel. |
-| `client/hud-meters.js` | The cashflow readout and the demand meter, as pure snapshot → HTML functions. Owns `DEADBAND`, the sparkline, and `zeroScale` — where a floating zero line goes, which the Shop report also draws. |
+| `client/hud-meters.js` | The cashflow readout and the demand meter, as pure snapshot → HTML functions. Owns `DEADBAND` and `zeroScale` — where a floating zero line goes, which the Shop report draws twice. |
 | `client/report.js` | The Shop panel, as a picture rather than a list. Same pure snapshot → HTML shape as `hud-meters.js`. |
 | `scripts/build-icons.js` | Bakes the icons we name into `client/icons.js`. |
 
@@ -1090,23 +1090,26 @@ is going, and what the town wants. Both are pure functions of the snapshot in
 Cash on hand was the only money on screen, and it cannot answer "how am I
 doing". You can watch it climb all week while every individual day loses money
 against the wages, because the climb is a loan, a good Saturday or the till you
-finally cashed up. Three parts, in the order the questions get asked:
+finally cashed up. Two parts, in the order the questions get asked:
 
 | Part | Says | Read from |
 |---|---|---|
 | today's net, signed | am I making money right now | `state.stats` |
 | an arrow | is that better than yesterday | last row of `state.ledger` |
-| a 7-bar sparkline | what has the week looked like | all of `state.ledger` |
 
-Three details are load-bearing:
+There were **three**, and the third was a 7-bar sparkline of the week off all of
+`state.ledger`. It is gone, along with the season word above it, and the third
+grid column both stood in: a week of finished days is something you *consult*,
+and the Shop report already draws the same seven days at four times the height
+with labels on them, where the corner had to say it in 54×12 pixels. `ledger` is
+still in `cashflowHtml`'s signature, because yesterday comes out of it.
+
+Two details are load-bearing:
 
 - **The arrow only exists when there is a yesterday.** Day one has nothing to
   compare against, and defaulting to zero would make the first day of every shop
   a triumph. Same reason the Shop report's `vs yesterday` row is absent rather
   than zero.
-- **The sparkline is finished days only.** Today is a part-day, and standing a
-  half-written bar beside seven whole ones reads as a slump every single
-  morning. Today is the *number*; the shape is the days that are done.
 - **The arrow is coloured separately from the number.** They answer different
   questions and can disagree — a day that is better than yesterday can still be
   a loss, and one colour for both would say the day went well.
@@ -1326,7 +1329,11 @@ order a game HUD usually reads in: what day it is, then what you have. It goes
 with the money rather than with the clock because a balance is a thing measured
 over days and seasons — the date is its unit, where the clock is the hour, the
 one readout up here that is not about the ledger. Splitting the pair (season by
-the time, day by the cash) would break one date across two cells.
+the time, day by the cash) would break one date across two cells — which is
+what it ended up doing, for a while, and the season is off the card now: a word
+that changes four times a game, next to a weekday derived from the same number.
+The season is still on the snapshot and `ui._season` still holds it, because the
+seed picker paints against it.
 
 **…and the date says which day of the week it is, because a season is one.**
 `Day 62` is a stopwatch: it tells you how long you have been at it and nothing
@@ -1355,19 +1362,18 @@ it indents the time by its own width, so the number stops lining up with the
 date above it and the takings below. Reading order agrees — the time, then what
 is being done to it.
 
-**`#flow`'s width floor and `SPARK_W` have to be the same number.** A floor of
-70 over a 38px sparkline is 32px of empty, left-aligned column, so all of it
-pooled on the right — and what that looks like is the clock adrift, half a panel
-from the readout it is nearest. Neither value was wrong; they had simply never
-been told about each other. Matched at 56, the widget *is* the floor and there
-is no slack for a gap to be made of.
+**`#flow` has no width floor, and the trap it was written for is worth keeping.**
+It had one, for the same reason `#cash` does, and it had to be kept equal to the
+sparkline's own width by hand: a floor of 70 over a 38px widget is 32px of empty,
+left-aligned column, so all of it pooled on the right — and what that looks like
+is the clock adrift, half a panel from the readout it is nearest. Neither value
+was wrong; they had simply never been told about each other. The grid retired
+both halves, because a column is exactly as wide as the wider of the two cells in
+it, which is the floor computed for every cell in the card at once.
 
 The whole of `#stats` came down about a fifth at the same time, and everything in
-it scales together — type, gauge bars, `SPARK_W`/`SPARK_H` in `hud-meters.js`,
-padding. A panel where only some of it shrank reads as a panel with a mistake in
-it, and the sparkline is the one to watch: left alone it becomes the biggest
-thing in the readout, which is the wrong way round for the least urgent number
-in it.
+it scales together — type, gauge bars, padding. A panel where only some of it
+shrank reads as a panel with a mistake in it.
 
 Which exposed the older version of the same fault: **nothing in `#stats` may
 move sideways**, and three cells in it were free to. Every one holds a number

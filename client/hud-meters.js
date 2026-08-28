@@ -7,10 +7,6 @@
  * client does. They live outside `ui.js` because that file is already twice its
  * 600-line cap and drawing is the most self-contained thing in it (see the
  * "still to do" list in docs/ui-shell.md).
- *
- * They are inline SVG for the same reason `client/thumb.js` is: a picture with
- * no lifecycle, sharp at any density, sized by the `font-size` rules that are
- * already there.
  */
 
 import { DEPARTMENTS } from '../shared/tags.js';
@@ -29,26 +25,6 @@ const HALF = 26;
  * to do here, which is the reading you want to be able to take without looking.
  */
 const DEADBAND = 0.04;
-
-// Scaled with the rest of #stats — see the panel's own note in index.html. A
-// sparkline that kept its old size while the type around it shrank would be the
-// biggest thing in the readout, which is the wrong way round for the least
-// urgent number in it.
-// It IS the third column of `.rows` — nothing else in that column is as wide as
-// it ("Summer" is about 38px), so this number is the width of the right-hand end
-// of the card and shaving it shaves the card. That coupling used to run the
-// other way, through a `min-width` on `#flow` that this had to be kept equal to;
-// the grid retired it, and what is left is the simpler statement that the widget
-// is the column.
-//
-// The bars are `slot - 1.5` wide, so the card gives back rather more than the
-// gaps lose: at seven days each bar is a fifth of a pixel narrower per pixel
-// taken off here. Which is the trade to weigh if it ever comes down again — a
-// week's shape is read as the RELATIVE heights of seven marks, so the floor is
-// where the marks stop being distinguishable from each other rather than any
-// particular width.
-const SPARK_W = 54;
-const SPARK_H = 12;
 
 const title = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -115,20 +91,20 @@ function rciWhy(dept, d) {
 }
 
 /**
- * THE CASHFLOW READOUT — today's net, whether that beats yesterday, and the week.
+ * THE CASHFLOW READOUT — today's net, and whether that beats yesterday.
  *
- * Three things because "how am I doing" is three questions and the corner had an
- * answer to none of them: cash on hand was the only number on screen, and a
- * balance is not a rate. You can watch it climb all week while every day loses
- * money against the wages.
+ * Cash on hand was the only number in the corner, and a balance is not a rate:
+ * you can watch it climb all week while every day loses money against the wages.
  *
  * The arrow is only drawn when there *is* a yesterday. A shop on day one has no
  * comparison and saying "▲" against an assumed zero would make the first day of
  * every shop a triumph.
  *
- * The sparkline is finished days only, deliberately. Today is a part-day and
- * standing a half-written bar beside seven whole ones reads as a slump every
- * morning — so today is the number, and the shape is the days that are done.
+ * The WEEK's shape was drawn here too, as a sparkline off `days`. It is gone
+ * from the corner — a week of finished days is a consultation rather than a
+ * reading, and the Shop report draws the same seven days four times the height
+ * with labels on them. `ledger` stays in the signature because yesterday comes
+ * out of it.
  */
 export function cashflowHtml(stats = {}, ledger = []) {
   const today = (stats.revenue ?? 0) - (stats.spent ?? 0);
@@ -143,8 +119,7 @@ export function cashflowHtml(stats = {}, ledger = []) {
 
   return `<span class="flow ${today < 0 ? 'down' : 'up'}" title="${hint}">`
     + `<b>${money(today)}</b>${arrow ? `<i class="${dir}">${arrow}</i>` : ''}`
-    + `</span>`
-    + sparkHtml(days);
+    + `</span>`;
 }
 
 /**
@@ -155,12 +130,14 @@ export function cashflowHtml(stats = {}, ledger = []) {
  * height; a losing day pushes zero up to make room below it. A fixed mid-height
  * axis would spend half the widget on a half nothing normally reaches.
  *
- * Exported because the corner sparkline and the Shop panel's week both draw
- * this picture at different sizes, in different technologies — one is a 56px
- * SVG, the other is a column of divs four times the height with labels on it.
- * What they must not disagree about is where zero is: two widgets showing the
- * same seven days with the axis in different places is one of them being wrong,
- * and neither is provable by eye because they are never on screen together.
+ * Exported because the Shop panel draws this picture twice at two heights — the
+ * week's profit and the week's reputation — and the corner sparkline drew it a
+ * third time at 12px until it left the card. What they must not disagree about
+ * is where zero is: two widgets showing the same seven days with the axis in
+ * different places is one of them being wrong, and neither is provable by eye
+ * because they are never on screen together. It stays here rather than moving
+ * into `report.js` with its two remaining callers for the same reason it was
+ * shared in the first place — the next readout that draws a week finds it.
  *
  * `top`/`bottom` are clamped through zero, so a week entirely in profit still
  * measures from 0 rather than from its own worst day — otherwise the shape is
@@ -171,36 +148,4 @@ export function zeroScale(values, height) {
   const bottom = Math.min(...values, 0);
   const span = top - bottom || 1;
   return { top, bottom, span, zero: (top / span) * height };
-}
-
-/**
- * Profit per finished day, oldest at the left.
- *
- * Bars off a zero line rather than a line chart, because the sign is the thing
- * being read and a polyline crossing an axis is much harder to take in at 46px
- * than a bar that points down.
- */
-function sparkHtml(days) {
-  if (!days.length) return '';
-  const { bottom, span, zero } = zeroScale(days, SPARK_H);
-  const slot = SPARK_W / days.length;
-  const w = Math.max(2, slot - 1.5);
-
-  const bars = days.map((v, i) => {
-    const x = i * slot + (slot - w) / 2;
-    const h = Math.max(1, (Math.abs(v) / span) * SPARK_H);
-    const y = v >= 0 ? zero - h : zero;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}"`
-      + ` height="${h.toFixed(1)}" rx="1" class="${v < 0 ? 'down' : 'up'}"/>`;
-  }).join('');
-
-  // Only when something is below it. With every day in profit the bottom edge of
-  // the box *is* zero, and a rule drawn on top of the bars would read as a
-  // threshold somebody chose.
-  const axis = bottom < 0
-    ? `<line x1="0" y1="${zero.toFixed(1)}" x2="${SPARK_W}" y2="${zero.toFixed(1)}" class="axis"/>`
-    : '';
-
-  return `<svg class="spark" viewBox="0 0 ${SPARK_W} ${SPARK_H}" width="${SPARK_W}" height="${SPARK_H}"`
-    + ` title="profit per day, last ${days.length}">${axis}${bars}</svg>`;
 }

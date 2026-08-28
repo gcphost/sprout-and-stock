@@ -241,7 +241,44 @@ compressed), so this is the cadence the ladder had between `first-build` and
    the way to owning an oven.
 2. ~~**A ladder that says something in the first fortnight.**~~ Built as step 3.
    Two weekly rungs (day 14, day 21) and a re-tuned survival run — see above.
-3. **A first-run ladder that teaches.** The first three rungs are the closest
+3. ~~**The palette unfolds with the ladder.**~~ Built as step 4.
+   `shared/reveal.js`. Twenty-six build kinds is a correct palette and a bad
+   first minute — the only gate the shop has ever had is PRICE, so a new player
+   meets conveyors, lifts, sorters, paddocks and a ceiling before they have sold
+   anything. The complaint it draws is "too many buttons", and it is not a
+   complaint about there being too much game: Factorio has far more and nobody
+   says it, because you meet it over forty hours instead of in one screen.
+
+   **It is a reveal and never an unlock, and that distinction is the only reason
+   it can exist here at all.** Rule three above says a reward may not be a thing
+   you unlock, because anything granting a fixture is a second way to *own*
+   something and every rule in the shop about what you own is written against
+   `placements` and `ownedUpgrades`. This grants nothing: it hides a button you
+   could always afford, and on the day it turns up you are no richer and own
+   nothing new. So `placeFixture` never asks, the server never asks, and MCP, a
+   sweep, the balance bot and a co-op guest whose bar is further along all go on
+   building whatever they like. `verify:reveal` §5 is that claim as an
+   assertion, because the day it stops being true the reveal has quietly become
+   a permission.
+
+   Three things it rests on. **A gate may never be the thing it gates** — five
+   rungs measure *having built the thing* (`first-kitchen` is "put an appliance
+   on the floor", and `break-room`, `car-park`, `stockroom` and `first-warmer`
+   are the same shape), so gating `station` behind `first-kitchen` is a button
+   that arrives the moment it has stopped being needed, which reads as correctly
+   authored and is off for ever. It is asserted empirically rather than against
+   a banned list, so it cannot go stale when somebody writes a forty-sixth rung.
+   **Unlisted is visible**, or a fixture authored tomorrow prices, places,
+   renders and can never be found. And it is **per world, not per player**: a
+   fresh shop can ease somebody in while a day-322 save keeps everything, which
+   a browser setting could not say — the field defaults to `false` so no
+   existing save loses a button, and `createWorld` writes `true`.
+
+   The rung that matters is `sold-500` for the belt. Five hundred things over
+   the counter is five hundred things somebody shelved by hand, which is
+   Factorio's pickaxe said out loud: the answer turns up because you earned the
+   feeling, not because a tech tree ticked over.
+4. **A first-run ladder that teaches.** The first three rungs are the closest
    thing the game has to a tutorial and nothing says so. Naming them as one
    opening sequence — and opening the panel on a new shop — is a client change.
 4. **Telling the other player.** The card is broadcast, so both people in a shop

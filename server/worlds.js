@@ -23,7 +23,7 @@ import {
   DEFAULT_WORLD_ID, listWorldRows, worldRow, insertWorldRow, deleteWorldRow,
   touchWorldRow, renameWorldRow, getWorld, setWorld,
 } from './db.js';
-import { world as loadWorld, saveWorld, DEFAULT_WORLD } from './content.js';
+import { world as loadWorld, saveWorld, DEFAULT_WORLD, content } from './content.js';
 // From `shop.js` and not `MartRoom.js`: what this module wants is the live-room
 // registry, and reaching it through the Colyseus binding would pull a websocket
 // server into every build that imports this file — including a browser one,
@@ -201,7 +201,66 @@ function startingState({ cash, tier, difficulty, shelves, plots }) {
   // save reads one way for one day and the other way forever after.
   state.shelves = state.fixtures.shelf;
   state.plots = state.fixtures.plot;
+  const hand = starterHire();
+  state.roster = hand ? [hand] : [];
+  state.nextWorkerId = state.roster.length + 1;
   return state;
+}
+
+/**
+ * SOMEBODY IS ALREADY HERE.
+ *
+ * A new shop opened bare: a building, two shelves, a till, and nobody in it. So
+ * the first several minutes of the game were a still frame — nothing moved
+ * until the player made it move, and the one thing a shop is *for* (a machine
+ * putting stock out while you decide where the freezer goes) was four minutes
+ * and about $200 away. What that reads as is a game that has not started, which
+ * is the shape every piece of onboarding advice warns about and the one thing a
+ * screenshot cannot show you, because an empty shop and a broken shop are the
+ * same picture.
+ *
+ * A **Shop Hand** and not a Clerk, for the reason the tour picks one: a hand
+ * serves, unloads, shelves, farms and tidies, so one of them is the shop
+ * ticking over rather than one counter manned. A clerk in an empty shop has
+ * nothing to do at all.
+ *
+ * Three things about the row are worth knowing.
+ *
+ * It is written **onto the save** rather than hired on first open, so the wage
+ * is honest from day one and the menu can count them before anybody has gone
+ * in — the same reason the blank save is written here at all. Nothing is
+ * charged for them: `hire` takes the cost off `cash`, and this is not a
+ * purchase, it is what the shop came with.
+ *
+ * It carries a **copy of the kind's `jobs`**, exactly as `hire` writes one, and
+ * the reason is a trap worth keeping: leaving them off looks safe, because
+ * `jobsOf` falls back to the kind's own authored list and the hire works
+ * perfectly. The MENU does not fall back — it reads the row — so the shift
+ * panel showed every directive at zero and a budget of 0/22, which is a hire
+ * who is visibly doing their job over a panel saying they have been told to do
+ * nothing. Copied rather than referenced, because from here the list is theirs.
+ *
+ * A kind that is not in the catalogue answers `null` and the shop opens with
+ * nobody, which is the old game — a starter hire is not worth a broken save.
+ *
+ * And the name is the KIND's, deliberately, because `nameTheRoster` runs in the
+ * constructor and renames anything still called after its job. Writing a real
+ * name here would need the namer, which lives on a `Game` that does not exist
+ * yet; writing this one hands the job to the code whose job it already is.
+ */
+const STARTER_KIND = 'shop-hand';
+
+function starterHire() {
+  const kind = content().byId.workers[STARTER_KIND];
+  if (!kind) return null;
+  return {
+    id: 'w1',
+    kind: STARTER_KIND,
+    tier: 1,
+    name: kind.name,
+    skin: null,
+    jobs: (kind.jobs ?? []).map((j) => ({ job: j.job, weight: j.weight })),
+  };
 }
 
 /**
@@ -256,8 +315,20 @@ export function createWorld({ name, seed, cash, tier, difficulty, shelves, plots
    * and not the fix. The line in `step` at 08:00 and the pulse on the sign are
    * the fix.
    */
+  /**
+   * ...and the palette unfolds rather than arriving whole, which is the third
+   * field written here for the reason the two above are.
+   *
+   * `shared/reveal.js` carries the argument. What matters at THIS end is the
+   * asymmetry: a save that has never heard of the field reads as `false`, so
+   * every shop that already exists keeps the bar it has been using — taking
+   * twenty buttons off a day-322 shop is a regression wearing a feature — and
+   * every headless game is untouched. Written `true` here, so the only shops
+   * that ever ease in are ones that started after this shipped, which is the
+   * only population the easing is for.
+   */
   saveWorld(id, {
-    ...DEFAULT_WORLD, seed: useSeed, open: false, time: PREP_HOUR / 24, ...start,
+    ...DEFAULT_WORLD, seed: useSeed, open: false, time: PREP_HOUR / 24, reveal: true, ...start,
   });
   console.log(`[worlds] created "${label}" (${id}, seed ${useSeed}) `
     + `as a ${startTier(tier).name.toLowerCase()} on ${start.difficulty}: ${JSON.stringify(start)}`);

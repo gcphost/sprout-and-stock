@@ -12152,6 +12152,10 @@
         "weight": 4
       },
       {
+        "job": "restock",
+        "weight": 3
+      },
+      {
         "job": "farm",
         "weight": 2
       },
@@ -12164,7 +12168,7 @@
         "weight": 2
       }
     ],
-    "cost": 280,
+    "cost": 200,
     "wage": 8,
     "speed": 2.6,
     "pace": 0.6,
