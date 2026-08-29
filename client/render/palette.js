@@ -995,6 +995,7 @@ export const CRATE_LOOK = {
   skid: '#4c5561',
 };
 
+
 /**
  * ...and the same tote in the drab it comes back as once it is holding rot.
  *

@@ -2031,6 +2031,23 @@ export function groundIndex(L) {
 export const groundPieceAt = (L, x, z) => groundIndex(L).get(`${x},${z}`) ?? null;
 
 /**
+ * Which KIND of ground was laid on each cell, as a lookup.
+ *
+ * `groundIndex`'s other sibling, and it exists for the one cell where `tiles`
+ * is not the answer: a conveyor stamps `T.BELT` over whatever was painted, so
+ * `groundKindOfTile` says null down the whole of a run while the stored row
+ * still remembers the parquet under it. Everywhere else the tile IS the kind
+ * and this would only be a second opinion about it — which is why nothing but
+ * the conveyor branch of `canPaintGround` asks, and why `Game.buildGround`
+ * spells the same fallback inline.
+ */
+export function groundKindIndex(L) {
+  const m = new Map();
+  for (const f of L?.ground ?? []) if (f.k) m.set(`${f.x},${f.z}`, f.k);
+  return m;
+}
+
+/**
  * Which look is remembered UNDER each cell, as a lookup.
  *
  * `groundIndex`'s sibling, and it exists for the reason that one keeps only `p`:
@@ -2282,7 +2299,6 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
   if (!cells?.length) return no('nothing to lay');
   const laying = kind != null;
   if (laying && groundTile(kind) == null) return no('that is not a kind of ground');
-  const lay = laying ? groundTile(kind) : null;
   /**
    * What this stroke LEAVES on a cell — and taking ground up has two answers.
    *
@@ -2305,6 +2321,8 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
   const bareAt = (x, z) => (insideStore(L, x, z) ? FLOOR_KIND : null);
   const painted = groundIndex(L);
   const unders = groundUnders(L);
+  // Only the conveyor branch reads this — everywhere else the tile is the kind.
+  const laid = groundKindIndex(L);
 
   // What the pads have now, so the stroke can be judged against what it would
   // leave rather than against each cell in isolation. Painting over the last
@@ -2342,21 +2360,42 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
     // after the ground layer, and the cell comes back a belt standing on
     // parquet.
     //
-    // Only the ground that was already there, though. The tile cannot move, so
-    // laying a delivery bay here would paint a strip that looks like a pad, is
-    // not one, and never will be — which is a lie you can see. Indoors that
-    // means floor and outdoors it means lawn, read the way `leaves` reads it.
+    // A LOOK, though, and never a JOB — which is `groundPaint`'s own partition
+    // rather than a second rule about conveyors. A look is a colour and the cell
+    // wears it whether or not a rail is set into it; a pad is a sentence about
+    // what the cell DOES, and every reader of that sentence reads `tiles`, which
+    // is a belt here and always will be. So a delivery bay painted under a run
+    // would draw as a bay, hold nothing, and never start — a lie you can see —
+    // where parquet under a run is simply parquet with a rail on it.
+    //
+    // It was `lay === base` for a while, which is the same refusal aimed one
+    // notch too wide: it let the land through outdoors and floor through
+    // indoors, and turned down every other look on both counts. What that cost
+    // is the ordinary press — a run out to the yard crosses the wall, so half
+    // your conveyor is on grass, and laying the shop's own floor under it came
+    // back "only ground goes under a conveyor" over a stroke that changes no
+    // tile anywhere.
     if (ground === T.BELT) {
-      const base = insideStore(L, x, z) ? T.FLOOR : T.GRASS;
-      if (laying && lay !== base) {
-        return no(base === T.FLOOR
-          ? 'only floor goes under a conveyor'
-          : 'only ground goes under a conveyor');
+      if (laying && isPad(kind)) {
+        return no(`a ${GROUND[kind].label.toLowerCase()} can't go under a conveyor`);
       }
-      // The design is the only thing that can differ, so it is the whole test —
-      // asking whether the TILE moved would report every cell of a run as
-      // changed on every stroke and charge for all of them, for ever.
-      if ((painted.get(`${x},${z}`) ?? null) !== (laying ? piece : null)) changed++;
+      // Asked of the one function that owns what a stroke does to a cell, the
+      // same way every other cell here is, so the ghost and the press cannot
+      // disagree about whether this one was even painted. The kind comes off the
+      // STORED row rather than off `tiles` — that is the whole of what a belt
+      // breaks, since the stamp buries whatever was underneath — and the tile
+      // cannot move, so none of the accounting below this applies.
+      const next = groundPaint(
+        {
+          k: laid.get(`${x},${z}`) ?? null,
+          p: painted.get(`${x},${z}`) ?? null,
+          u: unders.get(`${x},${z}`) ?? null,
+        },
+        kind,
+        piece,
+        bareAt(x, z),
+      );
+      if (next) changed++;
       continue;
     }
 

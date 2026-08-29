@@ -221,13 +221,26 @@ function roomForAll(g) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. The control: a rung with no `packs` on it is the game as it was.
+// 1. The control: a rung with no `packs` on it packs nothing.
 //
 // First, and load-bearing. Every other section asserts that something new
 // happens; this one asserts that it does NOT happen to anybody who has not paid
 // for it — which is the difference between an opt-in rung and a silent change
-// to every save in existence. It is also the only assertion here that would
-// still fail if `packFill` returned something non-zero by accident.
+// to every save in existence.
+//
+// WHAT it is a control over moved with step 2 of docs/handling.md, and the
+// section is sharper for it. Shouldering the box is no longer what `packs`
+// buys: one trip is one box for everybody now, so a plain hire lifts this crate
+// exactly as a packer does, and `wholeCrate` has no size test left for a rung
+// to get round. What is left for the rung to do is what the box HOLDS when it
+// leaves — four, the contents of the one they lifted, against the packer's
+// twelve in §2.
+//
+// The assertion it replaces (`!s.haul`, "a rung with no `packs` never shoulders
+// a part-crate") passed for two reasons at once — no packing and no lifting —
+// so a `packs` that had quietly stopped working would still have satisfied it
+// as long as the size test held. This one isolates the rung to the only thing
+// it still does, which is the whole job of a control.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -237,14 +250,15 @@ function roomForAll(g) {
 
   const took = until(g, () => lotTotal(s.carry) > 0 || s.haul, 400);
   check(took !== null, 'the plain hire gets to the bay', `${took}`);
-  check(!s.haul, 'a rung with no `packs` never shoulders a part-crate');
-  check(lotTotal(s.carry) > 0, '…it takes an armful, exactly as before');
-  eq(lotStacks(s.carry).length, 1,
-    '…and `fillHands` tops up only the kind it is already holding, so one kind');
-  // Not "three boxes are still standing" — an armful of four empties the box it
-  // came out of, and that is the old behaviour rather than a leak. What has to
-  // be untouched is the two they did NOT reach into.
-  eq(g.deliveries.length, 2, 'the box they emptied is gone and the others are not');
+  check(!!s.haul, 'one trip is one box, so a rung with no `packs` shoulders it too');
+  eq(lotTotal(s.haul), 4, '…but leaves holding what was IN it, rather than a packed crate');
+  eq(lotStacks(s.haul).length, 1, '…which is the one kind it was standing on');
+  eq(lotTotal(s.carry), 0, '…and the box is on the shoulder rather than in the arms');
+  // Not "three boxes are still standing" — the box they lifted leaves the pad
+  // with them, and that is the trip rather than a leak. What has to be
+  // untouched is the two they did NOT reach into, which is `packs` doing
+  // nothing.
+  eq(g.deliveries.length, 2, 'the box they lifted is gone and the others are not');
   check(g.deliveries.every((d) => lotTotal(d) === 4),
     '…and nothing was swept out of either of them',
     JSON.stringify(g.deliveries.map((d) => lotTotal(d))));
@@ -471,20 +485,27 @@ function roomForAll(g) {
 }
 
 // ---------------------------------------------------------------------------
-// 9. Big hands do not switch packing off.
+// 9. How big a hire's hands are decides nothing about whether the box is lifted.
 //
-// The trap the `bar` note in `unload` is about, and the reason it is a section
-// rather than a line: `carry_mult` on a rung can take hands up to a whole
-// crate, and the shipped stocker's second rung already does — twelve-unit
-// hands against a twelve-unit crate is `12 > 12`, false, so the one hire you
-// would promote TO pack crates could never shoulder one. A rung that takes
-// money and moves no number, and invisible: the hire goes on working, by
-// armful, exactly as they did before you paid.
+// The section this replaces was about `bar`, and `bar` is gone with the
+// comparison it patched. The bug is worth restating, because its SHAPE waits on
+// every `_mult` anybody authors: `wholeCrate` used to refuse a box that was not
+// worth more than one armful, and `carry_mult` on a rung can raise an armful to
+// a whole crate — twelve-unit hands against a twelve-unit crate is `12 > 12`,
+// false, for ever. So the one hire in the game you would promote TO pack crates
+// was the one hire who could never shoulder one: a rung that takes money and
+// moves no number, and invisible, because they go on working by armful exactly
+// as they did before you paid.
 //
-// Worse than neutral, which is the half this asserts second. Big hands do not
-// help with a bay of part-crates at all — `Game.unload` sweeps one box and
-// `fillHands` tops up only kinds already held — so the control here is a
-// twelve-unit NON-packer walking away with four out of a bay holding twelve.
+// Step 2 of docs/handling.md deletes the comparison rather than patching it a
+// third time, so what stands here is the property that makes the class
+// unreachable rather than the instance that was fixed.
+//
+// Written as a COMPARISON between two pairs of hands in one breath, which is
+// the whole of what makes it worth running: a pair of literal values would pass
+// just as well against a rule that still consulted `hands` and merely happened
+// to agree on this bay. Six against twelve is the span that used to invert the
+// answer, so it is the span the assertion has to straddle.
 // ---------------------------------------------------------------------------
 {
   // Two hands-of-twelve hires, one of each rung, so the only difference between
@@ -502,15 +523,28 @@ function roomForAll(g) {
   const wrote = writeContent('worker', BIG, 'verify');
   check(wrote.ok, 'the catalog accepts the big-handed hire', wrote.error ?? '');
 
+  // Six-unit hands, no packing rung — §1's hire, measured again here rather
+  // than having its numbers copied down, so the two arms of the comparison are
+  // two runs and not a run against a literal.
+  const small = fresh();
+  roomForAll(small);
+  bay(small, [[ITEM_A, 4], [ITEM_B, 4], [ITEM_C, 4]]);
+  const sm = hire(small);
+  check(until(small, () => lotTotal(sm.carry) > 0 || sm.haul, 400) !== null,
+    'the six-unit hire gets to the bay');
+
   const control = fresh({ kind: BIG.id, tier: 1 });
   roomForAll(control);
   bay(control, [[ITEM_A, 4], [ITEM_B, 4], [ITEM_C, 4]]);
   const a = hire(control);
   check(until(control, () => lotTotal(a.carry) > 0 || a.haul, 400) !== null,
     'the big-handed control gets to the bay');
-  check(!a.haul, 'twelve-unit hands never shoulder a twelve-unit crate — the old test says 12 > 12');
-  eq(lotTotal(a.carry), 4,
-    '…and they leave with FOUR out of a bay holding twelve, because `fillHands` is same-kind-only');
+  check(!!a.haul,
+    'twelve-unit hands shoulder a twelve-unit crate — there is no `12 > 12` left to fail');
+  eq(lotTotal(a.haul), lotTotal(sm.haul),
+    '…and take exactly what the six-unit hire takes, so `hands` decides nothing');
+  eq(lotStacks(a.haul).length, lotStacks(sm.haul).length, '…across the same number of kinds');
+  eq(control.deliveries.length, small.deliveries.length, '…leaving the same bay behind them');
 
   const g = fresh({ kind: BIG.id, tier: 2 });
   roomForAll(g);
@@ -520,6 +554,58 @@ function roomForAll(g) {
     'the same hire on the packing rung shoulders the box anyway');
   eq(lotTotal(s.haul), 12, '…and takes all twelve in one trip');
   eq(g.deliveries.length, 0, 'with the bay cleared');
+}
+
+// ---------------------------------------------------------------------------
+// 10. A box the shop can barely take is lifted ONCE.
+//
+// The claim the deleted size test used to make, which therefore has to be made
+// somewhere else now. `wholeCrate` asked for room for more than an armful, and
+// one of the things that bought was this: a hire never committed to a box the
+// shop could not absorb. Step 2 of docs/handling.md lets them commit to any box
+// with room for even one unit, so what stops a hire lifting twelve, placing one,
+// walking the remainder back to the pad and lifting it again next tick is no
+// longer a size test — it is `fit` scoring the returned crate at zero.
+//
+// That is a load-bearing accident unless it is pinned. The failure is not a
+// crash and not a leak: it is a hire walking a box out and back for the rest of
+// the save, in a shop that is full, which is the state a shop spends most of its
+// time in once it is doing well. Every trip would look like a trip.
+//
+// Three assertions, and the third is the one with teeth. That it goes out (or
+// the section passes against a rule that lifts nothing at all). That nothing is
+// created or destroyed, because pad→shoulder→board→pad is four places goods move
+// between and every one of those in this game has been a hole. And that the box
+// is picked up exactly ONCE across three hundred seconds — counted as
+// pad-to-shoulder transitions rather than as a still frame, because a hire
+// mid-thrash and a hire who lifted once are the same picture.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  // Every board brimming with ITEM_A but one unit's worth, so the whole shop has
+  // room for exactly one of the twelve standing in the yard.
+  for (const sh of g.layout.shelves) {
+    sh.stacks = [{ item_id: ITEM_A.id, qty: g.shelfCapacity(sh, ITEM_A), price: 1, day: g.day }];
+  }
+  g.layout.shelves[0].stacks[0].qty -= 1;
+  bay(g, [[ITEM_A, 12]]);
+
+  const before = everywhere(g, ITEM_A.id);
+  const s = hire(g);
+  let lifts = 0;
+  let had = 0;
+  for (let i = 0; i < 3000; i++) {
+    g.step(0.1);
+    const now = lotTotal(s.haul);
+    if (now > 0 && had === 0) lifts++;
+    had = now;
+  }
+
+  eq(g.layout.shelves.reduce((n, sh) => n + (g.shelfStack(sh, ITEM_A.id)?.qty ?? 0), 0),
+    before - 11, 'the one unit the shop had room for is on a board');
+  eq(everywhere(g, ITEM_A.id), before, 'and nothing was created or destroyed getting it there');
+  eq(lifts, 1, 'the box is shouldered ONCE — a full shop does not walk it out and back for ever');
+  eq(g.deliveries.length, 1, 'and the remainder is standing in the yard, which is the honest signal');
 }
 
 // ---------------------------------------------------------------------------

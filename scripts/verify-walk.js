@@ -178,33 +178,57 @@ check(!g.walkToFixture('me', 'no-such-fixture').ok, 'an unknown fixture is refus
 // only describes a straight line through the middle at full speed. Crawl,
 // corner, or walk the length of an aisle and you are in range the whole time.
 //
-// Tested on `till`, which needs no crop, no cash and no season, so this stays a
-// claim about the charge rather than about content. And tested at 2% throttle:
-// the player never leaves the bed's reach and never stops either, which is
-// exactly the case the arithmetic missed. Asserting on the *soil* as well as on
-// `p.action` is deliberate — a charge that is thrown away every tick and re-armed
-// the next still reads as null from outside, and would still till the bed.
+// Tested at 2% throttle: the player never leaves the target's reach and never
+// stops either, which is exactly the case the arithmetic missed. Asserting on
+// the OUTCOME as well as on `p.action` is deliberate — a charge that is thrown
+// away every tick and re-armed the next still reads as null from outside, and
+// would still fire.
+//
+// THE VEHICLE MOVED, and the new one is the only one there can be. This used to
+// crawl over a rough bed, on the argument that `till` needs no crop, no cash and
+// no season — and tilling came off proximity the day a rack could stand in an
+// aisle (`verify:build` §1c). What is left on proximity is `serve`, and there
+// is no going back to a NAMED action here: steering cancels an errand on the
+// first frame of input (`stepPlayers`), so a sweep that pointed at something and
+// then held a key would be measuring that line instead of this one. A shopper at
+// the counter is the one thing in the game that can still arm itself while you
+// walk past, which makes it both the right subject and the only one.
 // ---------------------------------------------------------------------------
 
 const tick = (seconds) => {
   for (let i = 0; i < seconds * 20; i++) { g.stepPlayers(1 / 20); g.stepActions(1 / 20); }
 };
 
-const bed = g.layout.plots[0];
-bed.crop_id = null;
-bed.soil = 'untilled';
+const till = g.layout.checkouts[0];
+const spawned = g.spawnCustomer();
+check(spawned.ok, 'a shopper to stand at the counter', spawned.error);
+const shopper = g.customers[spawned.id];
+shopper.basket = [{ item_id: 'zz-walk-thing', price: 3 }];
+shopper.patience = 1e6;          // a queue that empties by storming out is not this claim
+shopper.mood = 1;
+shopper.waited = 0;
+shopper.impulsed = true;
+shopper.till = till.id;
+shopper.state = 'QUEUE';
+shopper.path = null;
+till.queue = [shopper.id];
+const slot = g.queueSlot(till, 0);
+shopper.x = slot.x;
+shopper.z = slot.z;
+
 p.path = null;
-p.x = bed.x;
-p.z = bed.z;
+p.x = till.serveAt?.x ?? till.x;
+p.z = till.serveAt?.z ?? till.z;
+check(!!g.actionFor(p), 'and the counter really does offer the serve from here');
 
 g.setInput('me', 0.02, 0);
 tick(4);
 check(p.action === null, 'nothing arms while you are moving');
-check(bed.soil === 'untilled', 'and four seconds of crawling over a bed does not till it');
+check(shopper.state === 'QUEUE', 'and four seconds of crawling past the counter serves nobody');
 
 g.setInput('me', 0, 0);
 tick(4);
-check(bed.soil === 'tilled', 'and standing still on the same bed does');
+check(shopper.state !== 'QUEUE', 'and standing still at the same counter does');
 
 // ---------------------------------------------------------------------------
 // 6. The pace, which is a fact about the CAMERA and about the player

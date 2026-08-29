@@ -9,6 +9,191 @@ cinematic rework) is the one being built next.
 
 ---
 
+## Read this first — everything you need to start (§0)
+
+**This section exists so nobody has to spend ten minutes reading four files
+before they can write a card.** Everything below was gathered the slow way
+once. The rest of this document is *why* the shape is the way it is; read it
+when you are changing the shape, not when you are adding a page.
+
+### Where the work is
+
+| | |
+|---|---|
+| All of it | `client/tutor.js` — one file, three arrays, one class |
+| Its CSS | `client/index.html`, the `.tt-*` block (search `.tt-card`), plus a phone override further down |
+| Nothing else | Nothing in `server/` knows the tutor exists. No save field, no message the game did not already have |
+
+Three arrays and one parked object:
+
+- `STEPS` — the host tour, run for a shop this browser **made**. May demand an
+  action.
+- `GUEST_STEPS` — swapped in whole for somebody who **joined**. No money, no
+  shutters; just the hands.
+- `LESSONS` — briefings that arrive later. `charge`, `shop`, `logistics`,
+  `farm`. **A lesson tells and asks nothing** — no target, no veil, no
+  predicate, nothing armed — *unless its trigger is itself the missing thing*
+  (`charge` is the one that gets to point at a press, because being stuck is
+  what fired it).
+- `WAVE_STEP` — written, parked, not in any array. Its moment is the first
+  shopper walking past after the shutters go up.
+
+### The field list, so you do not have to reverse it out of the examples
+
+A **tour step** — every one of these is optional except `id`:
+
+| field | |
+|---|---|
+| `id` | the mark. Renaming one re-teaches it to everybody |
+| `kicker` | the gold title band |
+| `say` / `hint` | the sentence and the small print. Either may be a function of the tour, re-asked **every frame**, which is what lets one card's spotlight walk |
+| `art` | the picture well. A function, or a string of SVG. **Called as `s.art(this)`** — see the traps |
+| `legend` | icon+sentence rows *under* the words, for marks that only exist in the 3D scene. Does **not** replace the well |
+| `at` | where the mark goes, asked every frame. See the shapes below |
+| `done` | the predicate over the snapshot. **Never a press.** A step with no `done` gets a Next button; one with a `done` must not have one |
+| `start` | once, on open. Where a delta records what was true |
+| `arm` | once, on open. For putting a menu in front of somebody |
+| `nudge` | every snapshot. Keeps a strip open; holds a two-phase latch |
+| `skipWhen` | asked **before** `arm`. Nothing here to teach in this shop |
+| `waiting` | true when the world is what you are waiting on. The card breathes and the stranded timer is held off |
+| `shot` | a camera pose. Only on cards that ask for nothing |
+| `big` | the read-only layout |
+| `offer` | `{ ask, label, took, when, run }` — a question about the shop as a sentence with a link in it |
+
+A **lesson**: `{ id, group, owns | when, toast, steps }`. A **lesson page**:
+`{ id, kicker, kind, piece, art, say, hint }` — and `skipWhen` works here too,
+because `go` asks it for every array.
+
+- `group` is a build-tab id, and is what the `?` on the build bar opens. Leave
+  it off for a lesson about a *situation* rather than a tab (see `charge`).
+- `owns` = a count over the layout; fires when the number goes **up** while
+  somebody is watching. This is "you have just built one".
+- `when` = a predicate; fires on a **stuck state you can see**. Never on a
+  level — "there is a conveyor" is true of a shop on day 200 with forty of them.
+- `kind` on a page derives the picture *and* the `· soon` badge. Prefer it to
+  `art`.
+
+`at` comes in four shapes:
+
+```js
+{ el: '#sel', pad, up, mock, pulse }   // something on the HUD
+{ world: pt, y, fixture }              // a thing in the shop; lights the canvas whole
+{ mock: '.sel' }                       // a picture and no mark at all — legal, see holeFor
+null                                   // no mark; the first and last cards
+```
+
+`mock` clones a live control into the picture well. `pulse` is a second, smaller
+mark on the one press inside a lit panel. `up` climbs from the thing you can
+*name* to the thing that should be *lit*.
+
+### What a predicate may read
+
+`t` is the `Tutor`. Everything hangs off four things: `t.state` (the snapshot),
+`t.ui`, `t.net`, `t.scene`.
+
+- **`layoutOf(t)`** → `t.scene.storeLayout`: `shelves` `checkouts` `bins`
+  `belts` `arms` `sorters` `packers` `unders` `lifts` `plots` `pens` `props`
+  `break` `ground` `paint` `door` `store` `w` `h`. This is where an `owns`
+  count comes from.
+- **`t.state`** (the snapshot): `undos` / `redos` (the build stack, **not on the
+  save**, so it means "presses made since you sat down"), `shutters`, `roster`,
+  `players` (each with `staff` `energy` `carry` `haul` `takers` `emote`),
+  `deliveries`, `shelves`, `orders.pending`, `milestones`, `cash`, `day`.
+- **`t.ui`**: `bar` (`'build'` `'staff'` `'stock'` …), `barTab`, `openPanel`,
+  `toolId()`, `catalog`, `paletteArmed`, `holding`, `award.open`,
+  `state.reveal`.
+
+### Helpers already in the file — check here before writing one
+
+`perInput(mouse, finger)` · `keyed` (`[[X]]` → a key cap, `\n\n` → a paragraph
+break) · `esc` · `meOf` · `lotSize` · `shelvesOf` · `anyShelf` · `nearestCrate`
+· `atIt` · `atUnit` · `spotToWalk` · `artOf(t, kind, piece)` · `artOfUnit` ·
+`cheapestOf` · `mockOf` · `comingSoon` · `arrowRow`.
+
+### Facts about the game the cards need, and where they live
+
+**Do not grep for these again.**
+
+- **Every keybinding** is one `keydown` handler in `client/main.js` (search
+  `addEventListener('keydown'`). Ctrl/Cmd+`Z`/`Y` undo/redo · Ctrl/Cmd+`C`/`V`
+  blueprint · `V`+`1`–`4` emotes · `F` first person · `C` cinema · `O`
+  shutters · `P`/space pause · `1`–`9` bar slots · `Tab` next tab · `R` rotate
+  · `Q` pipette · `E` storey · `Alt` peek · `Del` remove what is picked.
+  The two build **modifiers** are in `pointerdown`, not the key handler:
+  Ctrl/Cmd-click is the bulldozer (`razeAim` / `doRaze`) and Shift-click is
+  multi-pick, whose drag is a marquee.
+- **What a phone has instead**: `#undobtn` `#redobtn` `#pickbtn` `#delbtn`
+  `#rotbtn` and the camera pair — `ui.syncSteps` / `syncRotate` decide when.
+  `pillDrives()` is the fork (max-width 640px), and it is the same test
+  `perInput` asks.
+- **What the player can already look up**: Menu › Controls
+  (`client/sections.js`, the `id: 'help'` section). **Check that list before
+  writing a card** — if a key is not in it, nothing on screen says it, and if
+  it is, the card is a second telling rather than the only one.
+- **The mark colours**, if you are drawing one on a card: `MARKER_LOOK` in
+  `client/render/props.js`. aim `#ffd66b` · picked/selected `#5fd6c4` · raze
+  `#e2564a` · stock `#7cc46a` · the tutor's own `#6fcf68`.
+- **What is on the bar yet**: `shared/reveal.js` — `toolRevealed`,
+  `pieceOffered`, `TUTORIAL_KINDS`. Never name a tool the ladder has not handed
+  over.
+- **Pictures of pieces**: `client/thumb.js` — `artForPiece`, `artForGround`,
+  `artForCrate`.
+
+### The rules, in one place
+
+1. **Copy is for a seven-year-old**, and simple is not vague — every sentence
+   has to be literally true of the sim. Banned: `run`, `cell`, `unit`, `board`,
+   `backpressure`, `terminus`, `stray`. Say box, shelf, line, hands.
+2. **Say which button.** "Tap" is the wrong word on a mouse; `perInput` forks.
+3. **Pictures beat prose.**
+4. **A card per decision, never a card per press.** Two presses with one
+   outcome between them are one card whose spotlight walks.
+5. **A step is a predicate, never a press it intercepted.**
+6. **A lesson never sends `crew-idle`** and never fights for the mouse or the
+   camera.
+7. **Comment every non-obvious call** with what the wrong version was and how
+   it failed. That is the house style and it is why this file is readable.
+
+### Running it without playing to it
+
+```
+npm run dev                      # :5173
+__sns.ui.tutor.start()           # the host tour from the top
+__sns.ui.tutor.go(i)             # any beat
+__sns.ui.tutor.teach('<id>')     # one lesson, here and now
+__sns.ui.tutor.forget()          # un-learn the lot
+__sns.ui.tutor.quit()            # out
+```
+
+Playwright MCP drives it; `screenshot` gets you the card. **`simulate` is blind
+to all of this** — do not run it for a tutorial change.
+
+localStorage: `sns-tutor-off` (the person) · `sns-tutor-done` (worlds toured) ·
+`sns-tutor-new` (worlds made) · `sns-tutor-guest` (the person) ·
+`sns-tutor-learned` (lesson ids).
+
+### Traps that have cost real time in here
+
+- **`mockOf` cannot clone a control styled against its own id** — `#sign`,
+  `#undobtn` and friends come out as unstyled boxes, because the clone has its
+  id stripped (and leaving it on would put a second `#sign` in the document for
+  `holeFor` to find). Draw those instead; `mockOf`'s `'sign'` branch is the
+  worked example.
+- **`art` is called as `s.art(this)`.** `art: artForCrate` hands the tour to
+  that function's first parameter — which is `waste`, so the card draws a crate
+  of rubbish. Wrap it: `art: () => artForCrate()`.
+- **Anything `STEPS` or `GUEST_STEPS` names must be defined above them or be a
+  `function` declaration.** Both are module-level array literals, so a `const`
+  arrow written below is read before it is initialised. `viewHint` and
+  `arrowArt` are declarations for exactly this reason.
+- **`LESSONS.find` is first-match-wins**, so array order decides which briefing
+  gets a settle. A new lesson usually belongs at the end.
+- **`owns` baselines are taken on every `maybeLesson` pass**, not lazily — a
+  lazily-recorded baseline is measured from whenever it happened to be asked.
+- **Two frames before measuring anything** a step's `arm` just opened.
+
+---
+
 ## Why
 
 Every verb in this game is a **gesture**, and not one of them is discoverable by
@@ -312,11 +497,9 @@ an import cycle nobody meant. It is asked at paint time, never at module load:
 `say` and `hint` are re-read every frame and a window can cross the line
 mid-tour.
 
-Two of the twelve beats are not the same sentence with a different verb in it,
-and those are the ones worth reading before adding a beat:
+One of the beats is not the same sentence with a different verb in it, and it is
+the one worth reading before adding a beat:
 
-- **take-one** — "click it again to take one out" has no finger version, because
-  the second press is on the bar, not on the crate.
 - **freezer** — placing turns with `R` or the wheel, and a phone has neither.
   That gap is why `#rotbtn` exists (`syncRotate` in ui.js): a round button beside
   the bar, shown only where the pill drives and only over a *fixture* ghost — a

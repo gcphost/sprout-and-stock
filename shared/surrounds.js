@@ -14,7 +14,11 @@
  *
  *   - `server/sim/index.js` stores the id on the save and refuses one it does
  *     not recognise, so a bad value cannot reach anybody's world.
- *   - `client/sections.js` draws the rows in the Menu, in the order below.
+ *   - `client/menu.js` draws the buttons on the new-shop form, in the order
+ *     below. It is asked THERE and not in the in-game Menu, where it was a row
+ *     for two steps: a surround is a fact about the save rather than about the
+ *     person, so it belongs beside the size and the difficulty — the other two
+ *     facts about a shop decided before there is one.
  *   - `client/render/surround.js` builds the art for whichever is picked.
  *
  * WHAT IS *NOT* HERE is every colour, height and scatter rule — those are art,

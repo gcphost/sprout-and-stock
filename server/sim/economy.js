@@ -363,12 +363,43 @@ export function rankShelves({ shelves, items, archetype, folded, season, reputat
 
 /**
  * The two humps of a shopping day — a morning rush and a bigger after-work one
- * — plus the flat trickle in between. Peaks a little over 2; averages ~0.64
- * across the whole day.
+ * — plus the flat trickle in between. Peaks at 1.60 (the evening); averages
+ * 0.765 across the whole day.
+ *
+ * BOTH PEAKS HAVE TO LIE INSIDE TRADING HOURS, and the morning one did not.
+ *
+ * This is a *shape* over the whole 24, so it answers perfectly well at 3am —
+ * and nothing ever asks it there, because `stepSpawning` bails on `isOpen()`
+ * and `stepShutArrivals` bails on `trading()`. So the hours outside 08:00–20:00
+ * are not a trickle nobody sees, they are footfall that never happens: whatever
+ * the curve puts there is thrown away, silently, every single day.
+ *
+ * The morning peak sat at 0.32 — **07:41**, nineteen minutes before opening —
+ * with σ = √(0.012/2) = 0.0775, so 43% of the morning hump fell before the
+ * doors and was simply deleted. What that reads as from a chair is a dead
+ * morning and a shop that only wakes up after lunch, which is a complaint about
+ * the *day*, not about a constant nineteen minutes out. On a day-1 shop
+ * (catchment 18.2, pull 0.47) it was 6 arrivals between 08:00 and 12:00 against
+ * 12 across the same four hours of the afternoon.
+ *
+ * 0.375 is 09:00 — a real hour somebody would shop at, 0.54σ inside opening,
+ * and the whole-day mean and peak are untouched (0.765 / 1.60) because the
+ * curve did not change shape, only where it sits. Measured on the same shop:
+ * 26 → 29 arrivals a day, and the morning goes 6 → 9.
+ *
+ * It is deliberately NOT pushed further in. The evening peak sits 1.615σ inside
+ * closing, and matching that would put the morning at 11:00, which stops being
+ * a morning rush and merges with the after-work one — two humps is the thing
+ * being modelled.
+ *
+ * The trap for the next hand on these numbers: `OPEN_HOUR`/`CLOSE_HOUR` live in
+ * `server/sim/index.js` and a licence can widen them (`buyUpgrade`, the 24-hour
+ * one), so this file cannot import them and the agreement is by hand. Move a
+ * peak, or move the trading hours, and check the peak is still under the roof.
  */
 export function dayShape(hourFraction) {
   const t = hourFraction;
-  const morning = Math.exp(-((t - 0.32) ** 2) / 0.012);
+  const morning = Math.exp(-((t - 0.375) ** 2) / 0.012);
   const evening = Math.exp(-((t - 0.68) ** 2) / 0.018) * 1.35;
   return 0.25 + morning + evening;
 }

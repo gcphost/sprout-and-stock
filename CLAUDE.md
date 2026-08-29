@@ -196,6 +196,18 @@ Thirty sweeps, about a minute:
   either, because bare ground indoors IS floor (`canPaintGround.leaves`) — so it
   paints the LAND over it, which is the only gesture that puts an enclosed cell
   on `T.GRASS`. A guard that retires with the chore is a guard nobody removed.
+  Since step 33 it also guards the OTHER cell whose tile cannot move — under a
+  conveyor — and it is §9's partition said one square along: a look goes under a
+  run and a job never does, because every reader of "deliveries land here" reads
+  `tiles`, which is a belt there for ever. It is asserted on BOTH sides of the
+  wall in one shop, which is where the bug was: the rule asked that a stroke
+  leave the cell as it found it, so indoors the only look anybody paints IS
+  floor and the aisles worked perfectly, while the run out to the yard crosses
+  the wall onto grass and refused the shop's own floor — over a stroke that
+  moves no tile anywhere. Its control is the pad in both places, or "it lays a
+  look" has quietly become "it lays anything", and the mutation that drops it
+  does not merely paint a lie: the cell becomes `T.DROP`, the re-flow sheds the
+  conveyor standing on it, and the run is refunded away.
 - `verify:yard` guards the delivery bay and the drop-off, which stopped being
   generated furniture and became ground you paint. Four claims, none of them
   visible in a screenshot because a seeded pad and a generated one look
@@ -508,12 +520,31 @@ Thirty sweeps, about a minute:
   every claim in it is about a trip that did NOT have to happen — a hire
   carrying a packed box and a hire carrying the box they found are the same
   still frame. The bay it is about is the ordinary one: three part-crates of
-  four, where `fit` scores each at four against a six-unit armful, `wholeCrate`
-  refuses because four is not more than six, and `fillHands` tops up only the
-  kind already in the arms — so a hire leaves with four and walks the shop three
-  times, looking busy the whole way. Its control is a rung with no `packs` on
-  it, which is every rung ever authored, and that assertion is the one that
-  decides whether this is opt-in or a silent change to every save in existence.
+  four, where `fit` scores each at four against a six-unit armful and `fillHands`
+  tops up only the kind already in the arms. Its control is a rung with no
+  `packs` on it, which is every rung ever authored, and that assertion is the one
+  that decides whether this is opt-in or a silent change to every save in
+  existence — but WHAT it controls moved with docs/handling.md step 2, and the
+  section is sharper for it. Shouldering the box is no longer what the rung buys:
+  one trip is one box for everybody, so the control is that a plain hire lifts
+  the crate and leaves with the FOUR that were in it, against the packer's
+  twelve. The assertion it replaced (`!s.haul` — "a rung with no `packs` never
+  shoulders a part-crate") passed for two reasons at once, no packing and no
+  lifting, so a `packs` that had quietly stopped working satisfied it perfectly
+  as long as the size test held. Its §9 moved the same way: it was the `bar`
+  trap, and with the comparison deleted it is the property that makes that whole
+  class unreachable — six-unit hands and twelve-unit hands asserted against each
+  other in one breath, because a pair of literals would pass just as well against
+  a rule that still read `hands` and happened to agree on this bay. And it grew a
+  §10 for the claim the deleted test used to make on its own: a box the shop can
+  barely take is lifted **once**. Room for more than an armful was what stopped a
+  hire committing to a crate the shop could not absorb; with that gone, the only
+  thing standing between a full shop and a box walked out and back for the rest
+  of the save is `fit` scoring the returned crate at zero — a load-bearing
+  accident until something pins it. Counted as pad-to-shoulder transitions over
+  three hundred seconds rather than looked at, since a hire mid-thrash and a hire
+  who lifted once are the same picture, and paired with conservation, because
+  pad→shoulder→board→pad is four places goods move between.
   Then: that the cap is the RUNG's number rather than the crate's (or the field
   is a boolean wearing an integer and every rung above 1 does the same thing);
   that nothing is created or destroyed crate-to-crate, which is a new place
@@ -1372,7 +1403,7 @@ Keep to your side and you'll almost never touch the same file.
 | Look of things (colours, props, characters) | `client/render/palette.js`, `client/render/props.js` | Safe, self-contained, very visible. Good place for a kid to start. |
 | UI and HUD | `client/ui.js`, `client/index.html` | |
 | What a palette button shows | `client/thumb.js` | Draws a fixture, a floor or a wall from its own art, as inline SVG. Reads `palette.js` — never its own colours. |
-| The tutorial | `client/tutor.js` | Client-only, localStorage-only, one file. A step is a predicate over the snapshot — never a press it intercepted. See docs/tutorial.md. |
+| The tutorial | `client/tutor.js` | Client-only, localStorage-only, one file. A step is a predicate over the snapshot — never a press it intercepted. **Start at docs/tutorial.md §0** — the field list, what a predicate may read, where every keybinding lives, the dev console calls and the traps, all in one screen, so nobody has to read four files to add a card. The rest of that document is why the shape is the way it is. |
 | How the shop is doing | `client/report.js` | The one menu that is a picture rather than a list. Pure snapshot → HTML, like `hud-meters.js`. |
 | One item's own menu | `client/item-menu.js` | Price, standing order, may-the-crew-order. Opened by a supplier row, the way `worker-menu.js` is opened by a roster tile. |
 | Rendering internals | `client/render/scene.js` | |
@@ -1493,8 +1524,9 @@ what the next step was meant to be.
 | [docs/difficulty.md](docs/difficulty.md) | why a neglected shop finds a level instead of going under — the settle spring, the floor under demand, and a game where standing still is free; difficulty as a second axis beside the starting tier, upkeep as the first fixed cost, why today's constants are the *easy* preset rather than the default, and the grace a new shop's first week gets because the presets were only ever measured on a day-60 save | steps 1 and 1b built; 2–4 proposed |
 | [docs/roof.md](docs/roof.md) | the ceiling you can only see from under it — why the roof already exists twice (`openness` dims every indoor cell to `ROOF_LEVEL`, and `WAYS` authors `roofs` per opening) and has never had a mesh, the one rule every game with this problem shares, the indoor mask as the ceiling, and the clerestory that falls out of hanging it high enough to clear the overhead ducts — where the solid wall stops exactly at the overhead deck and the glass is the clearance the lift baskets needed | steps 1–2 built; 3–4 proposed, and step 2's light half open |
 | [docs/ui-shell.md](docs/ui-shell.md) | the HUD, the rail, panels | — |
-| [docs/tutorial.md](docs/tutorial.md) | the robot who shows you round a shop you have just made — a veil that blocks rather than only darkens, a step that is a predicate over the snapshot rather than a press it caught, the third answer to "where is the hole" that stops it ever wedging, the second list for somebody who JOINED a shop rather than making one, and the LESSONS that arrive with the kit rather than on day one — a BRIEFING and never a second tour, because a lesson's trigger is a press that has already happened (so its first beat may never be that press) and it runs in a shop it knows nothing about (so it may not demand one either: the loader beat asked for a shelf in a shop that had none), which leaves a few pages, the piece's own palette art on each, and nothing that can wedge — and one briefing per build TAB rather than per piece, reachable from a ? on the bar, because a help button has to open the same thing every time and the pages worth keeping are the ones about pieces you have NOT got yet | steps 1, 1b and 2 built; 3–4 proposed; 5 next |
+| [docs/tutorial.md](docs/tutorial.md) | **§0 is the orientation — read that and nothing else to add a card.** Then: the robot who shows you round a shop you have just made — a veil that blocks rather than only darkens, a step that is a predicate over the snapshot rather than a press it caught, the third answer to "where is the hole" that stops it ever wedging, the second list for somebody who JOINED a shop rather than making one, and the LESSONS that arrive with the kit rather than on day one — a BRIEFING and never a second tour, because a lesson's trigger is a press that has already happened (so its first beat may never be that press) and it runs in a shop it knows nothing about (so it may not demand one either: the loader beat asked for a shelf in a shop that had none), which leaves a few pages, the piece's own palette art on each, and nothing that can wedge — and one briefing per build TAB rather than per piece, reachable from a ? on the bar, because a help button has to open the same thing every time and the pages worth keeping are the ones about pieces you have NOT got yet | steps 1, 1b and 2 built; 3–4 proposed; 5 next |
 | [docs/audio.md](docs/audio.md) | a bus per slider, why the sounds cannot come from the log, the four caps that stop a busy shop being a slot machine, sound as a column on a catalog row, the Sound rows and the Credits tab in the Menu, the loop a fixture holds open while it works — and why the ambient bed was built, played and cut | steps 2–5 built; 1 cut; 6 proposed |
+| [docs/handling.md](docs/handling.md) | how goods get into and out of your hands — why the tap/hold grade went (nobody ever took one, a hold is undiscoverable, and the genre wants fewer and bigger goods gestures), the ring as WORK rather than as consent now that a press names its own target, and the inversion that falls out of it: arming on the way down used to be free and is now a pan that lifts the box you dragged from, so a press decides early and sends on release, and the skip — the one hold that was argued for and kept, and lost ten minutes later, because one exception is an asterisk on the rule every other target teaches, and the same sentence said to the CREW — one trip is one box, where the thing in the way was a comparison between two journeys that cannot see the bay the box is standing in, patched twice (`bar` for a `carry_mult` that inverts it, `beltTakes` for a journey that is not a walk) and deleted rather than patched a third time | steps 1–2 built |
 | [docs/waste.md](docs/waste.md) | the shop's way out — the skip, why a hire may carry out rot and never your stock, rot becoming a box on the floor only if you own one, and the one spelling that keeps rubbish from reading as supply | step 1 built; 2–3 proposed |
 | [docs/pickups.md](docs/pickups.md) | the customer who never comes in — a collection point as a till whose queue is fed by the road, why picking is `serve` rather than a new job, why a staged tote is not stock, and the share that is a consequence of owning one | all proposed |
 | [docs/seating.md](docs/seating.md) | the customer who stops — the break area pointed at shoppers, why the cell is the seat and the bench is a multiplier on it, the first honest dwell impulse has ever had, and the four readers that must NOT share a predicate | all proposed |
@@ -3001,23 +3033,43 @@ what the next step was meant to be.
   and the next aisle over gets nothing, which is the distinction the whole
   measurement exists to make. Worth asking of anything new that sweeps a radius
   over fixtures: **can it tell two neighbours apart?**
-- **A tier stat can switch a whole branch OFF, and `carry_mult` was doing it.**
-  `wholeCrate` refuses a box that is not worth more than one armful —
-  `lotTotal(pallet) > hands`, which is right while an armful and a crate are the
-  same journey made two ways. It stops being right the moment a rung's
-  `carry_mult` reaches a whole crate, and the shipped stocker's second rung
-  already does: twelve-unit hands against a twelve-unit crate is `12 > 12`,
-  false, for ever. So the one hire you would promote *to* run the back was the
-  one hire who could never shoulder a box, which is a rung that takes money and
-  moves no number — and it is worse than neutral, because big hands do not help
-  with a bay of part-crates at all: `Game.unload` sweeps ONE box and `fillHands`
-  tops up only kinds already held, so a twelve-unit stocker facing three boxes
-  of four leaves with four, exactly as a six-unit one does. `bar` is the fix —
-  a packer's box has to beat `best`, the armful this bay can actually assemble
-  (`fit`, already computed two lines up), rather than the size of their hands.
-  The general shape is the one `LOT_KINDS` and the third kind of shelving have:
-  **a comparison between two quantities is a rule only while nothing can make
-  them equal**, and a multiplier on a ladder is exactly the thing that can.
+- **A tier stat can switch a whole branch OFF, and `carry_mult` was doing it —
+  so the branch stopped asking.** `wholeCrate` used to refuse a box that was not
+  worth more than one armful (`lotTotal(pallet) > hands`), which is right while
+  an armful and a crate are the same journey made two ways. It stops being right
+  the moment a rung's `carry_mult` reaches a whole crate, and the shipped
+  stocker's second rung already does: twelve-unit hands against a twelve-unit
+  crate is `12 > 12`, false, for ever. So the one hire you would promote *to* run
+  the back was the one hire who could never shoulder a box, which is a rung that
+  takes money and moves no number. `bar` was the fix — beat `best`, the armful
+  this bay can actually assemble, rather than the size of your hands — and
+  `beltTakes` was the second one, because a box put on a run makes no journey
+  past the first cell and a comparison between two walks has no bearing on it.
+  **Both are gone with the comparison** (docs/handling.md step 2): the size test
+  is deleted, one trip is one box, and what bounds the lift is empty hands, a pad
+  and being on top. Two things worth keeping from it. The general shape is the
+  one `LOT_KINDS` and the third kind of shelving have: **a comparison between two
+  quantities is a rule only while nothing can make them equal**, and a multiplier
+  on a ladder is exactly the thing that can. And the second-order one, which is
+  why this entry survives its own fix: **two patches to one comparison is the
+  signal to delete the comparison.** Each patch here was correct and neither was
+  the problem, which was that a test between two *journeys* cannot see the bay
+  the box is standing in.
+- **…and `boardFor` is not a predicate, so filtering candidates through it opens
+  a board on every one you did not choose.** It calls `openStack`, which pushes a
+  real priced board as a side effect of being asked — the same trap
+  `verify:belts` names about a loader asking twenty times a second. `unload`'s
+  haul branch was `.filter`ing every candidate shelf through it and stocking the
+  first, which was survivable only while hauling was the exception: a crate big
+  enough to shoulder usually held something with a home, and a home is ONE
+  candidate. The moment every bay crate came through there, an item with no home
+  yet had the whole shop as candidates — four boards standing, stock on one,
+  three holding nothing and counting against `shelfHasRoomFor` for every other
+  kind. Nothing logs it and what it reads as is a shop that has quietly run out
+  of shelf space. `shelfAccepts` to **probe** and `stockFromCrate` to **commit**:
+  the same three questions, asked without writing. The general shape: **a
+  function that answers a question by performing it is safe only while exactly
+  one caller asks**, and widening a branch is how the second caller arrives.
 - **…and `lotStacks` hands back COPIES, so a field written onto what it returns
   is written onto a value nobody keeps.** It says so — a caller that sorted the
   result must not be reordering somebody's hands — and it is a trap for exactly

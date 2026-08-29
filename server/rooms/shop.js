@@ -783,6 +783,28 @@ export const ShopRoom = (Base) => class extends Base {
       this.game.crewIdle = !!m?.idle;
     });
 
+    /**
+     * ...and where to stand while they are, which is the other half of it.
+     *
+     * The opening card is a shot of the shopfront with the two of you walking
+     * into it, and the crew have downed tools for the length of the tour — so
+     * without this the one hire a new shop comes with spends the establishing
+     * shot standing behind the till indoors. Same argument as `crew-idle`
+     * exactly: it asks the shop to do something no press has ever asked it to,
+     * it writes no log line, and it is the tour's only other message.
+     *
+     * No `action-result`: nothing is waiting on it and a hire who cannot get
+     * there simply does not go. See `Game.crewPose`.
+     */
+    this.onMessage('crew-pose', (client, m) => {
+      // Two verbs on one message, because they are one idea — the tour staging
+      // its cast — and both are one field of a card. `emote` alone is a wave
+      // from where they already are, which is what the beat after the walk
+      // wants: nobody moves, somebody says hello.
+      if (m?.emote) this.game.crewEmote(String(m.emote));
+      else this.game.crewPose(Number(m?.x), Number(m?.z), Number(m?.facing));
+    });
+
     // Whether the build palette unfolds with the ladder. No layout to send —
     // this moves no fixture and no tile; it decides which tiles the BAR draws,
     // and the bar is redrawn off the snapshot that carries `reveal`.

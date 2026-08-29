@@ -15,7 +15,7 @@ import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import { clockLabel, weekdayLabel } from '../shared/clock.js';
 import { hudPx } from './ui-scale.js';
 import { EMOTE_LIST } from '../shared/emotes.js';
-import { pillDrives } from './input.js';
+import { pillDrives, mouseGlyph } from './input.js';
 import {
   buildTools, buildGroups, groupOfTool, subOfTool, sectionById, staffGroups, DECK_GROUPS,
   amount,
@@ -56,23 +56,6 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
 const SHUTTER_KEY = 'sns.shutterUsed';
 
 /**
- * A mouse with one of its two buttons pressed. See `updatePrompt`.
- *
- * Drawn here rather than taken from `icons.js`, which is generated from two
- * stock icon sets: a stock mouse is one shape with both buttons the same, and
- * the entire content of this picture is that ONE of them is filled. An icon
- * that cannot say which button it means is a picture of the problem.
- *
- * The pressed half is its own path with a class on it, so the pulse is a fill
- * that lights rather than a whole glyph that flashes — a shape blinking on and
- * off reads as something wrong, and a button going down and coming back up
- * reads as a click, which is the only thing it is trying to say.
- *
- * `currentColor` throughout: the pill inverts itself when it is armed
- * (`#prompt.going`), and a glyph with a colour of its own would go on being
- * white on gold.
- */
-/**
  * How long the press pill goes on eating presses after it has gone.
  *
  * See `paintPrompt`. Long enough to cover a tap already on its way to a button
@@ -81,31 +64,6 @@ const SHUTTER_KEY = 'sns.shutterUsed';
  * longer than this.
  */
 const PROMPT_GUARD_MS = 400;
-
-/**
- * How long a press on a HOLD row has to last before it arms anything.
- *
- * See the pointerdown handler in `paintPrompt`. Well under `LONG_PRESS_MS` — it
- * is not a second definition of a hold, only the shortest press that is
- * obviously not a tap, and every millisecond of it is one the ring does not get.
- */
-const HOLD_ARM_MS = 150;
-
-function mouseGlyph(right) {
-  // The pressed cap, drawn as the corner it actually is: down the divider,
-  // along the top under the shoulder, and back. Mirrored about x=7 for the
-  // right one rather than authored twice, because two hand-drawn halves drift
-  // and the divider stops lining up with itself.
-  const cap = right
-    ? 'M7.6 1.3h1.8a3.3 3.3 0 0 1 3.3 3.3v2.1H7.6z'
-    : 'M6.4 1.3H4.6a3.3 3.3 0 0 0-3.3 3.3v2.1h5.1z';
-  return `<svg class="pr-mouse" viewBox="0 0 14 20" aria-hidden="true">`
-    + '<rect x="1.3" y="1.3" width="11.4" height="17.4" rx="5.7"'
-    + ' fill="none" stroke="currentColor" stroke-width="1.3" opacity=".55"/>'
-    + '<path d="M1.3 7.4h11.4M7 1.3v6.1" stroke="currentColor"'
-    + ' stroke-width="1.1" opacity=".55"/>'
-    + `<path class="pr-press" d="${cap}" fill="currentColor"/></svg>`;
-}
 
 /**
  * ...and the same thing said about a key, which build mode is the first thing
@@ -4247,13 +4205,14 @@ export class UI {
   /**
    * Unfold the build palette with the ladder, or hand over the whole bar.
    *
-   * Sent rather than kept here, for `setSurround`'s reason: it rides in the
-   * save, so it is a fact about the shop and the other person has to see it. A
-   * setting on the browser would also be the wrong shape for the decision it
-   * exists to serve — see `setReveal` on the server.
+   * Sent rather than kept here, and the reason is the one the surround above
+   * left behind: it rides in the save, so it is a fact about the shop and the
+   * other person has to see it. A setting on the browser would also be the
+   * wrong shape for the decision it exists to serve — see `setReveal` on the
+   * server.
    *
-   * Written locally as well, which is the one thing on top and is the same call
-   * the surround picker makes: the switch is repainted from `this.state`, and
+   * Written locally as well, which is the one thing on top: the switch is
+   * repainted from `this.state`, and
    * the snapshot is up to a tick away, so without it the row reads Off for a
    * beat after you press it and the toggle looks like it missed.
    */
@@ -4263,19 +4222,11 @@ export class UI {
     this.net.send('reveal', { reveal: want });
   }
 
-  /**
-   * Move the shop to a different sort of place.
-   *
-   * Sent rather than applied locally, even though the only thing that changes
-   * is a group in the renderer: it rides in the save, so the person who is not
-   * pressing the button has to see it too. The scene picks it up off the next
-   * snapshot like everything else (`Scene.setSurround`), which is what keeps
-   * one answer to "where is this shop" rather than two that agree until they
-   * do not.
-   */
-  setSurround(id) {
-    this.net.send('set-surround', { surround: id });
-  }
+  // Moving the shop to a different sort of place was here, and there is no
+  // button for it any more: a surround is chosen on the form that makes the
+  // shop (`client/menu.js`), which is where the other two facts about a save
+  // are already decided. The `set-surround` message is still on the room, for
+  // the agent surface that has always used it — see server/api.js.
 
   /**
    * The hour, and the two states that are now worn by things already on screen.
@@ -5115,22 +5066,14 @@ export class UI {
         // second definition of a hold, it is the shortest press that is
         // obviously not a tap. Every millisecond here is one the ring does not
         // get, and the ring is the part somebody is waiting through.
-        // Which row is being worked, for `paintPrompt` — set for both kinds,
-        // because a tap row's action is short and still repaints the pill under
-        // the finger that made it.
+        // Which row is being worked, for `paintPrompt`.
         this._pressed = Number(row.dataset.i);
         this.markPress();
-        if (h.tag === 'hold') {
-          clearTimeout(this._pillArm);
-          this._pillArm = setTimeout(() => { this._pillArm = 0; h.run(); }, HOLD_ARM_MS);
-          return;
-        }
         h.run();
       });
-      // A press that ended before it was a hold never happened. On the window,
-      // because a finger that slid off the row before lifting has still let go.
+      // On the window, because a finger that slid off the row before lifting has
+      // still let go.
       const drop = () => {
-        clearTimeout(this._pillArm); this._pillArm = 0;
         this._pressed = null;
         this.markPress();
       };

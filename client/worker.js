@@ -103,8 +103,15 @@ async function rpc({ id, method, path, body }) {
   await booted;
   const answer = (data) => reply('@rpc', { id, ok: true, data });
 
-  if (method === 'GET' && path === '/worlds') {
-    return answer({ worlds: listWorlds(), focused: null });
+  // The query is read rather than the path matched, because the menu asks for
+  // `/worlds?plans=1` — the floor plans it draws its thumbnails from — and an
+  // exact match on the path is a web build whose front door quietly has no
+  // pictures on it while the server build's does. See `planOf`.
+  if (method === 'GET' && path.split('?')[0] === '/worlds') {
+    return answer({
+      worlds: listWorlds({ plan: path.includes('plans=1') }),
+      focused: null,
+    });
   }
   if (method === 'GET' && path === '/content/worker') {
     return answer({ rows: content().workers });

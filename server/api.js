@@ -112,13 +112,20 @@ export function createApi() {
 
   // ---- save slots --------------------------------------------------------
 
+  // `?plans=1` adds a floor plan per save — a rect and a few hundred tiles,
+  // which the front door draws a thumbnail from. Opt-in rather than always on
+  // because this is also `list_worlds`, and every byte of that answer lands in
+  // an agent's context: a picture nobody can look at is the one thing an agent
+  // has no use for. See `planOf`.
   api.get('/worlds', wrap((req, res) => {
-    res.json({ ok: true, focused: focusedWorldId(), worlds: listWorlds() });
+    const plan = req.query?.plans === '1';
+    res.json({ ok: true, focused: focusedWorldId(), worlds: listWorlds({ plan }) });
   }));
 
-  // `tier` is how much shop you start with (`shared/start.js`) and `difficulty`
-  // is how hard the town is on you (`shared/difficulty.js`) — two axes, and the
-  // menu asks both. `cash` overrides the tier's money; `shelves`/`plots`
+  // `tier` is how much shop you start with (`shared/start.js`), `difficulty` is
+  // how hard the town is on you (`shared/difficulty.js`) and `surround` is what
+  // is out of the windows (`shared/surrounds.js`) — three axes, and the menu
+  // asks all three. `cash` overrides the tier's money; `shelves`/`plots`
   // override its counts, and are creation-only for the reason `createWorld`
   // gives. Blank or absent means the default; out of range is clamped, not
   // refused, and an unknown tier or preset falls back rather than losing the
@@ -133,6 +140,7 @@ export function createApi() {
         seed: req.body?.seed,
         tier: req.body?.tier,
         difficulty: req.body?.difficulty,
+        surround: req.body?.surround,
         cash: req.body?.cash,
         shelves: req.body?.shelves,
         plots: req.body?.plots,

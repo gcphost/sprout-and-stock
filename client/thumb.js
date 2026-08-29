@@ -38,6 +38,7 @@ import {
   PALETTE, TILE_STYLE, EDGE_STYLE, bondOf, brickBond, edgeBands, jitter, patternColor, shade,
   stripeBars, stripeDuty,
 } from './render/palette.js';
+import { crateParts } from './render/crate.js';
 
 /**
  * The game's camera, as the two numbers a projection needs.
@@ -497,6 +498,26 @@ export function artForPiece(row, kind, variant = '') {
   const art = draw([...base, ...parts]);
   byShape.set(variant, art);
   return art;
+}
+
+/**
+ * A CRATE, which is the one thing goods live in that owns no catalog row.
+ *
+ * Every other picture in this file starts from a row somebody authored. A crate
+ * is built in code, so a card that wants to show one has two options and only
+ * one of them is allowed: draw a second crate by hand, or draw THE crate. This
+ * is the second — `crateParts` is the same list `buildPallet` builds the box on
+ * the floor from, so a change to the tote changes this with nothing to keep in
+ * step. It is `artForEdge`'s rule about a wall, and `standaloneParts`' about a
+ * lift, said about the box goods travel in.
+ *
+ * Cached per colourway, which is the only axis a crate has.
+ */
+const crateArt = new Map();
+export function artForCrate(waste = false) {
+  const key = waste ? 'waste' : 'stock';
+  if (!crateArt.has(key)) crateArt.set(key, draw(crateParts(waste)));
+  return crateArt.get(key);
 }
 
 /**

@@ -2191,6 +2191,21 @@ became ground: **under a conveyor is still ground**, and a run laid across your
 parquet does not owe you a repaint. Under a pad is still ground too. Five things
 are worth knowing.
 
+The conveyor half is the same partition, and it was aimed one notch too wide for
+a while. It asked that what you laid leave the cell as it found it — the land
+outdoors, floor indoors — which let exactly one look through on each side and
+turned down every other one on both. Half of that is invisible, because indoors
+the look anybody paints IS floor; the half you meet is the ordinary press, since
+a run out to the yard crosses the wall and half of every conveyor in the game is
+standing on grass. Laying the shop's own floor under that stretch came back
+*"only ground goes under a conveyor"* over a stroke that moves no tile anywhere,
+which reads as the brush being broken. The rule is `groundPaint`'s own line
+instead: a **look** goes under a run wherever it is, and a **job** never does —
+every reader of "deliveries land here" reads `tiles`, which is a belt on that
+square and always will be, so a bay painted under a run would draw as a bay and
+never take a crate. `verify:floor` §10 asserts both sides of the wall against
+that control, and fingerprints `tiles` across the lot.
+
 **`k` is still the top, and still the only thing that decides the tile.** So not
 one reader of `tiles`, `blocked`, `indoor`, a pad region or the renderer changed,
 and `verify:floor` asserts it as a byte comparison: paint the whole delivery bay

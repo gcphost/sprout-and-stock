@@ -29,10 +29,12 @@ import { world as loadWorld, saveWorld, DEFAULT_WORLD, content } from './content
 // server into every build that imports this file — including a browser one,
 // which is where `createWorld` is now also called from. See docs/browser.md.
 import { rooms, primaryRoom } from './rooms/shop.js';
-import { startTier, tierFixtures } from '../shared/start.js';
+import { startTier, tierFixtures, tierById, START_TIERS, DEFAULT_TIER } from '../shared/start.js';
 import { cleanName, SHOP_NAME_MAX } from '../shared/names.js';
 import { startDifficulty, difficultyOf } from '../shared/difficulty.js';
+import { surroundOf } from '../shared/surrounds.js';
 import { PREP_HOUR } from './sim/index.js';
+import { STORE_NORTH_LEGACY } from './layout.js';
 
 // ---------------------------------------------------------------------------
 // Naming
@@ -65,6 +67,173 @@ export function roomsFor(worldId) {
 }
 
 /**
+ * WHICH SIZE OF SHOP THIS IS, for the chip on the menu row.
+ *
+ * Written onto the save at creation (see `startingState`), so this is a read
+ * with a fallback rather than a guess — but every shop that predates the field
+ * has to answer something, because the three chips are the only thing that
+ * tells one save from another before you open it. Every one of them is called
+ * `Shop N`.
+ *
+ * The fallback counts the shelving the shop is standing in against the counts
+ * the tiers themselves are authored with, so it is the same table making both
+ * answers rather than three thresholds somebody picked. It says something
+ * slightly different from the stored field — how big the shop IS rather than
+ * how big it started — and that is the honest answer for a save that never
+ * recorded the second one.
+ */
+const SHELVING = new Set(['shelf', 'freezer', 'warmer']);
+const tierUnits = (t) => [...SHELVING].reduce((n, k) => n + (t.fixtures[k] ?? 0), 0);
+
+function sizeOf(w) {
+  if (tierById(w.tier)) return w.tier;
+  const units = (w.placements ?? []).filter((p) => SHELVING.has(p.kind)).length;
+  const ladder = [...START_TIERS].sort((a, b) => tierUnits(b) - tierUnits(a));
+  return (ladder.find((t) => units >= tierUnits(t)) ?? tierById(DEFAULT_TIER)).id;
+}
+
+/**
+ * THE SAVE'S OWN FLOOR PLAN, as a grid of characters.
+ *
+ * The front door draws a top-down square per shop (see `client/frontart.js`),
+ * and the whole reason it is worth the field is that it comes from the SAVE:
+ * a picture derived from the tier would be a picture of a *type* of shop, and
+ * two shops played differently would come out identical — which is precisely
+ * the job the square is doing, since every one of them is called `Shop N`.
+ *
+ * A GRID AND NOT A RECT, and that is the one thing here worth arguing about.
+ * The obvious payload is `shell` plus the fixture tiles — the building is a
+ * rectangle, so send the rectangle — and it is wrong about every shop anybody
+ * has actually played in. `shell` is what the GENERATOR stamped and nothing
+ * else: from the moment somebody draws a wall of their own, the building is
+ * `edits` and the floor they painted inside it, and the stamp stays whatever it
+ * was on day one. A live save on day 514 has a 7x8 shell with shelving standing
+ * from x5 to x26, so the rect version of this drew a small box with two thirds
+ * of the shop scattered outside it — which reads as the plan being broken
+ * rather than as the shop having been extended.
+ *
+ * So the cells are the picture: floor (the shell's own stamp plus every cell of
+ * floor anybody has painted), the pads, and what is standing on them. Which
+ * also hands the client its outline for free — an edge is where an inside cell
+ * meets an outside one — and outlining an arbitrary room is the one thing a
+ * rect could do that a set of cells cannot obviously do.
+ *
+ * Three things keep it cheap. It is opt-in per request (`plan: true`, which
+ * only the menu asks for) because this is a LIST endpoint and `list_worlds`
+ * hands its whole answer to an agent's context. It carries a bare grid of
+ * characters and no geometry — no colours, no sizes, no rotation — so what a
+ * plan LOOKS like stays a client decision. And it is capped: past `PLAN_MAX`
+ * cells across it is sampled down rather than cropped, because a picture that
+ * loses the farm off one edge is worse than one drawn two tiles to a pixel.
+ *
+ * The one thing it deliberately does NOT read is the walls. `edits` is a list
+ * of lattice segments and what an outline wants is the enclosure they make,
+ * which is `computeIndoor` — a whole layout, generated, per save, on the list
+ * endpoint. Painted floor is the same answer for a tenth of the work: you
+ * cannot put a shelf on a cell you have not floored, so a room worth drawing is
+ * a room with a floor in it.
+ *
+ * A shop nobody has opened yet has no shell, no floor and no placements, and
+ * the honest answer there is null: there is nothing built to draw. The client
+ * draws an empty lot for it, and the real plan turns up the moment somebody
+ * walks in.
+ */
+const PLAN_KINDS = {
+  shelf: 's', freezer: 's', warmer: 's',   // shelving
+  checkout: 't',                           // the till
+  plot: 'b',                               // a growing rack
+  station: 'm', pen: 'm', packer: 'm',     // machines
+};
+/**
+ * The five pads, all one character.
+ *
+ * They are five different jobs and they are one thing from four metres up: the
+ * shop's own working ground, as opposed to the floor you walk a trolley on. A
+ * character each would be four more colours in a 64px square for a distinction
+ * nobody is reading it to make.
+ */
+const PLAN_PADS = new Set(['bay', 'drop', 'break', 'park', 'paddock']);
+/** The look that is the shop rather than the street. Road, path and lawn are not. */
+const PLAN_FLOOR = 'floor';
+/** How many cells across the grid may get before it is sampled down. */
+const PLAN_MAX = 44;
+/** Which character wins when several land in one sampled cell. */
+const PLAN_RANK = { '.': 0, y: 1, f: 2, m: 3, b: 4, t: 5, s: 6 };
+
+function planOf(w) {
+  const cells = new Map();
+  const put = (x, z, ch) => {
+    const key = `${x},${z}`;
+    const was = cells.get(key);
+    if (was === undefined || PLAN_RANK[ch] > PLAN_RANK[was]) cells.set(key, ch);
+  };
+
+  /**
+   * The generated stamp, which is the whole floor of a shop nobody has built in
+   * and the middle of one they have.
+   *
+   * `shell.x` was added long after `shell.w`, so a shop frozen before that day
+   * knows how big it is and not where it is. Derived from what is standing
+   * indoors, which is the one thing on those saves that does know — and a
+   * building drawn two tiles off its own shelving is the failure this avoids,
+   * not a missing picture.
+   */
+  const placements = w.placements ?? [];
+  const shell = w.shell ?? null;
+  if (shell) {
+    const inside = placements.filter((p) => 'st'.includes(PLAN_KINDS[p.kind] ?? ''));
+    const west = shell.x ?? (inside.length
+      ? Math.max(0, Math.min(...inside.map((p) => p.x)) - 1)
+      : 0);
+    const north = shell.z ?? STORE_NORTH_LEGACY;
+    for (let dx = 0; dx < shell.w; dx++) {
+      for (let dz = 0; dz < shell.h; dz++) put(west + dx, north + dz, 'f');
+    }
+  }
+
+  // ...and every cell of ground anybody has painted since. `u` is the look a
+  // pad was laid OVER (see `groundPaint` in shared/build.js) — a stockroom on
+  // shop floor is still shop floor underneath, and reading only the top layer
+  // would punch a hole in the building wherever somebody painted one.
+  for (const g of w.ground ?? []) {
+    if (PLAN_PADS.has(g.k)) put(g.x, g.z, 'y');
+    else if (g.k === PLAN_FLOOR) put(g.x, g.z, 'f');
+    else if (g.u?.k === PLAN_FLOOR) put(g.x, g.z, 'f');
+  }
+
+  for (const p of placements) {
+    const ch = PLAN_KINDS[p.kind];
+    if (ch) put(p.x, p.z, ch);
+  }
+
+  if (!cells.size) return null;
+
+  let x0 = Infinity; let z0 = Infinity; let x1 = -Infinity; let z1 = -Infinity;
+  for (const key of cells.keys()) {
+    const [x, z] = key.split(',').map(Number);
+    if (x < x0) x0 = x;
+    if (z < z0) z0 = z;
+    if (x > x1) x1 = x;
+    if (z > z1) z1 = z;
+  }
+
+  // Sampled rather than cropped past the cap, for the reason in the header: a
+  // shop that has grown to forty tiles across is exactly the shop whose SHAPE
+  // is the interesting thing about it, and cropping it would take the farm off.
+  const step = Math.max(1, Math.ceil(Math.max(x1 - x0 + 1, z1 - z0 + 1) / PLAN_MAX));
+  const gw = Math.ceil((x1 - x0 + 1) / step);
+  const gh = Math.ceil((z1 - z0 + 1) / step);
+  const grid = new Array(gw * gh).fill('.');
+  for (const [key, ch] of cells) {
+    const [x, z] = key.split(',').map(Number);
+    const at = Math.floor((z - z0) / step) * gw + Math.floor((x - x0) / step);
+    if (PLAN_RANK[ch] > PLAN_RANK[grid[at]]) grid[at] = ch;
+  }
+
+  return { w: gw, h: gh, g: grid.join('') };
+}
+
+/**
  * What the menu shows for one save.
  *
  * Read off the live room when there is one, and off the save blob otherwise.
@@ -72,7 +241,7 @@ export function roomsFor(worldId) {
  * but `played_at` has not moved for, so asking the row would show a shop that
  * is being played right now as sitting at whatever it was when it opened.
  */
-export function summarise(row) {
+export function summarise(row, { plan = false } = {}) {
   const live = roomsFor(row.id);
   const g = live[0]?.game;
   const w = g ?? loadWorld(row.id);
@@ -92,14 +261,21 @@ export function summarise(row) {
     // Nothing in the menu can then draw a shop as having no difficulty, which
     // is not a state any shop is in.
     difficulty: difficultyOf(w.difficulty).id,
+    // The other two thirds of what tells one `Shop N` from another on the front
+    // door. Both are resolved rather than raw, for `difficulty`'s reason: a
+    // save that predates either field is being *played* on an answer, so the
+    // menu should never have to draw a shop as having no setting.
+    tier: sizeOf(w),
+    surround: surroundOf(w.surround),
     reputation: w.reputation ?? DEFAULT_WORLD.reputation,
     upgrades: (w.ownedUpgrades ?? []).length,
     staff: (w.roster ?? []).length,
+    ...(plan ? { plan: planOf(w) } : {}),
   };
 }
 
-export function listWorlds() {
-  return listWorldRows().map(summarise);
+export function listWorlds(opts) {
+  return listWorldRows().map((row) => summarise(row, opts));
 }
 
 export function getWorldSummary(id) {
@@ -171,7 +347,7 @@ function startingNumber(v, { min, max, cents = false }) {
  * buttons described. Writing it at creation is what makes the choice a *fact
  * about that save*.
  */
-function startingState({ cash, tier, difficulty, shelves, plots }) {
+function startingState({ cash, tier, difficulty, surround, shelves, plots }) {
   const state = { cash: cash ?? startTier(tier).cash };
 
   /**
@@ -187,6 +363,35 @@ function startingState({ cash, tier, difficulty, shelves, plots }) {
    * to it. See `shared/difficulty.js`.
    */
   state.difficulty = startDifficulty(difficulty).id;
+
+  /**
+   * ...and what is out of the windows, which is written here for the tier's
+   * reason and narrows the way every other read of this field does.
+   *
+   * `surroundOf` answers `country` for anything it does not recognise, which is
+   * what a save that predates the field reads as — so an older client that has
+   * never heard of the form's third row still mints exactly the shop it always
+   * did. Both defaults being the same is the difference between this and
+   * `difficulty` above, and it is the safe direction: this one is a picture,
+   * so there is no version of it that quietly plays differently.
+   */
+  state.surround = surroundOf(surround);
+
+  /**
+   * ...and WHICH SIZE was asked for, which is the one of the three that is not
+   * read by anything in the sim.
+   *
+   * It is written for the menu, and only the menu: `fixtures` below is what the
+   * shop is actually furnished from, and the moment `freezeShell` runs that
+   * budget stops being true — the shop is what is standing in it. So the field
+   * says which of three shops somebody *chose*, which is a fact about the save
+   * nothing else could answer afterwards, and which is a third of what tells
+   * one `Shop N` apart from the next on the front door.
+   *
+   * Every save that predates it derives one instead — see `sizeOf`, which is
+   * why this is not a migration.
+   */
+  state.tier = startTier(tier).id;
 
   // `fixtures` here is the one-shot budget `starterShop` reads to furnish a shop
   // nobody has opened yet, not the stored ledger step 9 retired: it is merged
@@ -332,8 +537,47 @@ function starterHire() {
     tier: 1,
     name: kind.name,
     skin: null,
-    jobs: (kind.jobs ?? []).map((j) => ({ job: j.job, weight: j.weight })),
+    jobs: withSpare((kind.jobs ?? []).map((j) => ({ job: j.job, weight: j.weight }))),
   };
+}
+
+/**
+ * ...AND THEY ARRIVE WITH A POINT TO SPEND.
+ *
+ * `jobBudget` reads the kind's own authored total as its floor, so a hire
+ * arrives at exactly their cap — which is right for a purchase and is the one
+ * thing that made the shift panel unteachable. Every `+` in it is dead on the
+ * frame it opens, so the first move the game can offer a new player on the one
+ * panel that is about SPENDING something is a subtraction. The tour said so out
+ * loud ("take one off a job they will not be doing"), which is a tutorial
+ * apologising for a screen.
+ *
+ * So the starting hand is shaved by a point, and three things about where.
+ *
+ * It is the **copy** and never the row: `jobBudget`'s floor is `kind.jobs`, so
+ * shaving the authored list would take the allowance down with it and leave the
+ * hire at their cap again — the same 22 of 22, one point lighter, with nothing
+ * gained. Shaving the copy leaves a real 21 of 22.
+ *
+ * It comes off the **smallest directive above 1**, last one wins, rather than
+ * off a job named here. A job id in this file is `if (item.id === 'tomato')`
+ * wearing a shift: the shop hand's list is content and can be re-authored
+ * tomorrow, and a named job that had been dropped would silently shave nothing.
+ * Smallest-above-1 is the least the shop loses; above 1 so no directive is ever
+ * zeroed, since a job at 0 is a job they stop doing rather than one they do a
+ * little less of.
+ *
+ * It is a **new shop's** hire only — this runs once, when the save is minted —
+ * so nobody's live roster moves, and `simulate` against an existing world is
+ * measuring the shop it was measuring before.
+ */
+function withSpare(jobs) {
+  let at = -1;
+  jobs.forEach((j, i) => {
+    if (j.weight > 1 && (at < 0 || j.weight <= jobs[at].weight)) at = i;
+  });
+  if (at < 0) return jobs;
+  return jobs.map((j, i) => (i === at ? { ...j, weight: j.weight - 1 } : j));
 }
 
 /**
@@ -346,7 +590,9 @@ function starterHire() {
  * the first `Game.create` reads it, because that is the read that stamps them
  * into a building.
  */
-export function createWorld({ name, seed, cash, tier, difficulty, shelves, plots } = {}) {
+export function createWorld({
+  name, seed, cash, tier, difficulty, surround, shelves, plots,
+} = {}) {
   const label = cleanName(name, SHOP_NAME_MAX) || `Shop ${listWorldRows().length + 1}`;
   const id = mintId(label);
   const useSeed = String(seed ?? '').trim() || randomSeed();
@@ -354,6 +600,7 @@ export function createWorld({ name, seed, cash, tier, difficulty, shelves, plots
     cash: startingNumber(cash, START_LIMITS.cash),
     tier,
     difficulty,
+    surround,
     shelves: startingNumber(shelves, START_LIMITS.shelves),
     plots: startingNumber(plots, START_LIMITS.plots),
   });

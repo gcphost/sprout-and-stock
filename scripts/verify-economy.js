@@ -604,7 +604,13 @@ function spotFor(g, kind) {
 
   const g = fresh();
   const bare = g.catchment();
-  eq(g.charm(), 0, 'a shop with nothing nice in it has no charm');
+  // A DELTA against the shop's own baseline, and it was `0` until the frontage
+  // grew glass. `EDGE_CHARM` pays for glazing wherever it is, and the generated
+  // shell glazes the front wall now — so an empty building is not a charmless
+  // building, and asserting a literal here would be asserting that the shop
+  // front is a concrete box. What this section is about is what a ROW is worth,
+  // which is what the difference says and the absolute number never did.
+  const shell = g.charm();
 
   // A cell the generator has not already furnished. Hardcoding one picks a
   // shelf on most seeds, and the placement fails for a reason that has nothing
@@ -613,7 +619,7 @@ function spotFor(g, kind) {
   check(!!spot, 'there is an empty cell indoors to stand it on');
   const put = g.placeFixture('me', { kind: 'prop-floor', piece: EARNER, ...spot, rot: 0 });
   check(put.ok, 'the earner goes down', put.error ?? '');
-  eq(g.charm(), CHARM, 'and the shop is exactly as charming as the row says');
+  eq(round2(g.charm() - shell), CHARM, 'and the shop is exactly as charming as the row says');
   check(g.catchment() > bare, 'which reaches further into the town', `${bare} -> ${g.catchment()}`);
 
   // The ceiling. Charm is authored content and unbounded; catchment must not be.

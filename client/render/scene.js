@@ -401,6 +401,57 @@ const EASE = {
 const CINE_EASE = {
   look: 0.09, lookMin: 0.055, yaw: 0.10, yawMin: 0.0075, zoom: 0.09, tilt: 0.12, tiltMin: 0.006,
 };
+/**
+ * ...and a third set, for the one move nobody made with their hand.
+ *
+ * `aimView` swings the view because a card asked it to — the tour's opening
+ * shot — and on the playing gains that arrives in about a fifth of a second,
+ * which is not a camera move, it is a cut with a smear on it. Cinema's numbers
+ * are the right idea and still tuned for somebody who is *recording*: this is
+ * slower again, because the whole job of the shot is to be watched by somebody
+ * who has never seen the shop and does not yet know that the thing swinging
+ * round is a building.
+ *
+ * IT IS THE ONLY SET WITH A CEILING, and that is the whole difference between a
+ * dolly and everything else in here. The other two are a proportional gain with
+ * a floor under it, which is fast at the start and slow at the end — right for
+ * a camera CHASING something, because the distance is the error and the error
+ * is what you want killed first. A tour move has no error in it: it is a
+ * journey between two places somebody is meant to watch, and on a proportional
+ * gain the first frames of a ten-tile pan move half a tile each, which is the
+ * shop flying past and then creeping in. Both were reported as "too fast" and
+ * neither was the floor.
+ *
+ * So the three numbers are a rate (`Max`), a floor under it so it lands rather
+ * than drifting, and the gain above them, which by then is only shaping the
+ * ease-out over the last tile or two. `yawMax` 0.022 is about 75° a second, so
+ * the 45° between the front of the shop and the home corner is about six tenths
+ * of a second; `lookMax` 0.24 is 14 tiles a second, about four times a walk.
+ *
+ * BOTH CEILINGS WENT UP BY TWO THIRDS, and the reason is the one thing the
+ * argument above could not weigh: how long it feels while you are waiting to be
+ * allowed to do something. The old figures were chosen against the opening
+ * shot, which nobody is holding a mouse through — and the same numbers carry
+ * every LATER card, where the tour has just told you to press something and the
+ * shop is still swinging round to show it to you. A second and a half of pan
+ * before the beat starts is dead air on a card you are ready for. It is still a
+ * move rather than a cut: at these rates a full turn is about five seconds, and
+ * the floors came up with the ceilings so the last tile lands instead of
+ * creeping.
+ *
+ * Both numbers have been wrong in both directions and the pair that reads is
+ * narrower than it looks: at a third of these it is a slideshow you wait
+ * through, and the whole reason there is a ceiling at all is that without one
+ * the first frames of a long move are ten times either figure.
+ *
+ * It is cleared the instant a hand touches the view (see `tourShot`), so this
+ * can never be the camera somebody is playing on.
+ */
+const TOUR_EASE = {
+  look: 0.10, lookMin: 0.07, lookMax: 0.24,
+  yaw: 0.10, yawMin: 0.009, yawMax: 0.022,
+  zoom: 0.13, tilt: 0.18, tiltMin: 0.010,
+};
 
 /**
  * The frame the gains and floors above are quoted against.
@@ -433,9 +484,9 @@ const gainFor = (gain, dt) => (gain >= 1 ? 1 : 1 - Math.pow(1 - gain, dt * EASE_
  * move and a floor applied to one of them is a camera whose two axes disagree
  * about what kind of camera it is.
  */
-function glide(from, to, gain, floor) {
+function glide(from, to, gain, floor, cap = Infinity) {
   const d = to - from;
-  const step = Math.min(Math.abs(d), Math.max(Math.abs(d) * gain, floor));
+  const step = Math.min(Math.abs(d), Math.min(cap, Math.max(Math.abs(d) * gain, floor)));
   return from + (d < 0 ? -step : step);
 }
 
@@ -1908,9 +1959,62 @@ export class Scene {
     // turns, which is what `quarter` now rounds it back into.
     this.camYaw = 0;
     this.camAngle = 0;
-    // Pitch has no target/drawn pair, because nothing eases it: only a drag
-    // moves it, and a drag is already the hand's own easing.
+    /**
+     * ...and the pitch, which HAS a target/drawn pair now and did not for a
+     * long time.
+     *
+     * It did not need one while a drag was the only thing that moved it: a
+     * hand is its own easing, and `camPitch` written straight is exactly right
+     * for one. The tour moves it (`aimView`) — a card that wants a low
+     * front-on shot of the shopfront — and a pitch that arrived in one frame is
+     * a cut rather than a camera move, which reads as the shop having been
+     * replaced rather than looked at from somewhere else.
+     *
+     * The pair is the yaw's exactly: this is where it is HEADED, `camPitch` is
+     * what is being drawn, and every writer sets both or the eased one hauls
+     * the other back. Three do — this, `tiltView` and `applyView` — and the
+     * first two are the hand, where the two are the same number by definition.
+     */
     this.camPitch = PITCH_HOME;
+    this.camPitchAim = PITCH_HOME;
+    /**
+     * Whether the view is on a move the TOUR asked for, rather than one a hand
+     * is making. Picks `TOUR_EASE` while it is set, and every path a hand
+     * reaches the camera by clears it — see `aimView`.
+     */
+    this.tourShot = false;
+    /**
+     * ...and whether the tour still OWNS the view, which is the longer-lived
+     * half of the same idea.
+     *
+     * `tourShot` is a move in flight and ends when it lands; this ends only
+     * when a hand takes the camera. The difference is what stops the view
+     * drifting: `camPan` is an offset off the body the camera follows, so a
+     * centre set once and left alone slides across the shop as you walk to the
+     * very thing it was centred on — the card ends up pointing at a crate in
+     * the corner of the screen with half the frame on empty ground. While this
+     * is set the tour re-seats its centre every frame (see `look` in
+     * client/tutor.js) and the pan is pinned to the tile rather than to you.
+     */
+    this.tourOwns = false;
+    /**
+     * ...and the TILE it is pinned to, which is what makes "every frame" true.
+     *
+     * The re-seating above was every SNAPSHOT, because that is where the tour
+     * runs — and `camPan` is an offset off a `camTarget` that moves every frame
+     * (`trackEye`). So between two packets the pan is a fixed offset off a body
+     * that is walking, which drags the look point along with you, and then the
+     * next packet re-derives the offset and snaps it back onto the tile. A
+     * sawtooth at 10Hz, worst on exactly the cards that ask you to walk
+     * somewhere — which is `trackEye`'s own bug arriving through the one door
+     * that was left open, and it reads the same way: the shop is smooth and the
+     * window onto it is not.
+     *
+     * Kept here rather than left to the tour, because the fix is a per-frame
+     * one and the tour has no frames — it is a predicate over a snapshot.
+     * `trackEye` re-derives the pan from this, after the target has moved.
+     */
+    this.tourHold = null;
     this.camTarget = new THREE.Vector3(22, EYE_Y, 17);
     this.camLook = this.camTarget.clone();
     // Whether anybody has claimed the view yet. The camera follows you, and
@@ -2358,6 +2462,11 @@ export class Scene {
    * `+90` would be a one-degree turn nobody can see.
    */
   rotateView(dir) {
+    // A key is a hand too: pressed during a tour swing it must answer at the
+    // speed the key always answers at, not at the speed of the shot it is
+    // interrupting. See `tourShot`.
+    this.tourShot = false;
+    this.tourOwns = false;
     const q = Math.round(this.camYaw / QUARTER) + Math.sign(dir);
     this.camYaw = q * QUARTER;
     return q;
@@ -2375,6 +2484,10 @@ export class Scene {
    */
   spinView(rad) {
     if (!rad) return this.camYaw;
+    // The hand has the view. Whatever the tour was swinging toward, it ends
+    // here — see `tourShot`.
+    this.tourShot = false;
+    this.tourOwns = false;
     this.camYaw += rad;
     this.camAngle += rad;
     this.aimCamera();
@@ -2394,6 +2507,7 @@ export class Scene {
    * the shop coming toward you is the camera going up and over it.
    */
   tiltView(rad) {
+    this.tourShot = false; this.tourOwns = false;   // the hand has it — see `spinView`
     // In first person the same drag moves your head instead, and the sign flips
     // because the two are describing the same hand. Out there, dragging down
     // the screen pulls the far side of the shop toward you and the camera rises
@@ -2407,7 +2521,10 @@ export class Scene {
     }
     const p = Math.min(PITCH_MAX, Math.max(PITCH_MIN, this.camPitch + rad));
     if (p === this.camPitch) return this.camPitch;
+    // Both, or the ease left over from a `aimView` would drag the view back out
+    // from under the hand that is moving it. A drag is its own easing.
     this.camPitch = p;
+    this.camPitchAim = p;
     this.aimCamera();
     return this.camPitch;
   }
@@ -2463,7 +2580,13 @@ export class Scene {
    * thing to read back, not a corrupt one.
    */
   applyView({ pitch, yaw, centre } = {}) {
-    if (Number.isFinite(pitch)) this.camPitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, pitch));
+    if (Number.isFinite(pitch)) {
+      // Both halves, and no ease: this is a RESTORE, so the pose being put back
+      // is where the view already was as far as the person is concerned — the
+      // same argument the line below makes about `camAngle`.
+      this.camPitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, pitch));
+      this.camPitchAim = this.camPitch;
+    }
     if (Number.isFinite(yaw)) {
       this.camYaw = yaw;
       // The DRAWN angle too, or the ease spends the first second of the session
@@ -2500,12 +2623,74 @@ export class Scene {
    * written last session, and letting the restore land afterwards would slide
    * the view off the thing they just pointed at.
    */
-  focusOn(x, z) {
+  focusOn(x, z, { slow = false, hold = false } = {}) {
     this._wantCentre = null;
     this.camPan.x = x - this.camTarget.x;
     this.camPan.z = z - this.camTarget.z;
+    // ...and the tour's version of the same call is a MOVE rather than an aim:
+    // build mode wants the tile under the pointer now, and a card putting the
+    // crate in the middle of the screen wants you to watch it get there. Same
+    // flag the swing uses, so one drag ends either — see `aimView`.
+    if (slow) { this.tourShot = true; this.tourOwns = true; }
+    // ...and `hold` is the tour saying it means to STAY there, which `trackEye`
+    // honours every frame — see `tourHold`. A build-mode tap sets neither: that
+    // is an aim, and the pan being carried along by your own feet afterwards is
+    // what following you means.
+    if (hold) this.tourHold = { x, z };
     return this.clampPan();
   }
+
+  /**
+   * ...and let the tile go, leaving the view exactly where it is.
+   *
+   * The pan is deliberately untouched: what a card wants when it stops naming a
+   * tile is for the camera to go back to following you from wherever it had got
+   * to, which is what a pan off `camTarget` already does. Zeroing it here would
+   * be the tour snatching the view back to the middle of your own body on the
+   * frame a card stopped pointing at anything.
+   */
+  releaseHold() { this.tourHold = null; }
+
+  /**
+   * Point the view somewhere, and SWING there rather than cut.
+   *
+   * `applyView`'s opposite number, and the difference is the whole of why there
+   * are two: that one is a restore — the pose is already yours, so arriving in
+   * one frame is right — and this one is a camera MOVE somebody is meant to
+   * watch. So it writes the two aims and leaves the drawn angles where they
+   * are, which is all it takes: the render loop is already easing `camAngle`
+   * toward `camYaw` and now `camPitch` toward `camPitchAim`, on the same gains.
+   *
+   * Nothing is queued, nothing is ticked and nothing has to be cancelled — a
+   * drag writes both halves of each pair, so grabbing the view mid-move simply
+   * ends the move, wherever it had got to. That is the same trick `focusOn`
+   * plays with the pan, and it is why the tour can aim the camera without
+   * owning it.
+   *
+   * The yaw is NOT wrapped, deliberately: `camYaw` runs unbounded so the ease
+   * always takes the short way round on its own, and a caller handing a corner
+   * from the other side of ±π would otherwise spin the shop the long way about.
+   * `nearYaw` is how a caller asks for the nearest spelling of an angle.
+   */
+  aimView({ yaw, pitch, slow = true } = {}) {
+    if (Number.isFinite(yaw)) this.camYaw = yaw;
+    if (Number.isFinite(pitch)) {
+      this.camPitchAim = Math.min(PITCH_MAX, Math.max(PITCH_MIN, pitch));
+    }
+    // `TOUR_EASE` until it lands — see the note there. It is a flag rather than
+    // a duration because there is nothing to time: the move is over when the
+    // angles arrive, and a hand on the view ends it wherever it had got to.
+    this.tourShot = slow;
+    if (slow) this.tourOwns = true;
+  }
+
+  /** The spelling of `want` that is nearest the angle the view is drawing now. */
+  nearYaw(want) {
+    return want + Math.round((this.camAngle - want) / (2 * Math.PI)) * 2 * Math.PI;
+  }
+
+  /** The pitch the game plays at — what a card asks for to hand the view back. */
+  get homePitch() { return PITCH_HOME; }
 
   /** Re-seat the pan so the view sits on `_wantCentre`, against the target as it is NOW. */
   takeCentre() {
@@ -2555,6 +2740,7 @@ export class Scene {
    * rather than the world axes.
    */
   panBy(dxPx, dyPx) {
+    this.tourShot = false; this.tourOwns = false;   // the hand has it — see `spinView`
     // Inside a head there is nothing to pan: the view is chained to a body and
     // `camPan` is held at zero (see `setFirstPerson`), so a drag that moved it
     // would be a gesture with no effect on screen — which is worse than a
@@ -2819,6 +3005,12 @@ export class Scene {
    * The glide is free — `camLook` already eases toward its aim.
    */
   recentre() {
+    // Going somewhere is the strongest form of taking the view back, so it ends
+    // a tour move the way a drag does: the tutorial asks you to walk somewhere
+    // on nearly every card, and a camera still gliding on the tour's gains
+    // while you walk is one that trails you across your own shop.
+    this.tourShot = false;
+    this.tourOwns = false;
     this.camPan.set(0, 0, 0);
   }
 
@@ -7197,6 +7389,21 @@ export class Scene {
     }
     this.camTarget.set(x, EYE_Y, z);
     if (this.freeRoam) this.clampPan();
+    // ...and the tour's centre re-derived off the target that just moved, which
+    // is the whole of `tourHold`: an absolute statement about a tile, restated
+    // in the one place per frame that knows where the body is drawn. After the
+    // free-roam absorption rather than instead of it — that one is an offset
+    // being preserved and this is an offset being replaced, so the last word
+    // has to be the absolute one.
+    //
+    // `tourOwns` and not the field alone: a drag, a quarter turn or walking
+    // somewhere yourself all stand the tour down (see `spinView`, `recentre`),
+    // and the hold must go quiet with them rather than pulling the view back.
+    if (this.tourOwns && this.tourHold) {
+      this.camPan.x = this.tourHold.x - this.camTarget.x;
+      this.camPan.z = this.tourHold.z - this.camTarget.z;
+      this.clampPan();
+    }
   }
 
   animateActors(dt, snap = false) {
@@ -8723,6 +8930,18 @@ export class Scene {
    * at are a crate, a unit and a bare square of floor, and only one of those has
    * a record.
    *
+   * ...AND WHEN IT DOES HAVE ONE, THE MARK IS ROUND THE THING. A frame on the
+   * ground is honest about a square of floor and ambiguous about everything
+   * standing on one: a unit's art is drawn most of a tile UP-screen of its own
+   * cell (the same reason `pickFixture` exists), so the frame lands across the
+   * foot of the thing it means and *around* whatever is standing one cell
+   * nearer the camera. In an aisle of units on a one-tile pitch that is not a
+   * near miss — it points at the neighbour, every time, and the card beside it
+   * insists the neighbour is a shelf. `markerFor` is the answer the pointer has
+   * used since the ink pass: the outline is cut from the meshes themselves, so
+   * it cannot be round the wrong object. `fixture` is the id when the tour is
+   * pointing at one, and the ground frame stays for a crate and a bare tile.
+   *
    * The frame goes on the GROUND and the height is spent on the chevron, which
    * is the one thing that changed meaning on the way in here. Projected, the `y`
    * was where the mark itself was drawn, and it had to be — a circle over a
@@ -8732,15 +8951,29 @@ export class Scene {
    * through the middle of it.
    */
   setTutorTarget(at) {
-    const key = at ? `${at.x},${at.z},${at.y ?? 0}` : null;
-    if (this.tutorKey === key) return;
-    this.tutorKey = key;
+    // The id is in the key, or a card that moves from one shelf to the next
+    // keeps the outline it cut round the first — the two are on different tiles
+    // today and would not be the day a step points at two units on one square.
+    const key = at ? `${at.fixture ?? ''}|${at.x},${at.z},${at.y ?? 0}` : null;
+    // ...and the version, because the outline is cut from meshes a re-flow
+    // disposes. Left out, a purchase leaves a contour standing round art that
+    // has been thrown away — see `markerFor`'s own note about `land`.
+    const stamp = key == null ? null : `${key}|${this.layoutVersion ?? 0}`;
+    if (this.tutorKey === stamp) return;
+    this.tutorKey = stamp;
     if (this.tutorMarker) {
       this.actorRoot.remove(this.tutorMarker);
       disposeGroup(this.tutorMarker);
       this.tutorMarker = null;
     }
     if (!at) return;
+    // The thing itself where there is one — see the note above.
+    const f = at.fixture ? this.allFixtures().find((o) => o.id === at.fixture) : null;
+    if (f) {
+      this.tutorMarker = this.markerFor(f, 'tutor');
+      this.actorRoot.add(this.tutorMarker);
+      return;
+    }
     this.tutorMarker = buildTargetMarker('tutor');
     this.tutorMarker.position.set(at.x, 0, at.z);
     this.tutorMarker.userData.lift = (at.y ?? 0) + 0.55;
@@ -15424,7 +15657,10 @@ export class Scene {
     // than asked four times down the function: they are one decision, and four
     // separate reads is four chances for half the camera to be gliding while
     // the other half snaps.
-    const ease = this.cinema ? CINE_EASE : EASE;
+    // ...and the third set is the tour's, which outranks the playing gains and
+    // gives way to a capture: a recording of the tutorial should look like the
+    // recording, not like the tutorial. See `TOUR_EASE`.
+    const ease = this.cinema ? CINE_EASE : (this.tourShot ? TOUR_EASE : EASE);
     // ...said for the frame that actually happened. See `gainFor`: the gains are
     // quoted per 60Hz frame, and the floors — which are a RATE — scale straight
     // with the length of the frame rather than compounding.
@@ -15448,9 +15684,29 @@ export class Scene {
     if (da) {
       this.camAngle = Math.abs(da) < 0.0005
         ? this.camYaw
-        : glide(this.camAngle, this.camYaw, gainFor(ease.yaw, dt), ease.yawMin * span);
+        : glide(this.camAngle, this.camYaw, gainFor(ease.yaw, dt), ease.yawMin * span,
+          (ease.yawMax ?? Infinity) * span);
       this.aimCamera();
     }
+    // ...and the tilt, on the yaw's gains rather than on `tilt`'s: the two are
+    // one move when a card asks for a pose (`aimView`), and a rise that arrives
+    // long after the swing has finished reads as two camera moves rather than
+    // one. `tilt` is the first-person head, which is a different hand entirely.
+    // A no-op while a drag is happening, for the same reason the yaw's is.
+    const dp = this.camPitchAim - this.camPitch;
+    if (dp) {
+      this.camPitch = Math.abs(dp) < 0.0005
+        ? this.camPitchAim
+        : glide(this.camPitch, this.camPitchAim, gainFor(ease.yaw, dt), ease.yawMin * span,
+          (ease.yawMax ?? Infinity) * span);
+      this.aimCamera();
+    }
+    // The shot is over when the angles have landed, which is what makes it a
+    // move rather than a mode: the pan is still gliding on the tour's gains for
+    // the last of it, and the next thing anybody does with the camera is on the
+    // playing ones. Asked after both, or a swing that finished its yaw first
+    // would hand the pitch back to the fast gains half way through.
+
     // Readouts follow the eased angle, not the target one, so they turn *with*
     // the swing instead of snapping to the new corner while the shop is still
     // arriving there.
@@ -15471,16 +15727,34 @@ export class Scene {
     // `EASE`, where the floor that fixes that is now on both cameras rather
     // than only on the recording one.
     this.camAim.copy(this.camTarget).add(this.camPan);
+    // How far the centre still has to travel, kept for the line below: a tour
+    // move is not over while the pan is still running, whatever the angles are
+    // doing — see `tourShot`.
+    let panLeft = 0;
     if (ease.lookMin) {
       GLIDE_V.subVectors(this.camAim, this.camLook);
       const d = GLIDE_V.length();
+      panLeft = d;
       if (d > 1e-4) {
-        const step = Math.min(d, Math.max(d * gainFor(ease.look, dt), ease.lookMin * span));
+        const step = Math.min(d, Math.min((ease.lookMax ?? Infinity) * span,
+          Math.max(d * gainFor(ease.look, dt), ease.lookMin * span)));
         this.camLook.addScaledVector(GLIDE_V, step / d);
       }
     } else {
       this.camLook.lerp(this.camAim, gainFor(ease.look, dt));
+      if (this.tourShot) panLeft = this.camLook.distanceTo(this.camAim);
     }
+    /**
+     * The shot is over when everything it moved has landed.
+     *
+     * Which is what makes it a move rather than a mode: the next thing anybody
+     * does with the camera is on the playing gains. All THREE, because a tour
+     * card can ask for a pan with no turn in it — the beat that puts the crate
+     * in the middle of the screen — and asking only about the angles would end
+     * that one on the frame it started, at which point it is not a tour move at
+     * all, it is the ordinary snap this exists to replace.
+     */
+    if (this.tourShot && !da && !dp && panLeft < 0.03) this.tourShot = false;
     // Which lamps get a real light follows the camera, so it belongs here rather
     // than in the layout build. Cheap: it returns immediately until the view has
     // actually gone somewhere. What it lights is only ever the things that MOVE

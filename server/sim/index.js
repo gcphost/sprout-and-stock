@@ -1792,6 +1792,22 @@ export class Game {
      */
     this.surround = surroundOf(state.surround);
     /**
+     * ...AND WHICH SIZE OF SHOP IT WAS STARTED AS, which nothing in here reads.
+     *
+     * It is `createWorld`'s answer to "which of the three did you press" (see
+     * `startingState` in server/worlds.js), it is only ever drawn on the front
+     * door, and it is carried through this file for one reason: `saveState`
+     * replaces the whole save blob, so a field the constructor does not name is
+     * a field the first `persist()` deletes. That is this file's own named-field
+     * trap, and the quiet version of it — the shop plays perfectly and the menu
+     * simply stops knowing which size it is, a minute after somebody made it.
+     *
+     * Raw and never narrowed: `sizeOf` on the menu's side is the reader, and it
+     * has to be able to tell "this save never said" from "this save says
+     * corner" — a save with nothing to say is derived from the shelving instead.
+     */
+    this.tier = state.tier ?? null;
+    /**
      * HOW HARD THE TOWN IS ON THIS SHOP — the difficulty preset, resolved once.
      *
      * `this.difficulty` is the id and rides in the save (`Object.assign` above
@@ -2324,6 +2340,11 @@ export class Game {
       // that default back over it, and the save would look correct in between.
       // `paint` shipped exactly that way for five steps.
       surround: w.surround,
+      // ...and which size it was started as, on this payload for exactly the
+      // reason the line above is on it. Nothing in the sim reads it — see the
+      // constructor — and that is what makes it the easiest field in the file to
+      // drop on the way through.
+      tier: w.tier,
       // ...and when somebody stopped the clock, which is honoured only if it was
       // recent enough to have been a restart rather than a night off. A save
       // from before this field reads as not paused, which is what every shop in
@@ -2621,6 +2642,10 @@ export class Game {
       open: this.open,
       tradedToday: this.tradedToday,
       surround: this.surround,
+      // Which size it was started as — out as well as in, or the first
+      // `persist()` after a shop is made is the one that forgets. Nothing in
+      // here reads it; the front door does. See the constructor.
+      tier: this.tier,
       pausedAt: this.paused ? this.pausedAt : null,
       lastDirectorDay: this.lastDirectorDay ?? null,
       // The banked town. Written at the day rollover immediately before this
@@ -5315,8 +5340,9 @@ export class Game {
   //
   // **Anything that moves goods into or out of your hands is named.** You point
   // at the thing, you walk there, and it happens when you arrive — see
-  // `errandAction`. Proximity keeps only the two jobs that move no goods: a till
-  // with somebody waiting, and turning a rough bed over. Money is not in this
+  // `errandAction`. Proximity is down to ONE job: a till with somebody waiting.
+  // Turning a rough bed over was the second and went the way the harvest went,
+  // once a rack could stand in the aisle — see `actionFor`. Money is not in this
   // list at all; it is scooped up by walking (`stepCashPickup`).
   //
   // It was the other way round for a long time, and the reasoning was sound
@@ -5443,12 +5469,21 @@ export class Game {
       // lift, press to set down — where before both fired themselves and the
       // player never pressed anything at all.
       //
-      // ...unless the candidate says it does not need one (`auto`). One thing
-      // does: the ripe bed under your own feet. The button is what says "this
-      // one, and yes" for a job proximity could only guess at, and standing on
-      // a plot answers the first half exactly — so all the press is buying
-      // there is six of them per field. It is a per-action opt-in rather than
-      // a mode, because everything else in this list still needs both halves.
+      // ...unless the candidate says it does not need one (`auto`).
+      //
+      // AND EVERY CANDIDATE NOW SAYS SO, which is worth writing down rather
+      // than leaving to be discovered. `errandAction` stamps `auto` on the lot
+      // — a thing you pointed at has already been consented to, and asking for
+      // the button a second time is the same sentence twice — and proximity is
+      // down to `serveCandidate`, which is `auto` because a shopper standing at
+      // your counter is the one job nobody has ever wanted to decline. The bed
+      // this opt-in was written for went to the pointer with the harvest.
+      //
+      // So the line below is unreached today, and it is kept rather than
+      // deleted because it is the shape of the rule and not a leftover: the
+      // moment anything is armed that you did NOT name and DO want to refuse,
+      // it is the half of consent that standing still could never be. What
+      // walking away throws away is unchanged either way.
       if (!p.pressing && !p.action.auto) { this.endPull(p); p.action.elapsed = 0; continue; }
 
       p.action.elapsed += dt;
@@ -5594,10 +5629,11 @@ export class Game {
    * The single thing you would do here, or null.
    *
    * Two sources, and the order between them is the whole scheme: what you
-   * *named* first, then the short list of jobs proximity is still allowed to
-   * offer. That list is short on purpose — a till with somebody at it, and a
-   * bed that wants turning. Neither one touches your hands, which is the test:
-   * nothing is picked up or put down that was not pointed at.
+   * *named* first, then what proximity is still allowed to offer. That list is
+   * down to ONE — a till with somebody stood at it — and the test it passes is
+   * that nothing is picked up or put down that was not pointed at, and that
+   * there is never a question about which one you meant: a shopper is at one
+   * counter or they are not.
    */
   actionFor(p) {
     // In build mode the normal jobs are suspended entirely, and nothing takes
@@ -5629,21 +5665,41 @@ export class Game {
     const serve = this.serveCandidate(p);
     if (serve) return serve;
 
-    const plot = this.nearest(this.layout.plots, p, REACH);
-    // Seed goes into broken soil, never into turf, so turning it over is a job
-    // standing here can do. Turf costs nothing to break and nothing to put
-    // back, and it moves no goods either way, which is what makes it the one
-    // thing besides a waiting till that is safe to fire on its own.
-    if (plot && !plot.crop_id && plot.soil !== 'tilled') {
-      return {
-        kind: 'till', target: plot.id, label: 'Till the soil', time: ACTION_TIMES.till, at: plot,
-        run: () => this.till(p.id, plot.id),
-      };
-    }
-    // Sowing is not here. A seed is a purchase, and a purchase you did not
-    // choose is one you keep making — stand at a bed, pay, walk to the next
-    // bed, pay.
-    //
+    /**
+     * TILLING IS NOT HERE ANY MORE EITHER, AND IT WENT FOR THE SAME REASON THE
+     * HARVEST BELOW DID — one release later, which is the interesting part.
+     *
+     * It survived that cut on an argument about SAFETY: turf costs nothing to
+     * break and nothing to put back, it moves no goods either way, so it was
+     * safe to fire on its own. Every word of that is still true and it answers
+     * the wrong question. The question proximity always fails is *which one did
+     * you mean*, and the answer here was `this.nearest(plots, p, REACH)` — a
+     * circle — where the harvest it sat beside had `standingOn`, a tile, which
+     * is exactly the precision that made a self-firing bed defensible at all.
+     *
+     * What broke it is that the rack STOOD UP. A bed used to be the ground out
+     * in a field, so the only thing within REACH of one was another bed; a rack
+     * is a unit you stand beside, and the generator stands two of them at the
+     * top of the aisle. So the circle round somebody at the shelf they were
+     * sent to stock takes in an untilled rack a tile and a half away — and
+     * because an armed action is what the ring winds on, EVERY press made at
+     * that shelf was spent on the rack: the label said "Till the soil", the
+     * marker lit up on the farm, and a hold long enough turned the soil instead
+     * of pouring the box. Nothing refuses, nothing logs, and what it reads as is
+     * the pointer picking the wrong thing — which is where it was reported, and
+     * where nothing is wrong.
+     *
+     * It is not a lost gesture. `actionAt` has offered `till` on a named rack
+     * since there were racks, so tilling is the press every other goods job in
+     * the game is: you point at it, you walk, you hold. And the circle was
+     * already worse than it looked — `nearest` answers with ONE bed and gives
+     * up, so standing between a turned rack and a rough one offered nothing at
+     * all.
+     *
+     * Sowing was never here, and its reason is the third one in this family: a
+     * seed is a purchase, and a purchase you did not choose is one you keep
+     * making — stand at a bed, pay, walk to the next bed, pay.
+     */
     /**
      * HARVESTING IS NOT HERE ANY MORE, AND IT WAS FOR TWO STEPS.
      *
@@ -5878,7 +5934,32 @@ export class Game {
    * re-arms, so there is no loop for `stowLock` or `tookFrom` to break.
    * The refusal is *said*, by `stepActions`, along with every other one.
    */
+  /**
+   * A NAMED ERRAND NEEDS NO BUTTON HELD.
+   *
+   * `stepActions` winds a ring only while `p.pressing`, and that rule is about
+   * CONSENT: proximity used to arm things you never asked for, so the button was
+   * how you said "this one, and yes". An errand has already been said — you
+   * pointed at the thing and pressed — so requiring the button a second time is
+   * the same sentence asked twice, and it is what made every goods verb a timed
+   * hold. Walking away still throws the charge away, which is the half that was
+   * ever doing the work.
+   *
+   * Only what an errand names. A till with somebody at it is still proximity and
+   * still wants the press.
+   *
+   * NO EXCEPTIONS, and the skip is the one that was argued for and dropped.
+   * Throwing goods away is the only goods verb nothing undoes, so it kept the
+   * hold — and one exception is not a safeguard, it is an asterisk on the rule
+   * every other target teaches. A press on a skip is aimed at the skip while
+   * you are carrying something, which is two deliberate acts already.
+   */
   errandAction(p) {
+    const act = this.errandJob(p);
+    return act ? { ...act, auto: true } : null;
+  }
+
+  errandJob(p) {
     const e = p.errand;
     if (!e) return null;
     const spend = (fn) => { p.errand = null; return fn(); };
@@ -5996,26 +6077,6 @@ export class Game {
     // It offered something when you set off and offers nothing now — the bed
     // was picked, the tray was collected. Not a refusal, just gone.
     if (!act) { p.errand = null; return null; }
-    // A repeating job keeps its errand for as long as it is repeating. Spent on
-    // the first unit the way every other job spends it, the second one would
-    // have nothing left to arm from and a hold would take exactly one — which
-    // is the old single-armful gesture wearing a longer ring.
-    //
-    // "An errand is spent when it fires and nothing re-arms" still holds, and
-    // this is the one shape allowed to fire more than once: it only ever fires
-    // under a button that is still down, and `stepActions` spends it the moment
-    // you walk away from it. Standing there with the button up and pressing
-    // again continues the same pull, which is what pressing again means.
-    if (act.repeat) {
-      return {
-        ...act,
-        run: () => {
-          const res = act.run();
-          if (!res?.ok || !res.more) p.errand = null;
-          return res;
-        },
-      };
-    }
     return { ...act, run: () => spend(act.run) };
   }
 
@@ -8535,6 +8596,83 @@ export class Game {
     // way, now pointed at the square it lands on rather than at whichever tile
     // the last tap happened to end on.
     return ok({ to: goal, steps });
+  }
+
+  /**
+   * Send the crew to stand somewhere, because a card asked them to.
+   *
+   * The tour's opening shot walks you out of your own front door to look at the
+   * shop, and a hire standing behind the till while you do it is the shot with
+   * half its cast missing. This is the only verb in the game that tells a hire
+   * where to be — everything else about them is a job they chose — and it is a
+   * *pose* rather than an order: it plans a route and nothing else, so the
+   * moment `crewIdle` lifts they carry on picking their own work from wherever
+   * they ended up.
+   *
+   * `spawnNear` fans a bigger crew round the cell for the reason `syncStaff`
+   * uses it: two hires walking to one square arrive as one hire with a shadow.
+   *
+   * They face the camera for free, because `followPath` faces everything the
+   * way it is travelling and this walk is southward out of the door — see the
+   * note on the `hello` step in client/tutor.js. Nothing here knows where the
+   * camera is, and nothing should.
+   */
+  crewPose(x, z, facing = null) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return err('nowhere to stand');
+    const spot = { x: Math.round(x), z: Math.round(z) };
+    const crew = Object.values(this.players).filter((p) => p.staff);
+    let sent = 0;
+    for (const [i, s] of crew.entries()) {
+      const at = this.spawnNear(spot, i);
+      /**
+       * ...and which way to be looking once they are there, which the walk
+       * cannot answer on its own.
+       *
+       * `followPath` faces a body along its travel, so where they end up
+       * pointing is the direction of the LAST LEG — and a route out of a door
+       * to a cell one square to the left ends going left. The card wanted them
+       * facing the camera and got a hire showing it their shoulder, which reads
+       * as the pose having missed rather than as the last leg having been
+       * sideways.
+       *
+       * Held until they arrive rather than set now, because setting it now is
+       * overwritten by the first step of the walk. Cleared when it is spent —
+       * see `stepStaff`, which is the only reader.
+       */
+      s.poseFacing = Number.isFinite(facing) ? facing : null;
+      // A hire who cannot get there stays where they are — and still turns, so
+      // a pose in a shop with no way through is a hire looking the right way
+      // rather than a hire ignoring you. It is a camera move, not an
+      // instruction anybody is waiting on, so there is nothing to say.
+      if (!this.pathTo(s, at)) continue;
+      if (!s.path?.length) s.path = null;
+      sent += 1;
+    }
+    return ok({ sent });
+  }
+
+  /**
+   * ...and the crew say something with their arms, because a card asked.
+   *
+   * The other half of the opening shot: you walk out of your own front door
+   * with the hire who came with the shop, and they wave at you. `emote` is the
+   * whole verb — a hire is an ordinary entry in `this.players`, so nothing here
+   * is a second emote path — and it refuses an unknown kind exactly as a press
+   * does, which is what keeps a typo in a card from being a crew who silently
+   * never wave.
+   *
+   * Not `REPLIED`'s answer chain: this IS the greeting, and `waveBack` would
+   * have the shop wave back at its own staff.
+   */
+  crewEmote(kind) {
+    if (!isEmote(kind)) return err(`No such emote: ${kind}`);
+    let sent = 0;
+    for (const s of Object.values(this.players)) {
+      if (!s.staff) continue;
+      s.emote = { kind, at: this.elapsed };
+      sent += 1;
+    }
+    return ok({ sent });
   }
 
   /**

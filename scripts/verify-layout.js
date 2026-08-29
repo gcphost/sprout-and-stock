@@ -256,7 +256,17 @@ for (let s = 0; s < Math.min(SEEDS, 12); s++) {
     ...L0.shelves.slice(0, 3).map((f, i) => ({
       id: `fx-s${i}`, kind: f.kind, x: f.x, z: f.z, rot: f.rot,
     })),
-    ...L0.plots.slice(0, 2).map((f, i) => ({ id: `fx-p${i}`, kind: 'plot', x: f.x, z: f.z, rot: 0 })),
+    // `f.rot` and not a literal 0, which it was for as long as a plot was a bed
+    // you stood ON — no anchor, so no facing, so any number round-tripped. A
+    // grow rack is worked from the aisle in front of it, and the racks stand in
+    // a corner now: asking for one against the back wall turned to face the
+    // wall is not the round trip this loop says it is making, it is a fixture
+    // whose working spot is outside the building. The game allows that (warn,
+    // don't refuse) — which is exactly why it may not be what a sweep about
+    // placements landing intact quietly asks for.
+    ...L0.plots.slice(0, 2).map((f, i) => ({
+      id: `fx-p${i}`, kind: 'plot', x: f.x, z: f.z, rot: f.rot,
+    })),
     ...L0.stations.slice(0, 1).map((f, i) => ({
       id: `fx-a${i}`, kind: 'station', station: f.station, x: f.x, z: f.z, rot: f.rot,
     })),

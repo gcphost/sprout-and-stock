@@ -261,12 +261,33 @@ export function syncStaff(game) {
       continue;
     }
 
-    const spawn = game.layout.spawn;
+    /**
+     * They turn up INSIDE, which they did not for a long time.
+     *
+     * `layout.spawn` is where shoppers walk on from — the edge of the map, out
+     * past the forecourt — so a hire appeared standing on the street outside
+     * their own shop and stayed there until something gave them a job to walk
+     * to. Nobody noticed while the only way to get one was to buy one: you were
+     * watching the crew strip, and by the time you looked up they were already
+     * shelving. A shop comes WITH somebody now (`starterHire`, server/worlds.js)
+     * and the first thing anybody sees is the two of you, so where they are
+     * standing at t=0 is the shot.
+     *
+     * `counterSpot` is the player's own spawn, and `spawnNear` is what already
+     * keeps two people out of one square: the player takes the spot itself and
+     * everybody after them takes the first free cell round it, so a hire lands
+     * beside you behind the counter rather than on top of you. It is offered
+     * rather than trusted — a shop with no till, or one whose only working spot
+     * is walled in, falls back to the old arrival exactly.
+     */
+    const spawn = game.counterSpot() ?? game.layout.spawn;
     // Fan new arrivals out across the spawn tile rather than dropping every one
     // of them on the same point. Two hires standing inside each other read as
     // one worker with a shadow, and until something gives them a job to walk to
-    // that is exactly what you see.
+    // that is exactly what you see. The ring is only eight cells, so the jitter
+    // stays: it is what tells a ninth hire from an eighth.
     const nth = roster.indexOf(entry);
+    const at = game.spawnNear(spawn, nth + 1);
     game.players[id] = {
       id,
       name: entry.name,
@@ -275,8 +296,8 @@ export function syncStaff(game) {
       tier: entry.tier ?? 1,
       /** Which look they have on. Null is "as the kind was drawn", not a gap. */
       skin: entry.skin ?? null,
-      x: spawn.x + ((nth % 5) - 2) * 0.3,
-      z: spawn.z - 1,
+      x: at.x + ((nth % 5) - 2) * 0.12,
+      z: at.z,
       facing: 0,
       color: w.color,
       carry: null,
@@ -349,7 +370,25 @@ export function stepStaff(game, dt) {
    * ever. A fresh `Game` reads false, so every existing shop and every headless
    * run — `simulate`, every `verify:*` sweep — is untouched.
    */
-  if (game.crewIdle) return;
+  if (game.crewIdle) {
+    /**
+     * ...but a hire SENT somewhere still gets there.
+     *
+     * `crewPose` is the tour placing its cast for the opening shot, and it is
+     * the one thing that may move a hire while the job loop is off. Only a
+     * route already planned is walked — nothing here plans one — so this is
+     * "finish the walk you were given", not a second job loop wearing a guard.
+     * A hire with no path stands exactly as still as they did before.
+     */
+    for (const s of Object.values(game.players)) {
+      if (!s.staff) continue;
+      if (s.path?.length) { followPath(s, speedOf(s), dt); continue; }
+      // Arrived: take the facing the pose asked for, once. The walk itself
+      // cannot answer this — see `crewPose`.
+      if (s.poseFacing != null) { s.facing = s.poseFacing; s.poseFacing = null; }
+    }
+    return;
+  }
 
   for (const s of Object.values(game.players)) {
     if (!s.staff) continue;
@@ -2292,10 +2331,35 @@ function unload(game, s) {
       return put.ok;
     }
 
+    // `shelfAccepts` to PROBE, `stockFromCrate` to commit — which is
+    // `verify:belts`' rule for the loader said about the hire, and it stopped
+    // being optional the day this branch became the ordinary way a box crosses
+    // the shop.
+    //
+    // It read `boardFor(...).ok` here, which is the real yes/no and is also not
+    // a predicate: it calls `openStack`, which pushes a real priced board as a
+    // side effect of being asked. Run inside a `.filter` that is asking about
+    // every candidate, that opens a board on every unit the hire CONSIDERED and
+    // then stocks the first one — so an item with no home yet, whose
+    // `shelvesFor` is the whole shop rather than one unit, comes out with four
+    // boards standing and stock on one. Three of them hold nothing, count
+    // against `shelfHasRoomFor` for every other kind, and read on the shelf menu
+    // as boards in use. Nothing logs it, and what it looks like is a shop that
+    // has quietly run out of shelf space.
+    //
+    // It was survivable while hauling was the exception, because a crate big
+    // enough to shoulder was usually a crate of something that already had a
+    // home — one candidate, one board, the right one. Step 2 of
+    // docs/handling.md makes every bay crate come through here.
+    //
+    // `shelfAccepts` asks the same three questions `boardFor` does — the kind
+    // rule, the reservation, and room for another BOARD — and answers without
+    // writing anything. The commit is still `boardFor`, one unit later, inside
+    // `stockFromCrate`.
     const piles = lotStacks(s.haul).sort((a, b) => b.qty - a.qty);
     const shelf = piles.flatMap((pile) => shelvesFor(game, pile.item_id, c, spoken)
       .filter((sh) => !taken.has(key('shelf', sh.id))
-        && game.boardFor(sh, c.byId.items[pile.item_id]).ok))[0];
+        && game.shelfAccepts(sh, pile.item_id)))[0];
 
     // Nothing will have the rest, so it goes home to the pad.
     //
@@ -2408,53 +2472,6 @@ function unload(game, s) {
 
   const busy = claimed(game, s);
 
-  /**
-   * How much MORE this box would hold once they had packed it from the ones
-   * standing beside it — and 0 for every hire whose rung does not pack, which
-   * is what keeps this branch invisible until somebody authors one.
-   *
-   * It has to be asked here, at the decision, rather than only when the packing
-   * happens. `wholeCrate` refuses a box that is not worth more than one armful,
-   * and the bay this feature is for is exactly the bay where no single box ever
-   * is: three part-crates of four are three armfuls, for ever, because each one
-   * is judged on its own contents. Judged on what it could BECOME, one of them
-   * is a full crate and the other two are its contents.
-   *
-   * Bounded the same three ways `fit` is bounded and one more: the crate's
-   * units, the shelves' room less what is already in this box heading there,
-   * and `packTo` kinds — the rung's number, counted over the whole box, so a
-   * lifted crate that already holds three kinds packs top-ups only.
-   */
-  const packTo = packsOf(s);
-  const packFill = (d) => {
-    const crate = game.crateLot();
-    const room = crate.cap - lotTotal(d);
-    if (room <= 0) return 0;
-    let slots = packTo - lotStacks(d).length;
-    let added = 0;
-    const mine = new Map(lotStacks(d).map((k) => [k.item_id, k.qty]));
-    for (const other of game.stockCrates()) {
-      if (other.id === d.id) continue;
-      if (busy.has(key('crate', other.id))) continue;
-      // Only out of the yard, which is `wholeCrate`'s own termination argument
-      // said about the second box: a packer drawing from a stray in the aisle
-      // would take goods somebody already carried out there and carry them
-      // back, and two hires could pass one pile between two boxes for ever.
-      if (!onAPad(game, other)) continue;
-      for (const pile of lotStacks(other).sort((a, b) => b.qty - a.qty)) {
-        if (added >= room) break;
-        const have = mine.get(pile.item_id) ?? 0;
-        if (!have && slots <= 0) continue;
-        const take = Math.min(pile.qty, roomFor(pile.item_id).room - have, room - added);
-        if (take <= 0) continue;
-        if (!have) slots -= 1;
-        mine.set(pile.item_id, have + take);
-        added += take;
-      }
-    }
-    return added;
-  };
-
   // The BIGGEST trip, not the first one that qualifies. `find` took whichever
   // crate was oldest on the pad, and a bay is stacked in the order things
   // arrived — so a shop with eggs at the bottom of the pile serviced eggs, over
@@ -2562,96 +2579,54 @@ function unload(game, s) {
   best = bestMoves;
   claim(s, 'crate', pallet.id);
 
-  // Take the whole box instead of an armful out of it, when that is strictly
-  // fewer journeys. Three conditions, and each one is load-bearing:
-  //
-  //   empty-handed  — you cannot shoulder a crate while holding stock, which is
-  //                   `liftCrate`'s own rule and is why this sits after the
-  //                   top-up branch rather than in front of it.
-  //   on a pad      — a crate in an aisle is one somebody already hauled there,
-  //                   and without this a worker would carry it back and forth
-  //                   between two shelves for ever. Haulage runs one way, out
-  //                   of the yard, and that is what makes it terminate.
-  //   room for ALL  — the shop can absorb the entire crate. Hauling half a
-  //                   crate to a shelf strands the remainder in the aisle, and
-  //                   a part crate off a pad is exactly what `fillHands` and the
-  //                   armful path are already good at.
-  //
-  // `pallet.qty > hands` is the whole point: at or under an armful the trip is
-  // identical and the box is pure ceremony.
-  //
-  // Both of the size tests below count what a packer would ADD to the box, and
-  // `fill` is 0 for everybody else — so a shop with no packing rung authored
-  // takes exactly the branch it took before, arithmetic included.
-  const fill = packTo > 0 ? packFill(pallet) : 0;
-
   /**
-   * What the box has to beat, and for a packer it is not the size of their
-   * hands.
+   * ONE TRIP IS ONE BOX. Take the crate — do not stand at it filling your arms.
    *
-   * `hands` is the right bar while an armful and a crate are the same trip made
-   * two ways — that is what "at or under an armful the box is pure ceremony"
-   * means. It stops being the right bar the moment a rung's `carry_mult` can
-   * take hands up to a whole crate, which the shipped stocker's second rung
-   * already does: twelve-unit hands against a twelve-unit crate is `12 > 12`,
-   * false, for ever. So the one hire in the game you would promote *to* pack
-   * crates is the one hire who can never shoulder one — a rung that takes money
-   * and moves no number, which is the trap this repo has a name for.
+   * Three conditions are left, and each one is load-bearing:
    *
-   * And it is not merely neutral. Big hands do not help with a bay of
-   * part-crates at all: `Game.unload` sweeps ONE box, and `fillHands` tops up
-   * only kinds already held — so a twelve-unit stocker facing three boxes of
-   * four leaves with four, exactly as a six-unit one does.
+   *   empty-handed  — you cannot shoulder a crate while holding stock, which is
+   *                   `liftCrate`'s own rule and is why this sits after the
+   *                   top-up branch rather than in front of it.
+   *   on a pad      — a crate in an aisle is one somebody already hauled there,
+   *                   and without this a worker would carry it back and forth
+   *                   between two shelves for ever. Haulage runs one way, out
+   *                   of the yard, and that is what makes it terminate.
+   *   on TOP        — see the note on it below. Falling through to the armful
+   *                   path is what keeps a bay stacked three deep moving at all.
    *
-   * `best` is what the armful trip would actually move off this pallet
-   * (`fit`, assigned two lines up), so comparing against it asks the honest
-   * question: is the packed box worth more than the armful this bay can
-   * assemble? For everybody else the two are the same number and this is the
-   * test that was already here.
+   * What is gone is the SIZE test, and it is worth saying what it was, because
+   * it was not wrong so much as answering a question that has stopped being
+   * asked. `lotTotal(pallet) > hands` is the claim that at or under an armful
+   * the box is pure ceremony — one journey either way, and you arrive holding a
+   * crate instead of holding the goods. That is true of a single box in
+   * isolation and false of a BAY, which is the only place crates come in: three
+   * part-crates of four against six-unit hands are three fours, for ever,
+   * because each one is judged on its own contents and `fillHands` will only
+   * ever top up a kind already in the arms. The shop reads as busy and moves
+   * almost nothing, which is the complaint the genre's players make about
+   * restockers and is docs/handling.md's whole subject.
+   *
+   * The test also could not be repaired in place, and two shipped patches are
+   * the evidence. `bar` swapped `hands` for what the armful would actually move,
+   * because a rung's `carry_mult` can raise hands to a whole crate and turn the
+   * comparison off for ever (`12 > 12`) — a rung that takes money and moves no
+   * number. `beltTakes` short-circuited both tests, because a box put on a run
+   * makes no journey at all past the first cell, so a comparison between two
+   * walks is asking the wrong question. Each patch closed a real hole; both were
+   * the same hole, which is that a comparison between two journeys cannot see
+   * the bay the box is standing in. Deleting it closes the class rather than the
+   * instances — there is no comparison left for the next `_mult` to invert.
+   *
+   * What replaces "room for more than an armful" is the candidate loop above:
+   * `fit` already skips any crate with no room for even one unit, so a box that
+   * reaches here has somewhere to go. The remainder is not a problem worth
+   * guarding against — `stockFromCrate` pours every board that will have it and
+   * keeps the rest on the shoulder, and the haul branch walks what nothing wants
+   * back to the pad. That was already the answer for a part-crate hauled under
+   * the old rule; it is now the answer for all of them.
    */
-  const bar = packTo > 0 ? best : hands;
-
-  /**
-   * ...unless a conveyor will take it, in which case the size tests are asking
-   * the wrong question entirely.
-   *
-   * Every one of them is a comparison between two JOURNEYS — is the box worth
-   * more than the armful this bay can assemble — and a box put on a belt makes
-   * no journey at all past the first cell. A four-unit crate against six-unit
-   * hands is "pure ceremony" when both ends of it are a walk across the shop;
-   * with a run in between it is the difference between one short trip to the
-   * belt and three long ones to the shelf.
-   *
-   * Without this the branch below is unreachable for exactly the shop that laid
-   * a belt to fix it — a bay of part-crates, which is the case `packs` exists
-   * for — so the crew would go on making armful trips down an aisle with a
-   * conveyor running along it.
-   *
-   * `onAPad` and `crateOnTop` still apply, and the first is what keeps it
-   * terminating: haulage runs one way, out of the yard.
-   */
-  const beltTakes = !s.carry && !!game.beltFor(pallet, { from: s });
+  const packTo = packsOf(s);
   const wholeCrate = !s.carry
-    && (beltTakes || lotTotal(pallet) + fill > bar)
-    // The shop must want MORE than one armful of it. Under that, carrying the
-    // box is strictly worse than carrying the goods: same journey, and you
-    // arrive with your hands full of crate and a remainder to walk home. The
-    // crate is only worth lifting when it saves a second trip.
-    //
-    // It replaced "room for the whole crate", which was too strict in the one
-    // direction that matters — a shelf with room for eight of a twelve refused
-    // the haul, so the hire made two armful trips for what one carry does — and
-    // the remainder is no longer a problem worth guarding against, because
-    // `stockFromCrate` keeps it on the shoulder and the same hire walks it to
-    // the next board or home.
-    //
-    // Summed across the piles, because a mixed box is worth shouldering when
-    // the shop wants more than an armful of it ALTOGETHER. Asked of one kind, a
-    // box of four things the shop wants three of each of would never be lifted
-    // — twelve units of wanted stock making twelve one-armful trips, which is
-    // the shape mixing was meant to end.
-    && (beltTakes
-      || lotStacks(pallet).reduce((n, k) => n + Math.min(k.qty, roomFor(k.item_id).room), 0) + fill > bar)
     && onAPad(game, pallet)
     // ...and it has to be the one on TOP. `liftCrate` refuses a buried crate,
     // and a refusal here is not a no-op: the hire keeps choosing the same crate
@@ -2781,8 +2756,10 @@ function fillCrate(game, s, from, packTo) {
   for (const d of game.floorCrates()) {
     if (d.id === from.id) continue;
     if (busy.has(key('crate', d.id))) continue;
-    // Out of the yard only — see `packFill`. Without it, packing is a way for
-    // goods to travel back to the bay they already left.
+    // Out of the yard only — `wholeCrate`'s termination argument said about the
+    // SECOND box. Without it, packing is a way for goods to travel back to the
+    // bay they already left, and two hires could pass one pile between two boxes
+    // for the rest of the save.
     if (!onAPad(game, d)) continue;
     if (lotTotal(s.haul) >= cap) return;
     // Biggest pile first, which is `lotSweep`'s ordering and matters here for a

@@ -2,8 +2,16 @@
  * THE TUTORIAL — a robot who shows you round, and holds the rest of the game
  * still while it does.
  *
- * The shop is deep and every one of its verbs is a *gesture* — a tap is one
- * unit, a hold is the lot, a right press pours, a drag builds a run — and none
+ * ADDING A CARD? READ `docs/tutorial.md` §0 FIRST and nothing else. It is one
+ * screen: every field a step and a lesson page may carry, what a predicate is
+ * allowed to read, which helpers already exist, where in the rest of the
+ * codebase every keybinding and mark colour lives, the console calls that run a
+ * card without playing to it, and the traps. This header and the notes below it
+ * are the *why*, which is what you want when you are changing the shape rather
+ * than adding to it.
+ *
+ * The shop is deep and every one of its verbs is a *gesture* — a left press
+ * takes, a right press puts, a drag builds a run — and none
  * of that is discoverable by pressing things. A new shop opens shut, empty and
  * silent, with a rail of eight icons and no reason to press any of them. So this
  * is the one screen in the game that tells you what to do next, and it earns
@@ -63,9 +71,11 @@
  */
 
 import { money } from './money.js';
-import { pillDrives } from './input.js';
+import { pillDrives, mouseGlyph } from './input.js';
+import { REPLIED } from '../shared/emotes.js';
 import { REACH, isWalkableTile, insideStore, tileAt } from '../shared/build.js';
-import { artForPiece, artForGround } from './thumb.js';
+import { jobBudget, jobsTotal } from '../shared/jobs.js';
+import { artForPiece, artForGround, artForCrate } from './thumb.js';
 import { pieceOffered, toolRevealed } from '../shared/reveal.js';
 import { T } from '../shared/tiles.js';
 
@@ -88,6 +98,50 @@ import { T } from '../shared/tiles.js';
  * names for it would be two things as far as anybody reading is concerned.
  */
 const perInput = (mouse, finger) => (pillDrives() ? finger : mouse);
+
+/**
+ * A KEY, drawn as a key.
+ *
+ * "The , and . keys swing it a quarter turn" is a sentence with two full stops
+ * in it, one of which is a button — and the comma is worse, because a comma in
+ * a list of things reads as punctuation whatever it is meant to be. Somebody
+ * seven years old cannot parse that line at all, and WASD run together is one
+ * word rather than four keys.
+ *
+ * `[[X]]` in any card's words becomes a key cap: the same one the tooltip wears
+ * over a rail button (`#tip .key`), so a key looks like a key everywhere in the
+ * HUD. The text is escaped FIRST and the caps put in after, which is the whole
+ * of what makes this safe — a card's copy is a string in this file and never
+ * markup, and the day one carries an ampersand it must not be able to become a
+ * tag.
+ */
+const esc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/**
+ * ...and a BLANK LINE is a paragraph, which is the other thing a card's copy
+ * cannot say in a string.
+ *
+ * A hint is one `<p>`, which was right while every hint was one thought. The
+ * view card is where that stopped being true — it carries the drag, the two
+ * quarter-turn keys, the wheel and WASD, and they are not one thought, they are
+ * a list of four things that happen to share a card. Set as one block it reads
+ * as a paragraph you give up on halfway through, which on the second card of
+ * the game is the tutorial teaching somebody to stop reading it.
+ *
+ * `\n\n` in the copy rather than a second field, because the split is a fact
+ * about the sentence and belongs where the sentence is written. It goes in
+ * AFTER the escape, exactly as the key caps do and for the same reason.
+ *
+ * A SPACER and not `</p><p>`, which is the obvious spelling and is broken: this
+ * is written as the `innerHTML` of a `<p>`, and a paragraph inside a paragraph
+ * is not a thing the parser will build — what you get depends on the browser
+ * and none of the answers is two paragraphs. A block span costs nothing, cannot
+ * nest wrongly, and leaves the type styling on the one element it was written
+ * for.
+ */
+const keyed = (s) => esc(s)
+  .replace(/\[\[(.+?)\]\]/g, '<kbd class="tt-key">$1</kbd>')
+  .replace(/\n{2,}/g, '<span class="tt-gap"></span>');
 
 /** Off for everybody, everywhere. The Menu's switch. */
 const OFF_KEY = 'sns-tutor-off';
@@ -260,10 +314,50 @@ const shelvesOf = (t, kind = null) => {
     .filter((s) => !kind || s.kind === kind)
     .map((s) => {
       const at = where.get(s.id);
-      return at ? { ...s, x: at.x, z: at.z } : null;
+      // ...and WHICH unit it is, for the same reason the position is here: the
+      // snapshot says a unit's kind and never which piece it was built from, so
+      // a card that drew "a shelf" drew the catalog's plain shelf while the mark
+      // in the shop sat on a Pallet Rack, a Produce Table or a Gondola. Two
+      // pictures of one thing that disagree is the trap this file's own art note
+      // is about — and here the disagreement is with the thing you are stood in
+      // front of.
+      return at ? { ...s, x: at.x, z: at.z, piece: at.piece, variant: at.variant } : null;
     })
     .filter(Boolean);
 };
+
+/**
+ * A picture of a unit the tour is pointing at — of THAT unit.
+ *
+ * `artOf` answers for a kind ("the cheapest freezer"), which is right on the
+ * build card, where the thing does not exist yet and the card is sending you to
+ * find it on the bar. It is wrong for every card that rings something already
+ * standing in the shop: the unit has a piece, the piece has its own art, and a
+ * card drawing the generic one is telling you to press a thing it is not showing
+ * you. A placement with no `piece` names its own kind (`kindOf`), which is what
+ * the fallback is.
+ */
+function artOfUnit(t, unit) {
+  if (!unit) return null;
+  const rows = t.ui.catalog?.fixtures ?? [];
+  const row = rows.find((f) => f.id === (unit.piece ?? unit.kind));
+  return row ? artForPiece(row, unit.kind, unit.variant ?? '') : artOf(t, unit.kind);
+}
+
+/**
+ * A unit as a target, marked round the UNIT rather than on its tile.
+ *
+ * A fixture's art is drawn most of a tile up-screen of the cell it stands on —
+ * the same fact `pickFixture` exists for — so a frame laid on that cell sits
+ * across the foot of the thing it means and rings whatever is standing one
+ * square nearer the camera. In an aisle that is not a near miss, it is the
+ * neighbour every time, with a card beside it insisting the neighbour is a
+ * shelf. `fixture` hands the renderer the id and it cuts the outline from the
+ * meshes themselves (`Scene.setTutorTarget` → `markerFor`), which cannot be
+ * round the wrong object. A crate and a bare square keep the ground frame:
+ * neither has art that stands up off its own cell.
+ */
+const atUnit = (unit, y) => ({ world: unit, y, fixture: unit?.id ?? null });
 
 /** The nearest crate of stock on the floor — the one the marker should point at. */
 function nearestCrate(t) {
@@ -363,12 +457,31 @@ function spotToWalk(t) {
   const from = { x: Math.round(me.x), z: Math.round(me.z) };
   const dist2 = (c) => Math.hypot(c.x - from.x, c.z - from.z);
 
+  /**
+   * A CELL WITH A BOX ON IT IS NOT A BIT OF FLOOR.
+   *
+   * The card says "click the marked tile, you walk to it", and a tap that
+   * lands on a crate is not a walk — `pickPallet` names the box, and a press on
+   * a box you are not stood at walks you over and shoulders it. So the marked
+   * tile would teach the wrong sentence AND spend the next card, which is the
+   * whole-box lift: you would arrive already carrying it and watch a beat about
+   * picking up a crate flash past having been completed by the beat before it.
+   *
+   * It matters most where it is most likely, which is the bay — the pad is both
+   * the best walk in the shop and the one place a box is ever standing. The
+   * general sweep gets the same test because a stripped shelf, a harvest or an
+   * armful put down leaves boxes on ordinary floor.
+   */
+  const boxes = (t.state?.deliveries ?? []);
+  const clear = (c) => !boxes.some((b) => Math.abs(b.x - c.x) < 0.7 && Math.abs(b.z - c.z) < 0.7);
+
   // The bay first — the cell of it nearest to you, so the walk is the short way
   // in rather than a march to the far corner of a pad you painted wide.
   const bay = [];
   for (let z = 0; z < (L.h ?? 0); z += 1) {
     for (let x = 0; x < (L.w ?? 0); x += 1) {
       if (tileAt(L, x, z) !== T.BAY || !isWalkableTile(L, x, z)) continue;
+      if (!clear({ x, z })) continue;
       bay.push({ x, z });
     }
   }
@@ -385,6 +498,7 @@ function spotToWalk(t) {
   for (let z = 0; z < (L.h ?? 0); z += 1) {
     for (let x = 0; x < (L.w ?? 0); x += 1) {
       if (!isWalkableTile(L, x, z) || !insideStore(L, x, z)) continue;
+      if (!clear({ x, z })) continue;
       const d = Math.hypot(x - from.x, z - from.z);
       // Far enough to be a journey, near enough to stay on screen.
       if (d < 2.5 || d > 9) continue;
@@ -397,6 +511,47 @@ function spotToWalk(t) {
 /** How many boards in the whole shop are kept for something. */
 const keptCount = (t) => shelvesOf(t)
   .reduce((n, sh) => n + (sh.assigned ?? []).length, 0);
+
+/**
+ * How much of the first hire's day is still unspent.
+ *
+ * Asked of the roster and the catalogue rather than of the panel drawing them,
+ * for the reason `jobSig` gives: the shift panel holds a local copy it repaints
+ * from, so a card reading the DOM would change its sentence the moment a number
+ * on screen moved and before the shop had been told anything.
+ *
+ * `jobBudget` is the same function the panel and the server use, or this is a
+ * second opinion about a cap and the card would offer a press the shop refuses.
+ */
+function sparePoints(t) {
+  const who = (t.state?.roster ?? [])[0];
+  if (!who) return 0;
+  const kind = (t.ui.catalog?.workers ?? []).find((w) => w.id === who.kind);
+  if (!kind) return 0;
+  return jobBudget(kind, who.tier) - jobsTotal(who.jobs);
+}
+
+/**
+ * The shortlist's tab on a fixture menu, and whether it is the one open.
+ *
+ * By `aria-label` and not by `data-fxtab`, which is an INDEX into whatever
+ * groups this fixture happens to have — the shortlist is first on a shelf today
+ * and is not on a bed, and a card that named a number would light the seed
+ * picker the day somebody adds a group above it. The label is the heading
+ * `fixture-menu.js` passes to `group`, so the two can only disagree by somebody
+ * renaming the heading, which is a rename the sentence on the card needs anyway.
+ *
+ * Read out of the DOM rather than off `ui._fxTab` for the same reason `pulseAt`
+ * measures rather than computes: what is being asked is "is the thing this card
+ * is pointing at on screen", and the panel is the only thing that knows.
+ */
+const QUICK_TAB = '#panel .tabs .tab[aria-label="Quick pick"]';
+const quickTabShut = () => {
+  const tab = document.querySelector(QUICK_TAB);
+  // No tab strip at all means one group, which IS the shortlist — a menu with
+  // nothing to choose between is not a menu you can be on the wrong page of.
+  return !!tab && !tab.classList.contains('on');
+};
 
 /**
  * The cheapest piece of a kind in the catalogue, so a step lights one you can
@@ -421,6 +576,266 @@ function cheapestOf(t, kind) {
 
 /** The cheapest chiller in the catalogue, so the step lights one you can afford. */
 const cheapestFreezer = (t) => cheapestOf(t, 'freezer');
+
+/**
+ * TURNING THE VIEW, drawn rather than described.
+ *
+ * It rides on the WALK card — both tours' — rather than having one of its own,
+ * and that is the decision worth keeping. Getting about is one thing: where you
+ * are and what you can see are the same question asked of your feet and of the
+ * camera, and the drag that turns the shop is the very press somebody makes by
+ * accident on their way to their first walk. A card of its own was built and
+ * thrown away for that reason.
+ *
+ * It is the only picture in either tour, and the reason is the one thing about
+ * the walk card that is not standing in the shop: the ringed tile is the walk,
+ * and a *gesture* has nowhere to be ringed. Every other card points at a thing
+ * and wants no picture — a diagram of a shelf you are looking at is a second
+ * shelf to find — where this teaches a press, and a sentence about holding a
+ * button and dragging is one you have to act out before it means anything. The
+ * drawing acts it out.
+ *
+ * The mouse is `mouseGlyph`, which is the pill's own glyph and not a second
+ * drawing of one. That is the whole idea: the pill has been putting that exact
+ * mouse with that exact button filled in front of you since the first time you
+ * stood at a crate, so the card teaches the gesture in the vocabulary the game
+ * has already been speaking. A hand-drawn mouse here would be a picture of a
+ * mouse; this is a picture of the thing the HUD means.
+ *
+ * It RIDES the arc — `animateMotion` along the same path the arrow is drawn
+ * from, out and back — which is the half a still picture cannot say. A mouse
+ * beside a curve says "there is a curve"; a mouse sliding along one says drag.
+ * Declarative SVG rather than a frame loop, for the reason `FACE`'s blink is a
+ * CSS animation: the card is rebuilt and thrown away on every step, and an
+ * animation with nothing to clean up cannot leak one.
+ *
+ * The building in the middle is drawn here rather than taken from the catalog,
+ * which is this file's own rule about art (`artOf`) broken on purpose and worth
+ * saying why: there is no `fixtures` row for "your shop", the thing being
+ * turned is the whole world rather than a piece in it, and at this size it is
+ * three rectangles. The colours are still the hires' — `#d7dfe8`, `#c3ccdb`,
+ * `#83909f` — so it belongs to the same set of boxes everything else does.
+ *
+ * The touch half is the same picture with the same arc, said in the other
+ * grammar: two fingertips on it, rocking about the middle. `,`/`.` and the
+ * wheel are in the small print rather than in the picture — four things in a
+ * 168x100 well is a diagram nobody reads, and the keys are the one part a
+ * sentence says perfectly well.
+ */
+const VIEW_SHOP = '<g class="tt-ink">'
+  + '<rect x="64" y="46" width="42" height="32" fill="#d7dfe8"/>'
+  + '<rect x="64" y="46" width="42" height="9" fill="#c3ccdb"/>'
+  + '<rect x="79" y="62" width="12" height="16" fill="#83909f"/>'
+  + '</g>';
+
+/**
+ * ...and the same building on its own, for the card that opens the tour.
+ *
+ * The welcome card is the one beat with no target: nothing is ringed, nothing is
+ * pressed, and what it is about is the whole place rather than anything in it —
+ * so the picture is the shop, which is exactly what `VIEW_SHOP` already draws.
+ * Reused rather than redrawn: a second little building would be two pictures of
+ * one thing, which is this file's own rule, and the sentence beside it is
+ * "welcome to your shop".
+ *
+ * The view box is cropped to the building alone, since the arc it usually sits
+ * inside is a gesture this card does not teach.
+ */
+// `tt-shopfront` takes the line DOWN with the zoom, and it is a class rather
+// than an inline style because `.tt-ink`'s own rule would beat anything
+// inherited from the svg. Two units is right in a 168-wide diagram of a gesture
+// and is a quarter of an inch of black once the same building fills the well on
+// its own — a shop drawn as an outline rather than as a thing.
+const helloArt = () => '<svg class="tt-diagram tt-shopfront" viewBox="58 40 54 44"'
+  + ' aria-hidden="true">' + VIEW_SHOP + '</svg>';
+
+// The orbit, and the two heads that say it goes both ways. A half-ellipse, so
+// the tangent at each end is straight down and a plain downward triangle is the
+// arrowhead — no rotation to keep in step with the path.
+const VIEW_ARC = '<path class="tt-go" id="tt-orbit" d="M30 62 A 55 26 0 0 1 140 62"/>'
+  + '<path class="tt-head" d="M30 69 L25.5 58 H34.5 Z"/>'
+  + '<path class="tt-head" d="M140 69 L135.5 58 H144.5 Z"/>';
+
+const VIEW_SWEEP = 'dur="3.4s" repeatCount="indefinite" keyPoints="0;1;0"'
+  + ' keyTimes="0;0.5;1" calcMode="spline" keySplines=".4 0 .2 1;.4 0 .2 1"';
+
+/**
+ * Has this person asked not to be moved?
+ *
+ * Asked here rather than in a media query, because the sweep is SMIL: a CSS
+ * rule cannot switch off an `animateMotion`, and `display: none` on one is not
+ * specified to stop it — so the art is built without it instead. Read at draw
+ * time rather than once at module load, or somebody who turns the setting on
+ * mid-session goes on being swept until they reload.
+ *
+ * The still frame is not an empty one: the mouse parks at the top of the arc,
+ * the fingers sit level on it, and the arrowheads at both ends are what say
+ * which way it goes — which they were doing for the moving version too.
+ */
+const stillArt = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// The apex of `VIEW_ARC` — centre 85, ry 26 off 62 — which is where the rider
+// parks when it is not allowed to travel.
+const VIEW_APEX = 'transform="translate(85 36)"';
+
+const dragArt = () => {
+  const still = stillArt();
+  return '<svg class="tt-diagram" viewBox="0 0 168 100" aria-hidden="true">'
+    + VIEW_SHOP + VIEW_ARC
+    // Offset up the page rather than centred on the path, or the arc is drawn
+    // through the middle of the mouse and neither shape reads.
+    + `<g${still ? ` ${VIEW_APEX}` : ''}>`
+    + mouseGlyph(true, 'x="-10.5" y="-32" width="21" height="30"')
+    + (still ? '' : `<animateMotion ${VIEW_SWEEP}><mpath href="#tt-orbit"/></animateMotion>`)
+    + '</g></svg>';
+};
+
+const twistArt = () => '<svg class="tt-diagram" viewBox="0 0 168 100" aria-hidden="true">'
+  + VIEW_SHOP + VIEW_ARC
+  // Both fingers in one group turned about the middle of the arc, which is what
+  // a twist is: they keep their distance from each other and from the shop.
+  + '<g><circle cx="50" cy="30" r="9" fill="#3b424e"/>'
+  + '<circle cx="120" cy="30" r="9" fill="#3b424e"/>'
+  + (stillArt() ? '' : '<animateTransform attributeName="transform" type="rotate"'
+    + ' values="-16 85 62; 16 85 62; -16 85 62" dur="3.4s" repeatCount="indefinite"'
+    + ' calcMode="spline" keyTimes="0;0.5;1" keySplines=".4 0 .2 1;.4 0 .2 1"/>')
+  + '</g></svg>';
+
+/** Which of the two the walk card shows, asked at draw time like every `say`. */
+const viewArt = () => (pillDrives() ? twistArt() : dragArt());
+
+/**
+ * WHERE THE CAMERA STANDS, for the two cards that are worth shooting.
+ *
+ * The tour has always been able to move the view — `look` puts the centre on
+ * whatever a card is pointing at — and it has never been able to point it. The
+ * two are different jobs: a centre says which bit of the shop, and the angles
+ * say what it looks like, and the opening card is entirely about the second.
+ * A new shop opens on the ordinary playing pose, which is a corner of a building
+ * seen from above; the card under it says hello. What that reads as is a menu
+ * over a screenshot.
+ *
+ * So `shot` is a step's own pose, eased into from wherever the view happens to
+ * be (`Scene.aimView`) — never cut, because a cut is a different shop and a
+ * swing is the same one looked at from somewhere else. Two cards use it and the
+ * pair is the whole design:
+ *
+ * - **hello** stands the camera dead south of the building at almost eye level,
+ *   so what you are looking at is a shopfront with your shopkeeper in the door
+ *   of it, facing you. It is the establishing shot, and it is the one frame in
+ *   the game that is a picture of a shop rather than a plan of one.
+ * - **walk** hands the view back: the playing pitch, on the corner the card's
+ *   own ringed tile is on. Which corner is worked out rather than written down,
+ *   because the tile is `spotToWalk`'s answer and that is the bay, the drop-off
+ *   or a bit of floor depending on the shop — so a hard-coded corner would put
+ *   the building between the camera and the thing the card is asking you to
+ *   walk to, in exactly the shops where the walk is longest.
+ *
+ * Nothing else in either tour has one, and that is deliberate rather than
+ * unfinished: every card after these is asking you to press something, and a
+ * camera that moved on its own while you were reaching for a shelf is the fight
+ * `nudge` is forbidden from picking with the build bar. Once the view is handed
+ * back it stays handed back.
+ */
+/**
+ * The pause between your feet stopping and the hire's arm going up.
+ *
+ * Long enough to read as an answer rather than as the same event — two bodies
+ * arriving and a wave on the same frame is one thing happening, and what it is
+ * meant to be is somebody noticing you.
+ */
+const HELLO_WAVE_MS = 450;
+
+/**
+ * How often the tour says again that the crew are to stand still.
+ *
+ * See `holdCrew`. Short enough that a hire never gets a job loop's worth of
+ * work done after a restart, long enough to be nothing on the wire.
+ */
+const CREW_HOLD_MS = 3000;
+
+/** ...and how long it waits for a hire who is never going to make it. */
+const HELLO_GIVE_UP_MS = 4000;
+
+/**
+ * The beat between the thing turning up and the mark landing on it.
+ *
+ * A step ARMS what it points at — `arm` opens the crew strip, the supplier, a
+ * fixture menu — so the panel and the ring arrived on the same frame, and two
+ * things appearing together read as ONE thing appearing. The eye has nowhere to
+ * look first, which is exactly what the mark is for: saying which of the twenty
+ * rows that just turned up is the one. It is the same argument `HELLO_WAVE_MS`
+ * makes about a wave — long enough to read as an answer to the panel rather
+ * than as part of it.
+ *
+ * Measured from when the target was first FOUND rather than from when the card
+ * opened, because most of the tour points at something that was already on
+ * screen, and a card whose target never moved would otherwise spend the same
+ * beat pointing at nothing. See `markReady`.
+ */
+const MARK_WAIT_MS = 420;
+
+const FRONT_PITCH = 11 * (Math.PI / 180);
+
+// A quarter turn back off the home corner, which is the one yaw that puts the
+// camera square to a wall rather than on a diagonal — see `aimCamera`: the base
+// offset is (+x, +z), so -45° swings it onto +z alone, which is the front.
+const FRONT_YAW = -Math.PI / 4;
+
+const frontShot = (t) => {
+  const L = t.scene?.storeLayout;
+  const door = L?.door;
+  if (!door) return null;
+  // The forecourt rather than the doorway, and the two tiles are load-bearing:
+  // the cutaway fades whatever stands between the camera and the middle of the
+  // VIEW (`wallHides`), so a centre one tile inside the building would take the
+  // shopfront away — on the one card whose whole subject is the shopfront. Out
+  // here the wall is behind the centre rather than in front of it, and the shop
+  // sits in the top of the frame with its own forecourt under it.
+  //
+  // `hold` because this is the one shot with actors walking into it — see the
+  // note in `look`.
+  return { yaw: FRONT_YAW, pitch: FRONT_PITCH, x: door.x + 0.5, z: door.z + 2, hold: true };
+};
+
+const walkShot = (t) => {
+  const spot = t.step?.spot ?? null;
+  const s = t.scene?.storeLayout?.store;
+  if (!spot || !s) return null;
+  const cx = s.x + s.w / 2;
+  const cz = s.z + s.h / 2;
+  // Which corner stands the camera on the same side of the shop as the tile?
+  // The base offset is (1, 1) turned by the yaw, so this is that vector against
+  // the one pointing at the tile — biggest wins, which is "nearest to it".
+  let best = 0;
+  let bestDot = -Infinity;
+  for (let q = 0; q < 4; q += 1) {
+    const a = q * (Math.PI / 2);
+    const dx = Math.cos(a) + Math.sin(a);
+    const dz = Math.cos(a) - Math.sin(a);
+    const d = dx * (spot.x - cx) + dz * (spot.z - cz);
+    if (d > bestDot) { bestDot = d; best = a; }
+  }
+  /**
+   * ...and it frames the pair of you rather than the tile.
+   *
+   * Centring the marked tile is the obvious thing and it fights the card: the
+   * next press is a tap on that tile, `walkTo` recentres on the way past
+   * (which is right — going somewhere is how you reclaim the view), so the
+   * camera sets off toward the bay, gets a third of the way, and is hauled back
+   * to a body standing where it started. What that reads as is the camera
+   * overshooting and correcting, on the one card that has just told you the
+   * drag is yours.
+   *
+   * The midpoint has neither problem: the tile is on screen, you are on screen,
+   * and the recentre when you tap it is half a move rather than a reversal.
+   */
+  const me = meOf(t);
+  const mid = me
+    ? { x: (me.x + spot.x) / 2, z: (me.z + spot.z) / 2 }
+    : spot;
+  return { yaw: best, pitch: t.scene?.homePitch, x: mid.x, z: mid.z };
+};
 
 /**
  * The tour, in order.
@@ -457,6 +872,12 @@ const cheapestFreezer = (t) => cheapestOf(t, 'freezer');
  * That is the rule for adding a beat: a card per *decision*, never a card per
  * press. Two presses that have one outcome between them are one card.
  *
+ * ...and the CAMERA is the test of that rule rather than an exception to it. It
+ * had a card of its own for about an hour and should not have: getting about is
+ * one decision — where you are and what you can see are the same question asked
+ * of your feet and of the view — so it is the walk card's small print, with the
+ * gesture DRAWN on the card rather than described. See `dragArt`.
+ *
  * Each step is `{ id, kicker, say, hint, at, done, arm, nudge, waiting }`:
  *
  * - `say`     the instruction, and a function when it changes mid-step.
@@ -479,9 +900,128 @@ const STEPS = [
   {
     id: 'hello',
     kicker: 'New shop',
-    say: 'Morning. I fit shops out — give me a minute.',
-    hint: 'Stock on the shelves, somebody on the till, doors open. Skip is '
-      + 'bottom right, on every card.',
+    // The establishing shot — see `frontShot`. The one card in the tour that is
+    // a picture of a shop rather than a plan of one.
+    shot: frontShot,
+    /**
+     * ...and the two of you WALK INTO IT while it swings.
+     *
+     * A camera move over an empty forecourt is a screensaver. What makes it an
+     * opening rather than a title card is that there are two of you in it and
+     * you arrive during it: the shot takes about two and a half seconds
+     * (`TOUR_EASE`) and the walk out of the door takes about one, so the swing
+     * lands on the pair of you already standing there.
+     *
+     * They face the camera for free, and that is the whole reason the target is
+     * *south* of the door rather than a spot with a facing attached: everything
+     * in this game faces the way it is travelling (`followPath`), the camera is
+     * due south of the building, so walking out of the front door IS turning to
+     * face it. No pose, no facing field, nothing to hold them in it afterwards.
+     *
+     * In `nudge` with a one-way latch rather than in `arm`, for the reason the
+     * shot is asked for every frame: `arm` runs once on open and the layout has
+     * often not landed by then, and a cue that fired into a shop with no door
+     * in it yet would simply not happen.
+     *
+     * `walk-to` is the ordinary tap, sent straight down the wire rather than
+     * through main.js's own `walkTo` — that one recentres the camera, which is
+     * right for a tap you made and would throw this shot away on the frame it
+     * started. `crew-pose` is the crew's half, and it exists because the crew
+     * have downed tools for the length of the tour (`crew-idle`) and a hire
+     * with no job loop has no way to be anywhere.
+     */
+    nudge(t) {
+      const door = t.scene?.storeLayout?.door;
+      if (!door) return;
+      /**
+       * ONE EITHER SIDE OF THE DOORWAY, rather than one in it and one off on
+       * the grass.
+       *
+       * The mark used to be the door's own column, which put YOU dead centre in
+       * front of it and the hire out on the left with the shot's whole middle
+       * spent on your back. A tile each way is the same two bodies arranged
+       * around the thing the card is introducing: the shopfront is between
+       * them, shoulder to shoulder in the doorway rather than one of them out
+       * on the grass, and the camera centre is the half-tile between the two of
+       * them — `focusOn` takes a float.
+       */
+      const mark = { x: door.x + 1, z: door.z + 2 };
+      if (!this.cued) {
+        this.cued = true;
+        t.net?.send('walk-to', mark);
+        // The far side of the doorway. `crewPose` fans a bigger crew out round
+        // the cell on its own; this is which cell, and `facing` 0 is south —
+        // `atan2(dx, dz)` of (0, 1) — which is the camera. It has to be said,
+        // because the last leg of that walk is sideways.
+        t.net?.send('crew-pose', { x: door.x, z: door.z + 2, facing: 0 });
+        return;
+      }
+      /**
+       * ...and then they say hello, which is the beat that makes it a greeting
+       * rather than two robots standing on a pavement.
+       *
+       * After BOTH of you have stopped rather than on a stopwatch from the cue:
+       * the walk is however long your shop's counter is from its door, so a
+       * fixed delay waves at somebody still crossing the floor in a big shop
+       * and at an empty forecourt in a small one. The hire is asked about
+       * separately because they are not walking your route — theirs is a cell
+       * over and a step longer, so waving on your arrival is an arm going up on
+       * a body that is still moving, which reads as a stumble rather than as a
+       * greeting.
+       *
+       * Arrival is asked as "are they standing on the mark" rather than "have
+       * they stopped": the snapshot carries where everybody is and not what
+       * they are doing, and a body that stopped for any other reason is not one
+       * that got here.
+       *
+       * The extra beat after that is a pause for breath — an arm that goes up
+       * on the frame their feet stop reads as the two being one event.
+       */
+      if (this.waved) return;
+      const me = meOf(t);
+      if (!me || dist(me, mark) > 0.9) return;
+      this.landed ??= performance.now();
+      const waited = performance.now() - this.landed;
+      /**
+       * ...and "arrived" is STOPPED as well as near, which the second half of
+       * this is entirely about.
+       *
+       * A radius alone fires while they are still walking — they come out of a
+       * door two tiles from the mark, so a hire is inside any honest radius for
+       * most of their journey, and what you watch is an arm going up on a body
+       * still crossing the forecourt. The snapshot says where everybody is and
+       * never what they are doing, so stillness is measured rather than asked:
+       * two frames in the same place, at 10Hz, against a walk that covers 0.42
+       * of a tile between them.
+       *
+       * The radius stays, and it is what keeps this from firing before they set
+       * off at all: between the cue and the server planning the route they are
+       * standing perfectly still behind the till, which is stopped and is not
+       * arrived. The whole forecourt rather than one cell, because `crewPose`
+       * fans a crew of several round the mark.
+       */
+      const crew = (t.state?.players ?? []).filter((p) => p.staff);
+      const seen = this.seen ?? {};
+      const still = crew.every((s) => {
+        const was = seen[s.id];
+        return was && Math.abs(s.x - was.x) < 0.02 && Math.abs(s.z - was.z) < 0.02;
+      });
+      this.seen = Object.fromEntries(crew.map((s) => [s.id, { x: s.x, z: s.z }]));
+      const there = still && crew.every((s) => dist(s, mark) <= 3);
+      // ...and it gives up waiting, because a hire who cannot get out there —
+      // walled in, or a shop whose door is somewhere else entirely — must not
+      // be the reason the greeting never happens. The card still works with
+      // nobody in it; it is just quieter.
+      if (!there && waited < HELLO_GIVE_UP_MS) return;
+      this.ready ??= performance.now();
+      if (performance.now() - this.ready < HELLO_WAVE_MS) return;
+      this.waved = true;
+      t.net?.send('crew-pose', { emote: REPLIED });
+    },
+    art: helloArt,
+    say: 'Welcome to your shop. Stick with me and I\'ll show you round.',
+    hint: 'We\'ll fill the shelves, say hello to the robot who works here, and '
+      + 'open the doors. Had enough? Skip is bottom right, on every card.',
     big: true,
   },
 
@@ -492,24 +1032,22 @@ const STEPS = [
       t.step?.spot ? 'Click the marked tile. You walk to it.' : 'Click a bit of floor. You walk to it.',
       t.step?.spot ? 'Tap the marked tile. You walk to it.' : 'Tap a bit of floor. You walk to it.',
     ),
-    // Both halves of the mouse, because a press that MOVED is never a walk —
-    // and the camera is the thing a new player reaches for first and finds by
-    // accident. Either button drags the view; which one decides whether it
-    // slides or swings.
+    // ...AND THE OTHER HALF OF GETTING ABOUT, which is the view.
     //
-    // The finger's half is the same fact in the other grammar, and it has to be
-    // said at least as plainly: a drag is the camera there too, so the first
-    // thing anybody does by accident is slide the shop rather than walk. Two
-    // fingers is the whole of the rest of it — pinch and twist — and there is no
-    // wheel and no WASD to fall back on.
-    hint: () => perInput(
-      'Hold a mouse button and drag to move the camera — left or right, '
-        + 'same thing. Wheel zooms. WASD walks you without clicking.',
-      'Drag with one finger to move the camera. Two fingers pinch to zoom and '
-        + 'twist to swing it round.',
-    ),
+    // A press that MOVED is never a walk — the drag is the camera — so the
+    // first thing anybody does by accident is turn the shop rather than walk
+    // across it, and until it is said that reads as a click that did nothing.
+    // It is the picture that says it (`viewArt`, on this card): a sentence
+    // about holding a button and dragging is a sentence you have to act out to
+    // understand, and the drawing acts it out for you. The words are left with
+    // the two the drawing cannot make — the keys and the wheel.
+    art: viewArt,
+    hint: viewHint,
     // Ringed on the floor rather than "somewhere over there". The tile is
     // chosen once and held, or the mark walks away from you as you approach it.
+    // ...and the view is handed back here: the playing pitch, on whichever
+    // corner the ringed tile is on. See `walkShot`.
+    shot: walkShot,
     at(t) {
       this.spot ??= spotToWalk(t);
       return { world: this.spot, y: 0.04 };
@@ -541,26 +1079,52 @@ const STEPS = [
      * asking for one unit described a state you could only reach by NOT doing
      * what its own first sentence told you to.
      *
-     * So the order follows what the game actually does. The tap on a crate
+     * So the order follows what the game actually does: the press on a crate
      * across the shop is the whole-box lift, which is the one press the walk
-     * produces; the pair of gestures about SINGLE units is then taught at the
-     * shelf, where a tap is a unit and a hold is the lot with nothing walking
-     * in between.
+     * produces.
+     */
+    /**
+     * ...AND THE CARD BEFORE THIS ONE WALKED YOU TO IT.
+     *
+     * `spotToWalk` sends the walk beat at the crate, so by here you are usually
+     * stood right beside the thing — and "you walk over and pick it up" said to
+     * somebody already there is the tour describing a journey they can watch
+     * themselves not make. It is `atIt` rather than a flat rewrite because the
+     * walk is still what happens if they wandered off, and a card that promised
+     * a press on the spot and then marched them across the yard would be the
+     * same bug pointing the other way.
      */
     say: (t) => {
       const c = nearestCrate(t);
       if (!c) return 'Van is on its way. Crates get left on the pad round the back.';
-      return perInput('Click the crate. You walk over and pick the whole box up.',
-        'Tap the crate. You walk over and pick the whole box up.');
+      if (!atIt(t, c)) {
+        return perInput('Click the crate. You walk over and pick the whole box up.',
+          'Tap the crate. You walk over and pick the whole box up.');
+      }
+      return perInput('Click the crate. You pick the whole box up.',
+        'Tap the crate. You pick the whole box up.');
     },
+    // True wherever you are standing, which is what keeps it from arguing with
+    // the sentence above on the frame you step away.
     hint: (t) => (nearestCrate(t)
       ? perInput(
-        'Clicking something you are not stood at walks you there and then does '
-          + 'the job. A box carries far more than your arms do.',
-        'Tapping something you are not stood at walks you there and then does '
-          + 'the job. A box carries far more than your arms do.',
+        'Right next to it, it happens there and then. Click something further '
+          + 'off and you walk over first. A box holds far more than your arms.',
+        'Right next to it, it happens there and then. Tap something further '
+          + 'off and you walk over first. A box holds far more than your arms.',
       )
       : 'Somebody has to carry it in off the pad. Today that is you.'),
+    // The box itself, drawn from the same numbers and colours the one on the
+    // floor is built from (`artForCrate`). The thing IS marked in the shop, so
+    // this is the one case the header's "a second picture would be a diagram of
+    // something you are looking at" argues against — and it is wrong about a
+    // crate: the marked one is a box on a pad at the far end of a green frame,
+    // and what the card is teaching is which of the things down there is a box.
+    // Wrapped, and it has to be: `paint` calls a step's `art` as `s.art(this)`,
+    // so the bare function is handed the tour where `waste` goes — every truthy
+    // value there is the drab colourway, and what the card drew was a crate of
+    // rubbish over a sentence about the delivery you are being sent to fetch.
+    art: () => artForCrate(),
     arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
     at: (t) => ({ world: nearestCrate(t), y: CRATE_Y }),
     // Nobody's fault and nothing to press. Without this the card reads as an
@@ -573,17 +1137,39 @@ const STEPS = [
   {
     id: 'pour',
     kicker: 'Stock',
-    say: () => perInput('HOLD the RIGHT button on a shelf to tip the box in.',
-      'Tap a shelf, then HOLD Stock it to tip the box in.'),
+    say: () => perInput('RIGHT-click a shelf to tip the box in.',
+      'Tap a shelf, then press Stock it to tip the box in.'),
+    /**
+     * ...AND WHAT THE TWO ARROWS MEAN, which nothing anywhere said.
+     *
+     * A solid chevron and a ghosted one are `stock` and `stockOpen` — the same
+     * green on purpose (see `MARKER_LOOK`: they are one answer with a
+     * consequence attached, so the geometry carries the difference rather than a
+     * second colour). What the consequence IS was never written down for the
+     * player, so a shop full of arrows in two weights reads as some of them
+     * having gone out. Solid: this shelf has some already, so the press tops
+     * that pile up. Ghosted: it has none, so the press starts a new pile —
+     * which is the decision, because a board is the thing there are only so
+     * many of.
+     */
+    // ...and the two arrows are DRAWN rather than described — see `arrowArt`.
+    // What is left in the words is the half a picture cannot make: which button,
+    // and what happens when the shelf runs out of room.
     hint: () => perInput(
-      'Right drops off, and holding drops off the lot. Arrows point at every '
-        + 'shelf that will take what you are carrying. It stops when the shelf '
-        + 'is full; the rest stays on your shoulder.',
-      'Hold Stock it to pour in everything that fits. Arrows point at every '
-        + 'shelf that will take it. It stops when the shelf is full; the rest '
-        + 'stays on your shoulder.',
+      'Left takes, right puts. Green arrows float over every shelf that will '
+        + 'take what you are holding. It stops when the shelf is full and the '
+        + 'rest stays on your shoulder.',
+      'Stock it pours in everything that fits. Green arrows float over every '
+        + 'shelf that will take it. It stops when the shelf is full and the '
+        + 'rest stays on your shoulder.',
     ),
-    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
+    art: (t) => artOfUnit(t, anyShelf(t)),
+    // ...and the key to the two arrows, UNDER the words rather than instead of
+    // the picture. The well is the shelf, which is what the card is about; this
+    // is a footnote with pictures in it, and a footnote does not take the
+    // portrait's place. Two rows, because there are two arrows.
+    legend: arrowArt,
+    at: (t) => atUnit(anyShelf(t), SHELF_Y),
     // A latch, because "no box on your shoulder" is also true of somebody who
     // never had one — a crate shelved by hand, or a beat reached by pressing a
     // dot on the card.
@@ -591,46 +1177,6 @@ const STEPS = [
     nudge(t) { if (meOf(t)?.haul) this.lifted = true; },
     done(t) { return this.lifted && !meOf(t)?.haul; },
     skipWhen(t) { return !meOf(t)?.haul && !nearestCrate(t); },
-  },
-
-  {
-    id: 'take-one',
-    kicker: 'Stock',
-    /**
-     * ...and the same shelf, a unit at a time. Stood at it already, which is
-     * the whole reason this beat comes after the pour rather than before it:
-     * a tap on a thing you are AT is one unit, and a tap on a thing across the
-     * shop is a walk that ends in a job. Only one of those two sentences is
-     * about a single unit, and this is the beat where it is true.
-     */
-    say: () => perInput('Now click that shelf once. One unit comes off it.',
-      'Now tap the shelf and press Take one.'),
-    hint: () => perInput(
-      'A click takes one. Press and hold instead and the whole board goes into '
-        + 'a crate on your shoulder. Same on every crate, shelf and machine in '
-        + 'the shop.',
-      'A press takes one. The rows marked HOLD want holding down — that is how '
-        + 'the whole board goes into a crate. Same for every crate, shelf and '
-        + 'machine in the shop.',
-    ),
-    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
-    start(t) { this.had = lotSize(meOf(t)?.carry); },
-    done(t) { return lotSize(meOf(t)?.carry) > (this.had ?? 0); },
-  },
-
-  {
-    id: 'put-one',
-    kicker: 'Stock',
-    say: () => perInput('And RIGHT-click the shelf to put it back.',
-      'And press Put one on to put it back.'),
-    hint: () => perInput(
-      'That is the whole of it: left takes, right puts, and holding either one '
-        + 'does the lot instead of one.',
-      'That is the whole of it: one row takes, one puts, and the rows marked '
-        + 'HOLD do the lot instead of one.',
-    ),
-    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
-    done(t) { return lotSize(meOf(t)?.carry) === 0; },
   },
 
   {
@@ -648,7 +1194,8 @@ const STEPS = [
         + 'Holding opens the whole menu — every shelf, crate, machine and '
         + 'doorway in the shop has one.',
     ),
-    at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
+    art: (t) => artOfUnit(t, anyShelf(t)),
+    at: (t) => atUnit(anyShelf(t), SHELF_Y),
     done(t) { return t.ui.openPanel === 'fixture'; },
   },
 
@@ -669,9 +1216,11 @@ const STEPS = [
     // same rows either way (`quickRows` is a *selection* of the full list, not a
     // second list about the same items), so the press this card is asking for is
     // unchanged and so is `done`.
-    say: (t) => (t.ui.openPanel === 'fixture'
-      ? 'Under "Quick pick", choose what this shelf is for.'
-      : 'Press and hold the shelf again to bring its menu back.'),
+    say: (t) => {
+      if (t.ui.openPanel !== 'fixture') return 'Press and hold the shelf again to bring its menu back.';
+      return quickTabShut() ? 'Open the "Quick pick" tab on that menu.'
+        : 'Under "Quick pick", choose what this shelf is for.';
+    },
     hint: (t) => (t.ui.openPanel === 'fixture'
       ? 'Now your crew will restock it with that and nothing else, and the shop '
         + 'will order more when it runs low. The same menu sets the price per '
@@ -687,9 +1236,26 @@ const STEPS = [
     // It asks for the menu back rather than re-opening it: the click that shut
     // it was deliberate, and a panel that springs back up under you is a
     // tutorial wrestling you for the mouse.
-    at: (t) => (t.ui.openPanel === 'fixture'
-      ? { el: '#panel' }
-      : { world: anyShelf(t), y: SHELF_Y }),
+    //
+    // ...AND THE MARK IS THE LIST, NOT THE MENU. It was the whole of `#panel`,
+    // which is a frame drawn round a panel that fills a third of the screen and
+    // has a header, a board row with four buttons on it, five tabs and a foot of
+    // verbs in it — every one of them a press this card is not asking for. A
+    // mark round everything says the same as no mark at all, which is the
+    // argument `pulseAt` already makes about a lit panel with forty rows in it.
+    // `.pnl-mid` is the shortlist and nothing else: the one thing on the menu
+    // this card is about.
+    //
+    // The third phase is the tab, and it is not hypothetical — `_fxTab` is
+    // remembered per kind (`ui._fxTab`), so a shelf opened on Settings a minute
+    // ago comes back on Settings, and a mark round `.pnl-mid` would then be a
+    // frame round the wrong list under a sentence naming a heading that is not
+    // on screen. Pointed at the tab instead, with the sentence saying so.
+    art: (t) => artOfUnit(t, anyShelf(t)),
+    at: (t) => {
+      if (t.ui.openPanel !== 'fixture') return atUnit(anyShelf(t), SHELF_Y);
+      return quickTabShut() ? { el: QUICK_TAB, pad: 6 } : { el: '#panel .pnl-mid', pad: 6 };
+    },
     start(t) { this.from = keptCount(t); },
     done(t) { return this.from !== null && keptCount(t) > this.from; },
   },
@@ -726,10 +1292,14 @@ const STEPS = [
         + 'the beds — and the lease comes off the takings every morning.'
       : 'Everyone here is a machine you lease. This is where you take on more '
         + 'of them, and where you look at the ones you have.'),
+    // ...and the card shows the button it is naming, which is the half a
+    // sentence cannot carry to somebody who has never seen the HUD — see
+    // `mockOf`. The mock walks with the phase, because the sentence does.
     at: (t) => {
-      if (t.ui.bar !== 'staff') return { el: '[data-rail="staff"]' };
+      if (t.ui.bar !== 'staff') return { el: '[data-rail="staff"]', mock: '[data-rail="staff"]' };
       const who = (t.state?.roster ?? [])[0];
-      return { el: who ? `[data-entry="hire:${who.id}"]` : null, pad: 6 };
+      const sel = who ? `[data-entry="hire:${who.id}"]` : null;
+      return { el: sel, mock: sel, pad: 6 };
     },
     arm(t) { t.ui.closePanel?.(); },
     // The strip files who works here under one tab per kind and who you could
@@ -747,8 +1317,28 @@ const STEPS = [
   {
     id: 'shift',
     kicker: 'The crew',
+    /**
+     * ADD, RATHER THAN TAKE AWAY.
+     *
+     * The first move this card could offer used to be a subtraction, and not by
+     * choice: the Shop Hand's authored list comes to exactly its own cap, so
+     * every `+` in the panel is dead on the frame it opens and the only press
+     * available is a `−`. "Spend a point" is what everybody expects of a shift
+     * panel and it was the one thing it could not do — so the shop now comes
+     * with a hire holding a spare (`starterHire`, server/worlds.js) and this
+     * says so.
+     *
+     * Both sentences are kept, because the spare is the STARTING shop's and
+     * this card is also reached by somebody replaying the tour in a shop where
+     * the point has long since been spent. `spare` asks the roster rather than
+     * assuming.
+     */
     say: (t) => {
-      if (t.ui.openPanel === 'worker') return 'Move a point around. Take one off a job they will not be doing.';
+      if (t.ui.openPanel === 'worker') {
+        return sparePoints(t) > 0
+          ? 'They have a point spare. Add it to a job you want more of.'
+          : 'Move a point around. Take one off a job they will not be doing.';
+      }
       if (t.ui.bar !== 'staff') return 'Open the crew strip again — the robot icon.';
       return perInput('Open them up — click their tile on the strip.',
         'Open them up — tap their tile on the strip.');
@@ -764,10 +1354,16 @@ const STEPS = [
     // `−` that would make room for it out in the blackout. The lesson was never
     // "press +", it is "these numbers come out of one another".
     at: (t) => {
-      if (t.ui.openPanel === 'worker') return { el: '.wk-jobs', pad: 8 };
-      if (t.ui.bar !== 'staff') return { el: '[data-rail="staff"]' };
+      // The mark is the whole list and the PICTURE is one row of it, which is
+      // the split `pulseAt` already makes: the list is where the work is, and a
+      // row is what a row looks like. `:not(.owned)` is the first row with a
+      // number rather than a dot — a picture of a directive set to nothing is a
+      // picture of the one row that cannot be stepped down.
+      if (t.ui.openPanel === 'worker') return { el: '.wk-jobs', pad: 8, mock: '.wk-jobs .wk-job:not(.owned)' };
+      if (t.ui.bar !== 'staff') return { el: '[data-rail="staff"]', mock: '[data-rail="staff"]' };
       const who = (t.state?.roster ?? [])[0];
-      return { el: who ? `[data-entry="hire:${who.id}"]` : null, pad: 6 };
+      const sel = who ? `[data-entry="hire:${who.id}"]` : null;
+      return { el: sel, mock: sel, pad: 6 };
     },
     arm(t) { t.ui.showBar('staff'); t.ui.barTab.staff = 'all'; t.ui.renderHotbar(); },
     // Self-healing rather than armed-once: close the sheet and the hole walks
@@ -814,18 +1410,30 @@ const STEPS = [
       // (`faceAlong`), which is what makes the later fix a fix rather than a
       // chore.
       return perInput(
-        'R turns it before you place it, and so does the wheel — while '
-          + 'something is armed the wheel turns instead of zooming. Green means it '
-          + 'fits. Amber means it fits but will block something, and the shop lets '
-          + 'you do it anyway.',
+        // The wheel is NOT mentioned, and that is a fix rather than a saving:
+        // it turns what is in your HANDS (`ui.holding` — a unit you picked up
+        // to move), and off the bar it goes on zooming, because the palette is
+        // a mode you sit in for minutes and the view still has to move while
+        // you are in it. The card said the wheel turned an armed tile, which is
+        // a press that does something else — the green-ghost bug in a sentence.
+        '[[R]] turns it before you place it. Green means it fits. Amber means it '
+          + 'fits but will block something, and the shop lets you do it anyway.',
         'It turns its back to a wall on its own. The round button by the bar '
           + 'turns it a quarter at a time before you place it. Green means it '
           + 'fits. Amber means it fits but will block something, and the shop '
           + 'lets you do it anyway.',
       );
     },
+    // The piece you are being sent to find, drawn from its own catalog row —
+    // the same picture the palette tile wears, which is the half of "pick the
+    // Cooler out of the Shop tab" that a name cannot carry.
+    art: (t) => artOf(t, 'freezer'),
+    // The hammer while the mode is off — the one phase of this card whose subject
+    // is a BUTTON rather than the piece. The well hands itself back to the
+    // chiller above the moment the bar is up, which is `mockAt` doing what
+    // `paint`'s note says a picture may not do, for the reason given there.
     at: (t) => {
-      if (t.ui.bar !== 'build') return { el: '[data-rail="build"]' };
+      if (t.ui.bar !== 'build') return { el: '[data-rail="build"]', mock: '[data-rail="build"]' };
       const p = cheapestFreezer(t);
       if (t.ui.toolId?.() !== p?.id) return { el: p ? `[data-entry="${p.id}"]` : null, pad: 6 };
       return { el: '#game', soft: true };
@@ -881,7 +1489,7 @@ const STEPS = [
     // supplier. You can order from in there too, which is the same `done`.
     say: (t) => (inSupplier(t)
       ? 'Buy a case of something cheap.'
-      : 'That crate came free. Open the supplier for more.'),
+      : 'Open the supplier. It is where you buy stock.'),
     hint: (t) => (inSupplier(t)
       ? 'It comes on the van to the pad round the back, same as the first one, '
         + 'and you carry it in from there — or your crew do.'
@@ -895,12 +1503,34 @@ const STEPS = [
     // more than the till holds, and pulsing one of those is teaching a press
     // the shop refuses. The drill-down's own `×6` is in the same selector,
     // since one press into an item is still being in the supplier.
+    // ...and the picture is the ROW the pulse is on, off the same selector — a
+    // supplier row is a thing nobody has seen before (a name, a price, a stock
+    // count and a cart), and "buy a case of something cheap" is an instruction
+    // to press one part of it. Mocked rather than pulsed alone, because the
+    // pulse says WHICH and the picture says WHAT.
     at: (t) => (inSupplier(t)
       ? {
         el: '#panel',
+        mock: '#panel .sec-row:not(.owned)',
         pulse: '#panel .sec-row:not(.owned) [data-btn-tag="buy"], #panel [data-act="buy"]',
       }
-      : { el: '[data-rail="stock"]' }),
+      : { el: '[data-rail="stock"]', mock: '[data-rail="stock"]' }),
+    /**
+     * ...and the chiller's tool goes with the card that wanted it.
+     *
+     * The beat before this one ends the moment a freezer is stood down, which
+     * leaves the build palette across the bottom of the screen with the chiller
+     * still armed — so the next thing the card asks for is a press on the rail,
+     * over a mode where every tap on the floor buys another freezer. Nothing
+     * warns you, because arming a tool and keeping it armed is exactly what
+     * build mode is for.
+     *
+     * `toggleBuild(false)` and not `showBar(null)`, which is the same
+     * distinction the bar's own close button makes: this leaves the MODE as well
+     * as the palette, and it is what sets `toolOff` — putting the chiller down
+     * is the half of this that matters.
+     */
+    arm(t) { t.ui.toggleBuild?.(false); },
     /**
      * An order placed SINCE the card opened, and never "is there one".
      *
@@ -926,7 +1556,18 @@ const STEPS = [
       'Last thing. Tap the sign to raise the shutters.'),
     hint: 'A new shop starts shut so you can set it up in peace. Open it and the '
       + 'town starts turning up. Good luck.',
-    at: () => ({ el: '#sign', pad: 8 }),
+    // Drawn rather than cloned, which is the one control on the HUD that cannot
+    // be the second — see `mockOf`. It is the shut side, because that is the
+    // side it is on while this card is up.
+    at: () => ({ el: '#sign', pad: 8, mock: 'sign' }),
+    // ...and the supplier goes with the card that wanted it. The beat before
+    // this one ends the moment an order is placed, which leaves a panel across
+    // half the screen over a card now pointing at the shopfront — and closing
+    // it is the one press in the tour nobody would learn anything from making.
+    // `arm` rather than a side effect in the other card's predicate: the panel
+    // belongs to whoever is on screen, and a step that tidied up after itself
+    // would be the only one that did.
+    arm(t) { t.ui.closePanel?.(); },
     done(t) { return t.state?.shutters === true; },
     /**
      * ...and the one question the tour is uniquely placed to ask.
@@ -973,6 +1614,65 @@ const STEPS = [
 ];
 
 /**
+ * WAVING, WRITTEN AND NOT RUNNING — a card looking for its moment.
+ *
+ * Emotes are the one press in the game nothing on screen mentions: four number
+ * keys, no button, no menu, no ring. That still earns a beat, and this is the
+ * beat. What it does not have is a PLACE in the tour above, which is why it is
+ * parked here rather than in it — it was tried between the walk and the crate
+ * and read as a card about a toy wedged into a run of cards about getting a
+ * shop going. The tour up there is one errand after another and this is not an
+ * errand.
+ *
+ * The moment it wants is a shopper: the FIRST customer to walk past you after
+ * the shutters go up. That is when waving stops being a toy and starts being
+ * the one thing in the game that moves somebody's patience upward for free
+ * (`answerWave`, `WAVE_MOOD`), there is somebody standing there to wave AT, and
+ * a wave that gets waved back is its own explanation. It also lands after the
+ * tour has finished, which is what makes it a LESSON rather than a step — see
+ * `maybeLesson` and `LESSONS`, whose triggers are questions about the snapshot
+ * and where "a shopper is within a few tiles of you and the shop has been open
+ * for a minute" is exactly that shape.
+ *
+ * Left as a step-shaped object because that is the shape it will be reused in,
+ * and because the two things about it that took a while to get right should not
+ * have to be worked out again: the `done` LATCH (an emote is over in a couple
+ * of seconds and `done` is asked on the snapshot, so a wave made and finished
+ * between two packets would leave the card asking for something you had already
+ * done), and `skipWhen` (there is no keyboard on a phone and no other way in,
+ * so on touch this is a card asking for a press that cannot be made).
+ *
+ * Nothing runs it today. It is deliberately not in `STEPS` and deliberately not
+ * exported: a card in the array is a card in the tour.
+ */
+// eslint-disable-next-line no-unused-vars
+const WAVE_STEP = {
+  id: 'wave',
+  kicker: 'Saying hello',
+  say: () => 'Press [[1]] to wave.',
+  hint: () => 'Four of them, on [[1]] to [[4]] — a wave, a cheer, a dance and a '
+    + 'point. Wave at somebody in the shop and they wave back, and they leave a '
+    + 'bit happier than they came in.',
+  // The strip is a row of buttons nobody has ever seen, so the card shows one of
+  // them — with the `1` in its corner, which is where the number on the card
+  // comes from. Holding [[V]] puts the whole row on screen and is deliberately
+  // not what the card asks for: the numbers work with it down, so a card that
+  // taught the strip would be teaching a press you do not need.
+  at: (t) => (t.ui.emotesUp ? { el: '#emotes', pad: 8 } : { mock: '.em-btn' }),
+  // Build the strip without showing it. `showEmotes` parses four SVGs on the
+  // first press and only ever runs from the key, so before anybody has held V
+  // there is no button in the document for the card to take its picture of —
+  // and it would open with an empty well on the one beat whose whole problem is
+  // that nothing on screen says this exists. Both calls are in the same frame,
+  // so nothing is drawn in between and the strip is as down as it was.
+  arm(t) { t.ui.showEmotes?.(true); t.ui.showEmotes?.(false); },
+  nudge(t) { if (meOf(t)?.emote) this.waved = true; },
+  start() { this.waved = false; },
+  done(t) { return !!this.waved || !!meOf(t)?.emote; },
+  skipWhen: () => pillDrives(),
+};
+
+/**
  * ...AND THE SAME SHOP FROM THE OTHER SIDE OF THE DOOR.
  *
  * A guest arrives into a shop that is already furnished, already stocked, and
@@ -986,9 +1686,8 @@ const STEPS = [
  *
  * What is left is the half that is about a pair of hands rather than about a
  * shop, and it is exactly the half nothing in the game explains: a tap names,
- * the left button takes, the right button puts, a hold does the lot, and a hold
- * on a fixture opens what it can do. Five beats, no money, nothing that changes
- * what the shop IS.
+ * the left button takes, the right button puts, and a hold on a fixture opens
+ * what it can do. Four beats, no money, nothing that changes what the shop IS.
  *
  * **Every predicate here is a delta and never a level**, which is the trap this
  * list is written around. `done(t) { return shelvesOf(t).length }` is a fine
@@ -1018,12 +1717,12 @@ const GUEST_STEPS = [
       t.step?.spot ? 'Click the marked tile. You walk to it.' : 'Click a bit of floor. You walk to it.',
       t.step?.spot ? 'Tap the marked tile. You walk to it.' : 'Tap a bit of floor. You walk to it.',
     ),
-    hint: () => perInput(
-      'Hold a mouse button and drag to move the camera — left or right, '
-        + 'same thing. Wheel zooms. WASD walks you without clicking.',
-      'Drag with one finger to move the camera. Two fingers pinch to zoom and '
-        + 'twist to swing it round.',
-    ),
+    // The same picture and the same small print as `walk` — see the note there.
+    art: viewArt,
+    hint: viewHint,
+    // ...and the view is handed back here: the playing pitch, on whichever
+    // corner the ringed tile is on. See `walkShot`.
+    shot: walkShot,
     at(t) {
       this.spot ??= spotToWalk(t);
       return { world: this.spot, y: 0.04 };
@@ -1037,6 +1736,7 @@ const GUEST_STEPS = [
     },
   },
 
+
   {
     id: 'g-take',
     kicker: 'Stock',
@@ -1046,11 +1746,6 @@ const GUEST_STEPS = [
      * afternoon. The host's tour can rely on a van having been sent, since it
      * sent it a beat ago; this one relies on nothing.
      */
-    // ...and a walk to a CRATE ends in the lift, which is the same thing the
-    // host's `take-one` says at length: `errandAction` shoulders a box for
-    // somebody who arrives empty-handed, so promising one unit is promising the
-    // one outcome that press cannot have. A shelf is untouched — arriving at one
-    // arms nothing until you press, so there the old sentence is exactly true.
     say: (t) => {
       const c = nearestCrate(t);
       const target = c ?? anyShelf(t);
@@ -1063,20 +1758,18 @@ const GUEST_STEPS = [
             : 'Tap the shelf. You will walk over to it.',
         );
       }
-      return perInput('Now click it again to take one unit out.',
-        'Now press Take one, on the bar along the bottom.');
+      return perInput('Now click it again to fill your arms from it.',
+        'Now press the top row on the bar along the bottom.');
     },
     hint: () => perInput(
-      'Left click picks up one. Press and hold to pick up the whole box. '
-        + 'Right click is for dropping off instead. Same on every crate, shelf '
+      'Left click picks up, right click drops off. Same on every crate, shelf '
         + 'and machine in the shop.',
-      'That bar lists everything this thing can do. A press does the top one; '
-        + 'the rows marked HOLD want holding down. Same for every crate, shelf '
+      'That bar lists everything this thing can do. Same for every crate, shelf '
         + 'and machine in the shop.',
     ),
     at: (t) => {
       const c = nearestCrate(t);
-      return c ? { world: c, y: CRATE_Y } : { world: anyShelf(t), y: SHELF_Y };
+      return c ? { world: c, y: CRATE_Y } : atUnit(anyShelf(t), SHELF_Y);
     },
     // Full hands on arrival are a real state — `Game.away` gives a returning
     // guest back what they were holding — so this is what CHANGED rather than
@@ -1091,19 +1784,13 @@ const GUEST_STEPS = [
   {
     id: 'g-shelve',
     kicker: 'Stock',
-    // The same pair of sentences the host's `shelve-one` carries, and for the
-    // same reason: `g-take` can now leave you with a box, and a shoulder is
-    // never offered `Put one on`.
-    say: (t) => (meOf(t)?.haul
-      ? perInput('HOLD the RIGHT button on a shelf to tip the box in.',
-        'Tap a shelf, then HOLD Stock it to tip the box in.')
-      : perInput('RIGHT-click a shelf to put the unit on it.',
-        'Tap a shelf, then press Put one on.')),
+    say: () => perInput('RIGHT-click a shelf to put it all on.',
+      'Tap a shelf, then press Stock it.'),
     hint: () => perInput(
-      'Left picks up, right drops off. Hold right to drop off everything at '
-        + 'once. Arrows point at every shelf that will take what you are holding.',
-      'Put one on is one unit; hold Stock it to pour in everything that fits. '
-        + 'Arrows point at every shelf that will take what you are holding.',
+      'Left picks up, right drops off. Arrows point at every shelf that will '
+        + 'take what you are holding.',
+      'Stock it pours in everything that fits. Arrows point at every shelf that '
+        + 'will take what you are holding.',
     ),
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     // The latch the `crate` beat needs for the same reason: empty hands are
@@ -1151,6 +1838,28 @@ const GUEST_STEPS = [
 
 /** The layout the renderer is holding — where every conveyor cell lives. */
 const layoutOf = (t) => t.scene?.storeLayout ?? null;
+/**
+ * Has anybody painted the crew somewhere to charge?
+ *
+ * The pad rides on the layout as a region the same way the bay and the drop-off
+ * do (`padRegion('break')`, server/layout.js), so this is a question about the
+ * SHOP rather than about a press — a pad painted by the friend on the other side
+ * of a co-op shop counts, which is the rule every predicate in here obeys.
+ */
+const breakPad = (t) => ((layoutOf(t)?.break ?? []).length > 0);
+/**
+ * Low enough to be worth saying something about, and deliberately not zero.
+ *
+ * `tiredness` stretches everything a hire does by up to `TIRED_PACE`, on a curve
+ * with no cliff in it — so there is no number the sim itself calls "low" and
+ * this is the tutor's own judgement rather than a constant borrowed from
+ * somewhere it would drift out of step with. A quarter is far enough down to be
+ * heading somewhere bad and early enough that the shop can still be fixed before
+ * it gets there; at zero the card arrives after the damage, at a hire who is by
+ * then on their way to rest against a shelf, which is the picture that makes the
+ * problem look like it is already solving itself.
+ */
+const ENERGY_LOW = 0.25;
 const beltsOf = (t) => layoutOf(t)?.belts ?? [];
 const armsOf = (t) => layoutOf(t)?.arms ?? [];
 
@@ -1184,6 +1893,151 @@ function artOf(t, kind, piece = null) {
   // floor should be. This is `artForTool`'s own fork said with the one field
   // that tells them apart.
   return row.surface ? artForGround(row.surface) : artForPiece(row, kind);
+}
+
+/**
+ * THE TWO ARROWS, drawn rather than described.
+ *
+ * A shop mid-armful has green chevrons floating over every unit that will take
+ * what you are holding, in two weights — solid where the press tops up a pile
+ * that is already standing, hollow where it opens a new board (`MARKER_LOOK`
+ * `stock` and `stockOpen`, client/render/props.js). That distinction is the
+ * only thing on screen saying which presses cost you a board, and it was a
+ * clause in the middle of a five-line paragraph: "a solid arrow means that
+ * shelf has some already, a see-through one means it starts a new pile". Read
+ * cold by somebody who has never seen either arrow, that is two abstractions
+ * held in the head at once, and the pictures are three tiles away in the shop.
+ *
+ * So the card draws them, one to a row, with the sentence beside each — under
+ * the words, in the `legend` slot, and never in the picture well. The well is
+ * the shelf: that is what the card is ABOUT, and a key to two marks is a
+ * footnote with pictures in it rather than a portrait.
+ *
+ * Drawn here and NOT cloned out of the shop, which is the one place this file
+ * breaks its own rule (`mockOf`) and it is not a choice: a chevron is a cone in
+ * a three.js scene rather than an element on the page, so there is nothing to
+ * copy. What keeps the two honest is that the numbers are lifted straight off
+ * `MARKER_LOOK` — the same green, the same ten-sided cone read as a triangle,
+ * and the ghosted one at `fade` 0.3 with its edges kept, which is exactly what
+ * `stockOpen` is: keep the silhouette, give up the fill.
+ */
+const ARROW_GREEN = '#7cc46a';
+const arrowRow = (open, say) => `
+  <div class="tt-key-row">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 21 L3 6 H21 Z" fill="${ARROW_GREEN}"
+        ${open ? `fill-opacity=".3" stroke="${ARROW_GREEN}" stroke-width="2" stroke-linejoin="round"` : ''}/>
+    </svg>
+    <span>${esc(say)}</span>
+  </div>`;
+
+/* A declaration, for the reason `viewHint` gives: the step table above names it. */
+function arrowArt() {
+  return arrowRow(false, 'This shelf already has some. It goes on that pile.')
+    + arrowRow(true, 'This shelf has none. It starts a new pile.');
+}
+
+/**
+ * THE SMALL PRINT UNDER THE VIEW CARD, written once for both tours.
+ *
+ * The host's `walk` and the guest's `g-walk` are the same lesson said to two
+ * people, and this copy was in both of them — which is fine right up until one
+ * gets a sentence the other does not, and then the guest is quietly playing an
+ * older game. The guest card already said "the same small print as `walk` — see
+ * the note there", which is a comment doing a function's job.
+ *
+ * Two paragraphs, and the split is the whole reason `keyed` learned about a
+ * blank line: the first is how you MOVE and the second is how CLOSE you are.
+ * Read as one block they are a list of five things on the second card of the
+ * game, which is where somebody decides whether these cards are worth reading.
+ *
+ * First person is a KEY here and never the wheel, and that is a rewrite rather
+ * than a shortening. It is true that the last notch of the zoom drops you into
+ * your own shoes and it takes three clauses to say — "keep going past the
+ * closest it will get" is a gesture described by its own boundary condition,
+ * which is exactly the kind of sentence somebody seven years old stops reading
+ * in the middle of. `F` is one key and one outcome, in and out, and the wheel
+ * finds itself. What went is the explanation of a thing that needs no
+ * explaining once you have pressed the key.
+ *
+ * A `function` and not a `const`, which is the one thing here that is not
+ * taste: both step tables are array literals ABOVE this line, and a `const`
+ * named in one of them is read before it is initialised. A declaration hoists,
+ * so the tables can name it wherever it happens to be written.
+ */
+function viewHint() {
+  return perInput(
+    'Hold the right mouse button and drag to look round the shop. [[,]] and '
+      + '[[.]] swing it a quarter turn. [[W]] [[A]] [[S]] [[D]] walk you about '
+      + 'without clicking.'
+      + '\n\n'
+      + 'The wheel zooms in and out. [[F]] drops you into your own shoes and '
+      + 'back out again.',
+    'Twist with two fingers to look round the shop. Pinch to zoom, and one '
+      + 'finger slides it about.',
+  );
+}
+
+/**
+ * A picture of a CONTROL, taken from the control.
+ *
+ * "Open the crew strip", "open the supplier", "click the sign" — every one of
+ * those is an instruction to press a button somewhere on the HUD, and the card
+ * said it in words while the picture well underneath sat empty. The mark in the
+ * shop is round the button the whole time, and that is exactly the half that
+ * does not help: you have to have FOUND the button to see the mark on it. A
+ * seven-year-old reading "open the crew strip" is looking for a strip.
+ *
+ * So the well shows the button. Not a drawing of it — the button, cloned out of
+ * the live HUD, which is `client/thumb.js`'s argument about the palette said
+ * about a control: a rail button that somebody restyles tomorrow restyles its
+ * card with no second picture to keep in step.
+ *
+ * Three things about the clone, and each of them is a bug if it is left out.
+ * Every **id and data attribute goes** — `holeFor` and half the HUD find things
+ * with `document.querySelector`, and a second `[data-rail="staff"]` sitting in
+ * the tutor overlay is a mark that could land on the picture instead of on the
+ * thing. It is **inert**: `aria-hidden`, `disabled`, no tooltip, since a picture
+ * of a button that answers a press is a second button. And the **state classes
+ * come off** (`on`, `open`, `armed`, `waiting`, `landing`), or the card shows
+ * the lit version of a button whose whole card is about it not being lit yet.
+ *
+ * It is scaled to the well by `mockAt` rather than sized here, because how big
+ * the control is on screen is the player's own HUD dial (`ui-scale.js`) and the
+ * well is a fixed 168px.
+ */
+const MOCK_STRIP = ['id', 'data-entry', 'data-rail', 'data-slot', 'data-more',
+  'data-tip', 'data-tip-key', 'data-tip-note', 'data-tip-wait', 'title', 'style'];
+const MOCK_STATES = ['on', 'open', 'armed', 'waiting', 'landing', 'poor', 'off'];
+
+function mockOf(sel) {
+  // The sign is the one control on the HUD whose look is written against its own
+  // id (`#sign`, `#doorway` in index.html), so a clone with the id taken off is
+  // an unstyled box — and leaving the id on would put a second `#sign` in the
+  // document, which is the trap the note above is about. It is drawn instead,
+  // in the tutor's own stylesheet, from the same two colours.
+  // ...and it is drawn WITH A BIT OF THE CARD IT IS AN EDGE OF, which is the
+  // difference between a picture of the button and a picture of where the button
+  // is. The sign is not an object standing on the readout, it is the readout's
+  // left-hand edge (see `#sign` in index.html), so a strip on its own is a red
+  // rectangle nobody could find. The card's own contents are two bars rather
+  // than the day and the balance: the card is a landmark here, and real numbers
+  // on it would be a second thing to read that is also wrong by morning. It
+  // fades out to the right because what is being said is "this end of that".
+  if (sel === 'sign') {
+    return '<div class="tt-hudcard"><div class="tt-sign shut"><span>SHUT</span></div>'
+      + '<div class="tt-rows"><i></i><i></i></div></div>';
+  }
+  const src = document.querySelector(sel);
+  if (!src) return null;
+  const el = src.cloneNode(true);
+  for (const n of [el, ...el.querySelectorAll('*')]) {
+    for (const a of MOCK_STRIP) n.removeAttribute?.(a);
+    n.classList?.remove(...MOCK_STATES);
+    if (n.tagName === 'BUTTON') n.disabled = true;
+  }
+  el.setAttribute('aria-hidden', 'true');
+  return el.outerHTML;
 }
 
 /**
@@ -1291,6 +2145,72 @@ function comingSoon(t, kind) {
  * who has already been shown.
  */
 const LESSONS = [
+  /**
+   * A ROBOT THAT HAS RUN DOWN, AND NOWHERE TO PLUG IN.
+   *
+   * The first lesson in this list whose trigger is a shop in TROUBLE rather
+   * than a shop that just bought something, and it is the shape this file's own
+   * header asks for: `when` is what being stuck looks like. Being stuck here is
+   * two facts at once — somebody on the payroll is nearly flat, and there is no
+   * charging pad anywhere in the building.
+   *
+   * Both halves, and the second is what keeps it from nagging. A hire runs low
+   * every single day in every shop there has ever been; that is the resource
+   * working. What is worth interrupting somebody about is running low with
+   * nowhere to go, because THAT is the state with a consequence you cannot see:
+   * a flat unit is not idle and does not stop, it is pinned at `TIRED_PACE` and
+   * does everything at a bit over half speed for the rest of the save
+   * (`tiredness`, server/sim/staff.js). So the shop gets slower and slower with
+   * nothing on screen saying why, every hire visibly working the whole time —
+   * which reads as the game grinding down rather than as a thing you can fix
+   * for the price of some floor paint.
+   *
+   * A `when` and not an `owns`, obviously, but worth saying why the owns-shaped
+   * version is wrong: "the shop has no break area" is true of every shop on day
+   * one and of most shops for ever, so it is a level rather than a state, and it
+   * would open this card at somebody who has three hires and no need of one yet.
+   *
+   * `ENERGY_LOW` rather than zero, because a card that waits for flat has waited
+   * until the damage is done — and because a hire at zero is on their way to
+   * rest somewhere by then, which is the picture that makes the problem look
+   * solved.
+   *
+   * No `group`, and the toast says nothing about the `?`. The other three
+   * lessons are briefings about a build TAB and that is what the button brings
+   * back; this one is about a situation, and a `?` that reopened it would be a
+   * help button answering a question the shop is no longer asking.
+   */
+  {
+    id: 'charge',
+    when: (t) => !breakPad(t) && (t.state?.players ?? [])
+      .some((p) => p.staff && Number.isFinite(p.energy) && p.energy <= ENERGY_LOW),
+    toast: 'Paint a charging pad from the Logistics tab',
+    steps: [
+      {
+        id: 'c-flat',
+        kicker: 'Running low',
+        say: 'One of your crew is nearly out of charge.',
+        hint: 'They do not stop when they run down — they keep working, and '
+          + 'everything they do takes about twice as long. A shop full of flat '
+          + 'robots looks busy and gets nothing done, and nothing on screen '
+          + 'tells you that is what you are looking at.',
+      },
+      {
+        id: 'c-pad',
+        kicker: 'The charging pad',
+        // The brush's own swatch, exactly as a page about a fixture shows the
+        // fixture: `artOf` forks on `surface` for precisely this row.
+        art: (t) => artOf(t, 'break'),
+        say: 'Paint one out of the Logistics tab. They charge on it.',
+        hint: 'Drag out a bit of floor, anywhere they can walk to — indoors or '
+          + 'out the back. One square holds one robot, so paint a few squares if '
+          + 'you have a few. They come back fuller off a pad than they do resting '
+          + 'against a shelf, and they take themselves off to it when the shop is '
+          + 'quiet rather than waiting until they are flat.',
+      },
+    ],
+  },
+
   /**
    * THE SHOP FLOOR — the five things you stand out here, and the four rules
    * about them the tour never had room for.
@@ -1402,11 +2322,11 @@ const LESSONS = [
         hint: () => perInput(
           'It goes the way it points, and you drag to lay a whole line in one go — '
             + 'every piece turns to follow you, so corners are free. To put a box on, '
-            + 'carry one over, stand next to the line and hold the RIGHT mouse button. '
+            + 'carry one over, stand next to the line and RIGHT-click it. '
             + 'You and your robots walk straight over the top of them.',
           'It goes the way it points, and you drag to lay a whole line in one go — '
             + 'every piece turns to follow you, so corners are free. To put a box on, '
-            + 'carry one over, stand next to the line and hold "Set the crate down '
+            + 'carry one over, stand next to the line and press "Set the crate down '
             + 'here". You and your robots walk straight over the top of them.',
         ),
       },
@@ -1513,7 +2433,7 @@ const LESSONS = [
         hint: 'Hold on the rack to open it and pick a seed — each one costs a little '
           + 'and says how many minutes it takes. If the tray is rough you have to turn '
           + 'it over first, and the rack offers you that instead. When it is ready, '
-          + 'hold on it again to pick. Your hands hold six things and the rest goes '
+          + 'click it to pick. Your hands hold six things and the rest goes '
           + 'into a box at your feet, so nothing is ever wasted. A farmhand will do '
           + 'all three of those jobs for you. Racks work indoors and out.',
       },
@@ -1525,7 +2445,7 @@ const LESSONS = [
         say: 'A vat makes food by itself. You put nothing in — you only take out.',
         hint: 'It fills on its own clock, whether you are watching or not. When it '
           + 'is full it STOPS, so it is worth emptying often: a vat left full all '
-          + 'night made nothing all night. Walk over and hold on it to collect. Your '
+          + 'night made nothing all night. Walk over and click it to collect. Your '
           + 'robots will empty it too, and so will a loader sat next to it.',
       },
 
@@ -1863,6 +2783,10 @@ export class Tutor {
     // Skip is the tour still pointing at something.
     this.aim = null;
     this.scene?.setTutorTarget?.(null);
+    // ...and the camera, for the same reason and in the same breath: a hold
+    // still pinned to the last card's tile is the tour steering the view of a
+    // shop it has finished talking about.
+    this.scene?.releaseHold?.();
     this.el.hidden = true;
     this.el.classList.remove('show');
     document.body.classList.remove('tutoring');
@@ -1945,15 +2869,103 @@ export class Tutor {
    * underneath it would be moving the one thing the card is NOT about.
    */
   look() {
-    if (this.looked) return;
+    // A POSE first, where a card has one — see `frontShot`. The angles are set
+    // once, and the same "once, when it can be" rule as the centre below: a
+    // shot asked for before the layout has landed answers null and is asked
+    // again next frame, rather than being spent on a shop that is not there
+    // yet.
+    const shot = this.step?.shot?.(this);
+    if (shot) {
+      const first = !this.looked;
+      this.looked = true;
+      // `nearYaw`, or a card asking for the corner on the far side of ±π sends
+      // the shop the long way round — a full spin, once, on one card, which
+      // reads as the camera having lost its place.
+      if (first) this.scene?.aimView?.({ yaw: this.scene.nearYaw(shot.yaw), pitch: shot.pitch });
+      if (Number.isFinite(shot.x)) this.hold(shot, first);
+      return;
+    }
+    // ...and a card that wants one and cannot frame it yet gets no centre
+    // either, or the view slides to the tile now and swings to the pose a frame
+    // later, which is two camera moves for one card.
+    if (this.step?.shot) return;
     const want = this.step?.at?.(this);
     const w = want && 'world' in want ? want.world : null;
-    if (!w || !Number.isFinite(w.x) || !Number.isFinite(w.z)) return;
+    // A card that names no tile — a rail button, a panel, or a phase of a card
+    // that has walked off the shop floor and onto the HUD — has to let the tile
+    // GO, or the hold pins the view to whatever the last card was about for the
+    // rest of the tour. The pan stays where it is: see `releaseHold`.
+    if (!w || !Number.isFinite(w.x) || !Number.isFinite(w.z)) {
+      this.scene?.releaseHold?.();
+      return;
+    }
+    const first = !this.looked;
     this.looked = true;
-    this.scene?.focusOn?.(w.x, w.z);
+    this.hold(w, first);
+  }
+
+  /**
+   * Put the view on a tile, and KEEP it there for as long as the card lasts.
+   *
+   * The keeping is the whole of this, and it is the bug it was written for.
+   * `camPan` is an offset off the body the camera follows, so a centre set once
+   * is a centre that walks with you: the card points at a crate across the
+   * yard, you walk to the crate, and the pan carries the framing the same
+   * distance again — so you arrive at the thing the card is about with it in
+   * the corner of the screen and half the frame on empty ground. It is worst on
+   * exactly the cards that ask you to go somewhere, which is most of them.
+   *
+   * `scene.tourOwns` is how long "the card lasts" is measured, and it is not a
+   * clock: it is true until a hand takes the view — a drag, `,`/`.`, or walking
+   * somewhere yourself, which is `recentre`. So the camera holds the thing you
+   * were pointed at, and the moment you disagree it is yours and stays yours.
+   *
+   * Slow on the first frame only. Re-seating is a fixed target being re-stated
+   * rather than a new move, and asking for the tour's gains every frame would
+   * hold the view on the slow ones for the whole card — which is the follow
+   * being sluggish the moment you take it back.
+   *
+   * ...and the KEEPING is the renderer's now (`hold` on `focusOn`, `tourHold`
+   * in client/render/scene.js), which is a fix rather than a tidy-up. This runs
+   * on the snapshot and `camPan` is an offset off a body that is drawn every
+   * frame, so re-stating it here was a centre that walked with you for a
+   * hundred milliseconds and jumped back on the next packet — a 10Hz sawtooth
+   * on the whole screen, and worst while walking, which is what every card
+   * asking you to go somewhere is about. Still called every snapshot, because
+   * the tile itself changes as a card's phases walk; what changed is that the
+   * frames in between are no longer the tour's problem.
+   */
+  hold(at, first) {
+    if (!first && !this.scene?.tourOwns) return;
+    this.scene?.focusOn?.(at.x, at.z, { slow: first, hold: true });
   }
 
   /** Every snapshot. The predicate, and nothing else. */
+  /**
+   * KEEP the crew's tools down, rather than putting them down once.
+   *
+   * `crewIdle` is a field on the `Game`, deliberately not on the save — a tab
+   * closed mid-tour must not come back to a shop whose staff have downed tools
+   * for ever. Which means anything that builds a fresh `Game` starts it false:
+   * a server restart, a room disposed after five idle minutes and reopened, a
+   * world switched away from and back. The tour sends it once, on `start`, so
+   * after any of those the hire quietly goes back to work in the middle of the
+   * tour — and what you watch is the card asking you to go and pick up the
+   * crate while a robot walks past you carrying it.
+   *
+   * Re-asserted rather than made durable, because the argument for it being
+   * in-memory is the right one. Every few seconds is enough: the gap is bounded
+   * by the interval rather than by how long the tour lasts, and it is one tiny
+   * message against a snapshot ten times a second.
+   */
+  holdCrew() {
+    if (this.guest || this.lesson) return;
+    const now = performance.now();
+    if (now - (this.heldAt ?? 0) < CREW_HOLD_MS) return;
+    this.heldAt = now;
+    this.net?.send('crew-idle', { idle: true });
+  }
+
   update(state) {
     this.state = state;
     // The lessons are asked here rather than anywhere else, because "is there a
@@ -1962,6 +2974,7 @@ export class Tutor {
     // wants nothing, which is nearly every frame of nearly every shop.
     if (!this.on) { this.maybeLesson(); return; }
     if (!this.step) return;
+    this.holdCrew();
     // Before the predicate, and every snapshot rather than once on open: a
     // step that has to keep a strip open or a tab selected is holding the shop
     // in a shape the player can walk out of at any moment, and it is also where
@@ -2012,10 +3025,13 @@ export class Tutor {
           <div class="tt-kicker"></div>
         </div>
         <!-- A picture of the thing being talked about, drawn from its own
-             catalog row — see the art slot on a lesson step. Empty on every
-             card of both tours, where the thing is standing in the shop with a
-             green frame round it and a second picture of it would be a diagram
-             of something you are looking at. -->
+             catalog row — see the art slot on a lesson step. Empty on all but
+             one card of either tour, where the thing is standing in the shop
+             with a green frame round it and a second picture of it would be a
+             diagram of something you are looking at. The exception is the walk
+             card, whose other half is the CAMERA — a gesture, which has nothing
+             to stand anywhere — see dragArt. No backticks in here, for the
+             reason the comment above gives. -->
         <div class="tt-art" hidden></div>
         <div class="tt-said">
           <p class="tt-say"></p>
@@ -2027,6 +3043,13 @@ export class Tutor {
 
                No backticks in here: they would end the template literal this
                comment is written inside. -->
+          <!-- A KEY to marks the card has just named, one row each: the mark
+               drawn at the size it reads at, and the sentence beside it. Under
+               the words rather than in the picture well above, because the well
+               is what the card is about and this is a footnote. Empty on every
+               card but the one about the two green arrows. No backticks in
+               here, for the reason the comments above give. -->
+          <div class="tt-legend" hidden></div>
           <p class="tt-offer" hidden><span></span>
             <button class="tt-link" type="button"></button></p>
         </div>
@@ -2111,6 +3134,15 @@ export class Tutor {
      * and a picture that swapped under a sentence you were reading would be a
      * second thing to re-find. `artForPiece` caches per row, so this is a map
      * lookup after the first card either way.
+     *
+     * THE ONE EXCEPTION IS A CONTROL (`mock`), and the exception is what proves
+     * the rule rather than bending it. A piece's portrait is what the card is
+     * about and holds still; a picture of a BUTTON is the other half of the
+     * sentence, and the sentence on a two-phase step already walks — "open the
+     * crew strip" becomes "click their tile" — so a picture that did not walk
+     * with it would be a card naming one control and drawing another. It is
+     * kept out of here for exactly that reason and painted by `mockAt`, off the
+     * same `at` that decides where the mark goes, so the two can never disagree.
      */
     const art = this.el.querySelector('.tt-art');
     // A page names a KIND and the picture is derived, rather than each page
@@ -2119,9 +3151,23 @@ export class Tutor {
     // thing is buildable yet.
     const svg = s.kind ? artOf(this, s.kind, s.piece)
       : (typeof s.art === 'function' ? s.art(this) : (s.art ?? null));
+    // Kept, because `mockAt` borrows this slot for a control and has to be able
+    // to hand it back — a step whose first phase is a rail button and whose
+    // second is a piece off the palette is both pictures, one after the other.
+    this.artHtml = svg ?? '';
+    this.artSoon = !!svg && comingSoon(this, s.kind);
+    this.mocked = null;
     art.hidden = !svg;
-    art.innerHTML = svg ?? '';
-    art.classList.toggle('soon', !!svg && comingSoon(this, s.kind));
+    art.innerHTML = this.artHtml;
+    art.classList.toggle('soon', this.artSoon);
+    // The key under the words, if this card has one. Here rather than in
+    // `words` for the same reason the picture is: it is a fact about the card
+    // rather than about the phase, and a block of rows that swapped under a
+    // sentence you were reading would be a second thing to re-find.
+    const legend = this.el.querySelector('.tt-legend');
+    const rows = typeof s.legend === 'function' ? s.legend(this) : (s.legend ?? null);
+    legend.hidden = !rows;
+    legend.innerHTML = rows ?? '';
     this.card.classList.toggle('big', !!s.big);
     this.said = null;
     this.words();
@@ -2133,10 +3179,26 @@ export class Tutor {
       .join('');
     this.el.querySelector('.tt-back').disabled = this.i <= 0;
     this.el.querySelector('.tt-fwd').disabled = this.i >= this.steps.length - 1;
-    // Restart the pop, or every card after the first arrives already on screen.
-    this.card.style.animation = 'none';
-    void this.card.offsetWidth;
-    this.card.style.animation = '';
+    /**
+     * The pop is for ARRIVING, and a step is not an arrival.
+     *
+     * It used to be restarted on every card, on the reasoning that a card after
+     * the first would otherwise turn up already on screen. That is true and it
+     * is what you want: the card never went anywhere. What the restart looked
+     * like is the thing shutting and opening again between every beat — a flash
+     * of nothing where the instruction was, ten times in one tour — because the
+     * keyframe starts at `opacity: 0` and a fifth of a second is long enough to
+     * read as a blink and too short to read as a transition.
+     *
+     * So it fires when the card is not on screen yet, which is the tour opening
+     * and nothing else. Between steps the paper stays put and its contents
+     * change under you, which is what a card of cards does.
+     */
+    if (!this.el.classList.contains('show')) {
+      this.card.style.animation = 'none';
+      void this.card.offsetWidth;
+      this.card.style.animation = '';
+    }
     this.el.classList.add('show');
   }
 
@@ -2207,8 +3269,8 @@ export class Tutor {
     this.said = key;
     const [kicker, say, hint] = now;
     this.el.querySelector('.tt-kicker').textContent = kicker;
-    this.el.querySelector('.tt-say').textContent = say;
-    this.el.querySelector('.tt-hint').textContent = hint;
+    this.el.querySelector('.tt-say').innerHTML = keyed(say);
+    this.el.querySelector('.tt-hint').innerHTML = keyed(hint);
     this.fits();
   }
 
@@ -2284,6 +3346,9 @@ export class Tutor {
     // is about a press and the veil is about a rectangle, and a step can want
     // one without the other.
     this.pulseAt(want?.pulse ?? null);
+    // ...and the picture of whatever is being pointed at, which walks with the
+    // sentence for the reason `paint` gives.
+    this.mockAt(want?.mock ?? null);
 
     // The mark on the thing standing in the shop, laid in the shop.
     this.scene?.setTutorTarget?.(this.aim);
@@ -2291,8 +3356,15 @@ export class Tutor {
     // `soft` is a target the size of the whole world view. Ringing that is
     // drawing a box round the screen, which says nothing — the world mark above
     // is what is pointing at anything on those steps.
-    this.ring.hidden = !box || this.soft;
-    if (box && !this.soft) {
+    //
+    // ...and it LANDS a beat after the thing it is round, rather than with it —
+    // see `markReady`. The node is handed over as null on every frame there is
+    // nothing to ring, or a step that points into the shop and then back at the
+    // bar would find its old stamp still standing and skip the beat.
+    const at = box && !this.soft ? this.shown : null;
+    const show = this.markReady('ring', at) ? box : null;
+    this.ring.hidden = !show;
+    if (show) {
       Object.assign(this.ring.style, {
         top: `${box.y}px`, left: `${box.x}px`, width: `${box.w}px`, height: `${box.h}px`,
       });
@@ -2336,6 +3408,10 @@ export class Tutor {
     const clip = t.closest('.pnl-mid, #panel-body, .hud')?.getBoundingClientRect();
     const cy = r.top + r.height / 2;
     if (clip && (cy < clip.top || cy > clip.bottom)) { el.hidden = true; return; }
+    // The same beat the ring takes, and for the same reason twice over: this one
+    // is a mark on a ROW of a panel the step has just opened, so without it the
+    // button is pointed at before the list it is in has been seen at all.
+    if (!this.markReady('pulse', t)) { el.hidden = true; return; }
     el.hidden = false;
     Object.assign(el.style, {
       top: `${Math.round(r.top - 3)}px`,
@@ -2343,6 +3419,84 @@ export class Tutor {
       width: `${Math.round(r.width + 6)}px`,
       height: `${Math.round(r.height + 6)}px`,
     });
+  }
+
+  /**
+   * The picture of the control the card is naming — see `mockOf`.
+   *
+   * Keyed on the selector so the clone happens when the phase changes and not
+   * ten times a second, and so an unchanged mock is not re-written into the
+   * document under a CSS animation that was already running.
+   *
+   * The SCALE is the half that could not be done in the stylesheet. A rail
+   * button is 40px and a crew tile about 110, both of them multiplied by the
+   * player's own HUD dial, against a well that is a fixed 168 — so a number
+   * typed into the CSS would be right for one control at one setting. It is
+   * measured off the clone and the well, capped, and never allowed to shrink
+   * something that already fits: a picture of a button smaller than the button
+   * is a picture of a different button.
+   *
+   * A missing target is NOT a lost step — that is `holeFor`'s job, and this is a
+   * picture. A frame where the strip has not rendered yet hands the well back to
+   * whatever the step's own art was, which is nothing on most of these cards.
+   */
+  mockAt(sel) {
+    if (sel === this.mocked) return;
+    const art = this.el.querySelector('.tt-art');
+    const html = sel ? mockOf(sel) : null;
+    if (!html) {
+      // Only give the well back once, or a step with no art at all re-writes an
+      // empty string into it on every frame the control is missing.
+      if (this.mocked === null) return;
+      this.mocked = null;
+      art.hidden = !this.artHtml;
+      art.innerHTML = this.artHtml;
+      art.classList.toggle('soon', this.artSoon);
+      return;
+    }
+    this.mocked = sel;
+    art.hidden = false;
+    art.classList.remove('soon');
+    art.innerHTML = `<div class="tt-mock">${html}</div>`;
+    const box = art.querySelector('.tt-mock');
+    const r = box.firstElementChild?.getBoundingClientRect();
+    const well = art.getBoundingClientRect();
+    if (!r?.width || !r?.height || !well.width) return;
+    const k = Math.min((well.width - 28) / r.width, (well.height - 28) / r.height, 2.6);
+    if (k > 1) box.style.transform = `scale(${k.toFixed(3)})`;
+  }
+
+  /**
+   * Has this mark's target been standing there long enough to be marked?
+   *
+   * The mark used to land on the same frame as the thing it points at, which is
+   * one thing happening rather than two: a step `arm`s the crew strip open and
+   * the ring is already round a row of it before the panel has been read as a
+   * panel. `MARK_WAIT_MS` is the beat, and the fade is in the CSS — the mark is
+   * `display: none` while it waits, so unhiding it restarts `ttmark-in`.
+   *
+   * Keyed on the NODE, which is what makes it a beat rather than a blink. The
+   * rect moves constantly — a scrolled list, a resized window, a panel that
+   * repainted — and none of those is the target arriving, so a key on the
+   * geometry would hold the mark off for as long as anybody was scrolling.
+   * A node going away and coming back IS an arrival, and comes back as a new
+   * node, since the panels rebuild from `innerHTML`.
+   *
+   * The timer is the half that is not obvious: `place` runs on the snapshot,
+   * so a target found on the tick a card opens would otherwise wait for the
+   * NEXT snapshot to be shown, and a lesson browsed with the shop paused would
+   * wait for ever. It is one timer for both marks because `place` re-asks for
+   * both whatever woke it.
+   */
+  markReady(slot, node) {
+    const seen = (this.marks ??= {});
+    if (!node) { seen[slot] = null; return false; }
+    const was = seen[slot];
+    if (was?.el === node) return Date.now() - was.at >= MARK_WAIT_MS;
+    seen[slot] = { el: node, at: Date.now() };
+    clearTimeout(this.markTimer);
+    this.markTimer = setTimeout(() => this.place(), MARK_WAIT_MS + 20);
+    return false;
   }
 
   /**
@@ -2400,7 +3554,16 @@ export class Tutor {
     // that points into the shop and then back at the bar is two arrivals, and
     // the strip may well have been dragged in between.
     if (!want || 'world' in want || !want.el) this.shown = null;
-    if (!want) { this.aim = null; this.lost = false; this.soft = false; return null; }
+    // A want that names NEITHER is the same as no want at all, and it is a real
+    // shape rather than a mistake: `at` is also where a card says which control
+    // its picture is of (`mock`), and the beat about the emote strip has a
+    // picture and a keypress and nothing anywhere to draw a frame round. Handled
+    // here or it falls to the bottom of this function, finds no element and sets
+    // `lost` — which is the card growing a "Carry on" button six seconds into a
+    // step that is working perfectly.
+    if (!want || (!want.el && !('world' in want))) {
+      this.aim = null; this.lost = false; this.soft = false; return null;
+    }
     const pad = want.pad ?? 4;
 
     if ('world' in want) {
@@ -2409,7 +3572,7 @@ export class Tutor {
       // still each target's own and is now what the chevron floats at rather
       // than where the mark is drawn — see `Scene.setTutorTarget`.
       this.aim = want.world
-        ? { x: want.world.x, z: want.world.z, y: want.y ?? 0.8 }
+        ? { x: want.world.x, z: want.world.z, y: want.y ?? 0.8, fixture: want.fixture ?? null }
         : null;
       this.lost = !want.world;
       // A world target is always `soft`: the hole is the whole canvas, so the

@@ -13,7 +13,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { partsAt, seamStep, skinnedParts, modelBounds, FRONT_LIP } from '../../shared/model.js';
-import { FACE_CALM, VEHICLE_LOOK, CRATE_LOOK, WASTE_LOOK, shade } from './palette.js';
+import { FACE_CALM, VEHICLE_LOOK, shade } from './palette.js';
+import { crateParts, CRATE, CRATE_H, CRATE_WALL, CRATE_DECK, CRATE_STEP } from './crate.js';
 import { BUILDS, STOCK_HAIR, STOCK_HAIR_COLOR } from '../../shared/looks.js';
 import { signed } from '../money.js';
 import { lookOn, lookKey, gradientMap, MARK } from './look.js';
@@ -1484,55 +1485,17 @@ export function buildCashDrop() {
 }
 
 /**
- * A crate's footprint, wall height and wall thickness, in tiles.
+ * A crate's numbers, and its shape, live in `client/render/crate.js`.
  *
- * It was 0.86 across and 0.42 deep, which is very nearly the whole tile: two
- * crates on neighbouring tiles touched, one beside a wall read as leaning
- * through it, and a single item sat at the bottom of an acre of empty box with
- * the rim hiding most of it. Everything below is derived from these three
- * numbers rather than typed out again, so the goods cannot quietly stop fitting
- * the crate the next time it changes size.
- *
- * ...and 0.6 was still most of a tile. A box that fills its square reads as
- * furniture rather than as something somebody carries, and a pile of three of
- * them stood as tall as the shelving beside it. Shrunk by an eighth on every
- * axis at once, which is the only way to do it: the proportions are what make
- * it read as a crate, and the goods, the stacking step and the label all come
- * off these numbers, so they follow on their own.
- *
- * ...and again by 15% when it stopped being timber. That is not a third go at
- * the same judgement: a moulded tote is a smaller object than a wooden crate in
- * life, and it now stands on a belt a tile wide, where a box within a whisker
- * of the deck edges reads as jammed rather than as riding. The one number that
- * did NOT simply scale is the wall, which came down by a further third on top
- * of it — plank thickness is a fact about planks, and carrying it over is what
- * made the tote look like a crate somebody had painted grey.
- *
- * ...and once more by the 0.72 a riding crate used to be scaled by, which is
- * the same judgement arriving from the other end. A box on a conveyor has been
- * drawn at 0.72 of the pallet size since there were belts, and that is the size
- * that has been looked at for hours — threading between machines, going into a
- * loader, coming off onto a pad — while the floor crate is the one nobody had a
- * reference for. So the belt was right and the pallet was wrong: this is the
- * belt's number becoming the crate's, and `BELT_CRATE` drops to 1 so a box is
- * the same object standing still or moving. Nothing on a conveyor changes size
- * at all — it was already exactly this.
+ * They were here, with the argument for every one of them, for as long as this
+ * was the only place a crate was drawn. It is not — a tutorial card shows one,
+ * and a piece with no catalog row has nowhere to be drawn FROM — so the boxes,
+ * the colours and the argument moved into one file that imports no three.js and
+ * both readers ask. Re-exported rather than re-spelled: `CRATE_STEP` is imported
+ * from here by scene.js and the belts, and where a constant lives is not their
+ * business.
  */
-const CRATE = 0.318;
-const CRATE_H = 0.138;
-const CRATE_WALL = 0.019;
-
-/** Top of the base panel — the floor the goods stand on. */
-const CRATE_DECK = 0.027;
-
-/**
- * How tall one crate stands, and therefore how far up the next one sits.
- *
- * Boards plus walls, so a stacked crate's own boards land exactly on the rim of
- * the one below with no gap and no overlap. Derived rather than typed, like
- * everything else off `CRATE`: a taller crate has to keep stacking.
- */
-export const CRATE_STEP = CRATE_DECK + CRATE_H;
+export { CRATE_STEP } from './crate.js';
 
 /**
  * How high a crate rides when it is on a conveyor.
@@ -1569,101 +1532,13 @@ export function buildPallet(piles, {
   const g = new THREE.Group();
   const qty = piles.reduce((n, p) => n + p.qty, 0);
 
-  // Rubbish is the same tote in a drab colourway, and that is the whole of the
-  // difference on purpose: what tells you it is rubbish is WHERE it is and the
-  // fact that somebody is carrying it to the skip. A second silhouette would be
-  // a new object to learn for a crate that behaves like every other crate —
-  // you can pick it up, it stacks, it holds the same goods.
-  const look = waste ? WASTE_LOOK : CRATE_LOOK;
-
-  // The bottom, and the foot under it. Two pieces sharing the deck's height
-  // between them, so `CRATE_STEP` is unchanged and a pile still has no gaps.
-  //
-  // The BASE is the full footprint and it is not optional: an inset skid alone
-  // is a bottom only for as long as the walls are thick enough to meet it, and
-  // thinning them opened a slot all the way round that you look straight down
-  // through from this camera — a box with no floor, holding goods that stand on
-  // nothing. Full width, in the body colour, because it is the inside of the
-  // tote and the one face you see most of when the box is empty.
-  const footH = CRATE_DECK * 0.5;
-  const foot = new THREE.Mesh(GEO.box, material(look.skid));
-  foot.scale.set(CRATE * 0.8, footH, CRATE * 0.8);
-  foot.position.set(0, footH / 2, 0);
-  foot.castShadow = true;
-  g.add(foot);
-
-  // Inset on purpose: full-width it is a solid block sitting flush on the
-  // floor, where pulled in it reads as standing on a foot — and a stacked
-  // crate's foot then drops inside the rim of the one below rather than
-  // balancing on top of it.
-  const base = new THREE.Mesh(GEO.box, material(look.body));
-  base.scale.set(CRATE, CRATE_DECK - footH, CRATE);
-  base.position.set(0, (CRATE_DECK + footH) / 2, 0);
-  base.castShadow = true;
-  g.add(base);
-
-  // The walls stop short of the top, and the band they leave is the lip.
-  //
-  // That split is the whole silhouette: four flat walls read as sheet material
-  // whatever they are painted, where a rim standing proud of them reads as
-  // something moulded in one piece. It comes out of `CRATE_H` rather than being
-  // added to it, so the box is exactly as tall as it was and still stacks.
-  const LIP = CRATE_H * 0.17;
-  const wallH = CRATE_H - LIP;
-  const rim = (CRATE - CRATE_WALL) / 2;
-
-  // Open-topped so the goods read from above.
-  const wallMat = material(look.body);
-  const wall = (sx, sz, px, pz) => {
-    const m = new THREE.Mesh(GEO.box, wallMat);
-    m.scale.set(sx, wallH, sz);
-    m.position.set(px, CRATE_DECK + wallH / 2, pz);
-    m.castShadow = true;
-    g.add(m);
-  };
-  wall(CRATE, CRATE_WALL, 0, -rim);
-  wall(CRATE, CRATE_WALL, 0, rim);
-  wall(CRATE_WALL, CRATE, -rim, 0);
-  wall(CRATE_WALL, CRATE, rim, 0);
-
-  // Corner posts, standing a hair outside the walls and running from the ground
-  // to the underside of the lip. What a stack of these interlocks by — and, at
-  // this camera, the vertical that keeps a box from reading as a plain cube.
-  const postMat = material(look.post);
-  const post = CRATE_WALL * 2.4;
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const m = new THREE.Mesh(GEO.box, postMat);
-      m.scale.set(post, CRATE_DECK + wallH, post);
-      m.position.set(sx * rim, (CRATE_DECK + wallH) / 2, sz * rim);
-      m.castShadow = true;
-      g.add(m);
-    }
-  }
-
-  // ...and the rim itself, proud of both faces and the brightest thing on the
-  // box. From a 40° camera this band is most of what you see of an empty crate,
-  // and it is the one part of it that catches a lamp after dark — which is what
-  // stops a cool grey tote going the way the black conveyor did at night.
-  const lipMat = material(look.lip);
-  // Wider than the posts are, or the rim is no longer the outermost thing on
-  // the box and the corners cut through the one line that reads as moulded.
-  const lipT = CRATE_WALL * 2.6;
-  const lipY = CRATE_DECK + wallH + LIP / 2;
-  const lip = (sx, sz, px, pz) => {
-    const m = new THREE.Mesh(GEO.box, lipMat);
-    m.scale.set(sx, LIP, sz);
-    m.position.set(px, lipY, pz);
-    m.castShadow = true;
-    g.add(m);
-  };
-  // Run the long way to the outside of the corners, or the rim has four notches
-  // in it where the sides meet.
-  const lipSpan = CRATE + lipT - CRATE_WALL;
-  lip(lipSpan, lipT, 0, -rim);
-  lip(lipSpan, lipT, 0, rim);
-  lip(lipT, lipSpan, -rim, 0);
-  lip(lipT, lipSpan, rim, 0);
+  // The box itself, built from the ONE description of what a crate looks like
+  // (`crateParts`, client/render/crate.js). It used to be assembled here, and
+  // what that cost is a tutorial card wanting to show you a crate: there is no
+  // catalog row to draw, so the picture had to be a second crate somebody drew
+  // to match this one. Handed to `buildModel` the same way an authored piece is,
+  // so the icon and the box on the floor are the same list of boxes.
+  g.add(buildModel({ parts: crateParts(waste) }));
 
   if (!covered) {
     /**

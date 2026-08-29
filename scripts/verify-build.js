@@ -19,7 +19,7 @@ import { content } from '../server/content.js';
 import { requiredFixture } from '../shared/tags.js';
 import {
   canPlace, canPlaceCleanly, isGround, isSurface, faceAlong, behindTile,
-  blockedAt, insideStore, tileAt,
+  blockedAt, insideStore, tileAt, REACH,
 } from '../shared/build.js';
 import { SOLID, edgeBetween } from '../shared/edges.js';
 import { kindOf } from '../shared/pieces.js';
@@ -365,10 +365,74 @@ const cropFor = () => c.crops[0];
   check(!!broke.why, 'and it says why, rather than the field just going quiet');
   check(g.cash >= 0, 'a failed replant never overdraws you');
 
-  // The held-action list has to agree, or the ring never appears.
+  // The held-action list has to agree, or the ring never appears — and it is
+  // reached by NAMING the rack now, exactly as the harvest is. Standing at it
+  // offers nothing; see §1c for why that half is the claim worth pinning.
+  check(g.walkToFixture('me', plot.id).ok, 'pointing at the exhausted rack is accepted');
   const action = g.actionFor(g.players.me);
-  eq(action?.kind, 'till', 'standing at the exhausted plot offers tilling');
+  eq(action?.kind, 'till', 'naming the exhausted plot offers tilling');
   check((action?.time ?? 1) > 1, 'tilling takes longer than a flat second');
+}
+
+// ---------------------------------------------------------------------------
+// 1c. ...and turning a bed over never fires on its own, which is the whole of
+// the bug it is here for.
+//
+// `till` was the last job left on proximity that was not a waiting till, and it
+// was there on an argument about SAFETY — turf moves no goods either way — which
+// is a true answer to a question nobody was asking. The question proximity fails
+// is *which one did you mean*, and this one answered it with a circle of REACH
+// while the harvest beside it used a tile.
+//
+// A bed was the ground out in a field, so the only thing in reach of one was
+// another bed. A rack is a unit you stand beside, and the generator stands two
+// at the top of the aisle — so the circle round somebody at the shelf the
+// TUTORIAL sends them to takes in an untilled rack a tile and a half away, and
+// an armed action is what the ring winds on. Every press made at that shelf was
+// spent on the farm: label, marker and all. Invisible as a bug and obvious as a
+// pointing fault, which is where it was reported and where nothing is wrong.
+//
+// Both halves or neither. "Standing there does nothing" is satisfied by tilling
+// having been deleted, so it is paired with the press that must still work from
+// the same spot without moving a foot.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const plot = g.layout.plots[0];
+  eq(plot.soil, 'untilled', 'a rough bed to be tempted by');
+
+  // At the rack's own working spot, stopped, nothing pressed. This is the exact
+  // state that used to arm the till — and it is the FORGIVING one: the reported
+  // press was made from further off still, at the shelf next door.
+  stand(g, { x: plot.useAt.x, z: plot.useAt.z });
+  for (let i = 0; i < 60; i++) g.stepActions(0.1);
+  eq(g.actionFor(g.players.me), null, 'six seconds at a rough rack arms nothing');
+  eq(plot.soil, 'untilled', 'so the soil is not turned on its own');
+
+  // ...and every OTHER tile the old circle took in, which is where the bug was
+  // reported from: somebody stood at a shelf, a tile and a half off the rack.
+  // Swept rather than sampled, because which neighbour of a bed happens to hold
+  // a shelf is a fact about the generator and this is a fact about the rule.
+  let reached = 0;
+  for (let z = 0; z < g.layout.h; z++) {
+    for (let x = 0; x < g.layout.w; x++) {
+      if (Math.hypot(plot.x - x, plot.z - z) > REACH) continue;
+      if (g.layout.blocked[z * g.layout.w + x]) continue;
+      stand(g, { x, z });
+      reached += 1;
+      check(g.actionFor(g.players.me)?.kind !== 'till',
+        `standing at ${x},${z} never arms the rack beside it`);
+    }
+  }
+  check(reached > 1, 'and there really is more than one tile in reach of a bed');
+
+  // The pair: naming it still works, from where you already are.
+  stand(g, { x: plot.useAt.x, z: plot.useAt.z });
+  check(g.walkToFixture('me', plot.id).ok, 'pointing at the rack is accepted');
+  eq(g.actionFor(g.players.me)?.kind, 'till', 'and that arms the till');
+  g.players.me.pressing = true;
+  for (let i = 0; i < 60; i++) g.stepActions(0.1);
+  eq(plot.soil, 'tilled', 'and holding the press turns it');
 }
 
 {
@@ -1095,12 +1159,28 @@ const cropFor = () => c.crops[0];
   const g = fresh();
   g.setBuildMode('me', true);
 
-  const spotA = findFreeFloor(g);
-  const near = g.placeFixture('me', { kind: 'shelf', ...spotA });
-  // Asked for *after* the first one is standing there, so the two really are
-  // legal together — that's the case where "the nearest fixture" gives up.
-  const spotB = findFreeNeighbour(g, spotA);
-  check(!!spotB, 'there is room for a second shelf right beside the first');
+  // A PAIR, rather than the first legal tile and a hope. `findFreeFloor` scans
+  // from the top-left of the building, which is the grow corner now — three
+  // racks along the back wall and the aisle they are worked from. That aisle
+  // tile is a perfectly legal place for a shelf and has no legal NEIGHBOUR,
+  // because every tile round it is either a rack or the only spot somebody
+  // could stand to reach one. So the first spot the scan finds is a spot this
+  // section cannot use, and what it looked like was "the shop is full" in a
+  // building with thirty empty tiles in it. Placed and taken back rather than
+  // reasoned about, because whether B is legal is a question about the shop
+  // with A already standing in it — which is the very thing this section is
+  // about.
+  let spotA = null;
+  let spotB = null;
+  let near = null;
+  for (const cand of everyFreeFloor(g)) {
+    near = g.placeFixture('me', { kind: 'shelf', ...cand });
+    if (!near.ok) continue;
+    spotB = findFreeNeighbour(g, cand);
+    if (spotB) { spotA = cand; break; }
+    g.removeFixture('me', near.placed);
+  }
+  check(!!spotA && !!spotB, 'there is room for two shelves side by side');
   const far = g.placeFixture('me', { kind: 'shelf', ...spotB });
   check(near.ok && far.ok, 'both shelves went down', near.error ?? far.error);
 
@@ -1347,33 +1427,49 @@ const cropFor = () => c.crops[0];
 }
 
 // ---------------------------------------------------------------------------
-// 7. Stand to act. Being in range is the whole input; the ring is the window
-//    you have to change your mind, and leaving is how you take it.
+// 7. The ring is the window you have to change your mind, and leaving is how
+//    you take it.
+//
+// Driven through the till, which is the job with the longest charge in the farm
+// — and NAMED rather than stood next to, since §1c. That is a change of vehicle
+// and not of claim: every assertion here is about the ring, and the ring is what
+// every named action still winds. Being in range stopped being the whole input
+// the day a rack could stand in an aisle.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
   const plot = g.layout.plots[0];
-  stand(g, plot);
+  stand(g, { x: plot.useAt.x, z: plot.useAt.z });
+  check(g.walkToFixture('me', plot.id).ok, 'pointing at a rough rack is accepted');
+  g.players.me.pressing = true;
 
   const armed = g.actionFor(g.players.me);
-  eq(armed?.kind, 'till', 'standing at a rough plot arms tilling');
+  eq(armed?.kind, 'till', 'naming a rough plot arms tilling');
   check(!!armed?.at, 'an armed action says where its target is');
-  check(armed.at.x === plot.x && armed.at.z === plot.z, 'and points at the right tile');
+  // The SIDE you work it from rather than the rack's own cell — `actionAt`'s
+  // `spotNearest`, which is what every named job marks and is the only answer
+  // available now a rack blocks the tile it stands on. The old proximity till
+  // said `at: plot`, and a marker on a cell you cannot stand in reads as an
+  // instruction to go somewhere there is no room for you.
+  check(Math.abs(armed.at.x - plot.x) + Math.abs(armed.at.z - plot.z) === 1,
+    'and marks the side of the rack you are working it from');
 
-  // The charge runs on its own, and still takes the full time.
+  // The charge takes the full time, however hard you press.
   g.stepActions(0.5);
   eq(plot.soil, 'untilled', 'half way through, nothing has happened yet');
   check(g.players.me.action.elapsed > 0, 'but the charge is already running');
 
   for (let i = 0; i < 30; i++) g.stepActions(0.1);
-  eq(plot.soil, 'tilled', 'standing there through the ring fires it');
+  eq(plot.soil, 'tilled', 'holding the press through the ring fires it');
 
   // Walking out of range drops it entirely, part-charged or not. Corner of the
   // map, because the farm is laid out in rows and "twelve tiles east" lands on
   // another plot.
   const rough = g.layout.plots.find((p) => p.soil !== 'tilled' && p !== plot);
   check(!!rough, 'there is a second rough plot to try this on');
-  stand(g, rough);
+  stand(g, { x: rough.useAt.x, z: rough.useAt.z });
+  check(g.walkToFixture('me', rough.id).ok, 'and it is named too');
+  g.players.me.pressing = true;
   g.stepActions(0.5);
   check(g.players.me.action.elapsed > 0, 'the next plot starts charging too');
   g.players.me.x = 1;
@@ -1383,7 +1479,8 @@ const cropFor = () => c.crops[0];
   eq(rough.soil, 'untilled', 'and the part-charge did nothing');
 
   // ...and none of it is banked: coming back starts from zero.
-  stand(g, rough);
+  stand(g, { x: rough.useAt.x, z: rough.useAt.z });
+  g.players.me.pressing = true;
   g.stepActions(0.5);
   eq(rough.soil, 'untilled', 'two half-visits do not add up to one action');
 }
@@ -2322,7 +2419,7 @@ const cropFor = () => c.crops[0];
   const L = g.layout;
 
   // A corner of the shop, facing the wall: legal, useless, and warned about.
-  const spec = { kind: 'shelf', x: L.store.x, z: L.store.z, rot: 2 };
+  const spec = { kind: 'shelf', ...freeCorner(g), rot: 2 };
   const verdict = canPlace(g.layout, spec);
   check(verdict.ok && !!verdict.warn,
     'a shelf facing out of the shop is allowed, with a warning',
@@ -2371,7 +2468,7 @@ const cropFor = () => c.crops[0];
   const L = g.layout;
   // A corner: the browsing spot is against a wall on most facings, so most
   // facings warn. That is what made this reachable-in-theory only.
-  let id = g.placeFixture('me', { kind: 'shelf', x: L.store.x, z: L.store.z, rot: 0 }).placed;
+  let id = g.placeFixture('me', { kind: 'shelf', ...freeCorner(g), rot: 0 }).placed;
   check(!!id, 'a shelf goes in the corner');
 
   const forward = [];
@@ -2409,6 +2506,50 @@ function findFreeFloor(g, ignoreId = null) {
     }
   }
   return null;
+}
+
+/**
+ * A CORNER of the building with nothing standing in it.
+ *
+ * Two sections want one: a corner is where the browsing spot is against a wall
+ * on most facings, which is what makes most facings warn, which is the whole
+ * subject of both. Which corner has never mattered — and it was written as the
+ * north-west one, because that was the one that had been empty in every shop
+ * this generator ever laid. It is the grow corner now, so the tile is a rack,
+ * and both sections failed with "something is already there" over a claim that
+ * has nothing to do with racks. Asking for *a* corner rather than naming one is
+ * the fix, and it is the honest spelling of what they were always saying.
+ */
+function freeCorner(g) {
+  const { store } = g.layout;
+  const corners = [
+    { x: store.x, z: store.z },
+    { x: store.x + store.w - 1, z: store.z },
+    { x: store.x, z: store.z + store.h - 1 },
+    { x: store.x + store.w - 1, z: store.z + store.h - 1 },
+  ];
+  return corners.find((c) => canPlaceHere(g, { kind: 'shelf', ...c, rot: 0 }))
+    ?? corners.find((c) => canPlace(g.layout, { kind: 'shelf', ...c, rot: 0 }).ok)
+    ?? corners[0];
+}
+
+/**
+ * Every legal shelf tile, in the order `findFreeFloor` would have found them.
+ *
+ * Its own generator rather than a widened `findFreeFloor`, because the two
+ * questions are different: most of this file wants *a* spot and does not care
+ * which, and section 8 wants one with room beside it — which cannot be asked
+ * without putting a shelf down and looking.
+ */
+function* everyFreeFloor(g) {
+  const L = g.layout;
+  for (let z = L.store.z + 1; z < L.store.z + L.store.h - 1; z++) {
+    for (let x = L.store.x + 1; x < L.store.x + L.store.w - 1; x++) {
+      for (const rot of [0, 1, 2, 3]) {
+        if (canPlaceHere(g, { kind: 'shelf', x, z, rot })) { yield { x, z, rot }; break; }
+      }
+    }
+  }
 }
 
 /** A legal shelf tile orthogonally touching `at` — its neighbour in the aisle. */
@@ -2618,15 +2759,20 @@ function canPlaceHere(g, spec, ignoreId = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Nothing happens until you press. The consent the ring never actually asked for.
+// Nothing happens that you did not NAME — and what you named needs no button.
 //
-// `moving` stopped a walk-PAST firing an action, and could never stop a walk
-// *to*: every route this game plans ends stopped at the working spot, so
-// arriving anywhere was arriving armed and a second later the thing happened.
-// Standing at a ripe bed picked it; standing at a rough bed turned it over.
+// This section used to be "nothing happens until you press", and its subject was
+// the one candidate that was neither named nor `auto`: the bed you were standing
+// next to. `moving` stopped a walk-PAST firing an action and could never stop a
+// walk *to* — every route this game plans ends stopped at the working spot — so
+// the button was the second half of consent for a job proximity had guessed at.
+//
+// Proximity has no guesses left (§1c), so the claim inverts rather than goes
+// away: a named errand IS the consent and fires on its own, and the thing that
+// must not happen is a bed turning itself over because you stopped beside it.
 //
 // Both halves, because "it does not fire" passes on a game where nothing works
-// at all — which is exactly what a sweep that forgot to press would report.
+// at all — which is exactly what a sweep that forgot to point would report.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -2634,38 +2780,40 @@ function canPlaceHere(g, spec, ignoreId = null) {
   check(!!plot, 'the shop has a bed');
   plot.crop_id = null;
   plot.soil = 'turf';
-  stand(g, plot);
+  stand(g, { x: plot.useAt.x, z: plot.useAt.z });
 
-  // The button up. This is the exact situation that used to till the bed.
+  // Stopped at the spot you work it from, nothing named, no button. This is the
+  // exact situation that used to till the bed — five seconds of it.
   g.players.me.pressing = false;
   const soil0 = plot.soil;
   g.stepActions(5);
-  eq(plot.soil, soil0, 'standing at a rough bed with the button up turns nothing over');
-  eq(g.players.me.action?.elapsed ?? 0, 0, 'and the ring never leaves zero');
-  // It is still ARMED, though, and that distinction is the whole design: the
-  // prompt has to say what a press would do, or the shop stops telling you what
-  // is possible and you are back to guessing.
-  eq(g.players.me.action?.kind, 'till', 'while still naming what a press would do');
+  eq(plot.soil, soil0, 'five seconds beside a rough bed turns nothing over');
+  eq(g.players.me.action, null, 'and nothing is armed to say otherwise');
 
-  // ...and the same second with it down.
-  g.players.me.pressing = true;
+  // ...and the same five seconds having pointed at it, with the button still up:
+  // an errand is the consent, so this is where it happens. Same feet, same
+  // clock, one press of aim between them.
+  check(g.walkToFixture('me', plot.id).ok, 'pointing at it is accepted');
+  eq(g.actionFor(g.players.me)?.kind, 'till', 'which arms the till');
   g.stepActions(5);
-  eq(plot.soil, 'tilled', 'and pressing turns it over');
+  eq(plot.soil, 'tilled', 'and naming it is what turns it over');
 
-  // Letting go resets rather than banks — otherwise a rapid tap-tap-tap is the
-  // auto-fire this replaced, wearing a faster hat.
+  // Walking away is still the decline, and it still banks nothing — otherwise
+  // half a trip across the shop is a charge waiting for you when you come back.
   const g2 = fresh();
   const bed = g2.layout.plots[0];
   bed.crop_id = null;
   bed.soil = 'turf';
-  stand(g2, bed);
+  stand(g2, { x: bed.useAt.x, z: bed.useAt.z });
+  check(g2.walkToFixture('me', bed.id).ok, 'a named bed to walk out on');
   for (let i = 0; i < 20; i++) {
-    g2.players.me.pressing = true;
     g2.stepActions(0.4);            // most of a charge, never all of it
-    g2.players.me.pressing = false;
-    g2.stepActions(0.1);
+    const back = { x: g2.players.me.x, z: g2.players.me.z };
+    g2.players.me.x = 1; g2.players.me.z = 1;
+    g2.stepActions(0.1);            // out of reach: the charge is thrown away
+    g2.players.me.x = back.x; g2.players.me.z = back.z;
   }
-  eq(bed.soil, 'turf', 'twenty part-presses add up to nothing');
+  eq(bed.soil, 'turf', 'twenty part-charges add up to nothing');
 }
 
 // ---------------------------------------------------------------------------

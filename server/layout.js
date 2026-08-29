@@ -112,7 +112,14 @@ const FRONT_DEPTH = 8;
  * the same bargain `kindOf` strikes for a row with no `kind`.
  */
 const STORE_NORTH = 5;
-const STORE_NORTH_LEGACY = 2;
+/**
+ * Exported for the ONE other reader that has to answer the same question from
+ * outside a layout: `planOf` in server/worlds.js draws a save's floor plan for
+ * the front door without generating one, so it has to place the building the
+ * same way this file would. A second literal `2` over there is the `shell.z`
+ * strike waiting to happen again — a shop drawn two tiles off its own farm.
+ */
+export const STORE_NORTH_LEGACY = 2;
 const storeNorth = (shell) => {
   if (!shell) return STORE_NORTH;                       // a world nobody has stamped
   return Math.max(1, Math.trunc(shell.z ?? STORE_NORTH_LEGACY));
@@ -439,6 +446,17 @@ function compose(req, storeW, storeH, allowDrops = true) {
    * One clear tile off the east wall. That column is where an annex hangs off
    * the building — a bed standing in it is ground you may not build on — so the
    * farm may come in as far as it likes except for that.
+   *
+   * ⚠️ NOTHING IS LAID OUT HERE ANY MORE. The plots went indoors — see "the grow
+   * corner" below — and what is left of this is a *height*: `worldH` reserves
+   * the rows the field would have taken. It is kept rather than deleted, and
+   * the reason is the one `shell.z` gives. The term only ever binds on a shop
+   * with a lot of beds (about 24 of them, on the starting building), and for
+   * one of those, taking it away shortens the map — so every absolute tile
+   * south of the old field goes off the end of the world, and `compose` sheds
+   * and refunds whatever was standing on it. A world that is a few rows of
+   * spare grass too tall costs nothing; one that is two rows too short quietly
+   * bulldozes the far end of somebody's car park.
    */
   const farmX0 = store.x + store.w + 2;
   const farmRoom = Math.max(1, Math.floor((worldW - 2 - farmX0) / PLOT_COL_PITCH) + 1);
@@ -458,9 +476,31 @@ function compose(req, storeW, storeH, allowDrops = true) {
   // moves: the building is pinned to `storeZ` and everything in it is an
   // absolute tile, so growing northward would push the whole shop off its own
   // contents — which is the `shell.z` disaster in CLAUDE.md.
+  /**
+   * ...and the term that says BOUGHT DEPTH ACTUALLY ARRIVES, which is the third
+   * one and is the only one written against the shop rather than a constant.
+   *
+   * `WORLD_H + growH` is what promised it and it is a promise about a shop the
+   * size the game shipped with. The moment a building is tall enough that
+   * `doorLine + FRONT_DEPTH` passes it, that term stops binding and land you
+   * paid for simply does not appear: the world comes back the size it was, with
+   * nothing anywhere to say why. It was latent for as long as the farm was
+   * outdoors and it is not any more, because a grow corner is rows of building
+   * where a field was rows of grass.
+   *
+   * `STORE_NORTH + store.h` rather than `doorLine`, and that is the whole care
+   * needed. `grow` deliberately HAS NO SIDES — north and west are the same pair
+   * of numbers as south and east, and what puts the land on the far side is
+   * `growWorld` sliding everything over (see `buyUpgrade`). So a northward
+   * purchase has already moved `store.z`, and a term measured from the door
+   * would count it twice: 20 rows bought north would hand out 20 more of
+   * southern grass as well. Measured from where an unshifted shop's north wall
+   * would be, the answer is the same whichever side the land landed on.
+   */
   const worldH = Math.max(
     WORLD_H + growH,
     doorLine + FRONT_DEPTH,
+    STORE_NORTH + store.h + FRONT_DEPTH + growH,
     plotTop + plotRows * PLOT_ROW_PITCH + FRONT_DEPTH,
   );
 
@@ -506,6 +546,25 @@ function compose(req, storeW, storeH, allowDrops = true) {
   }
   setH(doorX, doorLine, E.DOOR);
   setH(doorX + 1, doorLine, E.DOOR);
+
+  // ...and the front of it is GLAZED, because the door line is the one side of
+  // the building anybody who has not been in has ever seen, and a blank run of
+  // render either side of the door reads as the back of the shop from the only
+  // angle the camera gives you. `WINDOW_FULL` is a LOOK of the wall (`GLAZING`)
+  // rather than a kind of its own — SOLID, enclosing, same price — so nothing
+  // the sim reads moves, which is what makes this safe to do to a shell that is
+  // regenerated on every re-flow rather than stamped once. Two things it is
+  // not: it is not free, because `EDGE_CHARM` pays for glass wherever it is, so
+  // every shop now opens a little more charming than a concrete box; and it is
+  // not permanent, because `req.edits` is applied below and has the last word
+  // on its line, so a player who walls a pane back up keeps the wall.
+  //
+  // The corners stay solid — a pane wants a pier to stop against — and a door
+  // clamped hard against one (`doorX` can be) simply leaves that flank blank.
+  for (let x = store.x + 1; x < store.x + store.w - 1; x++) {
+    if (x === doorX || x === doorX + 1) continue;
+    setH(x, doorLine, E.WINDOW_FULL);
+  }
 
   // ...and the same again in the back wall, opening onto the yard. Without it
   // every armful of stock walks the length of the building and round the
@@ -1165,6 +1224,20 @@ function compose(req, storeW, storeH, allowDrops = true) {
   const shelfTop = store.z + 2;
   const shelfBottom = checkoutZ - 2;
   const stationX = store.x + store.w - 3;
+  /**
+   * The first column of shelving, and therefore the width of the grow corner.
+   *
+   * It was written inline in the shelf loop as `store.x + 2` and it is named
+   * here because a second thing depends on it now. Everything west of it is
+   * clear floor by construction — a unit at `sx` is browsed from `sx + 1`, so
+   * the loop starting two in leaves the two columns against the west wall
+   * untouched — and that, plus the two rows above `shelfTop`, is the only
+   * interior the generator has never had a use for. The racks go there. Which
+   * means the two numbers have to agree or they are not a corner: widen the
+   * grow block by hand and it lands under the first aisle, narrow the shelf
+   * loop and there is a column of shop floor nobody can reach.
+   */
+  const shelfX0 = store.x + 2;
   if (stationQueue.length) {
     let nStation = 0;
     for (let sz = shelfTop; sz <= shelfBottom && stationQueue.length; sz += ROW_PITCH) {
@@ -1186,7 +1259,7 @@ function compose(req, storeW, storeH, allowDrops = true) {
   // column-major fill almost never reached, so a bought freezer was silently
   // never placed at all.
   const cells = [];
-  for (let sx = store.x + 2; sx < store.x + store.w - 1; sx += COL_PITCH) {
+  for (let sx = shelfX0; sx < store.x + store.w - 1; sx += COL_PITCH) {
     if (stationsOut.length && sx >= stationX - 1) break;
     for (let sz = shelfTop; sz <= shelfBottom; sz += SHELF_ROW_PITCH) {
       if (!free(sx, sz)) continue;
@@ -1220,36 +1293,65 @@ function compose(req, storeW, storeH, allowDrops = true) {
     reserve(shelf.browseAt);
   }
 
-  // ---- farm plots ----------------------------------------------------------
-  // A tidy block down the east flank, across then down — see `farmX0`. The world
-  // was sized for exactly this many rows, so nothing gets clipped.
-  //
-  // The bound is the FRONTAGE, not the map edge: a bed in the last few rows
-  // would be a bed on the pavement, or in the road. `defaultStreet` lays those
-  // two and `FRONT_DEPTH` is the agreement between them.
-  const farmFloor = worldH - FRONT_DEPTH;
+  // ---- the grow corner -----------------------------------------------------
+  /**
+   * THE FARM CAME INDOORS, and this is the last place that had not heard.
+   *
+   * A plot was a bed you dug into grass: it stamped `T.PLOT`, you stood ON it
+   * to work it, and a field of them down the east flank was the whole of what
+   * a farm looked like. It is a grow rack now (docs/vats.md) — a unit that
+   * blocks its cell and is worked from the aisle in front, `where: 'any'`, and
+   * therefore a thing that belongs in the building with the shelving rather
+   * than out on the lawn. So a starting shop was opening with four of them out
+   * in a field, which is not a legacy layout so much as a picture of a
+   * mechanic the game no longer has.
+   *
+   * The BACK-LEFT corner: along the back wall from the west end, then down two
+   * rows and again. The top two rows of the interior are the strip nothing else
+   * has ever wanted (`shelfTop` starts below them) and the two columns west of
+   * `shelfX0` are the other one — so the block runs across the free rows and
+   * then continues down the free columns, and it can stay where it always was,
+   * after the shelving, because it is not competing for a cell with anything
+   * above it.
+   *
+   * FACING THE AISLE, which is the bit that was quietly wrong outdoors. A rack
+   * is worked from the tile it is turned toward, and `makePlot`'s default is
+   * `rot: 2` — WEST, not the row below, whatever its own note said. Packed at
+   * `PLOT_COL_PITCH` on grass every rack but the first in a row was therefore
+   * reaching into its neighbour, failed `standableSide`, and was skipped: what
+   * came out was a single column of beds however many you owned, and it read as
+   * the farm being laid out that way on purpose. Turned south, the row below IS
+   * the aisle, which is what `PLOT_ROW_PITCH` has been leaving room for all
+   * along.
+   *
+   * It stops WEST of the doorway. `doorX` is cut through both walls, so a rack
+   * on that column against the back wall is a rack standing in the service
+   * door — and stopping short of it is also what makes this a corner rather
+   * than a wall of racks across the top of the shop.
+   */
+  const GROW_ROT = 1;                          // south: the aisle is below
+  const growEast = Math.max(store.x + 1, doorX);
+  const growFloor = checkoutZ - 2;
   let nPlot = 0;
-  for (let i = 0; budget.plot > 0; i++) {
-    if (i > req.plots * 8 + 64) break;         // belt and braces
-    const px = farmX0 + (i % farmCols) * PLOT_COL_PITCH;
-    const pz = plotTop + Math.floor(i / farmCols) * PLOT_ROW_PITCH;
-    if (pz > farmFloor || px < 1 || px > worldW - 2) continue;
-    if (at(px, pz) !== T.GRASS) continue;
-    // The aisle a rack faces has to be free for somebody to stand in, which a
-    // bed never needed — it was the standing spot. `PLOT_ROW_PITCH` is what
-    // leaves the gap; this is the check that it is still a gap, since the row
-    // below may be off the frontage or already built on.
-    const bed = makePlot(`plot-p${nPlot}`, px, pz);
-    if (!standableSide(layoutSoFar(), bed, bed.useAt)) continue;
-    set(px, pz, T.PLOT);
-    occupy(px, pz);
-    nPlot++;
-    plotsOut.push(bed);
-    reserve(bed.useAt);
-    budget.plot--;
+  for (let pz = store.z; pz <= growFloor && budget.plot > 0; pz += PLOT_ROW_PITCH) {
+    for (let px = store.x; px < growEast && budget.plot > 0; px += PLOT_COL_PITCH) {
+      if (!free(px, pz)) continue;
+      // The aisle a rack faces has to be free for somebody to stand in, which a
+      // bed never needed — it was the standing spot. `PLOT_ROW_PITCH` is what
+      // leaves the gap; this is the check that it is still a gap, since the row
+      // below may already be built on.
+      const bed = makePlot(`plot-p${nPlot}`, px, pz, GROW_ROT);
+      if (!standableSide(layoutSoFar(), bed, bed.useAt)) continue;
+      set(px, pz, T.PLOT);
+      occupy(px, pz);
+      nPlot++;
+      plotsOut.push(bed);
+      reserve(bed.useAt);
+      budget.plot--;
+    }
   }
-  // A taller building is what buys more farm: it pushes the door down, which
-  // pushes `worldH` down with it, which is another row of flank to grow into.
+  // A taller building is what buys more growing room, exactly as it always was
+  // — it is just that the rows being added are indoors now.
   if (budget.plot > 0) return incomplete(layoutSoFar(), 'h');
 
   // ---- no fence ------------------------------------------------------------

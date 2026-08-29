@@ -868,6 +868,97 @@ function grassPatch(g, w = 2, h = 2) {
     '...and a reloaded shop that saves does not wipe it');
 }
 
+// ---------------------------------------------------------------------------
+// 10. UNDER A CONVEYOR IS STILL GROUND — a LOOK, and never a JOB.
+//
+// The same partition §9 is about, said about the other cell whose tile cannot
+// move. A conveyor stamps `T.BELT` over whatever was painted and the stamp has
+// to survive (it is the only thing refusing a second belt on the square), so a
+// stroke here changes the look and nothing else. That is fine for a colour and
+// a lie for a pad: every reader of "deliveries land here" reads `tiles`, which
+// is a belt, so a bay painted under a run would draw as a bay and never take
+// one crate.
+//
+// It is asserted on BOTH sides of the wall in one shop, because the rule was
+// `lay === base` for a while — the land outdoors, floor indoors, and every
+// other look refused on both counts. Half of that is invisible: indoors the
+// only look anybody paints IS floor, so the shop's own aisles worked perfectly
+// and the run out to the yard came back "only ground goes under a conveyor"
+// over a stroke that moves no tile anywhere. Which is a refusal that reads as
+// the brush being broken, on the ordinary press — a run crosses the wall, so
+// half of every conveyor in the game is standing on grass.
+//
+// Its control is the pad, in both places, or "it lays a look" has quietly
+// become "it lays anything". And the whole of it is fingerprinted against
+// `tiles`, which is §3's claim arriving where it is least obvious: this is the
+// one stroke that is *only* a look, so a single tile moving here is a conveyor
+// that stopped being one.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const inside = freeFloor(g);
+  const out = grassPatch(g, 2, 2);
+  check(!!inside && !!out, 'there is a cell each side of the wall to lay a run on');
+
+  const indoors = { x: inside.x, z: inside.z };
+  const outdoors = { x: out.x, z: out.z };
+  for (const c of [indoors, outdoors]) {
+    const put = g.placeFixture('me', { kind: 'belt', piece: 'belt', x: c.x, z: c.z, rot: 0 });
+    check(put.ok, `a conveyor goes down at ${c.x},${c.z}`, put.error ?? '');
+    eq(groundAt(g, c.x, c.z), T.BELT, '...and the cell is made of belt');
+  }
+
+  const tilesBefore = g.layout.tiles.join(',');
+
+  // THE PRESS THAT WAS REFUSED. One design, both sides of the wall, and the
+  // outdoor half is the bug: a floor is a look, and a look under a rail is a
+  // colour with a rail on it wherever the cell happens to be.
+  for (const [where, c] of [['indoors', indoors], ['outdoors', outdoors]]) {
+    const res = g.buildGround('me', { ...c, piece: 'verify-floor-cheap' });
+    check(res.ok, `a floor may be laid under a conveyor ${where}`, res.error ?? '');
+    eq(res.laid, 1, `...one cell of it ${where}`);
+    eq(res.cost, CHEAP, `...charged for the floor ${where}`);
+    eq(groundAt(g, c.x, c.z), T.BELT, `...and the cell is still a conveyor ${where}`);
+    eq(g.ground.find((f) => f.x === c.x && f.z === c.z)?.p, 'verify-floor-cheap',
+      `...with the design remembered under it ${where}`);
+  }
+
+  // The no-op skip, which is what stops a run being re-charged for on every
+  // stroke that crosses it: the tile never moves, so "did anything change" can
+  // only ever be a question about the design.
+  const again = g.buildGround('me', { ...indoors, piece: 'verify-floor-cheap' });
+  check(again.ok && again.unchanged, 'laying the same floor under it again does nothing',
+    JSON.stringify(again));
+
+  // ...and re-tiling it is the ordinary arithmetic, one layer down.
+  const swap = g.buildGround('me', { ...outdoors, piece: 'verify-floor-dear' });
+  eq(swap.laid, 1, 'a run may be redecorated under');
+  eq(swap.cost, round2(DEAR - CHEAP * 0.5), 'charging the difference like any other re-tile');
+
+  // THE CONTROL, both sides. A pad is a sentence about what the cell DOES, and
+  // the cell does what `tiles` says, which is conveyor.
+  for (const [where, c, piece] of [
+    ['indoors', indoors, 'verify-floor-drop'],
+    ['outdoors', outdoors, 'verify-floor-paddock'],
+  ]) {
+    const res = g.buildGround('me', { ...c, piece });
+    check(!res.ok, `a pad is refused under a conveyor ${where}`, JSON.stringify(res));
+    check(/conveyor/.test(res.error ?? ''), `...and says so ${where}`, res.error ?? '');
+  }
+
+  // Not one tile moved through any of that — the claim this whole file rests
+  // on, asked where it is hardest to see.
+  eq(g.layout.tiles.join(','), tilesBefore, 'no tile in the shop moved for any of it');
+
+  // And it survives the re-flow a purchase causes, or laying a floor under your
+  // conveyor is a thing that undoes itself the next time you buy a shelf.
+  const spot = freeFloor(g);
+  g.placeFixture('me', { kind: 'shelf', x: spot.x, z: spot.z, rot: 0 });
+  eq(groundIndex(g.layout).get(`${indoors.x},${indoors.z}`), 'verify-floor-cheap',
+    'the floor under the run survives a purchase');
+  eq(groundAt(g, indoors.x, indoors.z), T.BELT, '...and the run is still a run');
+}
+
 function round2(n) { return Math.round(n * 100) / 100; }
 
 // ---------------------------------------------------------------------------

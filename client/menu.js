@@ -1,30 +1,37 @@
 /**
  * THE FRONT DOOR — pick a shop, or start a new one.
  *
- * This is the one screen that is not a HUD panel, and that is deliberate.
+ * It is a `#panel`, and that is the whole of the design. It used to be its own
+ * look — a column of cards standing on a sky, each with a contour, a side and a
+ * hard offset shadow — and what dated it is that the HUD moved and it did not:
+ * cream paper, one ranked contour drawn as an overlay, creases inside, no
+ * radius, no drop shadows. So there is one card here now, every hairline in it
+ * is a crease, and not a colour, a radius or a typeface in it was chosen — they
+ * are the token block in client/index.html, applied to a screen that had been
+ * answering the same questions in its own words.
+ *
  * `docs/ui-shell.md` says anything that lists or offers actions goes in
  * `#panel`, because a second floating div over the world goes stale, survives
  * re-flows it shouldn't and eats the Escape key. None of that applies here:
  * there is no world yet. The panel system draws over a running game and reads
  * from a snapshot; this draws before there is a socket, and reads from HTTP.
+ * What it borrows is the LOOK, and nothing else.
  *
  * It resolves with the world you chose, and `main.js` connects to that. Nothing
  * else in the client knows there is more than one shop.
  */
 
 import { money } from './money.js';
-import { START_TIERS, DEFAULT_TIER, startTier } from '../shared/start.js';
-import { DIFFICULTIES, NEW_DIFFICULTY } from '../shared/difficulty.js';
+import { START_TIERS, DEFAULT_TIER, startTier, tierById } from '../shared/start.js';
+import { DIFFICULTIES, NEW_DIFFICULTY, difficultyById } from '../shared/difficulty.js';
+import { SURROUNDS, DEFAULT_SURROUND } from '../shared/surrounds.js';
 import { defaultPiece } from '../shared/pieces.js';
-import { NAME_MAX, SHOP_NAME_MAX } from '../shared/names.js';
-// Which grammar this is being played with — here, whether focusing a field
-// summons a keyboard over half the screen. See `caret`.
-import { pillDrives } from './input.js';
 import { artForPiece } from './thumb.js';
+import { shopfrontArt, planArt } from './frontart.js';
 import { markWorldNew } from './tutor.js';
 import { mix } from './audio/mix.js';
 import { music } from './audio/music.js';
-import { loadCrew, greeterOfTheDay, turntable } from './greeter.js';
+import { loadCrew } from './greeter.js';
 import { api } from './front-api.js';
 import { bootHide } from './boot.js';
 import { wireScroll } from './scroll.js';
@@ -38,62 +45,52 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
 ));
 
 /**
- * KEEP THE PASSWORD MANAGERS OFF THIS SCREEN.
+ * NOTHING IS TYPED ON THIS SCREEN, which retired more than two fields.
  *
- * Nothing in this game is an account. There is no login, no `<form>` element
- * anywhere in the client, no password field and no submission — `who` is a
- * string minted into localStorage (see client/net.js) and the name box is
- * cosmetic. So the browser's own "save password?" prompt cannot fire, and none
- * of this is about the browser.
+ * There were two text boxes — your name and the shop's — and both were a
+ * keyboard standing between somebody and the game. Neither was load-bearing:
+ * `whoAmI` (client/net.js) mints the id this browser is known by without ever
+ * being told a name, and `createWorld` already calls a shop `Shop N` when
+ * nobody says otherwise, which is what every save in the list is called anyway.
+ * Rename it in the shop, where there is a keyboard out and you know what you
+ * are naming.
  *
- * It is about the EXTENSIONS. A lone text input labelled "You are" on a title
- * screen is, to a password manager's heuristics, a username box on a login page
- * — so it gets an inline icon, an offer to fill, and on some of them a dropdown
- * over the button underneath. What that costs is not privacy, it is the first
- * ten seconds of the game: the front door reads as a sign-up, on a game that has
- * deliberately never asked anybody for an account.
+ * What went with them is worth knowing, because each was a real fix for a real
+ * problem that only existed because there was a field here at all:
  *
- * `autocomplete="off"` alone does not do it and is documented not to — Chrome
- * ignores it wherever its own heuristics think they know better, and no
- * extension has ever read it. Each manager ships its own opt-out attribute
- * instead, so the list is a list because the vendors made it one. Unknown
- * attributes are inert everywhere else, which is why carrying five costs
- * nothing.
+ * - **`NO_FILL`**, five vendor opt-out attributes, because a lone text box
+ *   labelled "You are" on a title screen is a username box to a password
+ *   manager's heuristics — so the front door grew an icon, an offer to fill and
+ *   on some of them a dropdown over the button underneath.
+ * - **`caret`**, which focused the shop-name box on a keyboard and deliberately
+ *   did not on a phone, where focus raises half a screen of keyboard over the
+ *   form you have not read yet.
+ * - **The read-before-`act` rule in `create`**, which is why that method is now
+ *   three lines: `render` rebuilt the box from `innerHTML` to show "Working…",
+ *   so a field read inside the callback arrived at the server as "".
  *
- * One constant rather than five attributes typed onto each input: the failure
- * mode of the copy-paste version is the field somebody adds next year, and a
- * form where two boxes are quiet and the third pops an icon is worse than one
- * where they all do.
- *
- * Deliberately NOT here: `autocapitalize` and `spellcheck`. Both are about the
- * keyboard rather than about autofill, and both are things a name field wants —
- * turning them off with the rest would be a tidy-looking way to stop a phone
- * capitalising somebody's name for them.
+ * All three are gone rather than kept "in case". Anything typed on this screen
+ * brings the whole list back with it.
  */
-const NO_FILL = 'autocomplete="off" '
-  + 'data-1p-ignore data-lpignore="true" data-bwignore="true" '
-  + 'data-protonpass-ignore="true" data-form-type="other"';
 
 /**
- * Put the caret in a field — on a device where that is all it does.
+ * The five things a starting kit is counted in, and the word for each.
  *
- * Focusing the shop name is right on a keyboard: the form has four fields, three
- * of which you were always going to skip, and landing in the one you might type
- * in saves a click on the thing everybody does first.
- *
- * On a phone it is the opposite, because focus there does not put a caret in a
- * box — it raises the system keyboard, which is half the screen. The form is
- * shorter than that half, so opening the new-shop panel covers the tier prices,
- * the starting kit, the difficulty and the Start button with a keyboard, for a
- * field with a perfectly good default already in it. What you actually have to
- * do first is dismiss it.
- *
- * The fields are untouched — every one of them still takes a tap and a type, and
- * the placeholder is the default either way. What goes is the *assumption* that
- * you came here to type, which is only a safe assumption where being wrong about
- * it costs a click rather than the screen.
+ * A WORD AND NOT THE ROW'S NAME, which is worth stating because the picture
+ * beside it IS the row's: a tile is about 74px, so it wants "racks" where the
+ * catalog says "Grow Rack", and it needs a plural, which a name has no idea
+ * how to make. What it must never do is disagree — a bed is a `plot` in the
+ * code for the reason CLAUDE.md gives about every other old spelling, and it
+ * has not been a bed in the game since the farm came indoors (docs/vats.md).
+ * Same for the pen, which is a vat.
  */
-const caret = (el) => { if (el && !pillDrives()) el.focus(); };
+const KIT = [
+  { kind: 'shelf', one: 'shelf', many: 'shelves' },
+  { kind: 'freezer', one: 'freezer', many: 'freezers' },
+  { kind: 'checkout', one: 'till', many: 'tills' },
+  { kind: 'plot', one: 'rack', many: 'racks' },
+  { kind: 'pen', one: 'vat', many: 'vats' },
+];
 
 /**
  * The build catalog, for the pictures in the new-shop form.
@@ -103,8 +100,8 @@ const caret = (el) => { if (el && !pillDrives()) el.focus(); };
  * the game's catalog for the reason `loadCrew` gives about the worker kinds:
  * neither screen that wants art has a socket yet.
  *
- * Module-level and fetched once, so the form repainting on every keystroke that
- * matters is not a request. Not remembered in localStorage the way the crew is
+ * Module-level and fetched once, so the form repainting as you change a
+ * dropdown is not a request. Not remembered in localStorage the way the crew is
  * — the crew is there to cover a loading screen that is up for less time than a
  * fetch, and this is drawn *after* one.
  */
@@ -120,36 +117,37 @@ async function loadPieces() {
   return pieces;
 }
 
-/** The four things a starting kit is counted in, and the word for each. */
-const KIT = [
-  { kind: 'shelf', one: 'shelf', many: 'shelves' },
-  { kind: 'freezer', one: 'freezer', many: 'freezers' },
-  { kind: 'checkout', one: 'till', many: 'tills' },
-  { kind: 'plot', one: 'bed', many: 'beds' },
-  { kind: 'pen', one: 'pen', many: 'pens' },
-];
-
 /**
- * What a tier comes with, as the things themselves.
+ * What a tier comes with, as the things themselves — and what it comes with
+ * FIRST is the money.
  *
- * A tile per kind, and the art is `defaultPiece` → `artForPiece` — the same two
- * calls a fixture standing in the shop is drawn through, so the form cannot
- * promise a cooler the shop opens without and no second picture of a shelf has
- * to be kept matching the first. That is `client/thumb.js`'s whole rule, said
- * about a form rather than about a palette button.
+ * The cash had a row of its own under the tiles, which made it a footnote to
+ * the list rather than the first thing in it. What a size hands you is money
+ * and then things, in that order, so it is the first chip: same box, the figure
+ * standing where the art stands, in `--accent`, which is what a number that
+ * matters wears everywhere else in this chrome.
+ *
+ * The art is `defaultPiece` → `artForPiece` — the same two calls a fixture
+ * standing in the shop is drawn through, so the form cannot promise a cooler
+ * the shop opens without and no second picture of a shelf has to be kept
+ * matching the first. That is `client/thumb.js`'s whole rule, said about a form
+ * rather than about a palette button.
  *
  * A kind with no art draws its number and its word and nothing else, which is
  * the same answer the front door already gives a build with no worker art
  * authored: a grey silhouette is worse than a gap.
  */
 function kitTiles(t) {
-  return KIT.map(({ kind, one, many }) => {
+  const cash = `<div class="kitem kmoney">
+      <b>${money(t.cash)}</b><span><em>to start</em></span>
+    </div>`;
+  return cash + KIT.map(({ kind, one, many }) => {
     const n = t.fixtures[kind] ?? 0;
     if (!n) return '';
     const art = artForPiece(defaultPiece(pieces, kind), kind);
     return `<div class="kitem">
         <div class="kart">${art ?? ''}</div>
-        <div class="knum"><b>&times;${n}</b> <span>${n === 1 ? one : many}</span></div>
+        <span>&times;${n} <em>${n === 1 ? one : many}</em></span>
       </div>`;
   }).join('');
 }
@@ -166,6 +164,66 @@ function ago(ms) {
 }
 
 const REMEMBERED = 'sns-world';
+
+/**
+ * THE CHIPS, and why each one has a picture on it.
+ *
+ * Every shop is called `Shop N`, so the three things you picked when you made
+ * it are the only thing that tells one save from another before you open it —
+ * which makes them identity rather than detail, and puts them on the row.
+ *
+ * They were a sentence with middots in it, which is a list pretending to be a
+ * line of text: flat by construction, because every word in it is the same size
+ * and weight as every other. As chips they are three objects you can count at a
+ * glance, and the glyph is what lets a chip be shorter than the words it
+ * replaced — an awning that widens with the size, a three-bar gauge for how
+ * hard the town is, and a tree, a house or a tower for where it stands. You
+ * read the shape before you read the word.
+ *
+ * Drawn here rather than fetched, and that is the one place this file breaks
+ * `thumb.js`'s rule on purpose: these are not pictures of a fixture the shop
+ * draws, they are marks for three tables that have no art at all. `currentColor`
+ * throughout, so a chip that takes a colour takes its glyph with it.
+ */
+const CHIP_GLYPH = {
+  corner: '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><rect x="2.2" y="3" width="4.6" height="5.4" fill="currentColor"/><path d="M1 3.2 4.5 1 8 3.2" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+  mini: '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><rect x="1.2" y="3" width="6.6" height="5.4" fill="currentColor"/><path d="M.2 3.2 4.5 1 8.8 3.2" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+  super: '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><rect x=".4" y="2.6" width="8.2" height="5.8" fill="currentColor"/><path d="M0 2.8 4.5.4 9 2.8" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+  relaxed: '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><rect x=".6" y="6" width="2" height="2.4" fill="currentColor"/><rect x="3.5" y="6" width="2" height="2.4" fill="currentColor" opacity=".35"/><rect x="6.4" y="6" width="2" height="2.4" fill="currentColor" opacity=".35"/></svg>',
+  normal: '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><rect x=".6" y="6" width="2" height="2.4" fill="currentColor"/><rect x="3.5" y="4.2" width="2" height="4.2" fill="currentColor"/><rect x="6.4" y="6" width="2" height="2.4" fill="currentColor" opacity=".35"/></svg>',
+  hard: '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><rect x=".6" y="6" width="2" height="2.4" fill="currentColor"/><rect x="3.5" y="4.2" width="2" height="4.2" fill="currentColor"/><rect x="6.4" y="2" width="2" height="6.4" fill="currentColor"/></svg>',
+  country: '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><circle cx="4.5" cy="3.4" r="2.8" fill="currentColor"/><rect x="3.9" y="5.6" width="1.3" height="3" fill="currentColor"/></svg>',
+  suburb: '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><path d="M.6 4 4.5.8 8.4 4v4.4H.6Z" fill="currentColor"/></svg>',
+  city: '<svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true"><rect x=".6" y="2.4" width="3" height="6" fill="currentColor"/><rect x="4.6" y=".6" width="3.8" height="7.8" fill="currentColor" opacity=".6"/></svg>',
+};
+
+const chip = (id, label, cls = '') => (label
+  ? `<span class="tg${cls ? ` ${cls}` : ''}">${CHIP_GLYPH[id] ?? ''}${esc(label)}</span>`
+  : '');
+
+/**
+ * THE THREE DECISIONS, AS THREE DROPDOWNS ON ONE ROW.
+ *
+ * Nine buttons became three, and what you read across the form is the shop you
+ * are about to get — "Corner shop, Normal, Countryside" — rather than nine
+ * options of which six are off. It also gives each option somewhere to put its
+ * own blurb: both of these tables carry one, and a row of buttons could only
+ * ever hang it on a `title`, which is a sentence nobody on a phone will ever
+ * see.
+ *
+ * `blurb` is the field, not the wording: `SURROUNDS` spells its own `sub`, and
+ * the table is the one place any of this is written down. See shared/start.js,
+ * shared/difficulty.js and shared/surrounds.js.
+ */
+const DROPS = [
+  { key: 'tier', rows: START_TIERS, blurb: (o) => o.blurb },
+  { key: 'difficulty', rows: DIFFICULTIES, blurb: (o) => o.blurb },
+  { key: 'surround', rows: SURROUNDS, blurb: (o) => o.sub },
+];
+
+/** The caret: a well sunk into the face with a solid triangle in it. */
+const CARET = '<span class="caret" aria-hidden="true"><svg width="9" height="7" '
+  + 'viewBox="0 0 9 7"><path d="M.6 1.2h7.8L4.5 6.4Z" fill="currentColor"/></svg></span>';
 
 /**
  * A NEW SHOP IS NOT ENTERED IN BUILD MODE, WHATEVER THE LAST ONE WAS.
@@ -229,12 +287,12 @@ let JOIN_ENABLED = false;
 export function enableJoin(on = true) { JOIN_ENABLED = on; }
 
 /**
- * How long "click again to delete" stays armed.
+ * How long "press it again to delete" stays armed.
  *
  * Same latch the worker menu uses for letting someone go, and for the same
- * reason: the row is one button from Play, and nothing comes back. A modal
- * would ask harder, but it asks *somewhere else* — you read a dialog about a
- * name instead of looking at the card you meant to keep.
+ * reason: the ✕ sits on a row that is itself the Play button, and nothing comes
+ * back. A modal would ask harder, but it asks *somewhere else* — you read a
+ * dialog about a name instead of looking at the shop you meant to keep.
  */
 const DELETE_ARM_MS = 4000;
 
@@ -257,15 +315,27 @@ export class Menu {
     this.error = null;
     this.creating = false;
     // Which size of shop the new-shop form is offering. Held on the menu rather
-    // than read off the DOM at submit time because `render` rebuilds the box
-    // from `innerHTML` on every keystroke that matters — see `create`, which
-    // learnt the same lesson about the text fields the hard way.
+    // than read off the DOM, because the form repaints in place as you change
+    // it and a value living in a `.on` class somewhere is a value that goes
+    // with the next repaint.
     this.tier = DEFAULT_TIER;
     // The *creation* default, which is deliberately not the one a save with
     // nothing to say reads as — see shared/difficulty.js. The form offering
     // `relaxed` would quietly make the gentle game the one everybody keeps
     // getting, which is the thing this whole preset exists to stop.
     this.difficulty = NEW_DIFFICULTY;
+    // ...and where the shop stands, held here for the same reason and defaulting
+    // the same way a save with nothing to say reads — see shared/surrounds.js.
+    // Unlike the two above it, this one used to be a row in the in-game Menu:
+    // it is a fact about the save rather than about the person, so it belongs
+    // to the shop, and the moment a shop is a thing you *make* the honest place
+    // to ask is the form that makes one. Which also retires the awkward half of
+    // the old row — a picture you could change on somebody else's screen while
+    // they were standing in it.
+    this.surround = DEFAULT_SURROUND;
+    // Which of the three lists is showing, by key. One at a time: three open
+    // lists over one another is a form with no answer visible in it.
+    this.openDrop = null;
     // `{ id, at }` for the one shop whose Delete is armed. By id, not by index:
     // a refresh re-sorts the list, and an armed row number would end up over
     // somebody else's shop.
@@ -286,6 +356,7 @@ export class Menu {
      * on screen to say which one is doing it.
      */
     this.hushed = false;
+    this.rootWired = false;
   }
 
   /**
@@ -298,6 +369,7 @@ export class Menu {
    */
   choose() {
     this.root.hidden = false;
+    this.wireRoot();
     return new Promise((resolve) => {
       this.resolve = resolve;
       this.refresh();
@@ -306,7 +378,11 @@ export class Menu {
 
   async refresh() {
     try {
-      const { worlds } = await api('GET', '/worlds');
+      // `?plans=1` is the floor plan per save, which is what a row's square is
+      // drawn from — see `planOf` in server/worlds.js. Asked for by name because
+      // the same endpoint is `list_worlds`, and a picture is the one thing an
+      // agent reading that answer has no use for.
+      const { worlds } = await api('GET', '/worlds?plans=1');
       this.worlds = worlds;
       // A list of nothing is not a choice, so the form is what this screen IS
       // on a first run: opening on an empty list and a button that says "+ New
@@ -316,15 +392,15 @@ export class Menu {
       // which is the same first run wearing a later day. Cancel still shuts it
       // (that redraws without refetching), so it is a default and not a latch.
       if (!this.worlds.length) this.creating = true;
-      // The crew, for the turntable over the title. `loadCrew` keeps it for the
-      // life of the page, which is what makes this cheap to call from
-      // `refresh` — that runs on every delete and every arm, and a bot that
-      // changed identity each time you armed a Delete would read as the page
-      // reloading under you. The loading screen behind this one has usually
-      // fetched it already.
+      // The crew, and NOT for this screen: the turntable that used to stand
+      // over the title is the art band now. `loadCrew` is what leaves a bot in
+      // localStorage for the LOADING screen, which is drawn before any module
+      // has run and therefore cannot fetch one of its own — see client/boot.js.
+      // Drop this line and the loader silently loses its robot, one visit later,
+      // on a screen nobody is looking at while it happens.
       await loadCrew(api);
-      // Before the paint rather than after it: the strip is drawn from these
-      // rows, and art that lands a tick late is a form that reflows under
+      // Before the paint rather than after it: the kit tiles are drawn from
+      // these rows, and art that lands a tick late is a form that reflows under
       // somebody reading it. Both are one fetch for the life of the page.
       await loadPieces();
       this.error = null;
@@ -334,19 +410,21 @@ export class Menu {
     this.render();
   }
 
-  /**
-   * One of your crew, turning, over the title. See client/greeter.js — the
-   * loading screen stands the same bot in front of the same sky, and the pick
-   * is per-DAY rather than per-render so neither screen has to tell the other
-   * which machine it chose.
-   */
-  greeter() {
-    return turntable(greeterOfTheDay());
+  /** What the art band is a picture OF, which is the two picks that are a look. */
+  picks() {
+    if (this.creating) return { tier: this.tier, surround: this.surround };
+    // Otherwise the shop you were in last, which is the head of the list: the
+    // rows come back most-recently-played first. A front door that is a picture
+    // of YOUR shop beats one that is a picture of a shop.
+    const last = this.worlds[0] ?? {};
+    return { tier: last.tier, surround: last.surround };
   }
 
   get name() {
-    return this.root.querySelector('#menu-name')?.value.trim()
-      ?? localStorage.getItem('sns-name') ?? '';
+    // Whatever was last typed into a name box, from back when there was one.
+    // `whoAmI` (client/net.js) is what actually identifies this browser, so this
+    // is a label on a body and nothing depends on it being set.
+    return localStorage.getItem('sns-name') ?? '';
   }
 
   // ---- actions ------------------------------------------------------------
@@ -398,49 +476,38 @@ export class Menu {
      * step with the thing it describes.
      */
     music.hold('menu', false);
-    const name = this.name;
-    if (name) localStorage.setItem('sns-name', name);
     localStorage.setItem(REMEMBERED, world.id);
     this.root.hidden = true;
-    this.resolve?.({ worldId: world.id, name, world });
+    this.resolve?.({ worldId: world.id, name: this.name, world });
   }
 
   /**
-   * Switch which size of shop the form is offering.
+   * Switch one of the three picks, and repaint what depends on it.
    *
-   * In place rather than by redrawing, and both halves of that are the point.
-   * `render` rebuilds the box from `innerHTML`, so a redraw would throw away
-   * whatever cash you had typed — the trap `create` documents at length — and
-   * it would move the caret to the name field, three rows above the thing you
-   * just clicked. Only three things depend on the choice, so all three are
-   * moved by hand: which button is lit, what the shop comes with, and what the
-   * empty cash box is promising.
+   * In place rather than through `render`, and the reason survives the fields
+   * having gone: `render` rebuilds the box from `innerHTML`, so a redraw here
+   * would throw the list's scroll position away and rebuild eight save rows and
+   * their eight floor plans to change one word. Three things depend on the
+   * choice and all three are moved by hand — the buttons, the starting kit, and
+   * the picture at the top, which is the whole reason these two questions are
+   * worth asking with a picture on screen at all.
    */
-  pickTier(id) {
-    this.tier = id;
-    const t = startTier(id);
-    this.root.querySelectorAll('[data-tier]').forEach((el) => {
-      el.classList.toggle('on', el.dataset.tier === id);
-    });
+  pick(key, value) {
+    if (!['tier', 'difficulty', 'surround'].includes(key)) return;
+    this[key] = value;
+    this.openDrop = null;
+    this.repaintForm();
+  }
+
+  repaintForm() {
+    const drops = this.root.querySelector('.menu-drops');
+    if (drops) drops.innerHTML = this.dropsInner();
     const kit = this.root.querySelector('.kitrow');
-    if (kit) kit.innerHTML = kitTiles(t);
-    const cash = this.root.querySelector('#menu-new-cash');
-    if (cash) cash.placeholder = t.cash;
-  }
-
-  /**
-   * ...and the same for how hard the town is, in place for the same reason.
-   *
-   * One thing depends on it — which button is lit. Kept as its own method
-   * rather than folded into `pickTier` because the two rows are two questions:
-   * a redraw of one must not touch the other's choice, which is exactly what a
-   * shared `render` would do.
-   */
-  pickDifficulty(id) {
-    this.difficulty = id;
-    this.root.querySelectorAll('[data-diff]').forEach((el) => {
-      el.classList.toggle('on', el.dataset.diff === id);
-    });
+    if (kit) kit.innerHTML = kitTiles(startTier(this.tier));
+    const art = this.root.querySelector('.menu-art');
+    // `outerHTML`, because the band IS the `<svg>` — and it carries no listener,
+    // which is what makes replacing the element rather than its contents safe.
+    if (art) art.outerHTML = shopfrontArt(this.picks());
   }
 
   /**
@@ -449,27 +516,21 @@ export class Menu {
    * The alternative — create, then find it in the list, then press Play — is
    * two extra decisions after you already said what you wanted, and the list is
    * sorted by last played, so a brand new world is not where you are looking.
+   *
+   * Three fields, and the two that are not sent are the point. `createWorld`
+   * names an unnamed shop `Shop N` by counting the rows, and takes the tier's
+   * own cash when nobody says otherwise — so omitting both is not a gap, it is
+   * the server being the one thing that knows how many shops there are. A name
+   * minted here would be a second opinion about it, and two tabs would mint the
+   * same one.
    */
   async create() {
-    // Read the form BEFORE `act`, never inside it. `act` renders to show
-    // "Working…", and `render` rebuilds the whole box from innerHTML — so every
-    // input is a brand new empty element by the time the callback runs, and
-    // every field arrives at the server as "". That is invisible from the code
-    // and silent in the game: you type 9999, the server is told nothing, and you
-    // start on the default with no error anywhere to say why.
-    const field = (id) => this.root.querySelector(id)?.value.trim() ?? '';
-    // Sent as typed, blanks and all: the server reads an empty box as "you
-    // didn't say" and uses the default, which is the same thing the greyed-out
-    // number in the box is promising. Parsing here would mean two opinions
-    // about what "" means, and the placeholders would only be right by luck.
-    const asked = {
-      name: field('#menu-new-name'),
-      tier: this.tier,
-      difficulty: this.difficulty,
-      cash: field('#menu-new-cash'),
-    };
     await this.act(async () => {
-      const { world } = await api('POST', '/worlds', asked);
+      const { world } = await api('POST', '/worlds', {
+        tier: this.tier,
+        difficulty: this.difficulty,
+        surround: this.surround,
+      });
       // This browser made this shop, so this browser is the one that owes
       // somebody a tour of it. Marked HERE and not inferred from `day === 1`
       // once the game is up: that is also true of a shop somebody made
@@ -485,26 +546,26 @@ export class Menu {
   }
 
   /**
-   * Deleting asks first, and asks on the card rather than in a dialog.
+   * Deleting asks first, and asks on the row rather than in a dialog.
    *
-   * It is the only way a shop ever disappears — nothing expires a save — and the
-   * row it sits on is two rows from Play. So the first click only arms it: the button
-   * says what a second one does, the card says what goes with it, and the shop
-   * you are about to lose is still in front of you with its day and its cash
-   * on it. A `confirm()` had to reprint all of that, badly, and by name.
+   * It is the only way a shop ever disappears — nothing expires a save — and
+   * the ✕ stands on the row that IS the Play button. So the first press only
+   * arms it: the row says what a second one does, the shop you are about to
+   * lose is still in front of you with its day, its money and its own floor
+   * plan on it, and the ✕ goes red and stays put. A `confirm()` had to reprint
+   * all of that, badly, and by name.
    *
-   * Which is why arming may not resize anything: the warning takes over the
-   * `.wsub` line's cell and the button holds both spellings of its label, so
-   * the card is the same size armed as not (`.wswap`, index.html). Growing the
-   * card moved every card below it — and the Play button of the one you were
-   * aiming at — under a cursor that had just been told to click again.
+   * Which is why arming may not resize anything. The warning takes over the
+   * chips' own cell (`.wswap`, index.html), so the row is exactly as tall armed
+   * as not — growing it moved every row below it, and the row you were aiming
+   * at, under a cursor that had just been told to press again.
    */
   async remove(world) {
     if (!this.armed(world)) {
       clearTimeout(this.armTimer);
       this.arm = { id: world.id, at: Date.now() };
-      // Nothing here ticks, so the latch has to expire itself or the card sits
-      // saying "click again" long after clicking again has stopped deleting.
+      // Nothing here ticks, so the latch has to expire itself or the row sits
+      // saying "press again" long after pressing again has stopped deleting.
       this.armTimer = setTimeout(() => this.disarm(true), DELETE_ARM_MS);
       this.render();
       return;
@@ -514,31 +575,94 @@ export class Menu {
 
   // ---- drawing ------------------------------------------------------------
 
-  card(w, i) {
+  /**
+   * ONE SAVE, AS A ROW.
+   *
+   * It was a bordered card inside a bordered box, which is the one thing
+   * `#panel`'s own note rules out: a line eight pixels inside another line is
+   * two boxes rather than a thing on a thing. So the saves are rows of one
+   * card, divided by creases, and the ROW IS THE BUTTON — Play was a slab per
+   * save, eight of them down a list, every one saying the thing the row already
+   * said.
+   *
+   * Three things about the shape are load-bearing and invisible.
+   *
+   * The ✕ is a SIBLING of the row rather than a child of it. A button inside a
+   * button is invalid and browsers do their own thing with it, and the two-press
+   * delete has to stay a real button — reachable by keyboard, with its own
+   * label — rather than a span the row's own handler sniffs for.
+   *
+   * `Open` is a band across the foot of the picture and not a badge on the name
+   * line. Beside the name it was a second object on the one line that should
+   * hold one thing, and because it is there on some saves and not others,
+   * everything after it started at a different x on every row.
+   *
+   * `.when` and the ✕ share ONE anchor, the row's own top-right corner. In flow
+   * they were pushed along by the name and the badge, so "just now" and "61 min
+   * ago" sat at two different x on two rows of one list.
+   */
+  row(w, i) {
     const last = localStorage.getItem(REMEMBERED) === w.id;
     const arm = this.armed(w);
+    const live = w.live
+      ? `<span class="live">${w.players ? `${w.players} here` : 'Open'}</span>`
+      : '';
     return `
-      <div class="wcard${last ? ' last' : ''}${arm ? ' arm' : ''}">
-        <div class="wtop">
-          <div class="wname">${esc(w.name)}</div>
-          ${w.live ? `<span class="wlive">${w.players
-            ? `${w.players} playing`
-            : 'open'}</span>` : ''}
-        </div>
-        <div class="wstats">
-          <b>Day ${w.day}</b><span>${money(w.cash)}</span><span>${esc(w.season)}</span>
-        </div>
-        <div class="wswap${arm ? ' on' : ''}">
-          <div class="wsub">
-            ${w.upgrades} upgrade${w.upgrades === 1 ? '' : 's'} ·
-            ${w.staff} staff · played ${ago(w.played_at)}
+      <div class="shop-row${last ? ' last' : ''}${arm ? ' arm' : ''}">
+        <button class="shop" type="button" data-play="${i}">
+          <span class="th">${planArt(w.plan)}${live}</span>
+          <span class="col">
+            <span class="nm">${esc(w.name)}</span>
+            <span class="cash">${money(w.cash)}<em>Day ${w.day}</em></span>
+            <span class="wswap${arm ? ' on' : ''}">
+              <span class="tags">
+                ${chip(w.tier, tierById(w.tier)?.name)}
+                ${chip(w.difficulty, difficultyById(w.difficulty)?.name,
+    w.difficulty === 'hard' ? 'hard' : '')}
+                ${chip(w.surround, SURROUNDS.find((s) => s.id === w.surround)?.name)}
+              </span>
+              <span class="warn">Press &times; again and this shop is gone.</span>
+            </span>
+          </span>
+        </button>
+        <span class="when">${ago(w.played_at)}</span>
+        <button class="x" type="button" data-del="${i}"
+          aria-label="Delete ${esc(w.name)}" title="Delete this shop">&times;</button>
+      </div>`;
+  }
+
+  /** The three lists, drawn from their own tables. */
+  dropsInner() {
+    return DROPS.map(({ key, rows, blurb }) => {
+      const cur = rows.find((o) => o.id === this[key]) ?? rows[0];
+      const open = this.openDrop === key;
+      return `<div class="drop${open ? ' open' : ''}">
+          <button class="dbtn" type="button" data-drop-open="${key}"
+            aria-expanded="${open}">
+            <span class="lab">${esc(cur.name)}</span>${CARET}
+          </button>
+          <div class="dlist">
+            ${rows.map((o) => `
+              <button class="dopt${o.id === cur.id ? ' on' : ''}" type="button"
+                data-drop-key="${key}" data-drop-val="${o.id}">
+                <b>${esc(o.name)}</b><i>${esc(blurb(o))}</i>
+              </button>`).join('')}
           </div>
-          <div class="wwarn">This shop goes for good. Items and crops you made stay.</div>
-        </div>
-        <div class="wacts">
-          <button class="wplay" data-play="${i}">${w.live ? 'Join' : 'Play'}</button>
-          <button class="wghost wdel wswap${arm ? ' on' : ''}" data-del="${i}"
-            ><span>Delete</span><span>Click again</span></button>
+        </div>`;
+    }).join('');
+  }
+
+  form() {
+    return `
+      <div class="menu-form">
+        <div class="menu-drops">${this.dropsInner()}</div>
+        <div class="kit"><div class="kitrow">${kitTiles(startTier(this.tier))}</div></div>
+        <!-- NO JOIN IN HERE. It lives on the row you got here from, one press
+             away behind Cancel — and a third button under a decision you are
+             part way through is an exit sitting where the answer goes. -->
+        <div class="menu-row">
+          <button class="menu-btn go" id="menu-create" type="button">Start it</button>
+          <button class="menu-btn" id="menu-cancel" type="button">Cancel</button>
         </div>
       </div>`;
   }
@@ -546,211 +670,110 @@ export class Menu {
   render() {
     // The loading screen steps aside HERE rather than when the menu is
     // unhidden, and the gap between the two is a fetch. Both screens draw the
-    // same sky (`.outdoors`), so they cannot both be up — two copies composite
-    // and the sun doubles — and hiding the loader at `choose()` would leave an
-    // empty sky for as long as `/worlds` takes, which is precisely the wait the
-    // loader exists for. Unconditional and idempotent: after the shop opens the
-    // element is gone, and the Leave path builds a second Menu against it.
+    // same ground (`.outdoors`), so they cannot both be up, and hiding the
+    // loader at `choose()` would leave a bare field for as long as `/worlds`
+    // takes — which is precisely the wait the loader exists for. Unconditional
+    // and idempotent: after the shop opens the element is gone, and the Leave
+    // path builds a second Menu against it.
     bootHide();
-    const name = localStorage.getItem('sns-name') ?? '';
-    // The LIST is the scroll container now, and it is inside the thing being
+    // The LIST is the scroll container, and it is inside the thing being
     // rebuilt — so emptying `root` collapses it and the browser pins it to 0.
     // With eight shops that reads as the menu jumping to the top every time you
-    // arm or delete one, and the card you clicked leaves the screen. Read off
-    // `.menu-list` rather than off `root`: root has not scrolled since the page
-    // stopped scrolling, so the old line restored 0 onto 0 and quietly did
-    // nothing — which is worse than being wrong, because it still looks right.
+    // arm or delete one, and the row you pressed leaves the screen.
     const scroll = this.root.querySelector('.menu-list')?.scrollTop ?? 0;
     this.root.innerHTML = `
       <div class="menu-box">
-        <!-- The one control on this screen that is not about choosing a shop.
-             The radio and the Sound rows both live in the HUD, and the HUD does
-             not exist yet — so the music starts on your first click here and
-             there is nothing anywhere to turn it off with. Somebody opening
-             this at their desk has no way to shut the game up short of the tab
-             mute, which is the browser doing the game's job.
+        <!-- The one thing on this screen no in-game panel has, and the only
+             place the front door says what the game IS rather than which save
+             you want. It answers to the two picks that are a picture — see
+             the picks method above, and client/frontart.js. Note that a
+             backtick anywhere in this comment would end the template literal it
+             is written inside, which is why there is not one in it. -->
+        ${shopfrontArt(this.picks())}
 
-             It quietens THIS SCREEN'S radio and nothing else. It shipped as
-             mix.setMuted, which is the master knob the in-game Sound rows own —
-             persisted to localStorage and shared with the HUD — so hushing the
-             front door followed you into the shop and took the tills, the doors
-             and the crew with it. What that reads as is a game whose sound never
-             came back, hours later, with nothing connecting it to a button on a
-             screen you saw once. A hold on the music is the honest scope: the
-             radio only, and released the moment this screen goes. -->
-        <button id="menu-mute" type="button" class="menu-mute"
-          title="${this.hushed ? 'Menu music off' : 'Menu music on'}"
-          aria-label="${this.hushed ? 'Turn the menu music on' : 'Turn the menu music off'}"
-        >${this.hushed ? '🔇' : '🔊'}</button>
+        <!-- THE WORDMARK STOPPED BEING A TRICK. It wore a 6px cream keyline and
+             a drop shadow because it stood on a blue sky and had to be cut out
+             of it; on paper it is just a word. It is beside the tagline rather
+             than over it because the header is one band now, and centred rather
+             than baselined — the tagline wraps and the wordmark does not, so a
+             shared baseline hangs the second line below the logo. -->
+        <div class="menu-head">
+          <h1>Sprocket <span>&amp;</span> Stock</h1>
+          <p class="menu-tag">Run a shop with a crew of robots</p>
+        </div>
 
-        <!-- The tip jar, and this is the one screen it belongs on: it is the
-             only moment in the game where nobody is mid-anything. Asking from
-             the HUD interrupts a shop; asking on the front door does not.
-
-             It sits in the OPPOSITE CORNER to the mute button and for the same
-             reason, which is why the two are written next to each other. In the
-             column it was a sentence and a button between the last save and the
-             bottom of the box — a whole section of the menu, at the weight of
-             the thing somebody actually came here for, pushing the list of
-             shops up the screen to make room for an ask nobody arrived to
-             answer. Fixed to the corner it costs the menu nothing and is still
-             there to be found. It is early in the markup rather than last
-             because it is out of flow: where it sits in here decides nothing,
-             and it belongs beside the other bit of screen furniture.
-
-             THE LINE THAT USED TO BE ABOVE IT IS GONE, and gone rather than
-             tucked into a tooltip: a caption pinned under a 440px column on a
-             phone is not a footnote, it is a paragraph lying across the bottom
-             of the menu, which is the complaint that moved this here in the
-             first place. The Menu's own row carried those words for a while
-             afterwards and has since dropped them too — see client/links.js:
-             the label says the whole thing, and a caption under it is a pitch.
-
-             A plain <a> rather than a row with a handler, deliberately. Every
-             other press on this screen resolves the menu with a world, so a
-             button that instead navigates away is the one control here whose
-             outcome is a different kind of thing — and a link is the one widget
-             every person alive already knows leaves the page. It also means the
-             browser owns the middle-click, the long-press and the hover URL,
-             none of which a handler would have given back.
-
-             It is a BUTTON to look at and a link to use. As a bare hyperlink it
-             was the only underlined text on a screen made entirely of tiles, in
-             the one colour this palette reserves for marks — which is why it
-             read as an error message rather than as an offer. It borrows
-             .menu-add's language at two thirds the size: same cream, same inset
-             keyline, same press-down, quieter than the button somebody actually
-             came here for.
-
-             What the label must never say is "buy me a coffee" — there is no
-             "me" here, and the coffee is the donation platform's metaphor
-             rather than this game's. The wording and the argument for it live
-             in client/links.js.
-
-             noopener matters more here than usual: this tab holds an unsaved
-             shop. See client/links.js — and note that a backtick anywhere in
-             this comment would end the template literal it is written inside,
-             which is why there is not one in it. -->
-        <a class="menu-support" href="${SUPPORT_URL}"
-          target="_blank" rel="noopener noreferrer"
-        >${ICONS.support}${SUPPORT_LABEL}</a>
-
-        ${this.greeter()}
-        <h1>Sprocket <span>&amp;</span> Stock</h1>
-        <p class="menu-tag">Run a shop with a crew of robots. You're the only human in it.</p>
-
-        <label class="menu-field">
-          <span>You are</span>
-          <input id="menu-name" maxlength="${NAME_MAX}" placeholder="your name"
-            ${NO_FILL} value="${esc(name)}" />
-        </label>
-
-        ${this.notice ? `<div class="menu-err soft">${esc(this.notice)}</div>` : ''}
-        ${this.error ? `<div class="menu-err">${esc(this.error)}</div>` : ''}
-
-        <!-- Starting one comes BEFORE the list of them, and the form takes the
-             button's place rather than opening under it. Both are the same
-             point: what you came here to do is at the top either way, and a
-             list that grows by one every time you play does not push it further
-             down the page each time. -->
-        ${this.creating
-          ? `<div class="menu-new">
-              <!-- The two things you TYPE, on one line. They were three rows
-                   apart with the sizes and the difficulty between them, which
-                   made the money read as a consequence of the choices rather
-                   than as a box — and the cash box is the one field whose whole
-                   job is to disagree with the size you picked. Two thirds to the
-                   name because it wraps and a number does not. -->
-              <div class="menu-duo">
-                <label class="menu-field">
-                  <span>Called</span>
-                  <input id="menu-new-name" maxlength="${SHOP_NAME_MAX}" placeholder="Corner Shop"
-                    ${NO_FILL} />
-                </label>
-                <!-- No paragraph under it. Everything one said is said by the
-                     thing it was describing: the placeholder is the default for
-                     the size that is lit, and a silly number is clamped rather
-                     than refused. "You can only choose this now" is a rule about
-                     a form you are looking at once. -->
-                <label class="menu-field mf-cash">
-                  <span>Cash</span>
-                  <input id="menu-new-cash" type="number" min="0" max="1000000"
-                    ${NO_FILL} placeholder="${startTier(this.tier).cash}" />
-                </label>
-              </div>
-              <!-- No seed box. It was a field whose honest label is "type
-                   something and the building will be different", which is a
-                   question nobody starting a shop has an answer to — and the
-                   only way to use it well is to have played the seed already.
-                   The API still takes one, because a balance run comparing two
-                   worlds needs to name the same building twice; a person gets a
-                   random one. -->
-              <!-- How much shop, rather than how many shelves. The three
-                   numbers that were here asked you to size a building before
-                   you had seen one — and the middle one silently sized the
-                   *building*, because the generator grows the shop until its
-                   contents fit. So the sizes are named, and each says what it
-                   comes with. See shared/start.js. -->
-              <div class="tiers">
-                ${START_TIERS.map((t) => `
-                  <button class="tier${t.id === this.tier ? ' on' : ''}" data-tier="${t.id}"
-                    title="${esc(t.blurb)}">
-                    <b>${esc(t.name)}</b><span>${money(t.cash)}</span>
-                  </button>`).join('')}
-              </div>
-              <!-- ...and what that size actually is, in things rather than in a
-                   sentence. It was two lines of prose — the four counts spelled
-                   out, then a paragraph saying the same in shop words — sitting
-                   directly above a second paragraph about the difficulty, which
-                   is a form that reads as a page of notes. The pictures say the
-                   counts, so what is left in words is the one thing no picture
-                   can show: what the town is like. The tier's own sentence is
-                   still on the button it belongs to. -->
-              <div class="kit">
-                <span class="kithead">You open with</span>
-                <div class="kitrow">${kitTiles(startTier(this.tier))}</div>
-              </div>
-              <!-- ...and how hard the town is, which is the OTHER axis and
-                   deliberately its own row. Size is where you begin; this is
-                   what happens next, and folding them into one list of six
-                   buttons would mean the only way to play a hard game is to
-                   play a small one. See shared/difficulty.js.
-
-                   No numbers on these buttons, where the sizes carry their
-                   cash. A tier's number is a thing you can hold in your hand on
-                   day one; "a bad week settles at 22% reputation" is not a
-                   comparison anybody can make before they have played, so the
-                   blurb says what it feels like instead. -->
-              <div class="tiers">
-                ${DIFFICULTIES.map((d) => `
-                  <button class="tier${d.id === this.difficulty ? ' on' : ''}" data-diff="${d.id}"
-                    title="${esc(d.blurb)}">
-                    <b>${esc(d.name)}</b>
-                  </button>`).join('')}
-              </div>
-              <div class="wacts">
-                <button class="wplay" id="menu-create">Start it</button>
-                <button class="wghost" id="menu-cancel">Cancel</button>
-              </div>
-            </div>
-            <!-- Joining outlives the form, which it did not have to before the
-                 form could be what you land on. A guest is somebody with no
-                 saves of their own — exactly the empty list that now opens this
-                 — so hiding Join behind Cancel would put the one thing they
-                 came for behind a button that reads as backing out. -->
-            ${JOIN_ENABLED ? `<div class="menu-adds menu-alt">
-              <button class="menu-add menu-side" id="menu-join">⇄ Join a friend</button>
-            </div>` : ''}`
-          : `<div class="menu-adds"><button class="menu-add" id="menu-open-new">+ New shop</button>${
-            JOIN_ENABLED ? '<button class="menu-add menu-side" id="menu-join">⇄ Join a friend</button>' : ''}</div>`}
+        <div class="menu-top">
+          ${this.notice ? `<div class="menu-err soft">${esc(this.notice)}</div>` : ''}
+          ${this.error ? `<div class="menu-err">${esc(this.error)}</div>` : ''}
+          <!-- Starting one comes BEFORE the list of them, and the form takes the
+               button's place rather than opening under it. Both are the same
+               point: what you came here to do is at the top either way, and a
+               list that grows by one every time you play does not push it
+               further down the page each time.
+               New shop and Join share a row, two thirds to the thing almost
+               everybody means — and the two are DIFFERENT COLOURS, which is the
+               one thing that row cannot do without. Two greys with the same
+               black side read as a single bar, because the eye joins two
+               identical lines at the same height, and the 2/3 · 1/3 split
+               disappears exactly where that split is the whole message. -->
+          ${this.creating
+            ? this.form()
+            : `<div class="menu-row">
+                <button class="menu-btn go" id="menu-open-new" type="button">+ New shop</button>
+                ${JOIN_ENABLED
+    ? '<button class="menu-btn" id="menu-join" type="button">&#8644; Join</button>'
+    : ''}
+              </div>`}
+        </div>
 
         <div class="menu-list">
           ${this.worlds.length
-            ? this.worlds.map((w, i) => this.card(w, i)).join('')
+            ? this.worlds.map((w, i) => this.row(w, i)).join('')
             : '<div class="menu-empty">No shops yet. Start one above.</div>'}
         </div>
 
-        <p class="menu-foot">${this.busy ? 'Working…' : '&nbsp;'}</p>
+        <!-- THE TWO CONTROLS THAT ARE NOT ABOUT CHOOSING A SHOP, and they are
+             inside the card now. Both were pinned to the SCREEN — the tip jar
+             bottom-left, the mute bottom-right — so they sat out on the ground
+             with nothing under them, which is what made them read as leftovers.
+             As a footer they cost the list nothing, which was the whole reason
+             they were moved out of the column in the first place.
+
+             NEITHER GETS A BUTTON FACE: no fill, no line, no side, half opacity
+             until you point at one. That is the panel close button's treatment,
+             which is
+             the panel's own answer for a control that is not part of the job —
+             as chips they were two more objects competing with the thing
+             somebody actually came here for, at the bottom of the card where the
+             eye lands last.
+
+             The tip jar is a plain <a>, deliberately. Every other press on this
+             screen resolves the menu with a world, so a button that instead
+             navigates away is the one control here whose outcome is a different
+             kind of thing — and a link is the one widget every person alive
+             already knows leaves the page. It also means the browser owns the
+             middle-click, the long-press and the hover URL. What the label must
+             never say is "buy me a coffee": the wording and the argument for it
+             live in client/links.js. The rel=noopener matters more here than usual,
+             because this tab holds an unsaved shop — and note that a backtick
+             anywhere in this comment would end the template literal it is
+             written inside, which is why there is not one in it.
+
+             The mute quietens THIS SCREEN'S radio and nothing else. It shipped
+             as mix.setMuted, which is the master knob the in-game Sound rows own
+             — persisted and shared with the HUD — so hushing the front door
+             followed you into the shop and took the tills, the doors and the
+             crew with it. A hold on the music is the honest scope. -->
+        <div class="menu-under">
+          <a class="menu-support" href="${SUPPORT_URL}"
+            target="_blank" rel="noopener noreferrer"
+          >${ICONS.support}${SUPPORT_LABEL}</a>
+          <span class="menu-busy">${this.busy ? 'Working…' : '&nbsp;'}</span>
+          <button id="menu-mute" type="button" class="menu-mute"
+            title="${this.hushed ? 'Menu music off' : 'Menu music on'}"
+            aria-label="${this.hushed ? 'Turn the menu music on' : 'Turn the menu music off'}"
+          >${this.hushed ? ICONS.muted : ICONS.speaker}</button>
+        </div>
       </div>`;
 
     const list = this.root.querySelector('.menu-list');
@@ -758,45 +781,78 @@ export class Menu {
     this.wire();
   }
 
-  /* THE CONTOURS ARE CSS NOW — see index.html, "WHO IS INKED".
+  /* THE CONTOURS ARE CSS — see index.html, "WHO IS INKED".
    *
    * This screen used to hang a drawn <svg> stroke on eleven elements per
    * redraw, which is why Menu carried a ResizeObserver scope it had to clear
-   * before every innerHTML. A ranked contour needs none of that: the six
-   * selectors that used to be listed here are six selectors in the
-   * stylesheet, and a rebuilt card is inked the instant it exists.
+   * before every innerHTML. A ranked contour needs none of that, and there is
+   * one of them now: the card. Everything inside it is a CREASE — the form's
+   * own doctrine, applied to the whole screen — because a line eight pixels
+   * inside another line is two boxes rather than a thing on a thing. */
+
+  /**
+   * The two listeners that belong to the ROOT rather than to a repaint.
    *
-   * WHAT SURVIVES IS THE RULE, and it is worth keeping where the markup is:
-   * only things that are objects IN THEIR OWN RIGHT get a contour. Something
-   * standing inside a card is a crease (--crease, and the doctrine .menu-new
-   * spells out with --line) — give Delete its own outline and the card has a
-   * line, then a second line eight pixels inside it round a button, which is
-   * two boxes rather than a thing on a thing. So: the paper (.wcard,
-   * .menu-new) and the standalone controls on the sky (.menu-add,
-   * .menu-support, .menu-err, and the name box only).
+   * `render` replaces `root.innerHTML`, so anything wired in `wire` is wired
+   * again on every redraw — which is right for elements that are themselves
+   * replaced and quietly wrong for the root, which is not. These two are bound
+   * once per Menu.
    *
-   * The name box is a CHILD selector there for the same reason it was here:
-   * the shop-name and cash boxes wear the same class and stand INSIDE
-   * .menu-new, so they are the crease case above. */
+   * The dropdowns are one delegated `click` and not a press-down closer, and
+   * that ordering is the whole of why: a `pointerdown` that shuts the open list
+   * removes the option you are pressing before the click can land on it, so
+   * every pick would do nothing at all. One handler, in one order — pick, then
+   * open, then "you pressed somewhere else, so close" — is also the only
+   * spelling in which those three cannot disagree.
+   */
+  wireRoot() {
+    if (this.rootWired) return;
+    this.rootWired = true;
+
+    this.root.addEventListener('click', (e) => {
+      const opt = e.target.closest('[data-drop-key]');
+      if (opt) { this.pick(opt.dataset.dropKey, opt.dataset.dropVal); return; }
+      const head = e.target.closest('[data-drop-open]');
+      if (head) {
+        this.openDrop = this.openDrop === head.dataset.dropOpen ? null : head.dataset.dropOpen;
+        this.repaintForm();
+        return;
+      }
+      if (this.openDrop) { this.openDrop = null; this.repaintForm(); }
+    });
+
+    // On the document, because the keyboard is not aimed at anything in
+    // particular — and guarded on the menu being up, so it cannot answer an
+    // Escape somebody meant for the shop. The menu is hidden rather than
+    // removed when a world is picked (`play`), which is what makes that test
+    // enough and this listener safe to leave attached.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || this.root.hidden || !this.openDrop) return;
+      this.openDrop = null;
+      this.repaintForm();
+    });
+  }
 
   wire() {
     const q = (sel) => this.root.querySelector(sel);
 
-    q('#menu-open-new')?.addEventListener('click', () => { this.creating = true; this.render(); caret(q('#menu-new-name')); });
+    q('#menu-open-new')?.addEventListener('click', () => {
+      this.creating = true;
+      this.render();
+    });
     // Joining is not choosing a shop from this list — it is being let into
     // somebody else's, which this browser has no save for and never will. So it
     // resolves the menu with a live connection rather than a world id, and
     // `main.js` takes the two apart. See client/coop.js.
     q('#menu-join')?.addEventListener('click', async () => {
       const { showJoin } = await import('./coop.js');
-      const guest = await showJoin({ name: localStorage.getItem('sns-name') ?? '' });
-      if (guest) this.resolve?.({ guest });
+      const guest = await showJoin({ name: this.name });
+      if (guest) {
+        this.root.hidden = true;
+        this.resolve?.({ guest, name: this.name });
+      }
     });
     q('#menu-cancel')?.addEventListener('click', () => { this.creating = false; this.render(); });
-    // Repainted in place rather than through `render`, which rebuilds the box
-    // from innerHTML and would throw away the name and cash somebody has typed
-    // — the trap `create` documents at length, and a mute button is exactly the
-    // sort of press you make while half way through filling the form in.
     // The saves list is the one thing on this screen that gives, and it gets
     // the game's scroller rather than the browser's: a drag, no bar, and a fade
     // at whichever end has more past it. Re-run on every render because `mark`
@@ -812,26 +868,11 @@ export class Menu {
       this.hushed = !this.hushed;
       music.hold('menu', this.hushed);
       const b = e.currentTarget;
-      b.textContent = this.hushed ? '🔇' : '🔊';
+      b.innerHTML = this.hushed ? ICONS.muted : ICONS.speaker;
       b.title = this.hushed ? 'Menu music off' : 'Menu music on';
       b.setAttribute('aria-label', this.hushed ? 'Turn the menu music on' : 'Turn the menu music off');
     });
     q('#menu-create')?.addEventListener('click', () => this.create());
-
-    // Enter anywhere in the new-shop form starts it. A form with a button you
-    // have to aim at is a form people abandon — more so now it is four fields
-    // deep and three of them are ones you were always going to skip.
-    this.root.querySelectorAll('.menu-new input').forEach((el) => {
-      el.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.create(); });
-    });
-
-    this.root.querySelectorAll('[data-tier]').forEach((el) => {
-      el.addEventListener('click', () => this.pickTier(el.dataset.tier));
-    });
-
-    this.root.querySelectorAll('[data-diff]').forEach((el) => {
-      el.addEventListener('click', () => this.pickDifficulty(el.dataset.diff));
-    });
 
     this.root.querySelectorAll('[data-play]').forEach((el) => {
       el.addEventListener('click', () => this.play(this.worlds[Number(el.dataset.play)]));
@@ -839,8 +880,6 @@ export class Menu {
     this.root.querySelectorAll('[data-del]').forEach((el) => {
       el.addEventListener('click', () => this.remove(this.worlds[Number(el.dataset.del)]));
     });
-
-    if (this.creating) caret(q('#menu-new-name'));
   }
 }
 

@@ -35,7 +35,6 @@ import { reportHtml } from './report.js';
 import { CORNERS, isOff, setOff } from './corner.js';
 import { DEBUGS, debugOn, setDebug } from './debug.js';
 import { cinemaOn, setCinema } from './cinema.js';
-import { SURROUNDS, S, DEFAULT_SURROUND } from '../shared/surrounds.js';
 import { coopStatus, openCoop, coopSignature } from './coop.js';
 import { tutorOff, setTutorOff, replayTutor, forgetLessons } from './tutor.js';
 import { haveStats, statsOn, setStats } from './analytics.js';
@@ -3034,12 +3033,11 @@ export const SECTIONS = [
       + `|${DEBUGS.map((d) => (debugOn(d.id) ? '+' : '-')).join('')}`
       // Footfall is client state too: there is no snapshot field whose change
       // could otherwise keep this switch in step with the overlay.
-      + `|${ui.scene?.heat?.on === true ? '+' : '-'}`
-      // ...and where the shop stands. Unlike everything above it this IS a
-      // snapshot field, so it is here for the other half of what `live` does:
-      // the tick marks move on the OTHER person's screen when they press it,
-      // and nothing else in this signature would have changed to say so.
-      + `|${ui.state?.surround ?? '-'}`,
+      // Where the shop stands used to be on the end of this, as the one
+      // snapshot field in a signature otherwise made of client state. It is
+      // chosen when the shop is made now, so there is no row on this panel left
+      // for it to keep in step — see the note under `View`.
+      + `|${ui.scene?.heat?.on === true ? '+' : '-'}`,
     // Every line here is clamped to one line in a 214px panel, so the copy has
     // to be short enough to survive it — an ellipsis mid-word is worse than a
     // blunter phrase. The long version lives in `sub`, which is also the hover.
@@ -3196,20 +3194,16 @@ export const SECTIONS = [
        */
       { sep: 'View', icon: ICONS.camera },
       ...viewGrid(ui),
-      // ...and where the shop stands, which is the one row on this tab that
-      // rides in the SAVE — see shared/surrounds.js. It sat with the switches
-      // on the Game tab on the argument that it is something you DO to this
-      // shop, and that is true and is not what the tab strip is sorting by:
-      // what a surround changes is what you can see out of the windows and
-      // nothing else. No shopper, no price and no tile moves. It is a picture,
-      // so it is on the tab for pictures, and it is the one thing here a
-      // screenshot could tell you had changed.
-      //
-      // BELOW the grid rather than above it. The block you press, then the
-      // one you choose from — and a `sep` under a grid is a heading doing its
-      // job, where the same heading above one would be a caption for tiles it
-      // does not name.
-      ...surroundRows(ui),
+      // Where the shop STANDS was a row under this grid, and it has gone to the
+      // new-shop form in the front menu (`client/menu.js`). It sat here on the
+      // argument that a surround changes what you can see out of the windows
+      // and nothing else — no shopper, no price, no tile — which is true, and
+      // is the argument for moving it rather than against: everything else on
+      // this tab is a fact about the person at the keyboard, and that one was
+      // the single row on it that rode in the SAVE. So it was also the one row
+      // here you could press on somebody else's screen while they were standing
+      // in the shop. It is asked once now, beside the size and the difficulty,
+      // which is where the other two facts about a shop are already decided.
 
       { sep: 'Controls', icon: ICONS.walk },
       { sep: 'Getting about' },
@@ -3392,53 +3386,6 @@ function sizeChip(ui) {
     },
     acts: { 'ui:down': nudge(-UI_STEP), 'ui:up': nudge(UI_STEP) },
   };
-}
-
-/**
- * Where the shop stands — three tiles side by side, the picked one lit.
- *
- * ONE ROW OF THREE, and it was three full-width rows for a long time on an
- * argument that is half right: a tile is a switch and answers on/off, where
- * this is three alternatives with exactly one true, so on the grid they would
- * read as three switches you can turn all of off. That is the half `pick`
- * answers — the state word is dropped and the lit tile carries it — and what
- * the rows were paying for it was a third of the tab. Three stacked rows, each
- * a glyph and two lines of prose, to make ONE choice you make once per shop and
- * about which the honest question is "which of these three pictures do I want".
- * Side by side, that question is answered by looking at them; stacked, it is
- * answered by reading three captions in turn.
- *
- * The captions are the cost and they go to `title`, which is the same trade
- * every switch on the grid above already makes. They are worth less here than
- * anywhere else in the menu: "woodland and hedgerow, open fields" is a longer
- * way of saying Countryside.
- *
- * A plain `sep` with no icon, which is what keeps this a heading INSIDE the
- * View tab rather than a fourth tab of its own — the same call `Credits` makes
- * further down. It is one choice about the view; it is not a subject.
- *
- * Lit rather than disabled for the one you are on: pressing the surround you
- * already have is idempotent all the way down to `setSurround` on the server,
- * so there is nothing to protect anybody from, and a greyed tile is a promise
- * that something would happen if you were somewhere else.
- */
-function surroundRows(ui) {
-  const now = ui.state?.surround ?? DEFAULT_SURROUND;
-  const ART = { [S.COUNTRY]: ICONS.outdoors, [S.SUBURB]: ICONS.house, [S.CITY]: ICONS.city };
-  return [
-    { sep: 'Surroundings' },
-    {
-      grid: SURROUNDS.map((s) => ({
-        id: s.id,
-        pick: true,
-        icon: icon(ART[s.id], ICONS.outdoors),
-        name: s.name,
-        title: s.sub,
-        on: now === s.id,
-      })),
-      acts: Object.fromEntries(SURROUNDS.map((s) => [s.id, () => ui.setSurround(s.id)])),
-    },
-  ];
 }
 
 /**

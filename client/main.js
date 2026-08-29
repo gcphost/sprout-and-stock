@@ -85,7 +85,7 @@ const award = new Award(ui, document.getElementById('award'), () => dropGesture(
 // frozen behind it. Hung on `ui` the way `tutor` is, and for the same reason.
 ui.award = award;
 /**
- * The fitter who shows you round a shop you have just made — client/tutor.js.
+ * The tour round a shop you have just made — client/tutor.js.
  *
  * Built here beside the award for the same reason: both take the screen, both
  * own their own element, and neither is a panel. `ui.tutor` is the back
@@ -350,10 +350,6 @@ net.on('state', (m) => {
   // Deliberately HERE and not inside `refreshGhost`: a `pointermove` during a
   // walk is somebody aiming, and that still has to work. What is being refused
   // is the clock, not the hand.
-  // ...and the one press that is still down from a menu row several seconds ago.
-  // Before `refreshGhost`, because letting go is a fact about what you can do
-  // next and the hints are drawn from it.
-  stepErrandHold(m);
   // ...and why the last thing you held a button for did not happen.
   //
   // `stepActions` has always said this, into the event feed — which is
@@ -1884,30 +1880,6 @@ const TAP_SLOP = 7;
 const LONG_PRESS_MS = 420;
 
 /**
- * ...and how long a press on a crate you are STOOD AT has before it stops being
- * a tap — which is `ACTION_TIMES.crate` and has to be.
- *
- * A lone crate grades by how long you hold it: a tap is one unit, a hold is the
- * whole box. Two different clocks were deciding that, 230ms apart, and the band
- * between them did nothing at all — the client ruled the press a hold at 420ms
- * and stopped sending the tap, while the server's ring does not fire the lift
- * until 650. So an ordinary unhurried click reached for a tin and got silence,
- * with the box still there and nothing on screen to say why.
- *
- * It was hidden for as long as naming a crate meant walking to it: the walk ate
- * the first quarter second of the ring and the press at least *moved* you, so a
- * press that did nothing else still looked like it had been heard. Standing
- * still, it is the whole gesture missing.
- *
- * So the tap lasts exactly as long as the ring takes to fire, and the two
- * outcomes meet with no gap: released before it, one unit; after it, the lift
- * has already happened and the release means nothing. Spelled here rather than
- * imported because `ACTION_TIMES` is the server's, and the note that matters is
- * the one on the other end — if that number moves, this one moves with it.
- */
-const CRATE_HOLD_MS = 650;
-
-/**
  * ...and after this long, a drag off a fixture in build mode MOVES it rather
  * than turning the view.
  *
@@ -1953,12 +1925,10 @@ const TOUCH_AIM_LIFT = 72;
  * want, which is the menu. Holding says that directly, and it is the same
  * gesture on a finger as on a mouse.
  *
- * It was off for four steps and the reason it went off is worth keeping: with
- * `take` on the tap, a hold that opened things fought the two gestures that
- * were *already* holds — pulling a board into a crate, and lifting a crate off
- * a pile. That is what `drag.took` settles. Both of those arm on the way DOWN,
- * so by the time this timer fires the press has already committed to being a
- * pull, and this stands aside rather than putting a menu over it.
+ * It was off for four steps, because a hold that opened things fought the two
+ * gestures that were *already* holds — pulling a board into a crate, and lifting
+ * a crate off a pile. Neither exists now: goods grade by nothing at all, so the
+ * hold is free to mean one thing everywhere.
  *
  * In build mode the hold has a job of its own regardless (`liftAimed`), and it
  * is the job the gesture was always shaped for: the ring winds in on the thing
@@ -1980,10 +1950,6 @@ const drag = {
   lift: null,       // the fixture this press would pull, once it moves
   moving: false,    // ...and it did: this drag is carrying something
   carried: false,   // ...or a HOLD lifted it, and the button is still down
-  took: false,      // this press armed goods — so its hold is a pull, not a look
-  rummage: false,   // ...and those goods are a lone crate in reach, whose tap is
-                    // one unit. See `CRATE_HOLD_MS`: this press keeps its tap
-                    // until the ring fires rather than losing it at 420ms.
   touch: false,     // a finger or a pen, which has no hover to build with
   aiming: false,    // ...so this held press owns the ghost. See `TOUCH_AIM_LIFT`
 };
@@ -2194,15 +2160,17 @@ function canDropAt(tile) {
  * across three call sites they drift: the press would arm one of them and the
  * release would tap a different one.
  *
- * It arms on the way DOWN and answers what a *tap* would mean, which is the
- * grade the whole scheme rests on: **a tap is one unit, a hold is the lot.** The
- * hold needs an errand standing before the ring can wind, and the tap needs to
- * know what it was pointing at before the pointer moved.
+ * It DECIDES on the way down and SENDS on release, and the split is the whole
+ * of what is left of the old grade. Deciding early is what keeps the answer
+ * about the thing you pressed rather than about wherever the pointer drifted to;
+ * sending late is what keeps a press that turns out to be a camera turn from
+ * emptying your arms onto a shelf, which is what arming early would now cost —
+ * an errand fires on its own (`errandAction`), so nothing waits on the button
+ * any more.
  *
- * `ring: false` is a target with nothing to hold for — a lone crate takes one
- * unit on a tap and has no "pour the armful in" verb, and a unit across the shop
- * can only be walked to. Arming a ring that cannot complete is the green-ghost
- * bug wearing a countdown.
+ * `ring: false` is a target the shop would refuse — an occupied belt cell, a
+ * square you may not drop on. Promising a ring that cannot complete is the
+ * green-ghost bug wearing a countdown.
  *
  * Null hands the press back to the button's own ladder: a turn if you drag, then
  * `ui.escape()`, then — with nothing left to back out of — a walk, exactly as the
@@ -2226,8 +2194,7 @@ function armPut(cx, cy) {
     const at = haulSquare(crate);
     if (at) {
       if (!canDropAt(at)) return null;
-      net.send('place', { x: at.x, z: at.z });
-      return { kind: 'ground', ring: true };
+      return { kind: 'ground', ring: true, send: { x: at.x, z: at.z } };
     }
     // Lone crates only, the same line the left button draws: one unit INTO the
     // box under two others is the same unanswerable "which one" as one out.
@@ -2261,8 +2228,7 @@ function armPut(cx, cy) {
     // crate may not be set down is still somewhere a crate is standing, and one
     // unit into it was never in question.
     if (!canDropAt(cell)) return { kind: 'crate', crate, ring: false };
-    net.send('place', { x: cell.x, z: cell.z });
-    return { kind: 'crate', crate, ring: true };
+    return { kind: 'crate', crate, ring: true, send: { x: cell.x, z: cell.z } };
   }
 
   const hit = pickAimed(cx, cy);
@@ -2305,10 +2271,9 @@ function armPut(cx, cy) {
       // One box per cell, so an occupied one is a real refusal — and refusing
       // here rather than after the send keeps the ghost and the press agreeing.
       if (!canDropAt(on)) return { kind: 'ground', ring: false };
-      net.send('place', { x: on.x, z: on.z });
-      return { kind: 'ground', ring: true };
+      return { kind: 'ground', ring: true, send: { x: on.x, z: on.z } };
     }
-    net.send('place', { fixture: hit.f.id });
+    const send = { fixture: hit.f.id };
     // A skip has no boards, so there is no "this pile" to name and no one-unit
     // meaning for a tap: you are either getting rid of what you are carrying or
     // you are not. `ring: true` and no tap at all — the hold IS the gesture,
@@ -2319,7 +2284,7 @@ function armPut(cx, cy) {
     // sent `shelf-one` at a fixture that is not a shelf. The server said no,
     // silently, the way it says no to every stray message — so the skip read as
     // a thing you simply could not put anything in.
-    if (hit.f.kind === 'bin') return { kind: 'bin', f: hit.f, ring: true };
+    if (hit.f.kind === 'bin') return { kind: 'bin', f: hit.f, ring: true, send };
     // ...and an appliance, which fell through to `board` the same way the skip
     // did and with the same result: a right-tap sent `shelf-one` at a machine,
     // and the shop answered "no such shelf" — an error about a thing you were
@@ -2329,7 +2294,7 @@ function armPut(cx, cy) {
     // No board rides along, unlike the shelf below: a hopper's piles are inside
     // the machine and nothing draws them as themselves, so there is no pile the
     // pointer could be naming.
-    if (hit.f.kind === 'station') return { kind: 'station', f: hit.f, ring: true };
+    if (hit.f.kind === 'station') return { kind: 'station', f: hit.f, ring: true, send };
     // The board under the pointer rides along as the pile to put down, and it is
     // only a hint: `tapBoard` reads it off your HANDS, so pointing at the bread
     // with milk in them puts the milk on the unit. Naming the board is what makes
@@ -2338,7 +2303,7 @@ function armPut(cx, cy) {
     // it too — one board, one selection, whichever direction the goods went.
     const itemId = ripeBoard(hit.f, hit.board);
     pickBoard(hit.f, itemId);
-    return { kind: 'board', f: hit.f, itemId, ring: true };
+    return { kind: 'board', f: hit.f, itemId, ring: true, send };
   }
 
   // A square beside you. Named without walking you onto it (`placeAt`), so the
@@ -2347,11 +2312,7 @@ function armPut(cx, cy) {
   // drawn from, so the press and the picture cannot disagree.
   const tile = scene.pickTile(cx, cy);
   if (tile && canDropAt(tile)) {
-    net.send('place', { x: tile.x, z: tile.z });
-    // No tap meaning. A right click that put a single unit on the floor would be
-    // a gesture nobody asked for standing where "back out" lives, so a quick
-    // click on the floor still backs out and only the hold sets anything down.
-    return { kind: 'ground', ring: true };
+    return { kind: 'ground', ring: true, send: { x: tile.x, z: tile.z } };
   }
   return null;
 }
@@ -2473,144 +2434,19 @@ function hold() {
 let held = false;
 
 /**
- * How long a held press lasts when it was made by TAPPING a hint.
+ * A menu row that says "go there and do it".
  *
- * The pill's rows are buttons on a touchscreen (`pressHints`), and half of them
- * describe a press you have to keep down: the ring winds only while `press` is
- * true (`Game.stepActions`), and a pull empties a board across the second it
- * takes rather than at the end of it. A finger tapping a row in a list is not
- * holding anything, so the press has to be held on its behalf and let go again.
+ * It used to hold the press down for the whole journey, because nothing in the
+ * game fired with the button up — a walk-to errand named its target and the ring
+ * still had to wind on arrival, under a finger that had long since left a row
+ * several seconds ago. An errand fires on its own now (`Game.errandAction`), so
+ * the whole apparatus (a 20-second backstop, a watcher on the snapshot, a
+ * window-level let-go) is gone and the row is the press.
  *
- * This is the BACKSTOP and not the mechanism — `pillLetGo` is what normally ends
- * one, on the pointerup. It is here for a press whose release never arrives: a
- * hidden tab, a pointer captured out from under the row, a browser that swallows
- * the event. A stuck `press` is a shop that goes on doing things nobody asked
- * for, which is the state `release`'s one-exit rule exists to prevent. Longer
- * than `ACTION_TIME` (0.5s) and `PULL_SECONDS` (1s) with room for a round trip,
- * so it can never cut short a hold somebody is genuinely making.
+ * Kept as a name rather than inlined, because `fixture-menu.js` calls it to say
+ * which of its rows are journeys — and that is worth being able to see.
  */
-const PILL_HOLD_MS = 1800;
-let pillTimer = 0;
-
-/**
- * Make a hint's press, from the pill rather than from the shop floor.
- *
- * `fire` is the same call the pointer handler makes — never a second opinion
- * about what that press means, which is the rule the whole of `pressHints` is
- * written under. What this adds is the half a list cannot express: a press has a
- * beginning and an end, and a row in a list has neither.
- *
- * Any previous pill press is let go first. Two rings cannot wind at once and the
- * shop only has one `press` bit, so a second row tapped while the first is still
- * held would otherwise be one press the release clock closes twice.
- */
-function pillPress(fire, holdIt = false) {
-  endPillPress();
-  fire();
-  if (!holdIt) return;
-  pillAt = performance.now();
-  hold();
-  pillTimer = setTimeout(endPillPress, PILL_HOLD_MS);
-}
-
-/** Let go of whatever the pill was holding. Idempotent, like `release`. */
-function endPillPress() {
-  if (pillTimer) { clearTimeout(pillTimer); pillTimer = 0; }
-  pillAt = 0;
-  release();
-}
-
-/** When the finger went down on a pill row, or 0 for no held pill press. */
-let pillAt = 0;
-
-/**
- * A button that says "go there and do it", holding the press for the journey.
- *
- * Nothing in this game fires with the button up (`Game.stepActions` charges on
- * `p.pressing`), and a walk-to errand does not change that — it names the target
- * and the ring still has to wind on arrival. On the shop floor that is free and
- * invisible, because the gesture that named the thing IS a finger holding a
- * button: press on the board, walk, arrive with it still down, ring, take. Same
- * trick `spin.trek` is built on, said about the left button.
- *
- * A MENU ROW has no version of it. A click is down and up in the same
- * millisecond, so the shelf's own Take button sent you across the shop and left
- * you standing at the board with the action armed at zero and nothing pressing
- * it — a button whose tooltip promises an armful and delivers a walk. It is not
- * even wrong-looking: you go where you were sent, and then nothing.
- *
- * So the press is held on your behalf, exactly as `pillPress` does for the pill,
- * and let go when the thing you asked for HAPPENS rather than on a clock — the
- * whole difference is that this one has a walk in the middle of it and the pill's
- * rows are about what is already in front of you. `acted` is the count the sim
- * keeps of things you have actually done (see `stepActions`), so watching it
- * cannot mistake a long walk for a failure.
- *
- * The cap is a backstop and nothing else, for the errand that never lands: the
- * shelf was sold, somebody emptied the board, the route never completed. A stuck
- * press is a shop that goes on doing things nobody asked for, which is the state
- * `release`'s one-exit rule exists to prevent.
- */
-const ERRAND_HOLD_MS = 20000;
-let errandAt = 0;
-let errandActs = 0;
-
-function errandHold(fire) {
-  endPillPress();
-  endErrandHold();
-  errandActs = ui.me()?.acted?.n ?? 0;
-  fire();
-  errandAt = performance.now();
-  hold();
-}
-
-/** Let go of whatever an errand was holding. Idempotent, like `release`. */
-function endErrandHold() {
-  if (!errandAt) return;
-  errandAt = 0;
-  release();
-}
-
-/**
- * Watch the one held press that outlives its own gesture.
- *
- * On the snapshot rather than on a timer, because what ends it is a fact about
- * the shop — you did the thing — and the shop says so ten times a second.
- */
-function stepErrandHold(m) {
-  if (!errandAt) return;
-  const me = (m?.players ?? []).find((p) => p.id === net.myId) ?? null;
-  const acts = me?.acted?.n ?? 0;
-  if (acts !== errandActs || performance.now() - errandAt > ERRAND_HOLD_MS) endErrandHold();
-}
-
-/**
- * The finger came off a pill row, which is letting go and nothing else.
- *
- * A ROW THAT SAYS HOLD MUST BE HELD, and a quick tap on one has to do nothing at
- * all. Completing it on the clock was tried and is wrong for the reason the hold
- * exists: the ring IS the consent, and it is worth most on the one row that can
- * never be undone — a tap that emptied your arms into the skip is exactly the
- * stray press `armPut` refuses to give the bin a tap for. So the release is
- * unconditional, the ring gets as long as you actually held it, and a tap ends
- * before anything fires — which is the same nothing a quick right-click does in
- * the shop.
- *
- * That leaves `pillPress`'s clock as a BACKSTOP rather than the mechanism: a
- * pointerup that never arrives (the tab hidden, a pointer captured elsewhere)
- * would otherwise leave the press stuck down, and a stuck press is a shop that
- * goes on doing things nobody asked for.
- *
- * On the window rather than on the row, because the row is rewritten several
- * times a second and because a finger that slid off it before lifting has still
- * let go — the same reason the canvas captures its own pointer.
- */
-function pillLetGo() {
-  if (!pillAt) return;
-  endPillPress();
-}
-addEventListener('pointerup', pillLetGo);
-addEventListener('pointercancel', pillLetGo);
+const errandHold = (fire) => fire();
 
 /**
  * Two fingers: pinch to zoom, twist to turn.
@@ -4226,9 +4062,6 @@ canvas.addEventListener('pointerdown', (e) => {
   drag.look = 0;
   drag.looked = false;
   drag.done = false;
-  // Cleared before the arming block below, which is what sets them.
-  drag.took = false;
-  drag.rummage = false;
   drag.pressedAt = performance.now();
   // A finger has no hover, so the ring that says what you are pointing at has
   // never been asked for at the moment a touch lands — it only ever appeared
@@ -4243,78 +4076,25 @@ canvas.addEventListener('pointerdown', (e) => {
     pointer.onCanvas = true;
   }
   refreshGhost(true);
-  // Name the crate on the way DOWN, not on release.
+  // NOTHING IS NAMED ON THE WAY DOWN ANY MORE.
   //
-  // The ring only ever arms off an errand, and `take` is what sets one — so
-  // sending it on release meant a press on a crate you were already stood at
-  // armed nothing at all, and holding did nothing however long you held it.
-  // Naming it here is what lets the same press become either gesture: keep
-  // holding and the ring winds to a lift, let go quickly and the release below
-  // sends the rummage instead.
+  // A crate and a board were both armed here, and the reason was the grade: the
+  // errand had to be standing before the button came up so a HOLD could wind a
+  // ring under the same press. There is no hold left in goods — an errand fires
+  // on its own once named (`errandAction`) — and that inverts what arming early
+  // costs. It used to be free, because nothing could fire with the button up;
+  // now a press that turns out to be a PAN would lift the box you dragged from,
+  // which is the gesture people make most.
   //
-  // Harmless when the press turns out to be a pan — an errand is a target, not
-  // an action, and nothing fires without the button still being down.
-  // ...and one pile of goods on a shelf, for the same reason and with the same
-  // timing. This is what makes a board you are ALREADY STANDING AT a single
-  // gesture: press the bread, keep holding, the ring winds on the cage and the
-  // armful lands. Named on release instead, the errand would arm the charge on a
-  // button that had just come up, and the whole thing would read as a press that
-  // did nothing until you pressed again — which is the four-step version of this
-  // that board aiming exists to delete.
-  // `paletteArmed` for the same reason `boardTakes` carries it one line down,
-  // and this is the half that was missing: a crate was named on the way down
-  // whatever mode you were in, so pressing on a box while building lifted it —
-  // the one goods gesture build mode never suspended. The shop refuses it now
-  // (`notWhileBuilding`) and it is refused OUT LOUD, which is exactly why this
-  // arming has to stop happening here rather than being left to be told off: it
-  // is speculative — the press may still turn out to be a pan — and this branch
-  // is under a press whose release *places a fixture*, so leaving it in would
-  // mean one press that both puts a shelf down and says you may not build.
-  if (e.button === 0 && !ui.demolishArmed() && !ui.paletteArmed) {
-    // `aimCrate`, which is `pickPallet` plus "is it in a pile" — the crate named
-    // is the one the ray met, buried or not, so the ring winds on the box you
-    // are pointing at and that is the box that comes away.
-    const aimed = aimCrate(e.clientX, e.clientY);
-    const hit = aimed ? null : pickAimed(e.clientX, e.clientY);
-    if (aimed) {
-      net.send('take', { palletId: aimed.id });
-      drag.took = true;
-      // ...and whether the release still has a job. Only a lone crate you are
-      // stood at has a finer answer than the lift (`crate-one`), and it is the
-      // one press that must keep its tap past `LONG_PRESS_MS` — see
-      // `CRATE_HOLD_MS`. Everything else keeps the old rule exactly: a pile
-      // offers whole boxes only, and one across the shop is a walk.
-      drag.rummage = !aimed.stacked && inReachOf(aimed);
-    }
-    // ...but only for a unit you are STOOD at, which a crate does not have to
-    // ask because a crate is a small thing in a yard and a shelf is most of a
-    // wall. A mouse turns the view by dragging, and a drag that started on a
-    // shelf across the shop would have sent you walking to it before the first
-    // frame of the turn — an errand nobody asked for, out of the gesture people
-    // use most. Naming it early only buys anything in reach anyway: that is
-    // exactly the case where the ring can wind under the same press, and the
-    // release below still names a board you have to walk to.
-    else if (ripeBoard(hit?.f, hit?.board) && boardTakes() && inReachOf(hit.f)) {
-      // ...and that pile is now the one you are working out of, until Escape.
-      pickBoard(hit.f, hit.board);
-      net.send('take', { shelfId: hit.f.id, itemId: hit.board });
-      drag.took = true;
-    }
-    // Putting things DOWN is not here at all any more — a unit, a square, a
-    // crate, all three are the right button (see `armPut`). This one is takes
-    // only, which is what makes a board a target with an armful already in your
-    // hands: one button per direction, and neither has to read your hands to
-    // work out which way the goods are meant to go.
-  }
+  // So the release names it, and the release is the one place that already knows
+  // the press stayed put (`TAP_SLOP`).
   // Armed on a timer rather than measured on release, so whatever the hold does
   // happens under a pointer that is still down — which is what makes it feel
   // like a press and not like a slow click.
   //
-  // What it does, in the order it decides: lift a fixture in build mode, stand
-  // aside for a press that already named goods (`drag.took`), else open what is
-  // under the pointer. The button is down, so the ring may start winding. Everything a press can
-  // become — a tap, a pan, a turn — cancels it below; the ring only ever
-  // completes for a press that stayed put on the thing you pressed.
+  // What it does, in the order it decides: lift a fixture in build mode, else
+  // open what is under the pointer. Goods are not in that list any more — the
+  // press names them on release and the errand does the rest.
   hold();
   clearLongPress();
   drag.timer = setTimeout(() => {
@@ -4328,22 +4108,8 @@ canvas.addEventListener('pointerdown', (e) => {
     // ordinary click made while thinking), and there is nothing on screen to
     // say why. Laying a row of shelves, half of them simply never appear.
     //
-    // It was unconditional here for 86 commits, and the reason it moved up is
-    // real and is kept: winding a ring is a second thing a hold does, and the
-    // release of one must not ALSO read as a tap — or finishing a pull sends
-    // you walking to whatever was under your finger, or re-arms the errand you
-    // just spent. `drag.took` is that case and it is the FIRST branch below,
-    // which is the whole of what the move was buying.
-    //
     // The rule for the next thing a hold learns to do: if it happens, say
     // `done`; if the timer falls through it, the release is still a tap.
-    // ...with one exception, and it is the press that grades finest: a lone
-    // crate you are stood at still owes its release a tap until the ring fires
-    // (`CRATE_HOLD_MS`). Marking it spent here is what left an unhurried click
-    // doing nothing whatever — see that constant. The tap branch measures the
-    // same clock and stands down once the lift has happened, so the two
-    // outcomes still cannot both fire.
-    if (drag.took) { drag.done = !drag.rummage; return; }
 
     // Build mode's own answer to a held press, and it comes before `HOLD_OPENS`
     // because it is not the same question: that flag is about whether holding
@@ -4812,61 +4578,31 @@ canvas.addEventListener('pointerup', (e) => {
   const spun = endSpin(e);
   if (spun) {
     if (spun.turned) return;
-    // A press that lasted is a HOLD, and its release is not also a tap — the
-    // same rule the left button has had since the ring existed. The ring has
-    // already done whatever it was going to do (or been refused out loud), so
-    // sending the tap on top would put a second unit down after pouring the lot,
-    // and on a square it would back out of the mode you were just working in.
+    // A PRESS IS A PRESS, however long you held it. Every branch below used to
+    // come in two sizes — a tap put one unit down, a hold put the lot — and the
+    // grade is gone: `armPut` named the target on the way down, the errand it
+    // set fires on its own (`errandAction`), and the whole of what this release
+    // has left to do is get out of the way of the ladder underneath.
     //
-    // ...only when the press ARMED something, though. With nothing in your hands
-    // the right button has no hold at all, so a long one is still an ordinary
-    // click — and swallowing it meant that pausing for half a second on the way
-    // to backing out of a menu did nothing, which is the least explicable kind
-    // of dead input: it works, then it doesn't, and the difference is how fast
-    // you let go.
-    if (spun.held && spun.put) return;
-
-    // A right click that turned nothing is "back out" everywhere in the game —
-    // except where you are pointing at somewhere goods can GO, which is now the
-    // whole of what the button means with your hands full. It sits in FRONT of
-    // `escape` because backing out is the fallback: pointing at a thing is a
-    // positive act, which is the same argument the left button and the tap both
-    // already make. `armPut` decided all of this on the way down, when the
-    // pointer was still on the thing.
+    // `put` still decides whether it may fall through to backing out, because
+    // pointing at somewhere goods can go is a positive act and `escape` is the
+    // fallback — that ordering is unchanged.
     const put = spun.put;
-    if (put?.kind === 'crate') {
-      scene.ripple(put.crate.x, put.crate.z);
-      net.send('crate-one', { palletId: put.crate.id, put: true });
-      return;
-    }
-    if (put?.kind === 'board') {
-      scene.ripple(put.f.x, put.f.z);
-      net.send('shelf-one', { shelfId: put.f.id, itemId: put.itemId, put: true });
-      return;
-    }
-    // One ingredient into the hopper. Mixed hands drain a pile at a time, in
-    // the order they are held — see `Game.loadStation` for why that is not a
-    // thing the pointer gets to say here.
-    if (put?.kind === 'station') {
-      scene.ripple(put.f.x, put.f.z);
-      net.send('station-one', { stationId: put.f.id, put: true });
-      return;
-    }
-    // A skip, tapped rather than held. Deliberately nothing: the press already
-    // named it on the way down, so the ring is armed and standing there — and
-    // throwing away is the one action in the game a stray click must not be
-    // able to complete. Swallowed here rather than left to fall through, or the
-    // tap would land on `escape()` and back you out of the thing you were
-    // aiming at.
-    if (put?.kind === 'bin') { scene.ripple(put.f.x, put.f.z); return; }
-    // The same journey the hold sets off on (`spin.trek`), off a tap — you get
-    // there and the put is armed, and pressing again does it. `put: true` for
-    // the same reason the hold sends it: this is the right button, and dropping
-    // the direction at the kerb would leave a machine offering its tray to
-    // somebody who walked over holding a crate.
+    // The journey, which is the one target `armPut` cannot have sent anything
+    // for: it is somewhere else. `put: true` because this is the right button,
+    // and dropping the direction at the kerb would leave a machine offering its
+    // tray to somebody who walked over holding a crate.
     if (put?.kind === 'walk') {
       scene.ripple(put.f.x, put.f.z);
       walkTo({ fixture: put.f.id, put: true });
+      return;
+    }
+    // Everything else was decided on the way down and is named now — see
+    // `armPut`. Swallowed either way rather than falling through to `escape()`,
+    // which would back you out of the thing you were aiming at.
+    if (put) {
+      if (put.send) net.send('place', put.send);
+      scene.ripple(put.crate?.x ?? put.f?.x ?? put.send.x, put.crate?.z ?? put.f?.z ?? put.send.z);
       return;
     }
     // Backing out still comes first, and it is still every rung of the ladder —
@@ -5216,20 +4952,19 @@ const charging = () => ((latestState?.players
  * were emptying is still there, and what it reads as is the hold not working —
  * intermittently, which is the worst way for it to read.
  *
- * Both halves, and neither alone is the test. `drag.took` is what makes it a
- * question about the POINTER: the press named a crate or a pile on the way down
- * (see the arming block in `pointerdown`), so this drag belongs to that press
- * rather than to the view. `charging()` is what keeps it from being a tax on
- * every other press — the server is the only thing that knows a ring has
- * actually started, so a press on a crate across the shop (which walks, and
- * charges nothing until you arrive) still gives its drag to the camera, and so
- * does a press that happened to be made while a shopper was at the till.
+ * Both halves, and neither alone is the test. `held` is what makes it a question
+ * about THIS press — a ring the errand is winding on its own wants nothing from
+ * the pointer, and locking the view under one would take the camera away from a
+ * player who is only watching. `charging()` is what keeps it from being a tax on
+ * every other press: the server is the only thing that knows a ring has actually
+ * started, so a press made while a shopper happens to be at the till still gives
+ * its drag to the camera.
  *
  * The camera is skipped rather than the whole branch, so `lx`/`ly` still track:
  * the ring ends when the action fires, and a pan that resumed against an anchor
  * from half a second ago would leap the whole drag in one frame.
  */
-const ringHasPress = () => drag.took && charging();
+const ringHasPress = () => held && charging();
 
 /**
  * A shelf's live record, boards and all.
@@ -6022,13 +5757,6 @@ function pressHints({ aim, board, onPile, drop }) {
   // row before — on a desktop this pill is a caption naming which mouse button
   // does what, and a caption for a press that does nothing is noise there.
   const add = (btn, tag, say, run = null, off = null) => {
-    // A RING IS THE WORLD RUNNING, so a held row goes with the clock. Every
-    // `hold` in this function ends in `place`, `take` or `walk-to` — the three
-    // verbs `ShopRoom.frozen` guards — and it is the one kind of press whose
-    // failure is invisible: the row takes the press, `pillPress` sends the
-    // errand, and nothing winds it. `hold-drag` is deliberately not this: that
-    // one is `build-lift`, which is a purchase and works stopped.
-    if (ui.paused && tag === 'hold') return;
     const twin = out.find((h) => h.say === say && h.tag === tag
       && h.btn !== btn && (h.off ?? null) === off);
     if (twin) { twin.btn = 'lr'; return; }
@@ -6048,6 +5776,22 @@ function pressHints({ aim, board, onPile, drop }) {
   const walkRow = (btn, tag, say, run = null, off = null) => {
     if (ui.paused) return;
     add(btn, tag, say, run, off);
+  };
+  /**
+   * ...and the same for a row whose press winds a RING.
+   *
+   * A ring is the world running: it ends in `place` or `take` — two of the three
+   * verbs `ShopRoom.frozen` guards — and it is the kind of press whose failure
+   * is invisible, since the row takes the press, the errand is named, and
+   * nothing winds it. It used to be read off the `hold` tag, which every goods
+   * row carried and none of them does any more.
+   *
+   * Said at the site for `walkRow`'s reason: the site is the one place that
+   * already knows which kind of press this sentence is about.
+   */
+  const ringRow = (btn, say, run = null, off = null) => {
+    if (ui.paused) return;
+    add(btn, null, say, run, off);
   };
   const carry = myCarry();
   const haul = myHaul();
@@ -6181,8 +5925,8 @@ function pressHints({ aim, board, onPile, drop }) {
     // the same reason. So the only thing on offer is putting yours down there.
     if (onPile) {
       if (canDropAt(onPile)) {
-        add('r', 'hold', 'Set the crate down here',
-          () => pillPress(() => net.send('place', { x: onPile.x, z: onPile.z }), true));
+        ringRow('r', 'Set the crate down here',
+          () => net.send('place', { x: onPile.x, z: onPile.z }));
       }
       return out;
     }
@@ -6202,10 +5946,10 @@ function pressHints({ aim, board, onPile, drop }) {
       walkRow('r', null, 'Go to it', go);
       return out;
     }
-    const lift = () => pillPress(() => net.send('take', { palletId: crate.id }), true);
+    const lift = () => net.send('take', { palletId: crate.id });
     // A buried box is a box and nothing else: one unit out of a band of a dozen
     // pixels is never the tin anybody meant, so a pile offers the lift only.
-    if (crate.stacked) { add('l', 'hold', 'Pick this box up', lift); return out; }
+    if (crate.stacked) { ringRow('l', 'Pick this box up', lift); return out; }
     if (haul) return out;
     // What is IN the box, which the pointer's own answer does not carry: a
     // desktop aim is `pickPallet`'s hit (an id and a position) and a phone's is
@@ -6214,18 +5958,17 @@ function pressHints({ aim, board, onPile, drop }) {
     // which every test below then answers "live" to. A row greyed on a frame we
     // have not got is the failure that reads as the shop refusing you.
     const stock = (latestState?.deliveries ?? []).find((d) => d.id === crate.id) ?? null;
-    // Which pile a rummage is about. The rows name no kind, and unnamed means
-    // the biggest stack at both ends — see `tapCrate`, which picks the same one.
     const takeId = stock ? lotMain(stock)?.item_id ?? null : null;
-    add('l', null, 'Take one',
-      () => net.send('crate-one', { palletId: crate.id, put: false }),
-      handRoom(takeId) > 0 ? null : noRoomWhy(takeId));
-    // The hold is two jobs chosen by what is in your hands (`errandAction`), and
-    // only one of them can be refused for room: empty hands can always shoulder
-    // a box, while an armful is `unload`, which sweeps the crate and comes back
-    // "hands full" when not one pile in there would fit.
+    // ONE ROW PER DIRECTION. A box used to offer two sizes on each button — one
+    // tin or the lot — which is four rows about one crate, and the fine one was
+    // never the answer to "what do I do with this box".
+    //
+    // Two jobs chosen by what is in your hands (`errandAction`), and only one of
+    // them can be refused for room: empty hands can always shoulder a box, while
+    // an armful is `unload`, which sweeps the crate and comes back "hands full"
+    // when not one pile in there would fit.
     const sweeps = !stock || lotStacks(stock).some((s) => handRoom(s.item_id) > 0);
-    add('l', 'hold', carry ? 'Take an armful' : 'Pick the crate up', lift,
+    ringRow('l', carry ? 'Take an armful' : 'Pick the crate up', lift,
       carry && !sweeps ? noRoomWhy(takeId) : null);
     // THE PUTS ARE A COLUMN WHERE THE PILL DRIVES, and a column that empties
     // itself the moment your hands do is half the card rearranging under your
@@ -6235,31 +5978,17 @@ function pressHints({ aim, board, onPile, drop }) {
     // is noise, so there they are dropped exactly as they always were.
     const empty = carry ? null : 'Your hands are empty';
     if (carry || pillDrives()) {
-      const giveId = lotMain(carry)?.item_id ?? null;
-      const cap = latestState?.crateCap ?? Infinity;
-      add('r', null, 'Put one back',
-        () => net.send('crate-one', { palletId: crate.id, put: true }),
-        // `tapCrate`'s pair of noes, in its own words: a full box is "come back
-        // later" and a box with no board left for this is "that one is spoken
-        // for", and they want opposite things from you.
-        empty ?? (lotRoom(stock, giveId, { cap }) > 0 ? null
-          : (lotTotal(stock) >= cap ? 'That crate is full'
-            : `That crate has no room left for ${ui.itemName(giveId)}`)));
-      // ...and the lot, which is the same grade the board below offers and the
-      // one a crate did not have — see `armPut`. `place` at the box's own cell,
-      // because `dropGoods` is what tops a crate up; a row that sent `crate-one`
-      // in a loop would be the second opinion this whole function is written not
-      // to be. Only where the shop would take it, or the row is advertising a
-      // press that comes back red — which is a fact about the SQUARE rather than
-      // about your hands, so it stays a dropped row rather than a grey one.
+      // `place` at the box's own cell, because `dropGoods` is what tops a crate
+      // up. Only where the shop would take it, or the row is advertising a press
+      // that comes back red — which is a fact about the SQUARE rather than about
+      // your hands, so it stays a dropped row rather than a grey one.
       //
-      // A full box is not a refusal here the way it is above: `dropGoods` tops
-      // one up, spends a free board in it, and stacks a new box on the cell when
-      // it can do neither. Empty hands are the only veto.
+      // A full box is not a refusal: `dropGoods` tops one up, spends a free
+      // board in it, and stacks a new box on the cell when it can do neither.
+      // Empty hands are the only veto.
       if (canDropAt({ x: Math.round(crate.x), z: Math.round(crate.z) })) {
-        add('r', 'hold', 'Put them all in', () => pillPress(
-          () => net.send('place', { x: Math.round(crate.x), z: Math.round(crate.z) }), true,
-        ), empty);
+        ringRow('r', 'Put them all in',
+          () => net.send('place', { x: Math.round(crate.x), z: Math.round(crate.z) }), empty);
       }
     }
     return out;
@@ -6374,36 +6103,28 @@ function pressHints({ aim, board, onPile, drop }) {
     // snapshot. Same call the tap makes, so the two cannot disagree.
     if (f.kind === 'station') {
       if (readyToTake(f)) {
-        add('l', null, 'Take one out', () => net.send('station-one', { stationId: f.id }));
-        // The errand and not a message of its own: a hold is `p.action` winding
-        // off whatever the errand named, and naming a fixture you are already
-        // standing at is a walk with no steps in it. Same four kinds of address
-        // every other target uses.
-        add('l', 'hold', 'Empty the tray',
-          () => pillPress(() => walkTo({ fixture: f.id }), true));
+        // The errand and not a message of its own: the ring winds off whatever
+        // the errand named, and naming a fixture you are already standing at is
+        // a walk with no steps in it. Same four kinds of address every other
+        // target uses.
+        ringRow('l', 'Empty the tray', () => walkTo({ fixture: f.id }));
       }
       if (carry || haul) {
-        add('r', null, 'Put one in',
-          () => net.send('station-one', { stationId: f.id, put: true }));
-        add('r', 'hold', 'Load it up',
-          () => pillPress(() => net.send('place', { fixture: f.id }), true));
+        ringRow('r', 'Load it up', () => net.send('place', { fixture: f.id }));
       }
       // Only when the left button has nothing else to do with it: with a tray to
-      // empty, the tap is "Take one out" and offering the menu beside it would
-      // name two different things for one press.
+      // empty, the press is "Empty the tray" and offering the menu beside it
+      // would name two different things for one press.
       if (out.length === selects) select();
       stepOver();
       return out;
     }
-    // The one fixture whose whole meaning is that nothing comes back, so it is
-    // the hold and never the tap — `armPut` gives it no tap at all.
     if (f.kind === 'bin') {
       if (carry || haul) {
-        add('r', 'hold', 'Throw it away',
-          () => pillPress(() => net.send('place', { fixture: f.id }), true));
+        ringRow('r', 'Throw it away', () => net.send('place', { fixture: f.id }));
       }
-      // The skip's left button has no job at all — everything it does is the
-      // hold on the right — so this is the only row it ever offers empty-handed.
+      // The skip's left button has no job at all — everything it does is on the
+      // right — so this is the only row it ever offers empty-handed.
       select();
       stepOver();
       return out;
@@ -6439,21 +6160,15 @@ function pressHints({ aim, board, onPile, drop }) {
     // and it self-corrects; where the tap is the aim it just sits there being
     // wrong.
     if (ripeBoard(f, board) && boardTakes() && boardQty(f, board) > 0) {
-      // Greyed rather than dropped when your hands have no room — `unshelve`
-      // refuses this on `lotRoom` exactly as `tapCrate` does, and a row that
-      // left because of something about YOU takes the reason with it. See
-      // `off` on `add`.
-      add('l', null, 'Take one', () => {
-        pickBoard(f, board);
-        net.send('shelf-one', { shelfId: f.id, itemId: board });
-      }, handRoom(board) > 0 ? null : noRoomWhy(board));
-      // The lot goes on your SHOULDER, so this one is bounded by the box up
-      // there rather than by your hands — `crateBoard`'s own test, and its own
-      // words. An empty shoulder is a new box, which is always room.
-      add('l', 'hold', 'Crate the lot', () => pillPress(() => {
+      // The board goes on your SHOULDER, so this is bounded by the box up there
+      // rather than by your hands — `crateBoard`'s own test, and its own words.
+      // An empty shoulder is a new box, which is always room. Greyed rather than
+      // dropped when it is full: a row that left because of something about YOU
+      // takes the reason with it. See `off` on `add`.
+      ringRow('l', 'Crate the lot', () => {
         pickBoard(f, board);
         net.send('take', { shelfId: f.id, itemId: board });
-      }, true), lotRoom(haul, board, { cap: latestState?.crateCap ?? Infinity }) > 0
+      }, lotRoom(haul, board, { cap: latestState?.crateCap ?? Infinity }) > 0
         ? null : 'That crate is full');
     } else {
       // **The left button does not walk you to a unit, and saying it did was
@@ -6510,19 +6225,12 @@ function pressHints({ aim, board, onPile, drop }) {
       // above offers, said one tile closer.
       walkRow('r', null, 'Take it there', () => walkTo({ fixture: f.id, put: true }));
     } else if (carry || haul) {
-      add('r', null, 'Put one on', () => {
-        const itemId = ripeBoard(f, board);
-        pickBoard(f, itemId);
-        net.send('shelf-one', { shelfId: f.id, itemId, put: true });
-      });
-      // `place` and NOT a walk, which is the difference between pouring a crate
-      // out and putting one unit down. `armPut` sends exactly this when the
-      // right button goes down at a unit you are standing at, and the errand a
-      // `walk-to` sets is the other one — measured: a 1.7s hold moved a single
-      // carrot, which reads as the button being broken rather than as the wrong
-      // errand having been armed. Same message for every right-hand hold below.
-      add('r', 'hold', 'Stock it',
-        () => pillPress(() => net.send('place', { fixture: f.id }), true));
+      // `place` and NOT a walk, which is the difference between pouring goods
+      // out and merely standing at the unit. `armPut` sends exactly this when
+      // the right button goes up at a unit you are standing at — measured
+      // against the errand a `walk-to` sets, which is the other one and moved a
+      // single carrot. Same message for every right-hand row below.
+      ringRow('r', 'Stock it', () => net.send('place', { fixture: f.id }));
     }
     stepOver();
     return out;
@@ -6531,8 +6239,8 @@ function pressHints({ aim, board, onPile, drop }) {
   // Bare ground, which only has anything to say while your hands are full — a
   // hint on every empty square you cross is a pill that never goes away.
   if (drop && canDropAt(drop)) {
-    add('r', 'hold', haul ? 'Set the crate down here' : 'Put it down here',
-      () => pillPress(() => net.send('place', { x: drop.x, z: drop.z }), true));
+    ringRow('r', haul ? 'Set the crate down here' : 'Put it down here',
+      () => net.send('place', { x: drop.x, z: drop.z }));
   }
   return out;
 }
@@ -6773,9 +6481,7 @@ function openAtPointer(cx, cy) {
   // and there is nothing to look at.
   if (ui.holding) return false;
   // The same thing the tap says, said about the other press — see
-  // `dropStalePick`. Safe this far in because a hold that already named goods
-  // never reaches here: `drag.took` sends the pull home first, which is the one
-  // hold that IS about the picked pile.
+  // `dropStalePick`.
   dropStalePick(cx, cy);
   // A person outranks the fixture behind them. They are smaller and they
   // move, so pointing at one is deliberate in a way that pointing at a shelf
@@ -6969,17 +6675,17 @@ function tapAtPointer(cx, cy) {
       // tap being broken by the hold that worked. `drag.done` says this for
       // every other press; a crate press is the one that keeps its tap this
       // long, so it is the one that has to say when the tap is over.
-      if (drag.rummage && performance.now() - drag.pressedAt >= CRATE_HOLD_MS) return;
-      if (!crate.stacked && inReachOf(crate)) {
-        // ...unless the pill is where the verbs live. See `pillDrives`: the
-        // press already named the crate on the way down, so stopping here is
-        // exactly "you have the list now", and Take one is on it.
-        if (pillDrives()) return;
-        net.send('crate-one', { palletId: crate.id, put: false });
-        return;
-      }
-      // Out of reach — or a pile, where the only job is the lift. The press has
-      // usually already sent this; the same target twice costs nothing.
+      // ONE PRESS, ONE OUTCOME, wherever you are standing. A box used to grade
+      // — a tap took one tin, a hold took the box — and the fork was measured on
+      // reach as well, so the same press meant three things depending on your
+      // feet and how fast you let go. `take` names the crate and `errandAction`
+      // decides the job from what your hands are already doing.
+      //
+      // ...except where the pill drives, which is untouched by any of that: with
+      // one button a tap is the gesture people look at things with, so it hands
+      // the crate to the pill and the pill's rows are the verbs. See
+      // `pillDrives`. Only in reach — out there the tap is still the walk.
+      if (pillDrives() && inReachOf(crate)) return;
       net.send('take', { palletId: crate.id });
       return;
     }
@@ -7078,18 +6784,20 @@ function tapAtPointer(cx, cy) {
         // a no-op. That is the same press-that-does-nothing the board branch
         // below spells out, and on a machine it was the whole of what "ready to
         // collect" bought you: a full tray, a tap that visibly did nothing, and
-        // the goods only moving once you found the hold. A tap is one portion
-        // and the hold is still the tray — the grade a crate and a board draw.
+        // the goods only moving once you found the hold.
         //
-        // Both reach tests, because `Game.tapStation` accepts either: a machine
-        // is worked from its `useAt`, and standing against the thing itself is
-        // equally close enough for the verb.
-        if (over.kind === 'station' && (nearFixture(over) || atWorkSpotOf(over))) {
-          // The pill's job where it has one — see `pillDrives`. `openInTwo`
-          // rather than a bare return, because a machine has a menu worth
-          // reaching and the tap is the only way to it now.
-          if (pillDrives()) { openInTwo(over, { walk: true }); return; }
-          net.send('station-one', { stationId: over.id });
+        // `walkTo` either way now, which is what folds the machine back in with
+        // the crate and the board: it names the fixture, the errand empties the
+        // tray, and standing there already is a walk with no legs in it.
+        //
+        // Both reach tests, because `atFixture` accepts either: a machine is
+        // worked from its `useAt`, and standing against the thing itself is
+        // equally close enough for the verb. Where the pill drives, a tap on one
+        // you are stood at opens it instead — the machine has a menu worth
+        // reaching and the rows are the verbs.
+        if (pillDrives() && over.kind === 'station'
+          && (nearFixture(over) || atWorkSpotOf(over))) {
+          openInTwo(over, { walk: true });
           return;
         }
         walkTo({ fixture: over.id });
@@ -7140,14 +6848,17 @@ function tapAtPointer(cx, cy) {
         // select-then-open ladder and put a panel over the shop.
         if (pillDrives() && !ui.isSelected(over)) ui.selectFixture(over);
         scene.ripple(over.x, over.z);
-        // Standing at it, the tap NAMES the pile and stops — `pickBoard` above
-        // is the whole of what it does, and that selection is what keeps the
-        // pill about this board rather than about whatever the aim wanders onto.
-        // See `pillDrives`. The walk is untouched: out of reach, a tap is still
-        // how you get there.
-        if (nearFixture(over)) {
-          if (!pillDrives()) net.send('shelf-one', { shelfId: over.id, itemId: hit.board });
-        } else net.send('take', { shelfId: over.id, itemId: hit.board });
+        // ONE MESSAGE WHEREVER YOU ARE STANDING. It used to fork on reach — a
+        // rummage close to, a walk from across the shop — which is the same
+        // press meaning two different amounts depending on your feet. `take`
+        // names the board either way: standing there it fires now, and from the
+        // far side of the shop it fires when you arrive.
+        //
+        // The pill is the one fork left, and it is about the DEVICE rather than
+        // about the goods: with one button a tap looks, and `pickBoard` above is
+        // the whole of what it does.
+        if (pillDrives() && nearFixture(over)) return;
+        net.send('take', { shelfId: over.id, itemId: hit.board });
         return;
       }
 
