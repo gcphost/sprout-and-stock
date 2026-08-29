@@ -66,6 +66,15 @@ export const E = {
   CURTAIN: 13,
   /** ...and the one you actually buy: shoppers treat it as a wall. */
   CURTAIN_STAFF: 14,
+  // ...and the same partition with a SQUARE HOLE in it instead of strips, sized
+  // off a crate rather than off a person. A LOOK of the curtain and never a kind
+  // of its own — see `WAY_LOOKS` — because every fact the sim has about the two
+  // is identical: a conveyor goes through, a shopper does not, the room stays a
+  // room. What differs is the picture, which is the axis a look is.
+  /** A belt port anybody could climb through, if they were minded to. */
+  PORT: 32,
+  /** ...and the one you actually buy. */
+  PORT_STAFF: 33,
   // A roller shutter, rolled up. The way into a loading bay: a full-height
   // opening with the slats coiled under the lintel and a track down either
   // jamb. Four kinds for the same reason a doorway has four — it encloses, so
@@ -169,8 +178,14 @@ export const WAYS = new Map([
   [E.DOOR_OUT, { base: 'door', rule: 'out', roofs: true }],
   [E.GATE, { base: 'gate', rule: 'all', roofs: false }],
   [E.GATE_STAFF, { base: 'gate', rule: 'staff', roofs: false }],
-  [E.CURTAIN, { base: 'curtain', rule: 'all', roofs: true }],
-  [E.CURTAIN_STAFF, { base: 'curtain', rule: 'staff', roofs: true }],
+  // The curtain, and it is the second base to carry a LOOK — strips hanging in
+  // the gap, or a square hole cut for a conveyor. One base, because every set
+  // derived from this table wants the same answer for both: a way through that
+  // roofs, that a shopper may not use, and that costs what a curtain costs.
+  [E.CURTAIN, { base: 'curtain', look: 'strips', rule: 'all', roofs: true }],
+  [E.CURTAIN_STAFF, { base: 'curtain', look: 'strips', rule: 'staff', roofs: true }],
+  [E.PORT, { base: 'curtain', look: 'port', rule: 'all', roofs: true }],
+  [E.PORT_STAFF, { base: 'curtain', look: 'port', rule: 'staff', roofs: true }],
   [E.SHUTTER, { base: 'shutter', rule: 'all', roofs: true }],
   [E.SHUTTER_STAFF, { base: 'shutter', rule: 'staff', roofs: true }],
   [E.SHUTTER_IN, { base: 'shutter', rule: 'in', roofs: true }],
@@ -225,6 +240,10 @@ export const WAYS = new Map([
  */
 export const WAY_LOOKS = {
   glazed: ['transom', 'shopfront'],
+  // Strips first, because the order is what the palette button lays and a
+  // curtain is what somebody reaching for this family means. The port is the
+  // one the shop hangs for you when a conveyor crosses a wall.
+  curtain: ['strips', 'port'],
 };
 
 /** Which look this opening wears, or null for a base that has only one. */

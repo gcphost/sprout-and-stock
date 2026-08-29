@@ -145,6 +145,20 @@ const CHOICE = {
     icon: ICONS.ambient,
     sub: 'The same glass with no bar under it, in a slimmer frame. Lines up with a shopfront.',
   },
+  // ...and what is hanging in a curtain's gap — see `WAY_LOOKS`. The same rule
+  // either way, so swapping is free and the panel says so.
+  strips: {
+    name: 'Strips',
+    short: 'Strips',
+    icon: ICONS.build,
+    sub: 'Plastic strips to the floor. Push through them, and goods go under.',
+  },
+  port: {
+    name: 'Belt port',
+    short: 'Port',
+    icon: ICONS.build,
+    sub: 'A small square hole down at belt height. Boxes go through, people do not.',
+  },
 };
 
 /**
@@ -169,9 +183,13 @@ const FAMILY = {
     asks: 'Open to',
     noWay: 'A fence never makes a room, so there is no in or out here.',
   },
+  // The second family with both axes, so it asks two questions — see the glazed
+  // doorway below for what `looks` is. No `free` for the same reason that one
+  // has none: the look is free, the family is not.
   curtain: {
     what: 'Strip curtain',
     asks: 'Open to',
+    looks: 'Made of',
     noWay: 'Strips you push through both ways have no direction in them.',
   },
   // No `noWay`, and that is the same answer the doorway's is: a roller door

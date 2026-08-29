@@ -81,6 +81,10 @@ const DWELL_MS = 650;
  * the point. A caret that stops well short of its button stops reading as a
  * caret and starts reading as a stray diamond.
  */
+/* GAP, MARGIN and every other number in `place` are in the HUD's own pixels,
+   which stop being the screen's the moment the size dial is not 1. */
+import { hudPx } from './ui-scale.js';
+
 const GAP = 9;
 
 /** Never nearer the edge of the screen than this. */
@@ -305,7 +309,19 @@ class Tip {
    * sent to explain.
    */
   place() {
-    const r = this.target.getBoundingClientRect();
+    // EVERYTHING BELOW IS IN HUD PIXELS. The target's rect and the window are
+    // in the viewport's, the box is drawn in the HUD's, and the two are the same
+    // number only while the size dial is at 1 — so the conversion happens once,
+    // here, rather than four times further down where one of them would be
+    // forgotten. `offsetWidth`/`offsetHeight` are already HUD pixels and are
+    // read as they are. See client/ui-scale.js.
+    const box = this.target.getBoundingClientRect();
+    const r = {
+      left: hudPx(box.left), right: hudPx(box.right),
+      top: hudPx(box.top), bottom: hudPx(box.bottom), width: hudPx(box.width),
+    };
+    const vw = hudPx(window.innerWidth);
+    const vh = hudPx(window.innerHeight);
     const mid = r.left + r.width / 2;
 
     // Measured from a clean slate: the box is still sized to the LAST thing it
@@ -320,16 +336,16 @@ class Tip {
     // Above unless it does not fit AND there is more room the other way, so a
     // tip on something in a cramped middle of the screen still goes up — which
     // is where a tooltip belongs when it is a free choice.
-    const down = r.top - GAP - h < MARGIN && window.innerHeight - r.bottom > r.top;
+    const down = r.top - GAP - h < MARGIN && vh - r.bottom > r.top;
     this.el.classList.toggle('down', down);
     if (down) {
       this.el.style.top = `${r.bottom + GAP}px`;
     } else {
       this.el.style.top = 'auto';
-      this.el.style.bottom = `${window.innerHeight - r.top + GAP}px`;
+      this.el.style.bottom = `${vh - r.top + GAP}px`;
     }
 
-    const left = Math.max(MARGIN, Math.min(mid - w / 2, window.innerWidth - MARGIN - w));
+    const left = Math.max(MARGIN, Math.min(mid - w / 2, vw - MARGIN - w));
     this.el.style.left = `${left}px`;
 
     // The caret, kept over the button, and pulled in from the box's own corners

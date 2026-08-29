@@ -960,6 +960,95 @@ const cropFor = () => c.crops[0];
 }
 
 // ---------------------------------------------------------------------------
+// 4d. What a thing is HOLDING is never a reason it cannot go.
+//
+// Removal tips a fixture out before it takes it away, and that started as a
+// rule about shelves alone — the others were argued to be sharper decisions,
+// since a crop is destroyed and a machine may hold work in progress. What that
+// actually bought was a rule nobody can learn: the bulldozer took a full
+// freezer and refused a rack of lettuce, with the freezer being the one that
+// had goods in it.
+//
+// Everything here is invisible twice over. A rack that came out and a rack that
+// was never built are the same empty square — that is what removing IS — and a
+// rack whose lettuce went into a crate and one whose lettuce was destroyed are
+// the same empty square too, differing only by a box you were not watching. The
+// refusal at least said something; losing the crop says nothing at all.
+//
+// So each claim is PAIRED with the goods being counted off the floor, or "it
+// can be removed" is satisfied by a removal that quietly ate what was in it.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const rack = g.layout.plots[0];
+  const crop = cropFor(g);
+  const racks = g.layout.plots.length;
+  g.setBuildMode('me', true);
+  stand(g, rack);
+  g.till('me', rack.id);
+  g.plant('me', rack.id, crop.id);
+  // Empty hands, or `harvest`'s own crate ends up in the count below.
+  g.players.me.carry = null;
+  g.players.me.haul = null;
+  rack.ready = true;
+  const grew = rack.yield;
+  check(grew > 0, 'the rack is holding a ripe crop it has been drawing all along');
+  eq(totalOnFloor(g, crop.item_id), 0, 'and none of it is on the floor yet');
+
+  const cash0 = g.cash;
+  const pulled = g.removeFixture('me', rack.id);
+  check(pulled.ok, 'a rack with a ripe crop in it can be removed', pulled.error);
+  eq(g.layout.plots.length, racks - 1, 'and the rack is gone');
+  // The pair. Either half alone passes on the bug: "it can go" passes on a
+  // removal that destroyed the crop, and "the crop is on the floor" would pass
+  // on a rack that is still standing there.
+  eq(totalOnFloor(g, crop.item_id), grew, 'and every plant it grew is in a crate');
+  check(g.cash > cash0, 'a removal still pays half back');
+
+  // A crop still GROWING is a sunk cost — there is nothing on it to put in a
+  // box — so the pair here is the other way round: it goes, and nothing is
+  // conjured out of it. Without this a rack half way through a crop would be
+  // the one fixture in the shop that could not be torn out.
+  const g2 = fresh();
+  const bed = g2.layout.plots[0];
+  const seed = cropFor(g2);
+  g2.setBuildMode('me', true);
+  stand(g2, bed);
+  g2.till('me', bed.id);
+  g2.plant('me', bed.id, seed.id);
+  g2.players.me.carry = null;
+  g2.players.me.haul = null;
+  check(!bed.ready, 'the crop is still growing');
+  const half = g2.removeFixture('me', bed.id);
+  check(half.ok, 'a rack with an unripe crop in it can be removed too', half.error);
+  eq(totalOnFloor(g2, seed.item_id), 0, 'and a half-grown crop yields nothing');
+
+  // And the same sentence said about the machine, which is the kind whose
+  // refusal was argued for hardest. A batch under way is left to finish; the
+  // hopper and the trays come out in crates, exactly as pressing Empty does.
+  const sells = c.upgrades.find((u) => u.kind === 'station' && u.payload?.station);
+  check(!!sells, 'there is an appliance to test selling back with something in it');
+  if (sells) {
+    const g4 = fresh();
+    g4.setBuildMode('me', true, 'station');
+    g4.cash += sells.cost * 2;
+    const spot = findFreeFloor(g4);
+    const built = g4.placeFixture('me', {
+      kind: 'station', station: sells.payload.station, x: spot.x, z: spot.z, rot: spot.rot,
+    });
+    check(built.ok, 'a machine can be built to fill', built.error);
+    const machine = (g4.layout.stations ?? []).find((s) => s.id === built.placed);
+    check(!!machine, 'and it is in the layout');
+    machine.contents = { [anyItem.id]: 5 };
+    const stations = g4.layout.stations.length;
+    const out = g4.removeFixture('me', machine.id);
+    check(out.ok, 'a machine with a full hopper can be sold back', out.error);
+    eq(g4.layout.stations.length, stations - 1, 'and it is gone');
+    eq(totalOnFloor(g4, anyItem.id), 5, 'with what was in the hopper in a crate');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 5. Build mode is the safety catch — and the only way in.
 // ---------------------------------------------------------------------------
 {

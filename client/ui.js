@@ -13,6 +13,7 @@ import {
 } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import { clockLabel, weekdayLabel } from '../shared/clock.js';
+import { hudPx } from './ui-scale.js';
 import { EMOTE_LIST } from '../shared/emotes.js';
 import { pillDrives } from './input.js';
 import {
@@ -28,6 +29,10 @@ import { wireScroll } from './scroll.js';
 // kind of confirm is a UI you have to learn twice. See `armHire`.
 import { showWorker, ARM_MS } from './worker-menu.js';
 import { Rail } from './rail.js';
+// Which build tabs have a briefing behind the ?. Safe to import here — nothing
+// in tutor.js reaches back for ui.js, so this is not the cycle its own header
+// warns about (that one is `pillDrives`, which is why input.js is its own file).
+import { lessonForGroup } from './tutor.js';
 import { tip } from './tip.js';
 import { ICONS } from './icons.js';
 import { showFixture, ONE_AT_A_TIME } from './fixture-menu.js';
@@ -390,6 +395,7 @@ export class UI {
       buildShapes: document.getElementById('build-shapes'),
       buildHint: document.getElementById('build-hint'),
       buildClose: document.getElementById('build-close'),
+      buildHelp: document.getElementById('build-help'),
       deck: document.getElementById('build-deck'),
       rotate: document.getElementById('rotbtn'),
       leave: document.getElementById('closebtn'),
@@ -437,6 +443,16 @@ export class UI {
     // it (see `showBar`), which is exactly what the rail's own Build button does
     // — so the two ways out cannot end up meaning different things.
     this.el.buildClose.onclick = () => this.showBar(null);
+    /**
+     * The briefing for whatever tab is open — see `LESSONS` in client/tutor.js.
+     *
+     * It goes through `teach`, which is the same door the console hook and the
+     * auto-trigger use, so a briefing opened from here runs exactly as it runs
+     * when it arrives on its own. It does NOT close the bar: the whole point of
+     * reading it is the row of buttons underneath, and a card that took them
+     * away would be explaining a palette you can no longer see.
+     */
+    this.el.buildHelp.onclick = () => this.tutor?.teach(this.barTab.build);
     // Which storey, from the bar. The same call E makes — including the toast,
     // because a press whose whole effect is four metres above where you are
     // looking needs to say so wherever it came from. Pressing the storey you are
@@ -1341,9 +1357,9 @@ export class UI {
    * Tear out what you aimed at.
    *
    * The same message the fixture's own menu sends, because it is the same verb —
-   * the server refuses a fixture with contents in it or your last till either
-   * way, and refunds the same half. What the bulldozer changes is only how you
-   * name the target: by pointing at it rather than by opening its menu first.
+   * the server tips out whatever is in it, refuses your last till either way,
+   * and refunds the same half. What the bulldozer changes is only how you name
+   * the target: by pointing at it rather than by opening its menu first.
    */
   razeFixture(f) {
     if (!f) return;
@@ -2044,6 +2060,12 @@ export class UI {
     });
     this.barTab.build = group?.id ?? null;
     if (group && sub) this.barSub[group.id] = sub.id;
+    // The ? follows the TAB, so it is decided here rather than once at startup:
+    // two of the seven tabs have a briefing, and a button that does nothing on
+    // the other five is the "tier that changes no number" trap wearing a
+    // question mark. Only the build bar has one at all — the roster and the
+    // supplier browse through `renderBrowseBar`, which never shows it.
+    if (this.el.buildHelp) this.el.buildHelp.hidden = !lessonForGroup(group?.id ?? null);
     // Measures the bar itself, so it goes last.
     this.renderBuildHint();
     return undefined;
@@ -5695,10 +5717,18 @@ export class UI {
     // Below and right of the cursor by default, which is where a pointer is
     // not. Measured rather than assumed, because the name is as long as the
     // longest item anybody authors.
+    // `offsetWidth`/`offsetHeight` are in the HUD's own pixels and the pointer
+    // and the window are in the viewport's, so the two coordinates and both
+    // bounds are converted before any of them meet — see client/ui-scale.js.
+    // Left mixed, the card leaves the cursor by a growing fraction of how far
+    // across the screen you are pointing, which reads as the card lagging.
     const w = el.offsetWidth;
     const h = el.offsetHeight;
-    const x = px + 16 + w > innerWidth ? px - 16 - w : px + 16;
-    const y = py + 14 + h > innerHeight ? py - 14 - h : py + 14;
+    const vw = hudPx(innerWidth);
+    const vh = hudPx(innerHeight);
+    const at = { x: hudPx(px), y: hudPx(py) };
+    const x = at.x + 16 + w > vw ? at.x - 16 - w : at.x + 16;
+    const y = at.y + 14 + h > vh ? at.y - 14 - h : at.y + 14;
     el.style.left = `${Math.max(6, x)}px`;
     el.style.top = `${Math.max(6, y)}px`;
     el.classList.add('show');

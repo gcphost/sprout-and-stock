@@ -22,7 +22,7 @@ import {
   generateLayout, defaultPads, defaultStreet, defaultAwning, buildWalkGrid, isWalkable, carLanes, T,
 } from '../layout.js';
 import {
-  E, SOLID, edgeBetween, edgeFamily, edgeCharm, wayDefault, shopperCanCross,
+  E, SOLID, edgeBetween, edgeFamily, edgeCharm, wayDefault, wayKind, fenceBase, shopperCanCross,
 } from '../../shared/edges.js';
 import { findPath, followPath } from './pathing.js';
 import {
@@ -238,7 +238,10 @@ const EDGE_COST = {
   // opening, more than a partition. Both rules at one price, the way a signed
   // doorway is — the refit in `buildEdge` is what makes opening one up and
   // shutting it again cost nothing.
-  [E.CURTAIN]: 22, [E.CURTAIN_STAFF]: 22,
+  // ...and both LOOKS at one price, the way a glazing's four are: a look must
+  // never move a number, or choosing a square hole over strips is a balance
+  // change and the refit in `buildEdge` makes swapping them free.
+  [E.CURTAIN]: 22, [E.CURTAIN_STAFF]: 22, [E.PORT]: 22, [E.PORT_STAFF]: 22,
   // A roller door is the dearest thing you can put in a wall, and it should be:
   // it is a doorway plus the widest hole the shell can have plus the gear to
   // hold it up. All four rules at one price, the way a signed doorway is — the
@@ -275,6 +278,7 @@ const EDGE_LABEL = {
   [E.WINDOW_FULL]: 'a shopfront', [E.WINDOW_BAY]: 'a bay window',
   [E.WINDOW_HIGH]: 'a high window',
   [E.CURTAIN_STAFF]: 'a strip curtain', [E.CURTAIN]: 'an open strip curtain',
+  [E.PORT_STAFF]: 'a belt port', [E.PORT]: 'an open belt port',
   [E.SHUTTER]: 'a roller door', [E.SHUTTER_STAFF]: 'a staff roller door',
   [E.SHUTTER_IN]: 'a roller entrance', [E.SHUTTER_OUT]: 'a roller exit',
   [E.ARCH]: 'an archway', [E.ARCH_STAFF]: 'a staff archway',
@@ -6763,7 +6767,17 @@ export class Game {
     // No boards you can see into: everything is piled on the roof, and the roof
     // is the one height there is. `modelHeight` rather than a surface, because
     // there is no surface to read.
-    if (!rows.length) return atEye(modelHeight(model, t));
+    //
+    // Through `partsAt`, and it read `modelHeight(model, t)` — which is the same
+    // mistake `syncPlots` was making on the client and is worse here. That
+    // function takes PARTS and one argument: a model is `{ parts }` or
+    // `{ stages }`, so `for (const p of model)` throws, the `t` is swallowed,
+    // and there is no try/catch on this side of the seam (see `verify:host` —
+    // only `ChannelHost` swallows a throwing handler, Colyseus does not). It is
+    // reachable from every sale off a unit with no board you can see into, which
+    // is a counter or a chest freezer, so it was a dead process one purchase
+    // away the whole time. `partsAt` is already the idiom two lines up.
+    if (!rows.length) return atEye(modelHeight(partsAt(model, t)));
 
     // Which share of the boards this pile has. The same list the renderer
     // builds — reservations first, then whatever is standing on it — because a
@@ -14457,16 +14471,165 @@ export class Game {
       turned = true;
     }
     if (turned) this.regenerateLayout();
+    const opened = this.pierceForRun(cells, runDeck);
     // One line in the feed. `placeFixture` writes one per cell, which for a
     // sixty-cell drag is a log with nothing else in it.
     const what = (this.fixtureContent({ kind, piece, station: null })?.name
       ?? FIXTURES[kind]?.label ?? kind).toLowerCase();
-    this.pushLog(laid === 0
+    const also = opened
+      ? ` ${opened.said}${opened.spent > 0 ? ` for $${opened.spent.toFixed(2)}` : ''}.`
+      : '';
+    this.pushLog((laid === 0
       ? (aims.length === 1 ? `Turned a ${what}.` : `Turned ${aims.length} ${what} round.`)
       : laid === 1
         ? `Built a ${what}.`
-        : `Laid ${laid} ${what} in a row.`);
-    return ok({ laid, aimed: aims.length, placed: last });
+        : `Laid ${laid} ${what} in a row.`) + also);
+    return ok({
+      laid,
+      aimed: aims.length,
+      placed: last,
+      opened: opened?.opened ?? 0,
+      openedCost: opened?.spent ?? 0,
+    });
+  }
+
+  /**
+   * ...and OPEN THE WALLS IT GOES THROUGH.
+   *
+   * A run laid across a wall is drawn as a crate gliding through masonry, and
+   * that is not a rendering fault — `stepBelts` consults no edge at all, so the
+   * box really does cross and the wall really is still there. Both halves are
+   * right on their own: a conveyor is ground, ground pays no attention to what
+   * is standing on the line between two cells, and a wall knows nothing about
+   * what is laid across it. What is missing is the piece a real warehouse puts
+   * in the gap, and it has been in the game since the curtain shipped — strips
+   * that hang a hand's width above the deck, which is `E.CURTAIN`'s own note.
+   * This is that piece hung for you, on the one gesture that can ever make the
+   * crossing.
+   *
+   * `floorNewRooms` is the shape and every clause of its argument reads across.
+   *
+   * **Only where a box really CROSSES.** The pair has to hand on — `conveyorNext`
+   * either way round — and never merely be neighbours. A run laid down the inside
+   * of a wall touches an edge on every cell of its length, and punching those
+   * would be a drag along your own stockroom demolishing it a segment at a time.
+   * Both directions, because the crossing is finished by whichever half is laid
+   * second and the other half is already standing when it is.
+   *
+   * **Only a SOLID edge**, which is what leaves a doorway, an arch, a shutter or
+   * a curtain you already hung exactly as it was. A run through your own front
+   * door is a run through your own front door.
+   *
+   * **And it never changes who may go where.** A curtain is hung `staff` — which
+   * is what the palette button lays and for the reason `WAY_RULES` gives — and a
+   * fence gets a staff gate rather than the open one its own button lays. The
+   * opening is for the goods; a belt laid across the paddock fence must not be
+   * the reason shoppers start wandering into the field, because a rule nobody
+   * asked to change is the worst thing an automatic press can do. A curtain
+   * roofs, so the room stays a room and the shed-every-fixture failure
+   * `canKeep` exists for cannot arrive through this door.
+   *
+   * **It is a purchase**, at the same price and the same refund arithmetic
+   * `buildEdge` charges, and running out lays what you could afford exactly as a
+   * wall drag does. Free openings would make a conveyor the cheapest demolition
+   * tool in the game.
+   *
+   * **One press, one undo.** Its own `edges` part rather than its own step, so
+   * the step `build-run` opened holds the cells and the curtain together — the
+   * two-part step docs/building.md §32 already needs, arriving on the other
+   * gesture that can make one.
+   *
+   * The CEILING gets nothing, and that falls out rather than being a rule about
+   * ducts: the walls stop at 2.10 and the solid clerestory band over them stops
+   * at `CEILING_Y`, "which is exactly where the overhead deck begins"
+   * (`addClerestory`). An overhead run passes over every wall in the shop and
+   * through the glass, so there is nothing there to open.
+   */
+  pierceForRun(cells, deck) {
+    if (deck === CEILING) return null;
+    const L = this.layout;
+    const here = cells.map((c) => conveyorAt(L, c.x, c.z, 0)).filter(Boolean);
+    if (!here.length) return null;
+
+    const seen = new Set();
+    const found = [];
+    const add = (a, b) => {
+      if (!a || !b || deckOf(a) !== 0 || deckOf(b) !== 0) return;
+      const was = edgeBetween(L, a.x, a.z, b.x, b.z);
+      if (!SOLID.has(was)) return;
+      const seg = a.x === b.x
+        ? { o: 'h', x: a.x, z: Math.max(a.z, b.z) }
+        : { o: 'v', x: Math.max(a.x, b.x), z: a.z };
+      const key = `${seg.o}:${seg.x},${seg.z}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      found.push({ seg, was });
+    };
+    for (const c of here) {
+      // The cell it hands to has to BE one. `conveyorNext` answers a coordinate
+      // for anything that is not derived — a belt's own facing, whether or not
+      // there is anything standing there — so asking it alone punches the wall a
+      // dead-ended run happens to point at, which is a hole knocked through for
+      // a box that will never reach it. The sweep found that on its first run.
+      const nx = conveyorNext(L, c);
+      add(c, nx ? conveyorAt(L, nx.x, nx.z, deckOf(nx)) : null);
+      // ...and the other way round, which is the half that matters most: a
+      // crossing is finished by whichever side goes down SECOND, and the cell
+      // already standing over there was laid by a press that has been and gone.
+      // Compared by tile rather than by id, the way `buildRun`'s own `feeds`
+      // does — `conveyorNext` answers a coordinate, so an id test is `undefined`
+      // every time and the whole direction quietly does nothing.
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const n = conveyorAt(L, c.x + dx, c.z + dz, 0);
+        const nn = n ? conveyorNext(L, n) : null;
+        if (nn && nn.x === c.x && nn.z === c.z && deckOf(nn) === 0) add(n, c);
+      }
+    }
+    if (!found.length) return null;
+
+    const undoSegs = [];
+    const tally = new Map();
+    let spent = 0;
+    let opened = 0;
+    let short = false;
+
+    for (const { seg, was } of found) {
+      // A hole the size of a CRATE, which is the whole of what is wanted here.
+      // `E.NONE` is the honest spelling of "just a hole" and is the one thing it
+      // may not be: enclosure is all-or-nothing, so a bare gap in an outside
+      // wall reports the whole shop as outdoors and `compose` sheds every
+      // fixture in it. A doorway, an arch or a roller door would each keep the
+      // roof on and each is monumental masonry for a belt — their heads are
+      // sized off a PERSON (`HEAD_ROOM`, client/render/palette.js) and nobody is
+      // walking through this. A port is the curtain's own rule with its own
+      // picture: a square cut on the rail line, wall all round it.
+      const kind = fenceBase(was) ? E.NONE : wayKind('curtain', 'staff', 'port');
+      if (!kind || kind === was) continue;
+      const key = `${seg.o}:${seg.x},${seg.z}`;
+      const had = this.edits.find((e) => `${e.o}:${e.x},${e.z}` === key);
+      const cost = round2((EDGE_COST[kind] ?? 0) - (EDGE_COST[was] ?? 0) * FIXTURE_REFUND);
+      if (cost > 0 && this.cash - spent < cost) { short = true; break; }
+
+      spent = round2(spent + cost);
+      this.edits = this.edits.filter((e) => `${e.o}:${e.x},${e.z}` !== key);
+      const now = { o: seg.o, x: seg.x, z: seg.z, k: kind };
+      this.edits.push(now);
+      undoSegs.push({ o: seg.o, x: seg.x, z: seg.z, was: had ? { ...had } : null, now });
+      tally.set(kind, (tally.get(kind) ?? 0) + 1);
+      opened++;
+    }
+
+    if (!opened) return null;
+
+    this.cash = round2(this.cash - spent);
+    if (spent > 0) this.stats.spent += spent;
+    recordUndo(this, { t: 'edges', segs: undoSegs });
+    this.regenerateLayout();
+
+    const said = tally.size === 1 && opened === 1
+      ? `Hung ${EDGE_LABEL[[...tally.keys()][0]] ?? 'a way through'} where it goes through`
+      : `Opened ${opened} ways through for it`;
+    return { opened, spent, short, said };
   }
 
   /**
@@ -17776,9 +17939,9 @@ export class Game {
     // which returns `shelfQty` and would read `stacks` off a record that has
     // none: 0 today by luck, and wrong the first time a belt grows a field.
     if (f.kind === 'belt' || f.kind === 'arm') return 0;
-    // Across every board — "empty it first" has to mean the whole unit, or a
-    // shelf with a full middle board would pass the check that guards removing
-    // it and take the goods with it when it went.
+    // Across every board — this has to mean the whole unit, or a shelf with a
+    // full middle board reads as empty to `removeFixture`, skips the tip and
+    // takes the goods with it when it goes.
     return this.shelfQty(f);
   }
 
@@ -17803,7 +17966,21 @@ export class Game {
       const pen = f.ref;
       if (!(pen.qty > 0)) return err('nothing in there to collect');
       const itemId = this.penMakes(pen)?.item_id;
-      if (!itemId) return err('nothing in there any more');
+      // The row it was filling with has been deleted out from under it, which is
+      // `binOrphans`' whole subject and is a state a live-edited catalog reaches
+      // by ordinary use. It empties rather than refusing, and the difference
+      // matters because `removeFixture` tips a thing out before it takes it
+      // away: a refusal here is a vat you can neither clear nor sell back, for
+      // ever, over goods that no longer exist to be lost. No money moves, for
+      // the reason `binOrphans` gives — `spoiledValue` needs the row, and the
+      // row is the thing that has gone.
+      if (!itemId) {
+        const had = pen.qty;
+        pen.qty = 0;
+        pen.filledAt = this.elapsed;
+        this.pushLog(`Cleared ${had} out of the ${this.fixtureSaid(pen)} — it makes something the shop no longer sells.`);
+        return ok({ cleared: pen.id, item_id: null, qty: 0 });
+      }
       const qty = pen.qty;
       pen.qty = 0;
       pen.filledAt = this.elapsed;
@@ -17817,11 +17994,31 @@ export class Game {
     if (f.kind === 'plot') {
       const plot = f.ref;
       if (!plot.crop_id) return err('nothing growing there');
-      // A half-grown crop is a sunk cost — there's nothing to put in a crate.
-      const name = content().byId.crops[plot.crop_id]?.name ?? plot.crop_id;
+      const crop = content().byId.crops[plot.crop_id];
+      const name = crop?.name ?? plot.crop_id;
+      // A RIPE rack is holding a harvest, and tipping it out has to hand that
+      // over — every other "empty it" in the game is lossless, and this one was
+      // the exception that destroyed a full rack of lettuce for the press that
+      // said "get this out of here". The yield was decided when it was sown and
+      // the rack has been drawing that many plants ever since, so it is the same
+      // number `harvest` would give you.
+      //
+      // Never an rng draw for a record with no `yield` on it — `harvest` may
+      // roll one because it is a job the player asked for, and this is reached
+      // from a bulldozer that could take out a row. `yield_min` is the honest
+      // floor and moves the stream nowhere.
+      //
+      // A crop still GROWING is a sunk cost and there is nothing to put in a
+      // box, which is why this answers a quantity rather than a boolean.
+      const qty = (plot.ready && crop?.item_id) ? (plot.yield || crop.yield_min || 0) : 0;
+      // At the working side rather than on the rack, because a rack blocks its
+      // own cell now — the same reason a pen crates at its gateway.
+      if (qty > 0) this.dropGoods(crop.item_id, qty, plot.useAt ?? plot);
       this.clearPlot(plot);
-      this.pushLog(`Cleared the ${name} out of the ${this.fixtureSaid(plot)}.`);
-      return ok({ cleared: plot.id });
+      this.pushLog(qty > 0
+        ? `Picked ${qty}x ${this.itemSaid(crop.item_id)} off the ${this.fixtureSaid(plot)} and cleared it.`
+        : `Cleared the ${name} out of the ${this.fixtureSaid(plot)}.`);
+      return ok({ cleared: plot.id, item_id: qty > 0 ? crop.item_id : null, qty });
     }
     return err('nothing to empty there');
   }
@@ -19140,13 +19337,26 @@ export class Game {
     if (error) return err(error);
     const contents = this.fixtureContents(f);
     if (contents > 0) {
-      // A shelf already has one lossless way to get its goods out: tip every
-      // board into crates beside it. Make that the first half of removal rather
-      // than asking for the same press separately. Other fixtures are sharper
-      // decisions — deleting a crop destroys it and a machine may hold work in
-      // progress — so their existing refusal stays explicit.
-      if (!holdsGoods(f.kind)) return err('empty it first');
-      const tipped = this.stripShelf(playerId, id);
+      // Every kind that can hold anything already has one lossless way to get it
+      // out, and it is the same press: `emptyFixture` tips a shelf board by
+      // board, crates a hopper and every tray, crates what is standing in a pen's
+      // gateway, and picks a ripe rack. So removal does that first rather than
+      // asking for the same press separately.
+      //
+      // It went in for shelves alone at first, on the reasoning that the others
+      // are sharper decisions — a crop is destroyed, a machine may hold work in
+      // progress. Both halves of that turned out to be wrong. The machine leaves
+      // a running batch to finish and hands the hopper back, and the crop is only
+      // destroyed because THIS function used to be the one place the game had no
+      // way to pick it. What the split actually bought was a rule you cannot
+      // learn: the bulldozer took a full shelf and refused a rack of lettuce,
+      // with the shelf being the one that had goods in it.
+      //
+      // Asked of the verb rather than of a list of kinds, or the next thing that
+      // can hold something arrives refusing removal and nothing anywhere says
+      // why — `fixtureContents` and `emptyFixture` are the pair, and a kind
+      // missing from either is missing from both.
+      const tipped = this.emptyFixture(playerId, id);
       if (!tipped.ok) return tipped;
     }
     // Counted against the batch as well as against the layout. A removal is the
@@ -19186,7 +19396,7 @@ export class Game {
     p.action = null;
     this.regenerateLayout();
     this.pushLog(`Removed a ${this.fixtureSaid(f)} — $${refund.toFixed(2)} back.`);
-    return ok({ removed: id, refund, emptied: holdsGoods(f.kind) ? contents : 0 });
+    return ok({ removed: id, refund, emptied: contents });
   }
 
   /** Slide the front door along the south wall. */
@@ -20473,6 +20683,30 @@ export class Game {
         // demolished keeps whatever height it was at — and what that draws is
         // stock hanging in mid-air where a duct used to be, with nothing under
         // it and nothing anywhere to say why. Parked stock is floor stock.
+        d.deck = 0;
+      }
+    }
+
+    // ...and the same sentence about the box a PACKER is holding, which is the
+    // one crate in the shop that is neither riding nor on the floor.
+    //
+    // `d.packer` is exactly `d.belt`'s shape one machine along, so it is exactly
+    // `d.belt`'s bug: `floorCrates` excludes it (a stray at `stray * 1e6` would
+    // have the whole crew queueing at the machine bought to save them the walk),
+    // `stepBelts` moves only what has `d.belt`, and `packerBox` finds it by the
+    // id of a packer that is no longer there. So a packer torn out mid-build
+    // left its box owned by nobody, moved by nothing, lifted by no one, standing
+    // on a square with no machine on it — paid-for stock nothing in the shop can
+    // ever reach again, with the crate drawn in plain sight the whole time.
+    //
+    // It is not a reason to refuse the removal, which is the general rule this
+    // whole verb now follows: what a fixture is holding is the removal's problem
+    // to hand back, never the player's to clear first.
+    if (this.deliveries.some((d) => d.packer)) {
+      const live = new Set((layout.packers ?? []).map((c) => c.id));
+      for (const d of this.deliveries) {
+        if (!d.packer || live.has(d.packer)) continue;
+        d.packer = null;
         d.deck = 0;
       }
     }

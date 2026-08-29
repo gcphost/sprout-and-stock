@@ -214,7 +214,7 @@ export function showFixture(ui, f) {
   ui._fxMenuKey = fixtureSignature(ui, f, live);
   const kind = f.kind;
   const refund = refundFor(ui, f);
-  const blocked = removeBlockedReason(ui, f, live);
+  const blocked = removeBlockedReason(ui, f);
 
   // Everything picked, `f` first. One is the ordinary case and the whole menu
   // below is written for it; several is the shift-clicked selection, and what
@@ -630,21 +630,32 @@ export function showFixture(ui, f) {
   // verbs that stay single.
   //
   // What it needs that a single press does not is an honest count, because
-  // `bulkFixtures` refuses only a batch that changed NOTHING: a selection with
-  // one full shelf in it tears the rest out and says so in the feed. So the
-  // square is dead only when every one of them is blocked, and the price column
-  // adds up the ones that can actually go.
+  // `bulkFixtures` refuses only a batch that changed NOTHING: a selection the
+  // server can only half-serve tears out the rest and says so in the feed. So
+  // the square is dead only when every one of them is blocked, and the price
+  // column adds up the ones that can actually go.
+  //
+  // Only a till is ever one of those now. Being full stopped being a reason the
+  // day removal learned to tip a thing out on the way — see
+  // `removeBlockedReason`.
   //
   // A till is counted against the SELECTION rather than per fixture, the same
   // way the server counts it: three tills picked in a shop with three is two
   // removals and a refusal, and a square offering three refunds would be
   // over-promising by half a till — the green-ghost rule, wearing a price.
   let tillsSpare = (ui.state?.queues?.length ?? 0) - 1;
-  const goes = upFor.filter((g, i) => {
-    if (contentsOf(ui, g, upLives[i]).n > 0) return false;
+  const goes = upFor.filter((g) => {
     if (g.kind === 'checkout') return tillsSpare-- > 0;
     return true;
   });
+  // What the press will tip out on the way, across the whole selection. It is a
+  // sentence rather than a refusal now, and it has to be said: a rack of lettuce
+  // and a full freezer both come out in one press, and the crates they leave are
+  // the only thing on screen afterwards that says the goods survived.
+  const tips = upFor.reduce((n, g, i) => n + contentsOf(ui, g, upLives[i]).n, 0);
+  const alsoTips = tips > 0
+    ? (bulk ? ' What is in them goes into crates first.' : ' What is in it goes into a crate first.')
+    : '';
   const paidBack = goes.reduce((n, g) => n + refundFor(ui, g), 0);
   const stuck = upFor.length - goes.length;
   foot.push(actIcon('remove', ICONS.remove,
@@ -652,9 +663,9 @@ export function showFixture(ui, f) {
       : (kind === 'station' ? 'Sell it back' : 'Remove it'),
     bulk
       ? (goes.length
-        ? `Half of what they cost back.${stuck ? ` ${stuck} of them cannot go yet.` : ''}`
+        ? `Half of what they cost back.${stuck ? ` ${stuck} of them cannot go yet.` : ''}${alsoTips}`
         : 'None of these can go yet.')
-      : blocked ?? 'Half of what it cost back.',
+      : blocked ?? `Half of what it cost back.${alsoTips}`,
     kind === 'station' ? 'Sell' : 'Remove',
     {
       danger: true,
@@ -2456,9 +2467,17 @@ function wireBoardOrder(ui, f, send) {
         const i = els.indexOf(row);
         const up = els[i - 1];
         const down = els[i + 1];
-        if (up && ev.clientY < up.getBoundingClientRect().bottom - up.offsetHeight / 2) {
+        // Half a row measured off the RECT rather than off `offsetHeight`, so
+        // both terms of each comparison are in the same pixels — a pointer is in
+        // the viewport's and `offset*` is in the HUD's, which stop agreeing the
+        // moment the size dial is not 1 (client/ui-scale.js). Mixed, the
+        // half-way line a drag swaps on sits a few pixels off centre, which is
+        // a reorder that feels sticky one way and eager the other.
+        const upBox = up?.getBoundingClientRect();
+        const dnBox = down?.getBoundingClientRect();
+        if (up && ev.clientY < upBox.bottom - upBox.height / 2) {
           list.insertBefore(row, up);
-        } else if (down && ev.clientY > down.getBoundingClientRect().top + down.offsetHeight / 2) {
+        } else if (down && ev.clientY > dnBox.top + dnBox.height / 2) {
           list.insertBefore(row, down.nextSibling);
         }
       };
@@ -2590,7 +2609,12 @@ function contentsOf(ui, f, live) {
   }
   if (f.kind === 'plot') {
     const n = live?.crop_id ? 1 : 0;
-    return { n, blurb: 'Pulls the crop and leaves the bed rough. A half-grown crop is lost.' };
+    return {
+      n,
+      blurb: live?.ready
+        ? 'Picks it into a crate beside the rack and leaves the soil rough.'
+        : 'Pulls the crop and leaves the soil rough. A half-grown crop is lost.',
+    };
   }
   if (f.kind === 'pen') {
     // Whatever is standing in the gateway, and never the animal — the piece IS
@@ -2602,9 +2626,16 @@ function contentsOf(ui, f, live) {
   return { n: 0, blurb: '' };
 }
 
-/** Why Remove is greyed out, or null if it isn't. */
-function removeBlockedReason(ui, f, live) {
-  if (contentsOf(ui, f, live).n > 0) return 'Empty it first.';
+/**
+ * Why Remove is greyed out, or null if it isn't.
+ *
+ * Contents are NOT a reason and were for two steps. `removeFixture` tips
+ * whatever is in a thing into crates before it takes it out — one press, the
+ * same press "Empty it" is — so a square greyed on "empty it first" was this
+ * menu refusing what the bulldozer two keys away did happily. The one rule left
+ * here is the one that is a fact about the shop rather than about the unit.
+ */
+function removeBlockedReason(ui, f) {
   if (f.kind === 'checkout' && (ui.state?.queues?.length ?? 0) <= 1) {
     return 'Your only till.';
   }

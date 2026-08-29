@@ -17,6 +17,8 @@
  * anchoring back, which is the way out for a panel dragged somewhere silly.
  */
 
+import { hudPx } from './ui-scale.js';
+
 const STORE = 'sns-panel-pos';
 
 /** localStorage is a hostile environment: private mode, quota, a stale value. */
@@ -36,6 +38,9 @@ let drag = null;
  * out of the CSS anchoring — leaving either would fight the `top` we just set.
  */
 function place(el, x, y) {
+  // `offset*` is already in the HUD's own pixels, which is the space an inline
+  // `left` is written in — so these two are the ones that do NOT convert. The
+  // pointer and the window do, below. See client/ui-scale.js.
   const w = el.offsetWidth;
   const h = el.offsetHeight;
   // Set explicitly, because not everything draggable was already taking itself
@@ -43,8 +48,15 @@ function place(el, x, y) {
   // no-op for it; the demand meter is a plain child of the top-left column and
   // would otherwise take `left`/`top` as static offsets and not move at all.
   el.style.position = 'fixed';
-  el.style.left = `${Math.max(8, Math.min(x, innerWidth - w - 8))}px`;
-  el.style.top = `${Math.max(8, Math.min(y, innerHeight - h - 8))}px`;
+  // `x`/`y` arrive from a pointer or a rect and the window is the window, so all
+  // four are viewport pixels being written into a HUD that may be drawn smaller
+  // than one. Unconverted the panel trails the cursor by a growing fraction of
+  // how far it is from the top-left corner — which reads as the drag being laggy
+  // rather than as a scale.
+  const vw = hudPx(innerWidth);
+  const vh = hudPx(innerHeight);
+  el.style.left = `${Math.max(8, Math.min(hudPx(x), vw - w - 8))}px`;
+  el.style.top = `${Math.max(8, Math.min(hudPx(y), vh - h - 8))}px`;
   el.style.bottom = 'auto';
   el.style.transform = 'none';
 }

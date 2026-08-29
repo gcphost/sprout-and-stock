@@ -33,6 +33,7 @@
 import { partsAt, variantModel, skinnedParts, skinKey, tierProgress } from '../shared/model.js';
 import { FIXTURES } from '../shared/build.js';
 import { T } from '../shared/tiles.js';
+import { standaloneParts } from './render/preview.js';
 import {
   PALETTE, TILE_STYLE, EDGE_STYLE, bondOf, brickBond, edgeBands, jitter, patternColor, shade,
   stripeBars, stripeDuty,
@@ -478,7 +479,22 @@ export function artForPiece(row, kind, variant = '') {
   // sign that is switched OFF: a button showing a dark panel is a button showing
   // nothing, for a thing that will be lit the moment you hang it up. So a
   // watcher is drawn at the far end, which is the look it is FOR.
-  const art = draw([...base, ...carriers(partsAt(model, row?.signal ? 1 : 0))]);
+  /**
+   * ...and the parts come from `standaloneParts` rather than from the model
+   * this function just looked up, because for one kind the row is not the
+   * picture — see `render/preview.js`. The two ghosts ask the same question
+   * through the same door, which is the whole point of it being a door: three
+   * previews of one piece that could disagree, and now cannot.
+   *
+   * `carriers` stays HERE and is not part of that answer. A slat becomes a
+   * chevron only in this file — it is an SVG cross-section, and the shop lays
+   * its arrows as separate instanced geometry (`aimCarrier`) that no model part
+   * can express. Push it into the shared answer and the 3D ghosts are handed a
+   * shape `buildModel` has never heard of.
+   */
+  const parts = carriers(standaloneParts(row, { kind, variant }, row?.signal ? 1 : 0));
+  if (!parts) return null;
+  const art = draw([...base, ...parts]);
   byShape.set(variant, art);
   return art;
 }
@@ -649,6 +665,7 @@ function edgeParts(style) {
   const plain = {
     ...style,
     opening: false, glass: false, curtain: false, shutter: false, arch: false,
+    port: false,
     // ...and `railing` is the one in this list that is not an opening at all,
     // which is exactly why it belongs: the stubs either side are meant to be
     // the SOLID thing this piece is set in, and a railing whose stubs were also

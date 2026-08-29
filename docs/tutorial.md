@@ -3,8 +3,9 @@
 *A robot who shows you round a shop you have just made, and holds the rest of
 the game still while it does.*
 
-Status: **step 1 built**, plus the guest tour (1b). Steps 2–4 proposed; step 5
-(the cinematic rework) is the one being built next.
+Status: **steps 1, 1b and 2 built** — the tour, the guest tour, and the
+mini-lessons that arrive with the kit. Steps 3–4 proposed; step 5 (the
+cinematic rework) is the one being built next.
 
 ---
 
@@ -110,6 +111,61 @@ The order is not arbitrary either. Stock is ordered at beat 3 and collected at
 7, and the three beats in between are the ones that do not need it. A tour that
 ordered a delivery and then watched the clock would be teaching you the game is
 slow.
+
+### What the card looks like, which was not a free choice
+
+It is **portrait and a fixed size** — 300 × 533, bounded by the viewport — with a
+gold title band across the top, the robot in the band, and the feet pinned to the
+bottom. Picked off a comparison board of four shapes and four bots.
+
+Three things about that are decisions rather than taste.
+
+**Fixed, because the feet move otherwise.** 340 wide by whatever the sentence
+needed was a shape decided by the copy, so no two beats were the same card: Next
+— the one press on a read-only card — was never twice in the same place across
+thirteen of them. A card that is always the same size is one you learn the shape
+of once. `.tt-said` is the only part that gives when the window is short, so the
+feet cannot be pushed off the bottom.
+
+**Portrait, because what it competes with is the SHOP.** A column down one edge
+leaves the middle of the building clear; a wide slab lands across it. The phone
+override is untouched and is the opposite answer for the opposite reason — under
+720px the card is a full-width banner across the *top*, because a portrait screen
+has no free side — and it has to reset the height as well as the width, or the
+shape above lands as most of a phone display over the thing every beat is
+pointing at.
+
+**And the band is the panel's own.** Every other card in this HUD names itself in
+a gold band (`#panel header`, the same gold the lit tab and the armed build slot
+wear); this one printed its kicker as a caption floating on the paper. The one
+card the game puts in front of somebody who has never played was also the one
+that did not look like the game.
+
+The card was also **the last thing in the HUD wearing a 34px blurred cast and no
+contour**, which is exactly the pair the Crate pass took out everywhere else. It
+has `--k1`/`--d1` now, as an `::after` overlay rather than an inset shadow on the
+box — the band and the feet have their own backgrounds, and a shadow on the box
+is painted under them.
+
+### ...and the robot
+
+Every colour in `FACE` is lifted out of `data/seed/workers.json` — `#d7dfe8`
+chassis, `#83909f` trim, `#3b424e` visor, `#5fe0d0` glow — with one crisp
+`--ink-line` round it, and it is made of boxes, because a hire is made of boxes.
+
+What it replaced is worth keeping, because each thing wrong with it was a
+decision the game had already made the other way: a cream capsule with a 13px
+corner radius, a soft brown outline, `#8fe3ff` eyes and a smile. Nothing in the
+shop is round — `--r` is 0, and the note beside it says the player's head and a
+wheel are the only two curves in the entire game. Nothing in the shop is cream
+except the paper the card is printed on, so the robot was the same colour as the
+thing it was standing on. `#8fe3ff` is not any hire's glow. And no hire has a
+mouth. It read as somebody else's app mascot sat on top of the game, which is
+word for word the complaint the whole chrome pass was about.
+
+The lamp on top is the one thing not off a worker row: it is `--good`, the same
+green as the mark the card is pointing with, because a tutor who is *talking*
+wants a tell.
 
 ### What is load-bearing
 
@@ -307,23 +363,259 @@ Not wired: the Menu's Replay row reads `ui.worldId`, which a guest does not
 have, so a guest cannot replay their tour. Clearing the flag is the fix if
 anybody wants it.
 
-## Step 2 — the second lesson *(proposed)*
+## Step 2 — the lessons *(built)*
 
 The tour stops at "you can run a shop". It says nothing about the farm, the
-kitchen, the yard, walls, floors or the ordering rules, and it should not: a
-tutorial that keeps going is a tutorial people skip.
+kitchen, the yard, walls, floors, conveyors or the ordering rules, and it should
+not: a tutorial that keeps going is a tutorial people skip. But the shop goes on
+growing for another four hundred sales, and every one of those things is a
+gesture nothing explains — which is the same complaint this file opens with,
+arriving four hours later.
 
-What those want instead is a **second** tour, offered when the shop is ready for
-it rather than on day one — the first time a bed is ripe, the first time a
-machine is built, the first delivery that is refused for want of bay room. Same
-`STEPS` shape, same veil, a different array and a trigger that is a predicate
-over the snapshot rather than a mark in localStorage.
+`LESSONS` is a third array beside `STEPS` and `GUEST_STEPS`, run by the same
+`Tutor`. **One briefing per build tab**, next-through, a page per piece with that
+piece's own picture on it. Three are authored: **Shop** (shelf, chiller, hot
+counter, till, skip), **Logistics** (conveyor, loader, sorter, packer, tunnel,
+lift) and **Farm** (grow rack, vat, culture floor, and what the farm is for).
 
-The thing to be careful of is that a coach mark which arrives *while you are
-doing something* is an interruption, where one that arrives when you open a
-shop is an offer. So the trigger should hand you a small nudge — the rail's own
-`note` pill is already the right shape — and the veil should only come down if
-you press it.
+Two doors in. A **`?` on the build bar**, beside the ✕ and outside the scroller
+so it has a fixed address, opens the briefing for whichever tab you are on — and
+is `hidden` on the five tabs that have none, or it is a button that does nothing
+most of the time. And the first time you build anything from that tab, it opens
+itself.
+
+### One per TAB, not one per piece
+
+It was seven lessons — a page each for the sorter, the packer, the tunnel and
+the lift, each waiting until you owned one. That is wrong twice.
+
+It makes the *shape* of the thing depend on what you happen to own, so there is
+no "the conveyor help" to go and read; there is a briefing that already fired and
+four that have not, and no way to ask for any of them. A `?` on the bar has to
+open **the same thing every time** or it is not a help button.
+
+And it hides the pieces you have not got, which are exactly the ones worth
+knowing about. A tab is a coherent subject — the whole back of house, the whole
+farm — and a briefing that covers it end to end tells you where you are going.
+So a page about a piece the ladder has not handed over **stays**, and says so:
+`· soon` on its title, a line saying it turns up as the shop grows, and its
+picture stepped back but never greyed out — the pieces are told apart by colour
+as much as by shape, so a grey sorter and a grey packer are one drawing.
+
+`comingSoon` asks `toolRevealed` with the palette's own arguments, or the card
+and the bar disagree about what you can build, which is the green-ghost bug
+wearing a tutorial. A shop with the ladder switched off answers "everything is
+available", which is the right answer: nothing is coming, because it is all
+already here.
+
+### It is a BRIEFING, and that is the whole design
+
+*You dropped a conveyor; here is what this part of the game is.* Four pages, a
+picture of the piece on each, Next through them, done. **No target, no veil, no
+predicate, nothing armed, no build mode touched.** It tells you what a thing is
+and asks for nothing; what you do with it afterwards is the game.
+
+That is a correction, and both halves of it cost a screenshot to see. The first
+cut was the tour's shape pointed at a machine — a lit target in the shop and a
+predicate over the snapshot — and it failed twice in a row for two different
+reasons that turn out to be the same reason.
+
+**A lesson's trigger is a press that has already happened, so its first beat may
+never be that press.** The opening beat was "drag along the floor to lay a whole
+run in one press", said to somebody who had just dragged along the floor and laid
+a run. That is not teaching, it is describing. The `skipWhen` it needed is the
+tell: a step that has to check whether it is redundant is a step whose *trigger*
+already knows the answer.
+
+**And a lesson runs in a shop it knows nothing about.** The next beat asked for a
+loader beside a shelf. The shop it fired in *had no shelves in it* — so the card
+sat there naming a thing that did not exist, on a predicate that could never come
+true, in a state its own third phase was written to explain and could not. The
+tour is allowed to demand a press because it runs on day one in a shop the game
+itself furnished, and the fixtures it names are the two it knows are standing
+there. **Nothing else in the game may**, and no amount of care in a predicate
+fixes it: the fault is the demand.
+
+Dropping the demand takes three problems with it. There is nothing to wedge on.
+There is nothing to strand, so the six-second *Carry on* button never has to
+appear in a lesson. And a briefing names nothing to press, so it can never land
+in `TUTORIAL_KINDS`' failure — a card naming a tool that is not on the bar —
+which the guided version was one `when` away from at all times.
+
+### One prop a page, and written for a seven-year-old
+
+A page is about **one thing you can point at in the shop**, and it shows that
+thing's own picture: the conveyor, then the loader, then the sorter. Not "the
+conveyor system". Somebody who reads one page and stops has learnt one whole
+object rather than a quarter of a concept.
+
+The words are for a child, because the person these are actually for is one.
+Short sentences, real nouns — box, shelf, line, hands — and **none of the words
+this codebase uses for the same things**: `run`, `cell`, `unit`, `backpressure`,
+`terminus`, `stray`. The first cut said "a belt cell with a pair of hands" and
+"R sets where the run carries on rather than which unit it fills". Both are
+exact, both are shorter, and neither can be read by anybody who does not already
+know the answer.
+
+Simple is not vague, and that is the part to hold on to. Every sentence is
+literally true of the sim: "it reaches all four of its sides" is `armReach`,
+"they queue up rather than falling off" is backpressure, "sends the box to a
+line that can actually put it somewhere" is the splitter choosing by where the
+goods *can go* rather than by a filter. Writing it simply meant writing it
+**accurately** — every place the plain sentence came out wrong was a place the
+jargon had been hiding that it was wrong.
+
+### The picture is what the empty half of the card is for
+
+Each page carries `art`: the piece's own palette thumbnail, straight out of
+`artForPiece` (`client/thumb.js`). Same model, same camera, same sun, same
+colours — so **the thing on the card is literally the thing on the bar**, and a
+piece somebody restyles tomorrow restyles its lesson with no second picture to
+keep in step. A lesson that drew its own diagram of a conveyor would be a drawing
+of a conveyor the shop has never once drawn.
+
+It is painted in `paint` rather than `words`, and the reason is not cost. A
+card's *sentence* moves as its own spotlight walks — that is what makes thirteen
+beats out of eighteen presses — but a card's *picture* is what the card is about,
+and one that swapped under a sentence you were reading would be a second thing to
+re-find.
+
+It also answers the fixed height. A briefing lights nothing in the shop, so
+without art the portrait card is a column of blank paper under three lines of
+type — and a lesson about a machine you have never seen wants a picture of it
+more than it wants any of the words.
+
+### `when` is what being STUCK looks like, never what owning one looks like
+
+The reveal ladder (`shared/reveal.js`) is the obvious trigger and it is the wrong
+one twice over. A button turning up on the bar is not a lesson anybody needs —
+you have not got the thing yet, so there is nothing to be confused by — and it is
+silent for the shop that turned the ladder off, which is every shop that took the
+offer on the last card of the tour. `when` is a question about what is standing
+in the shop, which is true of both.
+
+And it has to be a delta in spirit even though it reads as a level. "There is a
+conveyor" is the trap step 1b is written around: a shop on day 200 with forty
+belts would open a briefing about conveyors at somebody who has thirty loaders.
+So the belt lesson asks for **a run with nothing lifting off it** — `belts > 0 &&
+arms === 0` — true of somebody who has just laid track, false of everybody past
+it. Both halves are needed: belts alone is the level trap, and no loader alone is
+true of every shop that never heard of conveyors, which is most of them.
+
+### ...or `owns`, when there is no stuck state to ask about
+
+The Farm has no visible failure — a vat that is not doing what you wanted looks
+exactly like one that is — so there is no predicate to write, and a plain "there
+is a rack" would open a briefing on an established shop's next load about a farm
+it has run for a hundred days. So it carries `owns`, a count over every piece on
+the tab, and `maybeLesson` **records what every count was the first time it
+looked**: the briefing fires when the number goes up while somebody is watching,
+which is the definition of having just built one. A shop that already owns them
+is the old game, silently. The `?` is the way back in either case.
+
+The baselines are taken for **every** counting lesson on every pass, not lazily
+when one becomes eligible. Recorded lazily, a shop that builds a rack and then a
+belt hands the belt lesson a baseline of whatever it had by then — so the second
+never fires, and the failure is invisible in exactly the shop that is building
+the most.
+
+Logistics keeps a `when` because it is the one with a stuck state you can see
+from across the room: a run with nothing lifting off it. That is worth catching
+however long ago the track was laid, and it is not the same question as "you have
+just built a conveyor".
+
+### A lesson may not down tools
+
+`start` sends `crew-idle` for the length of the tour, which is free in a shut,
+empty shop on day one and is a shop that stops trading on day forty. `start` and
+`quit` both test for it.
+
+### The settle, which is the one thing that is not a predicate
+
+The trigger is a purchase, and a purchase is very often the middle of something:
+a run is one drag, but a loader, a second run and a junction are three more
+presses, and a card that arrives between two of them is an interruption. So the
+condition has to hold for **two seconds** before the card opens — the shop
+standing in that state for two seconds is somebody who has stopped to look at it.
+`Date.now()` and not the shop's clock, for the reason `strand` gives: what is
+being measured is real seconds spent looking at a thing, and the shop's clock is
+the one that might have stopped — which, while an award card is up, it has. That
+card is the other guard: `maybeLesson` will not open behind it.
+
+### Where the marks live, and the third key
+
+`sns-tutor-learned` is a list of **lesson ids**, not of worlds. That is the whole
+difference from `sns-tutor-done`: a lesson is about a machine, and the machine is
+the same machine in every shop, so being told about loaders again at your second
+shop is nagging. Same argument as `sns-tutor-guest` exactly, one axis along.
+
+Skipping marks it learned, which is what Skip means everywhere in here — so
+Menu › Tutorial › **Replay** calls `forgetLessons()` beside `replayTutor()`. It
+does not start one: each still waits for its own `when`.
+
+### Reading the pages without playing to it
+
+`__sns.ui.tutor.teach('belts')` runs one here and now, and
+`__sns.ui.tutor.forget()` un-learns the lot. Same argument `__sns.award.push`
+makes about `year-one`, one step further out: a lesson's `when` is a shop four
+hundred sales in with a run standing in it and no loader on it, so reading its
+copy costs a playthrough — and copy that expensive to look at is copy that gets
+fixed after it has shipped.
+
+### Two traps the farm pages found, both in `cheapestOf`
+
+A lesson picks the cheapest piece of a kind to draw, for the reason
+`cheapestFreezer` gives — it is the one you have almost certainly got. Both of
+its failures are silent and both read as bad art rather than as bad wiring.
+
+**Retired rows are still in the catalogue.** `RETIRED_PIECES` is a filter on the
+*palette*, and every retired row stays in the content database on purpose, since
+live shops have hen houses standing in them. So the cheapest `pen` is a Beehive
+at 120 — and the card explaining what a vat is would have shown a picture of a
+beehive nobody can buy. `pieceOffered` is asked here too.
+
+**Ground and furniture are the same table.** A brush row carries a `surface` and
+no model, so `artForPiece` answers `null` for the culture floor — a card with a
+hole where the floor should be, and nothing anywhere saying why. `artOf` forks on
+that field, which is `artForTool`'s own fork one file along.
+
+### The Shop tab, and the beat the tour builds
+
+The tour covers a shelf on day one and covers the one thing a shelf is for.
+What it cannot reach is that a unit of shelving is **three** things — ordinary,
+cold and hot — that the wrong one of the three is *no better than none*, and
+that the till ladder ends in a decision rather than an upgrade. Every one of
+those is invisible: a chicken going off in a chiller is the same picture as a
+chicken keeping in one, and a till nobody can queue at is the same picture as a
+till. Five pages, `owns` over `shelves` + `checkouts` + `bins` (one array holds
+all three kinds of shelving), and two of them — the hot counter and the skip —
+are `· soon` in a young shop, which is the case that argues for keeping the
+pages you cannot build yet.
+
+Its trigger found the one place `maybeLesson`'s baselines were wrong. They are
+recorded the first time it looks, and it does not look while a tour is up — but
+a snapshot can land before `maybeStart`, so they can be taken *before* beat 11
+stands a chiller on the floor. A chiller is a unit of shelving, so the shop
+would read as having been built in, and the briefing would open two seconds
+after the card that says good luck. `start` clears them, and only for a tour:
+two lessons can want opening in the same settle, and clearing there would take
+the second one's delta away with the first one's card.
+
+### What is not done
+
+Shop, Logistics and Farm have briefings. Four tabs do not: Appliances, Building,
+Decor, Outdoors — the `?` is hidden on all of them. Building is the one worth
+writing next: walls, floors and paint, the signed doorways (staff only, way in,
+way out), and the fact a floor is a *look* and never a permission.
+
+A new one is a `group`, a trigger and a list of pages. `owns` is the default and
+the safe one. Reach for a `when` only where the tab has a *visible stuck state*
+worth catching long after the thing was built.
+
+Co-op fires it for both people, since a belt is a fact about the shop and the
+mark is a fact about a person. That is right rather than a bug: a guest can
+build, and the briefing is about a machine standing in front of them.
+
 
 ## Step 3 — the milestone ladder as the real tutorial *(proposed)*
 

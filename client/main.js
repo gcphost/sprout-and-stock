@@ -31,6 +31,13 @@ import { mix } from './audio/mix.js';
 import { sfx } from './audio/sfx.js';
 import { music } from './audio/music.js';
 import { events } from './audio/events.js';
+import { applyUiScale } from './ui-scale.js';
+
+// How big the chrome is, before anything draws any of it. The stylesheet
+// carries the default itself, so this only ever overrides somebody who has been
+// to the stepper on the View tab — which is why there is no frame at the wrong
+// size on the way in. See client/ui-scale.js.
+applyUiScale();
 
 const canvas = document.getElementById('game');
 const scene = new Scene(canvas);
@@ -71,6 +78,12 @@ ui.scene = scene;
 // that can land in the middle of a camera turn. Hoisted, so the forward
 // reference from here is fine.
 const award = new Award(ui, document.getElementById('award'), () => dropGesture('award card'));
+// ...and the back reference, for the one thing that has to know a card is up:
+// `Tutor.maybeLesson` opens a coach mark off the snapshot rather than off a
+// press, so it is the only overlay in the game that can arrive UNDER another
+// one — and the award stops the world, so the shop it would be talking about is
+// frozen behind it. Hung on `ui` the way `tutor` is, and for the same reason.
+ui.award = award;
 /**
  * The fitter who shows you round a shop you have just made — client/tutor.js.
  *
@@ -260,6 +273,15 @@ net.onScreenshot(() => scene.screenshot());
 // carries (`achieved` — see `milestoneNews` in server/sim/goals.js), so it is
 // the real card rather than a mock of one:
 //   __sns.award.push({ id: 'year-one', name: 'A year', blurb: 'Still here.', catchment: 420 })
+//
+// ...and its neighbour, for the same reason one step further out. A mini-lesson
+// waits for a shop that OWNS the thing and cannot use it — the conveyor one for
+// a run with no loader on it, which is 500 sales away — so reading its cards
+// costs a playthrough unless you can ask for one:
+//   __sns.ui.tutor.teach('belts')   -> run it here and now
+//   __sns.ui.tutor.forget()         -> un-learn the lot, so they offer again
+// The ids are the build TABS: logistics, farm. Which is also what the ? beside
+// the ✕ on the build bar opens, for whichever tab is showing.
 window.__sns = { net, scene, ui, award, get state() { return latestState; } };
 
 net.on('layout', (m) => {

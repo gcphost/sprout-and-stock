@@ -487,9 +487,13 @@ way it is walked. And a tier is not only a multiplier: `boardsOf` reads the art
 take away how many KINDS a unit holds as well as how much of one. Nothing in the
 game had ever made a fixture smaller, so nothing had ever checked — `tierShortfall`
 refuses, before the money moves, and says how much to take off. Refusing rather
-than tipping the excess into a crate is the call `removeFixture` already makes
-with "empty it first": a verb that quietly rearranges your stock is one you
-cannot undo by pressing it again.
+than tipping the excess into a crate is deliberately *not* the call
+`removeFixture` makes, and the line between them is what the press leaves
+behind. A removal takes the fixture away, so the goods have nowhere to be and a
+crate beside it is the only lossless answer there is. A downgrade leaves the
+unit standing, so tipping part of a shelf out is a verb that quietly rearranged
+your stock and left the thing it rearranged sitting there looking untouched —
+you would find the crates later and have nothing to connect them to.
 
 The `world.fixtures` ledger retired. You pay when you place and get
 `FIXTURE_REFUND` back when you tear out — both of which were already true — and

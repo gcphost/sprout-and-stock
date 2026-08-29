@@ -165,6 +165,26 @@ export const SAFE_GATES = ['take-', 'sold-', 'harvest-', 'crew-', 'week-', 'mont
  * the palette, and the tutorial is the one other system that has opinions about
  * what is on it.** Anything the tutorial ever learns to point at belongs here
  * the same day.
+ *
+ * ### ...and the mini-lessons do NOT, which is the trap on the way in
+ *
+ * `LESSONS` (client/tutor.js) points at palette entries too — the conveyor one
+ * lights the loader — so read the rule above on its own and the next person adds
+ * `belt` and `arm` to this list. That would retire the rung this whole ladder
+ * exists to reach: `sold-500` is the belt arriving *at the moment the tedium it
+ * fixes has been felt*, and un-gating it puts conveyors on the bar in minute
+ * one, which is the "twenty-six buttons" complaint this file opens with.
+ *
+ * They are safe without it, and the reason is the TRIGGER rather than the copy.
+ * A lesson's `when` asks whether the piece is standing in the shop, so by the
+ * time a card can name a loader the player has already built a conveyor — which
+ * means the family is on the bar, whatever this table says, and whether or not
+ * the ladder is switched on at all. The tour is different because it runs on day
+ * one and names things nobody owns yet.
+ *
+ * So the line is: **a step that names a tool you have not got belongs here; a
+ * step that names a tool you demonstrably have does not.** A lesson whose `when`
+ * stops being a question about ownership loses that argument the same day.
  */
 export const TUTORIAL_KINDS = ['shelf', 'freezer'];
 

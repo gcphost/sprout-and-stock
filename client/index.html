@@ -176,6 +176,26 @@
          because the narrow query shrinks both together and the whole point of
          them being one column is that nothing can shrink half of it. */
       --corner-w: 146px;
+      /* ---- HOW BIG ALL OF IT IS ---------------------------------------------
+         Every length above and below this line is a literal px, and that is the
+         right call — a 10.5px caption and a 40px nav button were each chosen
+         against the things beside them, not as a fraction of one font size. The
+         cost is that "a bit smaller" had no dial at all: it was four hundred
+         edits, none of which is the decision being made.
+         This is the dial. `.hud` wears it as `zoom`, which multiplies every used
+         length in the subtree, so the whole HUD steps down together and not one
+         proportion in this file moves. It is on `.hud` and NOT on the root
+         because the canvas may not be touched — the shop is drawn at device
+         pixels and picked at pointer coordinates, and a zoomed root is a
+         renderer aiming at a viewport the mouse is no longer in.
+         The number is a default rather than the setting: how big a HUD wants to
+         be is a fact about the window it is in, so client/ui-scale.js overwrites
+         this from what the person chose, and the stepper is on the View tab.
+         READ THE HEADER OF THAT FILE BEFORE MEASURING ANYTHING IN JS. A zoom
+         splits pixels into two spaces — rects and pointers are in the viewport's,
+         `offset*` and inline `left` are in this one — and mixing them does not
+         error, it drifts. */
+      --ui: .85;
     }
     * { box-sizing: border-box; }
     /* The grey flash a mobile browser paints over whatever a finger just landed
@@ -1110,7 +1130,19 @@
        palette keeps for marks and warnings, and it is the only control in the
        game that ever wore red for "you are here". */
 
-    .hud { position: fixed; z-index: 10; }
+    /* ...and the class every piece of chrome already carries is the one place
+       the size dial can be spent. `zoom` and not `transform: scale()`: a
+       transform draws a box at a size other than the one it was laid out at, so
+       every rect anything reads back is a lie about where the thing is — and
+       `#panel` is already spending its own transform on being centred. Zoom is
+       a LAYOUT change, which is what "smaller HUD" means: the panel is narrower,
+       so the list inside it wraps as a narrower list, rather than being a
+       photograph of the wide one shrunk down.
+       Verified rather than assumed, because the one thing a zoom could plausibly
+       break here is the anchoring: `left: 50%` still lands on the middle of the
+       screen and `right: 12px` still measures from the right-hand edge, so the
+       nav stays centred and the corners stay in their corners at every step. */
+    .hud { position: fixed; z-index: 10; zoom: var(--ui); }
 
     /* CINEMA — see client/cinema.js. Everything the game puts in front of the
        shop already carries `.hud`, so this is the whole of it: one selector,
@@ -2344,6 +2376,12 @@
        that could be hovered would swallow clicks on whatever it covers, as well
        as fighting its own `pointerout`. */
     #tip {
+      /* Chrome that never wanted `.hud` — it explains the HUD, so it sits above
+         it on its own z-index — which means it has to be handed the size dial by
+         name. A tooltip left at full size beside an 85% rail is the one thing on
+         screen that says the setting only half worked. `Tip.place` converts, see
+         client/ui-scale.js. */
+      zoom: var(--ui);
       position: fixed; z-index: 40; pointer-events: none;
       max-width: 240px; padding: 7px 10px 8px;
       background: var(--panel-solid); color: var(--ink);
@@ -2819,6 +2857,10 @@
        `max-width` only bounds what max-content asks for; a note longer than the
        screen still wraps, which is what it should do. */
     #rail-note {
+      /* `#tip`'s reason: chrome that carries its own position rather than
+         `.hud`, so it is named here or it is the one pill in the game that did
+         not shrink. `Rail.note` converts the one number it measures. */
+      zoom: var(--ui);
       position: fixed; z-index: 12; left: 50%; pointer-events: none;
       width: max-content; max-width: calc(100vw - 24px);
       background: rgba(58,49,40,.82); color: #fff; border-radius: var(--r);
@@ -5051,6 +5093,26 @@
        deliberately content-width, so the free space in this row is space — and an
        auto margin claims it without any other cell having to know this button
        exists. Sized like a tab so the row keeps one height. */
+    /* The ? sits in the ✕'s well and wears its manners — same size, same fade,
+       same corner — because it is the same tier of control: a thing about the
+       bar rather than a thing you build with. It takes the `margin-left: auto`
+       so the pair travels together as one block on the right, and the ✕ then
+       sits against it rather than re-claiming the gap. */
+    #build-help {
+      margin-left: auto; border: 0; background: none; color: inherit;
+      font: inherit; font-size: 14px; font-weight: 800; line-height: 1; cursor: pointer;
+      opacity: .5; padding: 5px 8px; border-radius: var(--r);
+      transition: background .12s, opacity .12s;
+    }
+    #build-help[hidden] { display: none; }
+    html.can-hover #build-help:hover { opacity: 1; background: rgba(58,49,40,.11); }
+    #build-help:active { background: rgba(58,49,40,.2); }
+    #build-help:focus { outline: none; }
+    #build-help:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    /* ...and with a ? in the row, the ✕ stops being the thing that pushes the
+       pair right. */
+    #build-help:not([hidden]) ~ #build-close { margin-left: 0; }
+
     #build-close {
       margin-left: auto; border: 0; background: none; color: inherit;
       font: inherit; font-size: 14px; line-height: 1; cursor: pointer;
@@ -6058,6 +6120,15 @@
        the whole drag, and a box under it that could take a hit would end the
        gesture the moment it grew past the cursor. */
     #marquee {
+      /* THE ONE THING WEARING `.hud` THAT IS NOT CHROME, so it is the one thing
+         that opts out of the size dial. This box is drawn at the pointer's own
+         coordinates over the SHOP — `showMarquee` in client/main.js sets all
+         four sides from `e.clientX/Y` — so it belongs in the viewport's space
+         with the canvas it is dragged across. Zoomed, a drag round four shelves
+         would draw a rectangle 15% of the way toward the top-left corner from
+         wherever the mouse actually was, and the selection it made would be
+         right the whole time, which is the worst way to be wrong. */
+      zoom: 1;
       display: none; position: fixed; pointer-events: none;
       border: 1.5px dashed rgba(58,49,40,.75);
       background: rgba(217,155,31,.16);
@@ -6122,6 +6193,17 @@
        as transparent to the mouse as the air around it. */
     body.tutoring .tt-card { pointer-events: none; }
     body.tutoring .tt-card button { pointer-events: auto; }
+    /* ...AND THE WORDS, ONCE THERE ARE MORE OF THEM THAN FIT.
+       The wheel listener is on the canvas rather than on the window, so an
+       event over a card that cannot be hit lands on the shop and zooms it: a
+       long briefing page was a scroller nothing could reach, which reads as the
+       card having cut its own sentence off. It is `.scrolls` and not a standing
+       rule because the rule above is right the rest of the time — the card is a
+       slab down the side of the shop, most of the tour asks you to press
+       something in the shop, and 300px of dead ground on the right would be the
+       whole of that. `fits` puts the class on only while the text overflows,
+       which is the one state where anything on it is worth pointing at. */
+    body.tutoring .tt-said.scrolls { pointer-events: auto; }
 
     /* The hole's outline. It is drawn OUTSIDE the rect (a spread shadow rather
        than a border) so it never covers a pixel of the thing it is pointing at
@@ -6162,27 +6244,66 @@
        the shop — and a thing that jumps about is a thing you re-find rather
        than read. Out of the way on the right, same place every card, and the
        mark does the pointing. */
+    /* PORTRAIT, AND A FIXED ONE.
+       340 wide by whatever the sentence needed was a shape decided by the
+       copy, so no two beats were the same card: the feet moved up and down the
+       screen as the hint got longer, and Next — the one press on a read-only
+       card — was never twice in the same place across thirteen of them. A card
+       that is always the same size is a card you learn the shape of once.
+       9:16 rather than merely tall, because the thing it competes with for the
+       screen is the SHOP, and a column down one edge leaves the middle of the
+       building clear where a wide slab lands across it. The height is bounded
+       by the viewport so a short window shrinks the body rather than pushing
+       the feet off the bottom — `.tt-said` is the part that gives.
+       CRATE, at last: this was the final card in the HUD still wearing a 34px
+       blurred cast and no contour, which is exactly the pair the chrome pass
+       took out everywhere else. `--k1`/`--d1`, the card weight. */
     .tt-card {
       position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
-      width: min(340px, calc(100vw - 24px));
-      display: grid; grid-template-columns: 62px 1fr; gap: 12px;
-      align-items: start; pointer-events: auto;
+      width: min(300px, calc(100vw - 24px));
+      height: min(533px, calc(100vh - 32px));
+      display: flex; flex-direction: column;
+      pointer-events: auto; overflow: hidden;
       background: var(--panel-solid); color: var(--ink);
-      border-radius: var(--r); padding: 14px 16px 12px;
-      box-shadow: 0 14px 34px rgba(58, 49, 40, .34);
+      border-radius: var(--r);
+      box-shadow: var(--cast), 0 var(--d1) 0 rgba(23, 18, 25, .28);
       animation: ttpop .22s cubic-bezier(.2, 1.4, .4, 1);
     }
-    .tt-card.big { width: min(420px, calc(100vw - 24px)); }
+    /* The contour as an overlay rather than an inset shadow on the card itself,
+       for the reason every other card in here does it: the band and the feet
+       have their own backgrounds, and a shadow on the box is painted under
+       them. Same rule as `#panel::after`. */
+    .tt-card::after {
+      content: ''; position: absolute; inset: 0; z-index: 3;
+      pointer-events: none; border-radius: inherit;
+      box-shadow: inset 0 0 0 var(--k1) var(--ink-line);
+    }
     @keyframes ttpop {
       from { opacity: 0; transform: translateY(calc(-50% + 8px)) scale(.96); }
     }
 
-    .tt-bot { grid-row: span 2; }
-    .tt-face { width: 62px; height: 62px; display: block; }
-    .tt-face .tt-ant { stroke: #b9ad97; }
+    /* THE TITLE BAR, and the gold is the same literal `#panel header` wears —
+       the one the lit tab and the armed build slot wear too. Written out rather
+       than tokenised because there is no token for it and inventing one here
+       would be a second name for a colour three rules already share. */
+    .tt-head {
+      flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+      padding: 9px 14px;
+      background: linear-gradient(180deg, #fff8e6, #fff1cf);
+      border-bottom: 2px solid var(--crease);
+    }
+    .tt-bot { flex: 0 0 auto; }
+    .tt-face { width: 48px; height: 48px; display: block; }
+    /* One crisp line round the whole machine, at the control weight — the same
+       line a rail button and a palette tile wear. The eyes are OUTSIDE this
+       group on purpose: they are the glow, and a glow with a black line round
+       it is a sticker. */
+    .tt-face .tt-ink { stroke: var(--ink-line); stroke-width: 2; stroke-linejoin: miter; }
     .tt-face .tt-bulb { fill: var(--good); animation: ttbulb 2.4s ease-in-out infinite; }
     @keyframes ttbulb { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
-    .tt-face .tt-eye { fill: #8fe3ff; animation: ttblink 5.2s infinite; transform-origin: center; }
+    /* `#5fe0d0` is the glow every hire in the game wears — see the `tint`
+       colours in data/seed/workers.json. It was `#8fe3ff`, which is nothing's. */
+    .tt-face .tt-eye { fill: #5fe0d0; animation: ttblink 5.2s infinite; transform-origin: center; }
     /* The blink is a scale on the eye rather than a lid drawn over it: there is
        no face behind these to reveal, so a lid would be a rectangle of body
        colour sliding over a screen. */
@@ -6191,15 +6312,58 @@
       95% { transform: scaleY(.08); }
     }
     .tt-face .tt-eye2 { animation-delay: .04s; }
-    .tt-face .tt-smile { stroke: #b9ad97; }
 
+    /* In the band it is a TITLE rather than a caption, so it takes the weight
+       `#panel-title` has. It stays uppercase and tracked: these are one or two
+       words naming a section of the tour, where a panel's title is the name of
+       a thing, and set at title weight in sentence case they would read as the
+       card's headline — which is the line underneath. */
     .tt-kicker {
-      font-size: 10px; font-weight: 700; letter-spacing: .09em;
-      text-transform: uppercase; color: rgba(58, 49, 40, .5); margin-bottom: 2px;
+      font-size: 12px; font-weight: 800; letter-spacing: .09em;
+      text-transform: uppercase; color: var(--ink); min-width: 0;
     }
-    .tt-say { margin: 0; font-size: 14.5px; font-weight: 650; line-height: 1.3; }
+    /* THE PICTURE, on a lesson card. It is the piece's own palette art — same
+       model, same camera, same sun — stood in a well, because art with no
+       ground under it reads as a sticker rather than as a thing in a shop.
+       That is the same well `.shape .ico.art` gives the build bar's shape card,
+       said at the size a portrait card has room for.
+
+       It is what the empty half of the card is FOR. A briefing has no target
+       lit in the shop and asks for no press, so the fixed height would
+       otherwise be a column of blank paper under three lines of type — and a
+       lesson about a machine you have never seen wants a picture of it more
+       than it wants any of the words. */
+    .tt-art {
+      flex: 0 0 auto; margin: 14px 16px 0; height: 168px;
+      display: grid; place-items: center; padding: 10px;
+      border-radius: var(--r);
+      background: radial-gradient(120% 100% at 50% 18%, rgba(255, 255, 255, .9), rgba(58, 49, 40, .07));
+      box-shadow: inset 0 0 0 var(--k3) var(--ink-soft);
+    }
+    .tt-art[hidden] { display: none; }
+    .tt-art svg { width: 100%; height: 100%; display: block; }
+    /* A page about a piece the ladder has not handed over yet. The well goes
+       flat and the picture steps back — enough to read as "not yours yet" at a
+       glance, nowhere near enough to stop being a picture of the thing, because
+       the whole reason the page is in the briefing is so you know what is
+       coming. Never `filter: grayscale`: the pieces are told apart by colour as
+       much as by shape, so a grey sorter and a grey packer are one drawing. */
+    .tt-art.soon { background: rgba(58, 49, 40, .05); }
+    .tt-art.soon svg { opacity: .42; }
+    /* The one part that gives when the window is short. */
+    .tt-said {
+      flex: 1 1 auto; min-height: 0; overflow-y: auto;
+      padding: 15px 16px 4px;
+    }
+    /* A card with no predicate is a thing to READ and has the room to be read:
+       there is no instruction under it and no target lit for it, so the words
+       sit in the middle of the card rather than at the top of a column of
+       nothing. */
+    .tt-card.big .tt-said { display: flex; flex-direction: column; justify-content: center; }
+    .tt-card.big .tt-say { font-size: 18px; }
+    .tt-say { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.32; }
     .tt-hint {
-      margin: 6px 0 0; font-size: 11.5px; line-height: 1.42;
+      margin: 8px 0 0; font-size: 12.5px; line-height: 1.5;
       color: rgba(58, 49, 40, .68);
     }
     /* Waiting on the world rather than on you — the van. The card says so by
@@ -6208,9 +6372,13 @@
     .tt-card.holding .tt-say { animation: ttwait 1.8s ease-in-out infinite; }
     @keyframes ttwait { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 
+    /* Pinned to the bottom of the card rather than following the words, which
+       is most of what the fixed height buys: Next and Skip are in the same two
+       places on all thirteen beats instead of walking up and down as the hint
+       gets longer. */
     .tt-feet {
-      grid-column: 1 / -1; display: flex; align-items: center; gap: 8px;
-      margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line);
+      flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+      padding: 10px 16px 12px; border-top: 2px solid var(--line);
     }
     /* Where you are, as ticks. A "4 of 18" invites you to work out how much is
        left, which is not the question the card wants asked. */
@@ -6240,9 +6408,13 @@
       border: 1px solid var(--line); background: transparent; color: rgba(58, 49, 40, .6);
       font-size: 11px;
     }
+    /* The one green press on the card, so it takes the solid side everything
+       else you press in here takes — a flat fill was the last thing on this
+       card still reading as a web button. */
     .tt-next {
       background: var(--good); border-color: transparent; color: #fff;
       font-weight: 650; font-size: 12px; padding: 6px 16px;
+      box-shadow: var(--edge);
     }
     .tt-next[hidden] { display: none; }
     /* The step's own offer, and it is a SENTENCE rather than a button on
@@ -6427,11 +6599,24 @@
          lands square over the shop, which is the one thing every beat is
          pointing at. The top is also the half a thumb never reaches, and the
          bar along the bottom is where the verbs are. */
+      /* ...and the height has to come off with the width, or the portrait shape
+         above lands as a 533px column down a phone screen — most of the display,
+         over the one thing every beat is pointing at. A banner is as tall as its
+         sentence, so the feet come back to following the words: they are pinned
+         to the bottom of a card that is only ever three lines tall, which is the
+         same place. */
+      /* ...bounded all the same. `height: auto` is what makes it a banner as
+         tall as its sentence, and with nothing over it a long page grows past
+         the bottom of the screen — where `overflow: hidden` takes the feet off
+         rather than letting the words give, so Skip goes with them. The cap
+         restores the desktop rule's promise: the card is bounded and
+         `.tt-said` is the part that gives. */
       .tt-card {
         right: 8px; left: 8px; top: 64px; transform: none;
-        width: auto; max-width: none;
+        width: auto; max-width: none; height: auto;
+        max-height: calc(100vh - 80px);
       }
-      .tt-card.big { width: auto; }
+      .tt-card.big .tt-said { display: block; }
       @keyframes ttpop { from { opacity: 0; transform: translateY(-8px) scale(.98); } }
 
       #log { display: none; }
@@ -7206,6 +7391,18 @@
             <span>Overhead</span>
           </button>
         </div>
+        <!-- WHAT ALL THIS IS. One briefing per tab (client/tutor.js `LESSONS`),
+             next-through, a page per piece with the piece's own picture on it —
+             including the ones the ladder has not handed over yet, which say so.
+
+             Beside the ✕ and outside the scroller for the same reason the storey
+             pair is: it has to be in the same place whichever tab you are on and
+             however far you have dragged the row. `hidden` unless the tab you are
+             on has one, or it is a button that does nothing on four tabs out of
+             seven — which is the "tier that changes no number" trap wearing a
+             question mark. -->
+        <button id="build-help" type="button" hidden
+          title="What everything on this tab does" aria-label="What everything on this tab does">?</button>
         <!-- The way out. B and Escape are the way out on a desktop and neither
              is a key a phone has, which left the rail's own Build button as the
              only exit — a control on the far side of the screen from the bar you

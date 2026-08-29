@@ -65,6 +65,7 @@
 import { ICONS } from './icons.js';
 import { wireScroll } from './scroll.js';
 import { setHtml } from './paint.js';
+import { hudPx } from './ui-scale.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
@@ -440,8 +441,13 @@ function placeChoice(el, anchor) {
   const a = anchor.getBoundingClientRect();
   const b = bar.getBoundingClientRect();
   const pad = 6;
-  const mid = (a.left - b.left) + a.width / 2;
-  const room = b.width - el.offsetWidth - pad;
+  // Both rects are viewport pixels and `offsetWidth` is the HUD's own, which are
+  // the same number only while the size dial is at 1 — see client/ui-scale.js.
+  // Converted here rather than at the assignment because every term below has to
+  // be in one space for the clamp to mean anything, and unconverted the card
+  // drifts further off its tile the further along the bar you press.
+  const mid = hudPx((a.left - b.left) + a.width / 2);
+  const room = hudPx(b.width) - el.offsetWidth - pad;
   el.style.left = `${Math.max(pad, Math.min(mid - el.offsetWidth / 2, Math.max(pad, room)))}px`;
 }
 

@@ -9,6 +9,26 @@
 
 import * as THREE from 'three';
 import { PALETTE, TILE_STYLE, PAD_MARK, FIXTURE_LOOK, EDGE_STYLE, CEILING_Y, GLASS, CONVEYOR, CONVEYOR_LIT, SURROUND_COLORS, conveyorAccent, bondOf, brickBond, edgeBands, frameTint, jitter, faceColor, patternColor, shade, stripeBars, stripeDuty, tuftDensity, tuftBlade } from './palette.js';
+/**
+ * The shaft's numbers live next door because the PALETTE needs them too — a
+ * lift's `fixtures` row is never opened here, so its button cannot be drawn
+ * from it. See the header of `elevator.js`; nothing in that file imports three,
+ * which is what lets `thumb.js` go on running in node.
+ */
+import {
+  BELT_TOP, DUCT_HALF, DUCT_SPAN, DUCT_PANE, DUCT_FLOOR, DUCT_EDGE, DUCT_ARM,
+  DUCT_WALL, MACHINE_CAP_TOP,
+  ELEVATOR_BASKET_HALF, ELEVATOR_BASKET_SPAN, ELEVATOR_BASKET_H,
+  ELEVATOR_OPENING, ELEVATOR_BOX_TOP_H,
+  ELEVATOR_OPENING_BORDER, ELEVATOR_OPENING_BORDER_H, ELEVATOR_PORTAL_H,
+  ELEVATOR_LID_BEZEL, ELEVATOR_LID_BEZEL_H,
+  ELEVATOR_FACE_TRIM_D, ELEVATOR_FACE_TRIM_H,
+  ELEVATOR_WINDOW_W, ELEVATOR_WINDOW_H, ELEVATOR_TRACK_W, ELEVATOR_TRACK_H,
+  ELEVATOR_PISTON_OUTER, ELEVATOR_PISTON_INNER, ELEVATOR_PISTON_OUTER_MAX,
+  ELEVATOR_PISTON_PLATFORM, ELEVATOR_PISTON_PLATFORM_H,
+  ELEVATOR_PISTON_PAD, ELEVATOR_PISTON_PAD_H, ELEVATOR_SIDES,
+} from './elevator.js';
+import { standaloneParts } from './preview.js';
 import { buildSurround, apronMaterial, surroundGround, HAZE } from './surround.js';
 import { surroundOf, DEFAULT_SURROUND } from '../../shared/surrounds.js';
 import {
@@ -4342,7 +4362,17 @@ export class Scene {
     const x = Math.round(f.x);
     const z = Math.round(f.z);
     const b = modelBounds(partsAt(this.fixtureModel(f), this.fixtureT(f)));
-    const free = 0.5 - WALL_FACE;
+    // Half of what it STANDS ON, and the 0.5 that used to be here was a whole
+    // fixture's worth of setback on the one kind big enough to notice. Bounds
+    // are measured from `footprintMid`, so a 2x2 pen's art may legitimately
+    // reach a whole tile out — against a half-tile allowance every vat in the
+    // shop read as 0.5 over and got shoved most of a tile off the wall, while
+    // its readouts and its `work` model stayed on the mid and were left
+    // hanging outside it. Which is the shape of the bug: the art moves and
+    // what is drawn on it does not, so it reads as the tray art being authored
+    // in the wrong place rather than as the machine having been pushed.
+    const span = sizeOf(f.kind);
+    const free = span / 2 - WALL_FACE;
     // How far the art reaches in each of its own four directions, paired with
     // the quarter turn off `rot` that points that way in the world. `+x` is the
     // front, so `+z` is a quarter turn past it — which is what the renderer's
@@ -4359,7 +4389,19 @@ export class Scene {
       // than re-listing the four facings here — one spelling of which way a
       // quarter turn points, in the file that owns it.
       const dir = anchorTile(0, 0, rot4((f.rot ?? 0) + turnBy));
-      if (!SOLID.has(edgeBetween(L, x, z, x + dir.x, z + dir.z))) continue;
+      // EVERY cell along that face, and the single test that used to be here
+      // asked about the block's MIN CORNER. For a 2x2 that is one cell in four,
+      // so a pen standing hard against a wall on its far side answered "no wall
+      // that way" and kept its art in the brickwork — the same corner-vs-block
+      // mistake `covers` exists to stop `fixtureAt` making. Any wall along the
+      // face counts: half a face of wall clips exactly as much as a whole one.
+      let walled = false;
+      for (let i = 0; i < span && !walled; i++) {
+        const cx = x + (dir.x ? (dir.x > 0 ? span - 1 : 0) : i);
+        const cz = z + (dir.z ? (dir.z > 0 ? span - 1 : 0) : i);
+        walled = SOLID.has(edgeBetween(L, cx, cz, cx + dir.x, cz + dir.z));
+      }
+      if (!walled) continue;
       // Away from the wall, which is the opposite of the way it was reaching.
       dx -= dir.x * over;
       dz -= dir.z * over;
@@ -12138,7 +12180,6 @@ export class Scene {
     // The actual model of the actual piece, resolved exactly the way the
     // standing fixture is (`fixtureModel`) — one resolver, so the ghost and the
     // thing it becomes cannot disagree about which shelf you picked.
-    const model = this.fixtureModel(spec);
     const piece = this.pieceOf(spec);
     // A prop has no tile, so there is no tile style to size its ghost from. It
     // gets a low pad instead — enough to read as "a thing lands here" without
@@ -12152,6 +12193,19 @@ export class Scene {
     const t = piece?.signal
       ? (this.signals[piece.signal] ?? 1)
       : tierProgress(spec.tier ?? 1, piece?.tiers?.length ?? 1);
+    /**
+     * ...and the parts come from `standaloneParts`, which is the one answer to
+     * "what does this piece look like with nothing attached to it" — the same
+     * one the palette button draws. See `render/preview.js`: for `lift` the row
+     * is not the picture, and three previews resolving their own model is three
+     * chances for one of them to still show the old art.
+     *
+     * Already at `t`, so what goes in is a bare `{parts}` — `partsAt` hands a
+     * stageless model straight back, which is what keeps the shape the same on
+     * both sides of this line.
+     */
+    const parts = standaloneParts(piece, spec, t);
+    const model = parts ? { parts } : null;
     const g = buildFixtureGhost({
       model,
       t,
@@ -12703,13 +12757,18 @@ export class Scene {
       // a pasted blueprint is a shelf, a freezer and a till in one preview, and
       // a single spec would draw all three as whichever came first.
       const at = { ...spec, ...c, x: c.x, z: c.z, rot: c.rot };
-      const model = this.fixtureModel(at);
-      if (!model) continue;
+      // ...through the same door the single ghost uses, or a dragged run or a
+      // pasted blueprint holding a lift previews the dead row while the one
+      // under the pointer previews the shaft — two answers, one press apart.
+      const t = tierProgress(1, this.pieceOf(at)?.tiers?.length ?? 1);
+      const parts = standaloneParts(this.pieceOf(at), at, t);
+      if (!parts) continue;
+      const model = { parts };
       const g = buildFixtureGhost({
         model,
-        t: tierProgress(1, this.pieceOf(at)?.tiers?.length ?? 1),
+        t,
         rot: rot4(c.rot ?? 0),
-        height: Math.max(modelHeight(partsAt(model, 1)), 0.12),
+        height: Math.max(modelHeight(parts), 0.12),
         verdict: c.state ?? 'ok',
         cage: false,
       });
@@ -14042,7 +14101,16 @@ export class Scene {
         // so the medium's own depth comes off it or a crop is allowed exactly
         // that much of its own light.
         const room = (roomOver[spot.deck] ?? Infinity) - RIDGE_TOP * MEDIUM_SQUASH;
-        const tall = modelHeight(crop.model) * plant.scale.y;
+        // `partsAt` and not the model, which is the one thing `modelHeight`
+        // cannot be handed: it iterates PARTS, and a crop's model is
+        // `{ stages: [...] }` — so `for (const p of model)` throws on every
+        // snapshot in which anything is growing, ten times a second, and takes
+        // `syncState` down with it. Two lines up, the plant itself is built at
+        // `grown`, so the height has to be read at `grown` as well: measured at
+        // any other stage, a staged crop is squashed to fit a lamp using the
+        // height of a different plant. Same idiom as `modelBounds(partsAt(...))`
+        // everywhere else in this file.
+        const tall = modelHeight(partsAt(crop.model, grown)) * plant.scale.y;
         if (Number.isFinite(room) && tall > room) plant.scale.multiplyScalar(room / tall);
         // On the ridge rather than on the ground the ridge stands on. The soil
         // used to be a flat slab and 0 was its top; it has a top and a bottom
@@ -14185,7 +14253,7 @@ export class Scene {
       }
       // Every sync rather than at creation, or a pen you pick up and carry
       // across the farm leaves its readouts standing in the old field.
-      const mid = footprintMid('pen', def.x, def.z);
+      const mid = this.penMid(def);
       rec.overlay.position.set(mid.x, 0, mid.z);
 
       const top = this.penTopY(def);
@@ -14242,9 +14310,33 @@ export class Scene {
     if (!rec.work) return;
     // Turned with the pen, or the churn stands behind the gate — and stood at
     // the middle of the block, the same place `addFixtureProps` stands the pen.
-    const mid = footprintMid('pen', def.x, def.z);
+    const mid = this.penMid(def);
     rec.work.position.set(mid.x, this.fixtureBaseY(def), mid.z);
     rec.work.rotation.y = -(def.rot ?? 0) * (Math.PI / 2);
+  }
+
+  /**
+   * Where a pen's art actually ended up — the middle of its block, PLUS the
+   * seat-off-the-wall `addFixtureProps` gave it.
+   *
+   * The setback is the whole reason this is a function rather than a
+   * `footprintMid` call at each site. A `work` model is drawn in the pen's own
+   * model space — a substrate tray sits ON a rack board, a culture rises INSIDE
+   * a vat — so it is not a readout that floats near the machine, it is part of
+   * the picture of it. Left on the raw mid while the machine was seated off a
+   * wall behind it, the trays stood clear of the rack they belong in and read
+   * as art authored at the wrong coordinates, which is a whole afternoon spent
+   * in `fixtures.json` where nothing is wrong.
+   *
+   * Asked again rather than remembered, for `syncShelves`' reason: the fixture
+   * lives in `staticRoot` and these live in `actorRoot`, rebuilt on different
+   * clocks, so a stored offset is the shop from before last on the first sync
+   * after a re-flow.
+   */
+  penMid(def) {
+    const mid = footprintMid('pen', def.x, def.z);
+    const off = this.artSetback(this.storeLayout, def);
+    return { x: mid.x + (off?.dx ?? 0), z: mid.z + (off?.dz ?? 0) };
   }
 
   /** Just clear of this pen's own art, measured off it the way a station's is. */
@@ -15991,9 +16083,6 @@ const WALL_GHOST_REACH = 4;
 const BUBBLE_NEAR = 7;
 const BUBBLE_FAR = 11;
 
-/** Where the top of the track is — what a machine's side walls stand on. */
-const BELT_TOP = 0.09;
-
 /**
  * Where a packer stands the box it is building.
  *
@@ -16007,53 +16096,6 @@ const BELT_TOP = 0.09;
  */
 const PACKER_TRAY = 0.77;
 
-/**
- * An overhead duct's glazing: how far out from the middle of the cell a pane
- * stands, how thick it is, and how high it goes.
- *
- * `DUCT_HALF` is the one worth a sentence. It clears the widest crate rather
- * than the widest track — a box wedged into its own casing is the "crate
- * floating beside the rails" complaint with the panes doing the floating — and
- * it stops short of the tile edge, so two runs laid side by side read as two
- * ducts rather than as one glass wall down the aisle.
- */
-const DUCT_HALF = 0.34;
-/** The clear span from one side pane's centre-line to the other. */
-const DUCT_SPAN = DUCT_HALF * 2;
-const DUCT_PANE = 0.02;
-/** The casing's outside width, including the thin side-pane itself. */
-const DUCT_FLOOR = DUCT_SPAN + DUCT_PANE;
-/** The small floor strip from that square to the edge of a conveyor cell. */
-const DUCT_EDGE = (1 - DUCT_FLOOR) / 2;
-/** A vertical arm wall runs from the centre casing to the cell boundary. */
-const DUCT_ARM = 0.5 - DUCT_HALF;
-const DUCT_WALL = 0.3;
-/** Shared basket geometry for ordinary and machine-backed elevators. */
-const ELEVATOR_BASKET_HALF = DUCT_HALF;
-const ELEVATOR_BASKET_SPAN = ELEVATOR_BASKET_HALF * 2;
-/** Clear square in the upper basket floor for the rising crate carrier. */
-const ELEVATOR_OPENING = 0.42;
-const ELEVATOR_BOX_TOP_H = 0.035;
-/**
- * How tall a shaft stands, and the number is the TUNNEL MOUTH's.
- *
- * A lift and a mouth are the same machine pointed opposite ways — the note on
- * `buildPiston` says so about the hardware inside them — and they stand side by
- * side in the same aisle, so the two housings disagreeing about their own height
- * reads as one of them being the wrong piece rather than as two heights. The
- * mouth's is authored (`under`, whose cap ring and drive both top out here) and
- * the lift's is procedural, so this is where they are made to agree; the lamp
- * bars that lie on that cap are measured off it too. The lift's walls stand on
- * the track they are fed by rather than on the ground, so `BELT_TOP` is what
- * comes off it — the nominal rail height, which is what a shaft with no run
- * attached yet falls back to as well.
- *
- * It also buys the doorway. A crate is a box with the shopping standing proud of
- * it, and at 0.32 the housing was shorter than the goods going through it: what
- * you watched was a box clipping the lintel of the machine it was entering.
- */
-const MACHINE_CAP_TOP = 0.63;
-const ELEVATOR_BASKET_H = MACHINE_CAP_TOP - BELT_TOP - ELEVATOR_BOX_TOP_H;
 /**
  * How much air the roof leaves over the tallest thing standing under it.
  *
@@ -16085,34 +16127,6 @@ const ROOF_Y = CEILING_Y + ELEVATOR_BASKET_H + ROOF_CLEAR;
 /** How thick the slab is. Seen edge-on through the clerestory from outside, so
  *  it is a depth rather than a plane — a roof with no thickness is a sheet. */
 const ROOF_SLAB = 0.12;
-const ELEVATOR_OPENING_BORDER = 0.035;
-const ELEVATOR_OPENING_BORDER_H = 0.018;
-/**
- * ...and the doorway is the LID'S HOLE stood on its end.
- *
- * The same crate goes through both — in across the track, out up the shaft — so
- * one number is the whole of what either has to clear, and a door authored
- * separately is a second answer to a question with one.
- */
-const ELEVATOR_PORTAL_H = ELEVATOR_OPENING;
-const ELEVATOR_LID_BEZEL = 0.055;
-const ELEVATOR_LID_BEZEL_H = 0.022;
-const ELEVATOR_FACE_TRIM_D = 0.018;
-const ELEVATOR_FACE_TRIM_H = 0.035;
-/** The pane in a closed face, and its height is a FRACTION of the wall — a
- *  literal left behind by a taller housing is a porthole in a blank slab. */
-const ELEVATOR_WINDOW_W = 0.56;
-const ELEVATOR_WINDOW_H = ELEVATOR_BASKET_H * 0.7;
-const ELEVATOR_TRACK_W = 0.26;
-const ELEVATOR_TRACK_H = 0.03;
-const ELEVATOR_PISTON_OUTER = 0.13;
-const ELEVATOR_PISTON_INNER = 0.07;
-const ELEVATOR_PISTON_OUTER_MAX = 0.72;
-const ELEVATOR_PISTON_PLATFORM = ELEVATOR_OPENING - 0.07;
-const ELEVATOR_PISTON_PLATFORM_H = 0.035;
-const ELEVATOR_PISTON_PAD = 0.18;
-const ELEVATOR_PISTON_PAD_H = 0.012;
-const ELEVATOR_SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 /**
  * The two-stage carrier, built once for the two things that ride one.
  *

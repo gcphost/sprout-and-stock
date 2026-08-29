@@ -73,7 +73,7 @@ import { Game } from '../server/sim/index.js';
 import { writeContent, refresh, content } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
-import { canPlace, anchorTile, isWalkableTile, edgeAt, runCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, conveyorNext, tunnelExit, TUNNEL_SPAN, conveyorFeeders, mergeStraight, mergeRoute } from '../shared/build.js';
+import { canPlace, anchorTile, isWalkableTile, edgeAt, runCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, conveyorNext, tunnelExit, TUNNEL_SPAN, conveyorFeeders, mergeStraight, mergeRoute, CEILING, FIXTURE_REFUND } from '../shared/build.js';
 import { E, canStep, shopperCanCross } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
 import { lotQty, lotTotal, lotStacks } from '../shared/lot.js';
@@ -2818,6 +2818,155 @@ function smooth(g, label, crates, ticks, at = {}) {
   run(g, 60);
   eq(crate.belt, belts[2].id, 'and the crate rides under it to the far end');
   eq(units(g), total, '...with nothing lost on the way through');
+}
+
+// ---------------------------------------------------------------------------
+// 19b. ...and the run HANGS ITS OWN CURTAIN, on the press that makes the hole.
+//
+// §19 is the claim about a curtain somebody hung by hand. This is the claim
+// about the one nobody did, and it is `floorNewRooms` arriving on the other
+// gesture that can leave a shop in a state it cannot be looked at: a crate
+// gliding through solid masonry, which is neither a rendering fault nor a
+// pathing one — `stepBelts` consults no edge, so the box really does cross and
+// the wall really is still standing.
+//
+// Everything here is invisible twice over. A run through a wall and a run
+// through a curtain carry the same box to the same shelf at the same speed, so
+// only the picture moved; and the two ways of getting it wrong both draw
+// perfectly. Which is why the CONTROL is the sharp half rather than the
+// centrepiece: a rule reading "a wall the run touches" instead of "a wall the
+// run goes through" punches every segment a line is laid alongside, and a drag
+// down the inside of your own stockroom demolishes it a cell at a time, one
+// curtain per square, each of them looking exactly like the feature working.
+// So a wall PARALLEL to the run is asserted untouched in the same shop, and the
+// pair is worthless split in half.
+//
+// Then the three that decide what kind of press this is. It is finished by
+// whichever half is laid SECOND — the crossing is made by the cell that
+// completes it, and a rule that only looked at the drag's own consecutive pairs
+// would work on a run dragged through and do nothing at all on the far side
+// laid tomorrow, which is the commoner build. It never touches a way through
+// that is already there, or a run out of your own front door reglazes it. And
+// it never changes WHO may go where: the strips are hung `staff`, so a shopper
+// is refused across the new opening exactly as they were across the wall, which
+// is the whole reason the piece is a curtain rather than a hole.
+//
+// Plus the money, since an opening laid for nothing would make a conveyor the
+// cheapest demolition tool in the game; the undo, which has to take the cells
+// and the curtain back TOGETHER or a Ctrl+Z leaves a hole in a wall nobody
+// asked to knock through; and the CEILING, which gets nothing — the walls stop
+// at 2.10 and the band over them stops where the overhead deck begins, so a
+// duct passes over every wall in the shop and there is nothing there to open.
+// ---------------------------------------------------------------------------
+{
+  // Restated rather than imported: `EDGE_COST` is private to the sim, and a
+  // figure taken from the function under test passes whatever that function
+  // does. A curtain is $22 and it replaces a $12 wall at the shop's one
+  // sell-back rate.
+  const PORT_COST = 22;
+  const WALL_COST = 12;
+  const expected = PORT_COST - WALL_COST * FIXTURE_REFUND;
+
+  const g = fresh();
+  const cells = beltRun(g, 4);
+  check(!!cells, 'there is somewhere to lay a run');
+  if (cells) {
+    // Across the run, between cell 1 and cell 2 — the line a crate crosses on
+    // its second hand-off.
+    const at = { o: 'v', x: cells[2].x, z: cells[2].z };
+    // ...and one ALONGSIDE it, on the north face of cell 1. A belt is laid on
+    // the very square this wall runs along, and nothing may happen to it.
+    const beside = { o: 'h', x: cells[1].x, z: cells[1].z };
+    check(g.buildEdge('me', { ...at, kind: E.WALL }).ok, 'a wall stands across the run');
+    check(g.buildEdge('me', { ...beside, kind: E.WALL }).ok, '...and another along it');
+
+    // The near half first, laid on its own, so the crossing is finished by the
+    // SECOND press rather than by a drag that spans it.
+    const first = g.undoStep('that run', () => g.buildRun('me', {
+      kind: 'belt', piece: BELT.id, x: cells[0].x, z: cells[0].z, to: cells[1], rot: 0,
+    }));
+    check(first.ok, 'the near half goes down', first.error ?? '');
+    eq(first.opened, 0, 'nothing is opened by a run that reaches no wall');
+    eq(edgeAt(g.layout, at), E.WALL, '...and the wall it stops at is still a wall');
+
+    const before = g.cash;
+    const far = g.undoStep('that run', () => g.buildRun('me', {
+      kind: 'belt', piece: BELT.id, x: cells[2].x, z: cells[2].z, to: cells[3], rot: 0,
+    }));
+    check(far.ok, 'the far half goes down', far.error ?? '');
+    eq(far.opened, 1, 'and the press that completes the crossing opens one way through');
+    eq(edgeAt(g.layout, at), E.PORT_STAFF, 'the wall it goes through gets a belt port in it');
+    eq(edgeAt(g.layout, beside), E.WALL, '...while the wall it runs ALONGSIDE is untouched');
+
+    // The money, charged at `buildEdge`'s own arithmetic and said on the wire.
+    // The belts in the same press cost what they cost, so the claim about the
+    // till is a bound rather than a figure: it came out of the shop, and it came
+    // out on top of what the cells cost.
+    near(far.openedCost, expected, 'the hole is charged as a swap for the wall');
+    check(before - g.cash > expected, '...and the shop is poorer by it, not richer');
+
+    // It is an opening for GOODS. Nobody's rules moved.
+    check(!shopperCanCross(g.layout, cells[1].x, cells[1].z, cells[2].x, cells[2].z),
+      'a shopper is still refused across it');
+    check(canStep(g.layout, cells[1].x, cells[1].z, cells[2].x, cells[2].z),
+      'while a hire walks straight through');
+
+    // ...and the box the whole thing exists for.
+    const belts = cells.map((c) => g.beltAt(c.x, c.z));
+    const crate = crateOn(g, belts[0]);
+    const total = units(g);
+    run(g, 60);
+    eq(crate.belt, belts[3].id, 'and the crate rides through to the far end');
+    eq(units(g), total, '...with nothing lost on the way');
+
+    // ONE PRESS, ONE UNDO. The step that laid the far half holds the curtain
+    // too, or Ctrl+Z leaves a hole in a wall nobody asked to knock through.
+    const back = g.undo();
+    check(back.ok, 'the run comes back', back.error ?? '');
+    eq(edgeAt(g.layout, at), E.WALL, '...and the wall comes back with it');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 19c. The two it must leave alone: a way through you already have, and a duct.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 4);
+  if (cells) {
+    const at = { o: 'v', x: cells[2].x, z: cells[2].z };
+    check(g.buildEdge('me', { ...at, kind: E.DOOR }).ok, 'a doorway stands across the run');
+    const res = g.undoStep('that run', () => g.buildRun('me', {
+      kind: 'belt', piece: BELT.id, x: cells[0].x, z: cells[0].z, to: cells[3], rot: 0,
+    }));
+    check(res.ok, 'the run goes down through it', res.error ?? '');
+    eq(res.opened, 0, 'nothing is opened where there is already a way through');
+    eq(edgeAt(g.layout, at), E.DOOR, '...and the doorway is still a doorway');
+  }
+
+  // ...and the ceiling, which passes over every wall in the shop.
+  const h = fresh();
+  const over = (() => {
+    for (let z = 1; z < h.layout.h - 1; z++) {
+      for (let x = 1; x + 4 < h.layout.w - 1; x++) {
+        const cs = [0, 1, 2, 3].map((i) => ({ x: x + i, z }));
+        if (cs.every((c) => canPlace(h.layout,
+          { kind: 'belt', x: c.x, z: c.z, rot: 0, deck: CEILING }).ok)) return cs;
+      }
+    }
+    return null;
+  })();
+  check(!!over, 'there is somewhere to hang a duct');
+  if (over) {
+    const at = { o: 'v', x: over[2].x, z: over[2].z };
+    check(h.buildEdge('me', { ...at, kind: E.WALL }).ok, 'a wall stands across the duct');
+    const res = h.undoStep('that duct', () => h.buildRun('me', {
+      kind: 'belt', piece: BELT.id, x: over[0].x, z: over[0].z, to: over[3], rot: 0, deck: CEILING,
+    }));
+    check(res.ok, 'the duct goes overhead', res.error ?? '');
+    eq(res.opened, 0, 'an overhead run opens nothing');
+    eq(edgeAt(h.layout, at), E.WALL, '...and the wall under it is untouched');
+  }
 }
 
 // ---------------------------------------------------------------------------

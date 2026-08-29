@@ -1047,6 +1047,20 @@ const EDGE_BASE = {
   curtain: {
     color: PALETTE.wall, top: PALETTE.curtainRail, h: WALL_H, t: 0.1, curtain: true,
   },
+  // ...and the same partition with a SQUARE HOLE in it instead of strips — a
+  // belt port. The one opening in this file whose hole is sized off the GOODS
+  // rather than off the person, which is why it is the one that does not go
+  // through `headOf`: nobody walks through it, so a head line measured against a
+  // character is the wrong ruler entirely. See `PORT_SPAN`.
+  //
+  // It is a plain wall with a bite out of it and nothing else: no frame, no
+  // lintel course, no threshold. That is deliberate rather than unfinished — a
+  // hole this small in a wall this tall reads as a hole, and every piece of
+  // joinery drawn round it makes it read as a tiny door, which is the picture
+  // this exists to avoid. The wall's own thickness, for the same reason.
+  port: {
+    color: PALETTE.wall, top: PALETTE.wallTop, h: WALL_H, t: 0.17, port: true,
+  },
   // ...and a roller door is a doorway with the machinery drawn: the same header
   // and the same threshold, plus the coil that is the whole reason you can tell
   // it is one, and a track down each jamb. `color` is the WALL for the reason
@@ -1178,6 +1192,12 @@ export const EDGE_STYLE = {
   // otherwise, and this is a rule you flip and then want to check.
   [E.CURTAIN]: EDGE_BASE.curtain,
   [E.CURTAIN_STAFF]: { ...EDGE_BASE.curtain, mark: PALETTE.markStaff },
+  // The same partition, the other look — see `WAY_LOOKS`. The mark goes back on
+  // a THRESHOLD here where the curtain had to move it to the rail: there is no
+  // rail to put it on, the hole is nowhere near the floor, and a stripe under a
+  // port is the same stripe a signed doorway wears in the same wall.
+  [E.PORT]: EDGE_BASE.port,
+  [E.PORT_STAFF]: { ...EDGE_BASE.port, mark: PALETTE.markStaff },
   // The mark goes back on the threshold here, where a curtain had to move it to
   // the rail: a roller door is a hole you walk through the middle of, so it has
   // a step under it exactly as a doorway does, and putting the stripe on the
@@ -1454,6 +1474,39 @@ const ARCH_STEPS = 3;
  * they overlap into a solid band, which is a fence again — the one failure here
  * that draws as a perfectly good piece of a different kind.
  */
+/**
+ * A BELT PORT: how big the hole is, and why it is not the head line.
+ *
+ * Every other opening in this file is sized off a person — `HEAD_ROOM` exists
+ * precisely so a taller wall does not raise them — and this one is sized off a
+ * CRATE, which is the whole reason it is a separate piece rather than an arch
+ * somebody shrank. A box on a conveyor is 0.318 across (`CRATE`,
+ * client/render/props.js) and rides at 0.09 off the deck (`BELT_TOP`,
+ * client/render/elevator.js); the numbers are restated rather than imported
+ * because this is the bottom of the render stack and those two files are above
+ * it, and because what is authored here is the HOLE — a port sized by
+ * subtraction from whatever the crate art happens to be today would move every
+ * wall in the shop the next time somebody restyled a box.
+ *
+ * It is NOT square, and that is the correction worth keeping: a hole wider than
+ * the track is a hole you see daylight through either side of the belt, which
+ * reads as the wall having been cut badly rather than as a port. So the WIDTH is
+ * the conveyor's own (0.32, a hair over the crate, so the masonry meets the
+ * edges of the track) and the HEIGHT is the load's — 0.40, which is the box plus
+ * whatever is stacked proud of it.
+ *
+ * There is NO SILL, which is the one number this piece deliberately does not
+ * have. A crate rides at 0.09 off the deck on a conveyor that is itself ground,
+ * so the thinnest course of masonry the wall could carry under the hole is
+ * still thicker than the gap the box needs — drawn, it is a plate standing up
+ * through the belt. Any lower and it is buried in the floor slab
+ * (`GROUND_LINE`) and was never visible in the first place. So the hole runs
+ * from the deck, and what puts it "on the rail" is that it stops at 0.40 rather
+ * than at a head line measured against a person.
+ */
+const PORT_W = 0.32;
+const PORT_H = 0.40;
+
 const RAIL_POSTS = 4;
 const RAIL_POST = 0.24;
 const RAIL_AT = 0.45;
@@ -1690,6 +1743,57 @@ export function edgeBands(style) {
         off: s * jamb,
         len: SHUTTER_TRACK,
       })),
+    ];
+  }
+  // A BELT PORT: a wall with a square bite out of it on the rail line.
+  //
+  // The one opening here that is not `opening: true`, and that is the honest
+  // answer rather than a shortcut: every band in that family is placed off
+  // `headOf`, which is a fact about the person walking through, and nobody
+  // walks through this. What it is instead is the wall's own single band cut
+  // into four — under, over, and a pier each side — which is the same `off`/`len`
+  // machinery a brick course, a curtain's strips and a shutter's tracks already
+  // ride. No frame, no lintel, no threshold: at 0.40 in a wall of 2.10, every
+  // piece of joinery drawn round the hole makes it read as a very small door.
+  if (style.port) {
+    const head = Math.min(style.h, PORT_H);
+    // What is left of the cell either side of the hole, as one pier per side.
+    const pier = Math.max(0, (1 - PORT_W) / 2);
+
+    return [
+      // NOTHING UNDER THE HOLE, which is the one thing that separates this from
+      // every other opening in the file. A threshold is what you walk over, and
+      // what crosses here is a box riding at 0.09 off the deck (`BELT_TOP`) on
+      // a conveyor that is itself GROUND — so the least masonry a doorway can
+      // have under it is still thicker than the gap the crate needs, and what
+      // it draws is a plate standing up through the belt. There is no height
+      // this band could take that is not either buried in the floor or in the
+      // way, so it does not exist.
+      //
+      // ...which makes the hole run from the deck, and the opening is therefore
+      // `PORT_SPAN` tall from 0 rather than from the floor line. That is still
+      // a finger over the crate, and nothing here is drawn under `GROUND_LINE`.
+      { y0: head, y1: style.h },
+      // ...and the stripe rides the PIERS rather than the cell. Every other
+      // signed way through in the game paints its whole threshold, because
+      // every other one is a hole you walk through the middle of and the paint
+      // is underfoot. There is nothing underfoot here — what crosses is a box
+      // on a rail — so a full-width band is a slab standing in the opening at
+      // exactly belt height, which is the one place in this piece nothing may
+      // be. Two marks either side, on the masonry that is actually there.
+      ...(style.mark && pier > 0 ? [-1, 1].map((s) => ({
+        y0: 0, y1: GROUND_LINE + 0.03, color: style.mark,
+        off: s * (0.5 - pier / 2), len: pier,
+      })) : []),
+      // The masonry either side, standing ON the stripe rather than through it
+      // — two boxes sharing a volume is one depth buffer deciding by camera
+      // angle, which is the artefact `GROUND_LINE` is written up for.
+      ...(pier > 0 ? [-1, 1].map((s) => ({
+        y0: style.mark ? GROUND_LINE + 0.03 : 0,
+        y1: head,
+        off: s * (0.5 - pier / 2),
+        len: pier,
+      })) : []),
     ];
   }
   // A curtain: a rail, and strips hanging off it that stop short of the deck.

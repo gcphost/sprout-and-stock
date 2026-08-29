@@ -12,6 +12,7 @@
 
 import { RAIL_ITEMS, railItemById } from './sections.js';
 import { tip } from './tip.js';
+import { hudPx } from './ui-scale.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -139,7 +140,11 @@ export class Rail {
     // The rail is centred on the screen, so `left: 50%` does the sideways half
     // in CSS and the only measurement here is how high up the rail's top edge
     // is — which moves when it wraps on a narrow window.
-    el.style.bottom = `${window.innerHeight - this.el.getBoundingClientRect().top + 8}px`;
+    // …measured off a rect and the window, which are viewport pixels, and
+    // written onto a pill drawn in the HUD's. See client/ui-scale.js: the two
+    // are the same number only at a size dial of 1, and mixed they hold the note
+    // a growing distance off the rail it is meant to be sitting on.
+    el.style.bottom = `${hudPx(window.innerHeight - this.el.getBoundingClientRect().top) + 8}px`;
     // Two frames for the same reason the tooltip takes two: the box has to be
     // where it is going before the fade starts, or it slides in from wherever
     // the last one was.

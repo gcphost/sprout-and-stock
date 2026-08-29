@@ -18,6 +18,7 @@ import { kindOf, countKey } from '../shared/pieces.js';
 import { toolRevealed, revealSig, opensAt, gateFor, pieceOffered } from '../shared/reveal.js';
 import { variantsOf } from '../shared/model.js';
 import { artForModel, artForTool, artForWorker } from './thumb.js';
+import { uiScale, setUiScale, UI_MIN, UI_MAX, UI_STEP, UI_DEF } from './ui-scale.js';
 import { doingNow, bodyOf, kindSummary, ARM_MS } from './worker-menu.js';
 // What is on a van. Shared with the shelf menu, which asks the same two
 // questions of it — see client/orders.js.
@@ -36,7 +37,7 @@ import { DEBUGS, debugOn, setDebug } from './debug.js';
 import { cinemaOn, setCinema } from './cinema.js';
 import { SURROUNDS, S, DEFAULT_SURROUND } from '../shared/surrounds.js';
 import { coopStatus, openCoop, coopSignature } from './coop.js';
-import { tutorOff, setTutorOff, replayTutor } from './tutor.js';
+import { tutorOff, setTutorOff, replayTutor, forgetLessons } from './tutor.js';
 import { haveStats, statsOn, setStats } from './analytics.js';
 import { deptOf } from './aisles.js';
 import { SUPPORT_URL, SUPPORT_LABEL, openLink } from './links.js';
@@ -3347,6 +3348,53 @@ function fovChip(ui) {
 }
 
 /**
+ * HOW BIG THE HUD IS, as `fovChip`'s stepper pointed at the chrome rather than
+ * at the lens.
+ *
+ * The two belong together and lead the grid together: one is how much shop you
+ * can see and the other is how much of the screen is not shop, which is the
+ * same question asked from either end. Everything `fovChip` argues holds word
+ * for word — the stepper rather than a slider (a drag inside a panel fights the
+ * panel's own drag, and the range is ten presses end to end), both buttons
+ * disabled at the end they cannot move, the ends and the step read off
+ * client/ui-scale.js rather than typed here.
+ *
+ * It is the one control in the game that RESIZES THE THING IT IS ON, which is
+ * the whole of what makes it feel like it worked: the panel under your finger
+ * steps in as you press, so the number is never the only feedback the way the
+ * lens's is. That is also why nothing needs re-measuring afterwards — see
+ * `setUiScale`, which has the argument.
+ *
+ * The caption names the default rather than describing the effect, for
+ * `fovChip`'s reason: there is no right answer to how big a HUD should be on
+ * somebody else's window, so the only useful sentence is the way back.
+ */
+function sizeChip(ui) {
+  const now = uiScale();
+  const nudge = (d) => () => {
+    setUiScale(now + d);
+    ui.paintSection();
+  };
+  const btn = (act, on, label, glyph) => `<button class="rbtn"${on ? '' : ' disabled'} `
+    + `data-act="${act}" aria-label="${label}">${glyph}</button>`;
+  return {
+    cell: {
+      chip: `<div class="gtile chip"
+        title="How big the panels, buttons and readouts are. ${Math.round(UI_DEF * 100)}% is the ordinary size.">
+        <span class="gico">${ICONS.menus}</span>
+        <span class="gname">Interface</span>
+        <span class="stp">
+          ${btn('ui:down', now > UI_MIN, 'smaller interface', '−')}
+          <b>${Math.round(now * 100)}%</b>
+          ${btn('ui:up', now < UI_MAX, 'bigger interface', '+')}
+        </span>
+      </div>`,
+    },
+    acts: { 'ui:down': nudge(-UI_STEP), 'ui:up': nudge(UI_STEP) },
+  };
+}
+
+/**
  * Where the shop stands — three tiles side by side, the picked one lit.
  *
  * ONE ROW OF THREE, and it was three full-width rows for a long time on an
@@ -3458,7 +3506,13 @@ function switchRows(ui) {
     sw(!tutOff, {
       icon: ICONS.help,
       name: 'Tutorial',
-      sub: tutOff ? 'Off. New shops start with no tutorial.' : 'Shown once in a new shop.',
+      // ...and the lessons, which are the half of this switch that is not about
+      // a new shop at all: a hand with the conveyors turns up four hundred sales
+      // in. A sub line that only mentioned the opening tour would be a switch
+      // that quietly governs something it never names.
+      sub: tutOff
+        ? 'Off. No tour in a new shop, and no hand with anything new.'
+        : 'A tour in a new shop, and a hand the first time something new turns up.',
       run: () => { setTutorOff(!tutOff); ui.paintSection(); },
       button: {
         label: 'Replay',
@@ -3468,6 +3522,11 @@ function switchRows(ui) {
           // that only called `start` would run the tutorial and then be refused
           // by its own bookkeeping the moment you reloaded mid-way through it.
           replayTutor(ui.worldId);
+          // ...and the mini-lessons with it, or Replay means "the first four
+          // minutes again" and the conveyor card somebody skipped is gone for
+          // good with nothing anywhere offering it back. They do not start here
+          // — each waits for its own `when`, which is the point of them.
+          forgetLessons();
           ui.closePanel();
           ui.tutor?.maybeStart(ui.worldId);
         },
@@ -3553,9 +3612,13 @@ function viewGrid(ui) {
   // Only where there is a scene to ask, which is every real client and no
   // sweep. A stepper with no range behind it is a control that cannot answer.
   const fov = ui.scene ? fovChip(ui) : null;
+  // No such guard on the size: it asks the stylesheet rather than the scene, so
+  // it can answer in any client that has a document at all.
+  const size = sizeChip(ui);
   return [{
     grid: [
       ...(fov ? [fov.cell] : []),
+      size.cell,
       /**
        * ...and the one switch in the game that turns the screen it is on off.
        *
@@ -3619,6 +3682,7 @@ function viewGrid(ui) {
     // in another corner of the screen where you would not see it happen.
     acts: {
       ...(fov ? fov.acts : {}),
+      ...size.acts,
       // Repainted before it goes, like the rest of them: turning cinema OFF
       // from the key leaves this panel open behind it, and a tile still lit for
       // a mode that has ended is the one state this switch can actually be
