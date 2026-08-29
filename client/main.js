@@ -617,12 +617,12 @@ addEventListener('keydown', (e) => {
   // Read off the same array the rail draws itself from, so a new menu is bound
   // and labelled the moment it exists — including the ones that are a bar rather
   // than a panel, which is why this walks RAIL_ITEMS and not just SECTIONS.
+  // ...and through the same call the button makes, so a key cannot leave a menu
+  // standing that the button would have put away.
   const item = RAIL_ITEMS.find((s) => s.key === k);
   if (item) {
     e.preventDefault();
-    if (item.mode) ui.pressBuild();
-    else if (item.bar) ui.toggleBar(item.bar);
-    else ui.toggleSection(item.id);
+    ui.pressRail(item);
   }
 
   // `G` used to be handled separately here, because Build was not on the array

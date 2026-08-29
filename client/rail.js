@@ -99,12 +99,10 @@ export class Rail {
       const item = railItemById(b.dataset.rail);
       // Three kinds of press, and the button looks the same for all three:
       // a mode (Build) toggles the world, a bar (Staff) claims the bottom
-      // strip, and everything else opens a panel.
-      b.onclick = () => {
-        if (item?.mode) this.ui.pressBuild();
-        else if (item?.bar) this.ui.toggleBar(item.bar);
-        else this.ui.toggleSection(b.dataset.rail);
-      };
+      // strip, and everything else opens a panel. Which of the three it is is
+      // `pressRail`'s to sort out, because a press on any of them also puts
+      // away whatever the rail last opened — see there.
+      b.onclick = () => this.ui.pressRail(item);
     });
   }
 

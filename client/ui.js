@@ -3033,6 +3033,47 @@ export class UI {
   // touch the DOM, which is what makes search and the chips work in all of them
   // at once — including in sections nobody has written yet.
 
+  /**
+   * ONE PRESS OF THE RAIL, whichever of the three sorts of button it is.
+   *
+   * The rail shows one thing at a time and always did for panels — a section
+   * replaces a section, because `showSection` assigns the one `#panel`. The two
+   * buttons that are not panels were outside that: Build is a mode and Staff is
+   * a bar, so pressing either left the supplier or the report floating over the
+   * shop, opened from a rail button that is no longer lit, with the palette you
+   * asked for underneath it. What that reads as is the menu having got stuck,
+   * because nothing you pressed was about it.
+   *
+   * So a press on the rail is a press on the NAV: whatever the nav last put up
+   * goes away first, unless it is the very thing you pressed (a second press of
+   * a lit button is that button's own toggle, and `toggleSection` owns it).
+   *
+   * Only what the RAIL opened. A fixture menu, a hire's sheet and a doorway are
+   * about something standing in the world and each has its own rule about which
+   * bars it outlives — see `showBar` — and closing those here would take a shelf
+   * menu away every time you opened the palette to move the shelf.
+   */
+  pressRail(item) {
+    if (!item) return;
+    const id = item.mode ? 'build' : item.bar ?? item.id;
+    if (this.railPanel() && this.openPanel !== id) this.closePanel();
+    if (item.mode) this.pressBuild();
+    else if (item.bar) this.toggleBar(item.bar);
+    else this.toggleSection(item.id);
+  }
+
+  /**
+   * Is the panel that is up one the rail put there?
+   *
+   * An item's own menu counts: it IS the supplier one press deep (the same
+   * `#panel`, in the same place, with a Back that returns to it — see
+   * `panelPosKey`), so leaving it behind is leaving the supplier behind.
+   */
+  railPanel() {
+    const id = this.openPanel;
+    return !!id && (id === 'item' || !!sectionById(id));
+  }
+
   /** The rail's own click: open it, or shut it if it's already the one open. */
   toggleSection(id) {
     if (this.openPanel === id) this.closePanel();

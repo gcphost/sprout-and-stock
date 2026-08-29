@@ -141,18 +141,127 @@ break) · `esc` · `meOf` · `lotSize` · `shelvesOf` · `anyShelf` · `nearestC
 
 ### The rules, in one place
 
-1. **Copy is for a seven-year-old**, and simple is not vague — every sentence
-   has to be literally true of the sim. Banned: `run`, `cell`, `unit`, `board`,
-   `backpressure`, `terminus`, `stray`. Say box, shelf, line, hands.
-2. **Say which button.** "Tap" is the wrong word on a mouse; `perInput` forks.
-3. **Pictures beat prose.**
-4. **A card per decision, never a card per press.** Two presses with one
+1. **Copy is for a seven-year-old with no attention span.** This is the rule
+   that gets broken every single time, so it is a *budget* rather than a
+   feeling:
+
+   | | budget | |
+   |---|---|---|
+   | `say` | **≤ 12 words**, one sentence | the whole point of the card |
+   | `hint` | **≤ 2 short sentences per paragraph, ≤ 2 paragraphs** | the detail |
+   | `kicker` | **≤ 3 words** | |
+   | `toast` | **≤ 7 words**, no key caps (it never goes through `keyed`) | |
+
+   Over budget is not "a bit long", it is a card nobody reads — and a card
+   nobody reads is worse than no card, because it also taught them to skip the
+   next one. If a page needs more, it is two pages.
+
+   Write the press as a **glyph, not a description**: `[[Ctrl]] [[Z]]`, not
+   "hold control and press zed". `keyed` draws every `[[X]]` as a key cap, and
+   `legend:` draws a mark beside its one sentence.
+
+   Simple is not vague — every sentence still has to be literally true of the
+   sim, and every time the plain version came out wrong it was because the
+   jargon had been hiding that it was wrong. Banned words: `run`, `cell`,
+   `unit`, `board`, `backpressure`, `terminus`, `stray`. Say box, shelf, line,
+   hands, robot.
+2. **A CARD ANSWERS "WHAT DO I PRESS RIGHT NOW", NOT "WHAT IS THIS THING".**
+   The single most expensive mistake in here, made three times in one sitting.
+   A lesson fires because something is happening — a line at the till, a robot
+   running flat — and the player's question is short and urgent. Anything that
+   is not the answer to it is noise, however true.
+
+   > A queue formed. First draft: *"People queue at the till. Leave clear
+   > squares beside it to wait in. Cash piles up on the counter — walk over it.
+   > A better till is faster."* Every word true. Not one word is what to press.
+   > The card should say: **"Go and stand at the till."**
+
+   Two tells that you are writing the wrong card: the sentence explains where
+   to BUILD something (advice for a mode the player is not in), or it describes
+   a mechanic instead of naming a press. "Where things go" belongs in the tab
+   briefing behind the `?`, which is where somebody goes to *read* about a till.
+
+3. **NAME THE THING, DON'T DESCRIBE THE MECHANIC.** *"Pick a robot and add
+   points to Serve"* is three presses deep in a panel, explaining that a shift
+   is a ratio. There is a robot in the catalogue called a **Clerk** whose whole
+   job is standing at a till. Say **"Hire a Clerk."** Pull the name off the
+   catalogue rather than hardcoding it (`clerkKind`) — an id in a sentence is
+   `if (item.id === 'tomato')` wearing a card.
+
+4. **EVERY INSTRUCTION NEEDS A REAL ADDRESS.** "Press this button" points at
+   nothing. An address is the thing's **name on screen** plus its **key**, and
+   both, because a picture cannot say either: *"Press `H` for your Crew"*. Names
+   and keys live on the section rows in `client/sections.js` (`name`, `key`) —
+   look it up, do not invent it.
+
+5. **A PATH IS A LIST, NOT A SENTENCE OF COMMAS.** More than one press means
+   `legend:` with one `iconRow` per step. A paragraph hides how many steps there
+   are and which one you are on. And the list has to reach the **end** of the
+   flow: hiring arms on the first press and spends on the second, so a card that
+   stopped at "click the Clerk" reads as a broken button.
+
+   ```
+   🤖  Press [[H]] for your Crew
+   ＋  Open the + tab
+   👤  Click the Clerk, then click again to hire
+   ```
+
+6. **Say which button, and never a key that isn't there.** "Tap" is the wrong
+   word on a mouse and `[[R]]` is a lie on a phone — `perInput` forks every one.
+   The touch build has its own controls for the desktop keys (`#rotbtn`,
+   `#undobtn`, `#pickbtn`, `#delbtn`, the Crew rail button); name those instead.
+   "Press and hold" is the one gesture that is the same sentence in both.
+
+7. **EVERY CARD HAS A PICTURE. This is not a nice-to-have.** The picture well
+   is a fixed 168px block at the top of the card — leave it empty and the card
+   is three lines of type over a hole, which reads as broken. This is a
+   **visual** learning path: the picture is the card, the words are the
+   caption. Four ways to fill it, in order of preference:
+
+   | | how |
+   |---|---|
+   | the piece itself | `kind: 'checkout'` on the page — derived from the catalog, so it restyles itself |
+   | a HUD control | `at: () => ({ mock: '[data-rail="staff"]' })` — clones the real button |
+   | a ground brush | `kind` on a brush row; `artOf` forks on `surface` |
+   | a gesture | a drawn `art` diagram — see `dragArt` |
+
+   **A mark in the shop does not replace the picture.** Both: the frame says
+   *which one*, the picture says *what you are looking for*. The tour's `pour`
+   card does exactly this.
+
+   Under the words, `legend:` draws **icon + one sentence** rows — `ICONS` in
+   `client/icons.js` has a glyph for nearly everything (`walk` `staff`
+   `checkout` `crate` `shelf` `freezer` `tierup` `wave` `open` `shut` …).
+   Reach for it whenever the copy is listing options or steps; a row of glyphs
+   is read, a paragraph of alternatives is not.
+
+   And say a press as a glyph, never a description: `[[Ctrl]] [[Z]]`.
+
+   On a phone the well becomes a 108px square **beside** the words rather than a
+   block above them (the media query at the foot of index.html). A `float` there
+   is a silent no-op — the card is a flex column — so it is a grid.
+8. **A card per decision, never a card per press.** Two presses with one
    outcome between them are one card whose spotlight walks.
-5. **A step is a predicate, never a press it intercepted.**
-6. **A lesson never sends `crew-idle`** and never fights for the mouse or the
-   camera.
-7. **Comment every non-obvious call** with what the wrong version was and how
-   it failed. That is the house style and it is why this file is readable.
+9. **A step is a predicate, never a press it intercepted.**
+10. **A lesson never sends `crew-idle`** and never fights for the mouse or the
+    camera. Nothing else may be switched off for the length of one either —
+    tooltips were, for a while, which silently took away the only explanation
+    half the HUD has.
+11. **Comment every non-obvious call** with what the wrong version was and how
+    it failed. That is the house style and it is why this file is readable.
+
+### The check, before you say a card is done
+
+Read your own card back and answer these. Any "no" is a rewrite, not a tweak.
+
+- [ ] Does the `say` name **a press I can make in the next two seconds**?
+- [ ] Is every address a **name + key** that exists on screen, never "this"?
+- [ ] Is the well **full**?
+- [ ] Is any multi-step path a **`legend` list with icons**, and does it run to
+      the end of the flow?
+- [ ] Is every key behind `perInput`, with a real touch control named?
+- [ ] Inside budget — `say` ≤ 12 words, `hint` ≤ 2 short sentences?
+- [ ] Have I cut every true-but-irrelevant sentence?
 
 ### Running it without playing to it
 

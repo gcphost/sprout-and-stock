@@ -6071,11 +6071,24 @@
 
     /* ---- the award card ---------------------------------------------------
        The one thing on screen that is allowed to look like a game rather than
-       like a shop's paperwork. Everything else in this HUD is cream, rounded
-       and quiet on purpose — it sits over the thing you are actually looking
-       at — and an award drawn to those rules would read as another menu having
-       opened. So: gold, a medal hanging off the top over a turning sunburst,
-       and a pop on the way in.
+       like a shop's paperwork. Everything else in this HUD is cream and quiet
+       on purpose — it sits over the thing you are actually looking at — and an
+       award drawn to those rules would read as another menu having opened. So:
+       gold, a medal hanging off the top over a turning sunburst, and a pop on
+       the way in.
+
+       WHAT IT IS MADE OF IS THE HUD'S, AND WHAT IT SAYS IS ITS OWN, and holding
+       those two apart is the whole of the pass this card was last through. It
+       was the final thing in the game still built the way everything was before
+       Crate — a 44px blurred cast, a white ring inset into the paper, a gold
+       ramp ending on cream with no edge, and wash-black sides under its
+       buttons — and none of that was the loudness. Loudness is the gold, the
+       medal and the sunburst. The cast and the rim were just an app card
+       underneath them, which is why this read as belonging to a different game
+       than the menu that opens it. So it is drawn to the same four rules as
+       `#panel`, `.menu-box` and `.tt-card`: a ranked contour as an OVERLAY, a
+       flat face, creases inside, and a side you can push. The only marks it
+       keeps that no other card has are the ones that mean "you won something".
 
        z-index 45 puts it over the tip (40) and under the front door (60): it
        covers everything in the shop, and the shop list is not in the shop.
@@ -6499,10 +6512,23 @@
     html.can-hover .tt-skip:hover { color: var(--ink); border-color: rgba(58, 49, 40, .3); }
     html.can-hover .tt-link:hover { text-decoration-thickness: 2px; }
 
-    /* The drawn tooltip is a shorter, worse version of the sentence already on
-       the card, and it lands on top of it — the card is pinned beside the lit
-       button and so is the tip. One explanation at a time. */
-    body.tutoring #tip { display: none !important; }
+    /* THE TOOLTIP USED TO BE KILLED HERE, and taking that out is a fix rather
+       than a relaxation.
+
+       `body.tutoring #tip { display: none !important }` was written when the
+       card was pinned beside the thing it was pointing at, under a veil where
+       exactly one press was possible: the tip landed on top of the card, saying
+       a shorter, worse version of the sentence already on it. Neither half of
+       that is true any more. The card is a slab down one edge, the veil is
+       gone, and every other press in the shop stays live — so what the rule
+       actually did was switch off the ONLY explanation half the HUD has. A
+       palette tile, a rail button and a hire tile are a picture and a price;
+       what they are is in the tip and nowhere else, and a lesson runs for as
+       long as somebody reads it.
+
+       There is nothing left to collide with, either: the card is
+       `pointer-events: none` (see the rule above), so nothing on it can be
+       hovered, and its own buttons carry no `data-tip`. */
 
     #award {
       position: fixed; inset: 0; z-index: 45;
@@ -6518,24 +6544,59 @@
     .award-card {
       position: relative; width: min(340px, 100%);
       /* The gold band IS the top of the card, and the medal overlaps the seam
-         between it and the cream. Two stops rather than a gradient across the
-         whole card: what makes it read as a trophy plaque is the hard line. */
+         between it and the cream. One background layer rather than a strip of
+         markup: what makes it read as a trophy plaque is the hard line. */
       /* The band stops ABOVE the name, not through it. At 86px it ended
          halfway down the title, so the one line on the card you actually read
          was dark brown over gold for its top half and dark brown over cream for
          its bottom half, with rays behind the join — legible nowhere and
          unreadable at a glance. The band's whole job is to hold the medal and
          the kicker; the name belongs on the plain cream under it, which is
-         where every other piece of text in this game is read. */
+         where every other piece of text in this game is read.
+         FLAT, AND THE SEAM IS AN INK LINE. It was a ramp from `#ffd66b` down to
+         a `#f6b73c` nothing else in the game uses, ending on cream with no edge
+         — which is two rules broken at once: the shop is cel-shaded in flat
+         steps, and where one surface stops another is a CONTOUR. So it is the
+         one gold this chrome already has (`.tab.on`, `.menu-btn.go`, the armed
+         build slot) with the card's own weight ruled under it, which is
+         `.menu-art`'s line said about a band that is painted rather than drawn.
+         The richness went where richness belongs — on the medal, which is an
+         object being depicted rather than a surface being drawn. */
       background:
-        linear-gradient(#ffd66b, #f6b73c) 0 0 / 100% 66px no-repeat,
+        linear-gradient(#ffd66b 0 calc(66px - var(--k1)),
+                        var(--ink-line) calc(66px - var(--k1)) 66px) 0 0 / 100% 66px no-repeat,
         var(--panel-solid);
       border-radius: var(--r); padding: 44px 18px 16px; text-align: center;
-      box-shadow: 0 18px 44px rgba(58, 49, 40, .34), inset 0 0 0 2px rgba(255,255,255,.5);
-      /* Clipped, so the rays behind the medal stay inside the plaque — but the
-         medal itself is drawn OUTSIDE this box (see below), so the overflow has
-         to be visible and the rays get their own rounding instead. */
+      /* CRATE. This was a 44px blurred cast with a white ring inset into it —
+         a card lit from somewhere the shop is not, with a rim of paper light
+         that says "app" rather than "object". The cast that is left says the
+         one thing a drawing cannot, which is that this is nearer than the shop
+         it has stopped; the side under it is the card's own thickness at the
+         card weight; and the line round it is an overlay (see below). */
+      box-shadow: var(--cast), 0 var(--d1) 0 rgba(23, 18, 25, .28);
+      /* The medal is drawn OUTSIDE this box (see below), so the overflow has to
+         be visible and the rays get their own mask instead. */
       overflow: visible;
+      /* EVERY HAIRLINE INSIDE IT IS A CREASE, which is `#panel`'s and
+         `.menu-box`'s declaration for their own subtrees: the card is one
+         object and the things standing in it are recesses, not cards. */
+      --line: var(--crease);
+      /* ...and this screen's controls are 38–44px, the front door's size rather
+         than the HUD's 26–40, so the side is 3px. Redefining the token is what
+         lets the ONE press rule at the foot of this file press them. */
+      --edge: 0 3px 0 var(--ink-line); --press: 3px;
+    }
+    /* The contour as an overlay rather than an inset shadow on the card itself,
+       for the reason every other card in here does it: the gold band is a
+       background and a shadow on the box is painted under it, so an inset ring
+       would be buried along the whole top sixth of the card. Same rule as
+       `#panel::after` and `.tt-card::after` — and `.award-card` is already
+       positioned, so it does not walk into the containing-block trap that rule
+       warns about. */
+    .award-card::after {
+      content: ''; position: absolute; inset: 0; z-index: 1;
+      pointer-events: none; border-radius: inherit;
+      box-shadow: inset 0 0 0 var(--k1) var(--ink-line);
     }
 
     /* The sunburst, behind the medal, turning slowly. A conic gradient rather
@@ -6562,20 +6623,36 @@
        being drawn. A medal is round the way the sun is round and the tutorial's
        reticle is round. Everything that is a panel, a button or a chip takes
        `--r`. */
+    /* Over the card's own contour, which the medal breaks rather than sits
+       inside — the overlay above is drawn last and would otherwise rule a line
+       straight across the disc. */
     .award-medal {
       position: absolute; top: -34px; left: 50%; transform: translateX(-50%);
+      z-index: 2;
       width: 68px; height: 68px; border-radius: 50%;
       display: grid; place-items: center; font-size: 34px; color: #7a4d10;
       background: radial-gradient(circle at 34% 28%, #fff7d6, #ffe28a 42%, #e8a52c);
-      box-shadow: 0 6px 14px rgba(58,49,40,.3), inset 0 0 0 3px rgba(255,255,255,.65);
+      /* THE LINE IS OUTSIDE IT, and that is the whole change: what was here was
+         a 3px white ring set INTO the gold, which is a rim of paper light on an
+         object made of metal — the last "app card" mark on this screen. A ring
+         drawn outside is the contour every other object in the game wears, at
+         the control weight because a 68px disc is a control-sized thing rather
+         than a card. The soft cast stays: the medal genuinely is lifted off the
+         plaque, which is the shape of the whole ornament. */
+      box-shadow: 0 0 0 var(--k2) var(--ink-line), var(--cast-sm);
     }
     /* Same reason as `.ico > svg` up the top: an inline SVG sits on the text
        baseline, which inside a 68px disc is visibly a few pixels low. */
     .award-medal > svg { display: block; }
 
+    /* `--ink-line` on gold, which is what `.menu-btn.go` settled on for the one
+       other place this chrome sets type on this exact colour. The brown it wore
+       was a fourth gold-adjacent tone nobody had chosen against the others, at
+       80% — a kicker that is already 11px and tracked does not also need to be
+       faint to be quiet. */
     .award-kicker {
       font-size: 11px; font-weight: 800; letter-spacing: .16em;
-      text-transform: uppercase; color: #7a4d10; opacity: .8;
+      text-transform: uppercase; color: var(--ink-line); opacity: .72;
     }
     /* Clear of the band by 8px. The kicker runs 44→60 inside a 66px band, so
        the title starts at 68 — on cream, with the rays already faded out behind
@@ -6593,9 +6670,15 @@
        about four seconds. */
     .award-got { list-style: none; margin: 0 0 10px; padding: 0;
                  display: flex; flex-direction: column; gap: 6px; }
+    /* A RECESS IN THE CARD, not a card in the card. A tinted fill with no line
+       at all is the one shape on a drawn screen that is only a fill; a contour
+       on it would be a second outline eighteen pixels inside the first. So it
+       takes the crease, which is what `#panel`, `.menu-box` and the build
+       palette's own tiles all put round a thing standing in a card. */
     .award-got li {
       display: flex; align-items: center; gap: 9px; text-align: left;
       background: rgba(58,49,40,.06); border-radius: var(--r); padding: 7px 11px;
+      box-shadow: inset 0 0 0 1px var(--crease);
     }
     .award-got .aico { font-size: 17px; line-height: 1; }
     .award-got .atext { display: flex; flex-direction: column; min-width: 0; }
@@ -6611,12 +6694,24 @@
     .award-town:empty { display: none; }
     .award-town b { font-size: 17px; font-weight: 800; opacity: .9; color: var(--good); }
 
+    /* THE ONE PRESS ON THE CARD. Its side was `0 3px 0 rgba(0,0,0,.15)` — a
+       wash of black under a green face, which on cream reads as a smudge rather
+       than as thickness — and it had a `:active` of its own that half-closed it.
+       Both are the pair the chrome pass took out everywhere else: a side is a
+       FACE of the object, so it is a darker cut of the face above it the way
+       `.menu-btn.go`'s is, and the press is the one rule at the foot of this
+       file. The line on top is the same argument as `.menu-btn.go`'s: a
+       coloured button with no contour at all is a fill on a drawing. */
     .award-go {
       width: 100%; border: 0; font: inherit; cursor: pointer;
       background: var(--good); color: #fff; font-weight: 800; font-size: 14px;
-      border-radius: var(--r); padding: 9px; box-shadow: 0 3px 0 rgba(0,0,0,.15);
+      border-radius: var(--r); padding: 9px;
+      --sil: inset 0 0 0 var(--k2) var(--ink-line);
+      --edge: 0 3px 0 #3d7139;
+      box-shadow: var(--sil), var(--edge);
+      transition: background .12s;
     }
-    .award-go:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,.15); }
+    html.can-hover .award-go:hover { background: #6ab465; }
     .award-more { font-size: 11px; opacity: .5; margin-top: 7px; }
     .award-more:empty { display: none; }
 
@@ -6625,26 +6720,30 @@
        milestone — without the rule it reads as another line of the award. */
     .award-tip {
       margin-top: 12px; padding-top: 11px;
-      border-top: 1px solid rgba(58,49,40,.12);
+      border-top: 1px solid var(--line);
     }
     .award-tip:empty { display: none; }
     .award-tip p { margin: 0 0 8px; font-size: 11.5px; opacity: .65; }
     /* Deliberately NOT `.award-go`'s green, and deliberately not `--accent`.
        The card already has exactly one loud button on it and this must not be a
-       second: same cream tile the front door's jar wears, so the two places this
-       is ever offered are recognisably the same offer. */
+       second: the same thing the front door's jar is, so the two places this is
+       ever offered are recognisably the same offer.
+       AND IT IS NOT A TILE ANY MORE, because that jar stopped being one. It
+       wore a cream face with a 2px wash line round it, which on a card that now
+       has a drawn contour of its own is a second object in the footer competing
+       with the green press above it — `.menu-under`'s argument word for word.
+       So: no fill, no line, no side, half opacity until you point at it, which
+       is `#panel-close`'s treatment for a control that is not part of the job.
+       Opacity is honest here for the reason it is honest there and nowhere else
+       on a drawn screen — there is no contour on this to fade. */
     .award-tip a {
       display: inline-flex; align-items: center; gap: 7px;
-      border-radius: var(--r); padding: 7px 13px;
-      font-size: 12.5px; font-weight: 800; color: var(--ink);
+      font-size: 11.5px; font-weight: 700; color: var(--ink);
       text-decoration: none; cursor: pointer;
-      background: rgba(58,49,40,.06);
-      box-shadow: inset 0 0 0 2px rgba(58,49,40,.12);
+      opacity: .5; transition: opacity .12s;
     }
-    .award-tip a svg { opacity: .7; }
-    html.can-hover .award-tip a:hover { background: rgba(58,49,40,.1); }
-    html.can-hover .award-tip a:hover svg { opacity: 1; }
-    .award-tip a:active { transform: translateY(2px); }
+    .award-tip a svg { display: block; flex: none; }
+    html.can-hover .award-tip a:hover { opacity: 1; }
 
     /* In with an overshoot, the same curve the tooltip springs on — it is the
        one motion in the game that is allowed to be pleased with itself. */
@@ -6678,6 +6777,40 @@
         max-height: calc(100vh - 80px);
       }
       .tt-card.big .tt-said { display: block; }
+      /* ...AND THE PICTURE STANDS BESIDE THE WORDS RATHER THAN OVER THEM.
+         The well is a 168px block, which is right down a portrait card and is
+         most of the SCREEN across a phone: a banner three lines tall grows to
+         about five hundred, lands back over the shop the beat is pointing at,
+         and the words it was making room for go under the fold with the feet.
+         So the picture is a square beside the sentence — small enough to leave
+         the copy the width of the banner, big enough to still be a picture of
+         the thing, and on the left because that is the order it is read in.
+
+         A GRID and not a float, which is not a preference: the card is a flex
+         column, and a float inside a flex container does nothing at all — the
+         obvious spelling here is silently a no-op. The band and the feet span
+         both columns; the head row is `auto`, so a card with no picture
+         collapses that column to nothing rather than leaving a gutter, which is
+         what keeps this from needing a second rule for every wordy card. */
+      .tt-card { display: grid; grid-template-columns: auto 1fr; align-content: start; }
+      .tt-head, .tt-feet { grid-column: 1 / -1; }
+      /* The bottom margin is not symmetry for its own sake. Down the portrait
+         card the well is followed by the words, which bring their own padding;
+         across the banner it is followed by the FEET, whose rule is a border on
+         top — so with `0` the picture sits about 8px off a hairline while its
+         other three sides have 13. It reads as the card having been cut off. */
+      .tt-art {
+        width: 108px; height: 108px; padding: 7px;
+        margin: 13px 0 13px 14px; align-self: start;
+      }
+      /* `min-width: 0` or a long unbroken word in the copy pushes the column
+         wider than the card and the picture off the left-hand edge. The bottom
+         padding is 4 down the tall card because the words scroll to the feet
+         there; here they end above them. */
+      .tt-said { min-width: 0; padding-bottom: 13px; }
+      /* The band's own row can grow; the body's must not, or a short card
+         stretches its picture down an empty banner. */
+      .tt-card.big .tt-said { grid-column: 1 / -1; }
       @keyframes ttpop { from { opacity: 0; transform: translateY(-8px) scale(.98); } }
 
       #log { display: none; }
@@ -7215,7 +7348,14 @@
        mute, which have no face and no side at all now (see `.menu-under`) — a
        press that moved them down 3px would be a control sinking into nothing. */
     .menu-btn:active,
-    .dbtn:active {
+    .dbtn:active,
+    /* AND THE AWARD CARD'S ONE PRESS, which had an `:active` of its own
+       restating a wash-black side at a third of its height. It is gone: the
+       card redefines `--edge`/`--press` and stores its line in `--sil`, which
+       is the whole of what it takes to join in. Its tip jar is NOT in here, for
+       the reason the front door's is not — it has no face and no side, and a
+       press that moved it down 3px would be a control sinking into nothing. */
+    .award-go:active {
       transform: translateY(var(--press));
       box-shadow: var(--sil);
     }
@@ -7250,6 +7390,7 @@
     .shape:focus, .cat:focus, .subcat:focus,
     .menu-mute:focus, .menu-support:focus, .menu-btn:focus, .dbtn:focus,
     .dopt:focus, .shop:focus, .shop-row .x:focus,
+    .award-go:focus, .award-tip a:focus,
     .corner-x:focus { outline: none; }
     .tab:focus-visible, .dtab:focus-visible, .tool:focus-visible,
     .midrow:focus-visible, .gtile:focus-visible, .gsub:focus-visible,
@@ -7270,7 +7411,10 @@
        only way to delete a shop is with a mouse. */
     .menu-mute:focus-visible, .menu-support:focus-visible,
     .menu-btn:focus-visible, .dbtn:focus-visible, .dopt:focus-visible,
-    .shop:focus-visible, .shop-row .x:focus-visible {
+    .shop:focus-visible, .shop-row .x:focus-visible,
+    /* The award's two, and the tip jar is the same argument the front door's
+       makes: it is an `<a>` that leaves the page with a live shop behind it. */
+    .award-go:focus-visible, .award-tip a:focus-visible {
       outline: 2px solid var(--ink); outline-offset: 2px;
     }
     /* INSET, because the row is full-bleed inside a scroll container: an

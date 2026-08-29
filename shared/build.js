@@ -165,8 +165,27 @@ export const FIXTURES = {
    * conveyor off a rack. The tile is still WALKABLE (`WALKABLE` in tiles.js);
    * what stops you is the same thing that stops you walking through shelving.
    */
+  /**
+   * ...AND THE WORD IS GROW RACK, WHICH IS WHAT THE BAR SAYS.
+   *
+   * `plot` is the id and "Grow Rack" is what somebody reads, the same split
+   * `lawn`/Land draws one table down. The label was `Plot` — a codebase word
+   * that appears nowhere a player can see it, because the palette draws a kind's
+   * button from its `fixtures` ROW (`client/sections.js`) and the one offered
+   * row is named Grow Rack. Nothing showed the mismatch until the goal chip
+   * started naming what a rung opens: `opensAt` reads kind labels, so the HUD
+   * promised a Plot over a Farm tab with no such button on it, which is
+   * `shared/reveal.js`'s own "a card promising a Chiller over a bar that says
+   * Freezer" arriving through the one word nobody had checked.
+   *
+   * It is the KIND's word rather than the piece's, so it has to stay true of a
+   * second rack somebody draws tomorrow — and it is folded into a sentence in a
+   * dozen places (`that would cut off 2 grow racks`, `replaces the grow rack`),
+   * which is why it is the thing on the floor and not the tab it is filed
+   * under. Do not "fix" it back to the id later.
+   */
   plot: {
-    label: 'Plot', blocks: true, ground: T.PLOT, where: 'any', rotates: true,
+    label: 'Grow Rack', blocks: true, ground: T.PLOT, where: 'any', rotates: true,
     anchor: 'useAt', ends: true,
     // Take only. `armReap` picks a ripe rack and re-sows it; nothing has ever
     // poured anything INTO a bed, and a seed is not goods on a run.
@@ -221,8 +240,18 @@ export const FIXTURES = {
    * tray, and deliberately not the bed's any-side rule. A bed has no side
    * because it is ground you stand on; a pen has a gate.
    */
+  /**
+   * ...AND THE WORD IS VAT, because the seven pens are retired.
+   *
+   * `pen` is the id and every offered row under it is a vat (docs/vats.md step
+   * 3) — Culture Tank, Myco Tower, Protein Vat — so "Pen" was a label naming
+   * seven buildings `RETIRED_PIECES` no longer offers. See the note on `plot`:
+   * the palette draws from the ROW, so the only place a kind's own word reaches
+   * a player is a sentence about a placement or the goal chip, and both were
+   * saying a word that is nowhere on the bar. The id stays `pen` for ever.
+   */
   pen: {
-    label: 'Pen', blocks: true, where: 'any', rotates: true, anchor: 'useAt',
+    label: 'Vat', blocks: true, where: 'any', rotates: true, anchor: 'useAt',
     // Take only, and it is the reason `armPorts` walks `fixturesOf` with
     // `covers` rather than comparing a tile: this is the one kind with a
     // footprint, its record is the min corner, and a loader against three of
@@ -273,7 +302,9 @@ export const FIXTURES = {
    * ask something the placement already knew.
    */
   bin: {
-    label: 'Bin', blocks: true, where: 'any', rotates: true, anchor: 'useAt',
+    // "Skip", which is what the one offered row is called and therefore the only
+    // word on the bar — see `plot`. `bin` stays the id and the kind.
+    label: 'Skip', blocks: true, where: 'any', rotates: true, anchor: 'useAt',
     // Pour only, and it is the one kind where the missing half is a rule rather
     // than an omission: a skip is the way OUT of the shop, so a loader that
     // could take goods back off one would be undoing the only thing it does.

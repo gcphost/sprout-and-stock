@@ -75,7 +75,10 @@ import { pillDrives, mouseGlyph } from './input.js';
 import { REPLIED } from '../shared/emotes.js';
 import { REACH, isWalkableTile, insideStore, tileAt } from '../shared/build.js';
 import { jobBudget, jobsTotal } from '../shared/jobs.js';
-import { artForPiece, artForGround, artForCrate } from './thumb.js';
+import {
+  artForPiece, artForGround, artForCrate, artForWorker,
+} from './thumb.js';
+import { ICONS } from './icons.js';
 import { pieceOffered, toolRevealed } from '../shared/reveal.js';
 import { T } from '../shared/tiles.js';
 
@@ -1614,63 +1617,26 @@ const STEPS = [
 ];
 
 /**
- * WAVING, WRITTEN AND NOT RUNNING — a card looking for its moment.
+ * WAVING HAS A MOMENT NOW, and it is not in this array.
  *
- * Emotes are the one press in the game nothing on screen mentions: four number
- * keys, no button, no menu, no ring. That still earns a beat, and this is the
- * beat. What it does not have is a PLACE in the tour above, which is why it is
- * parked here rather than in it — it was tried between the walk and the crate
- * and read as a card about a toy wedged into a run of cards about getting a
- * shop going. The tour up there is one errand after another and this is not an
- * errand.
+ * A card about emotes was parked here for a long time, written and not running,
+ * because it had nowhere to go: the tour is one errand after another and a beat
+ * about four number keys read as a card about a toy wedged into the middle of
+ * it. What it was waiting for was a reason, and "there is a shopper" was never
+ * one — a wave in an empty shop is a toy, and the same wave in front of somebody
+ * about to storm out is the only thing in the game that moves a visit upward for
+ * free (`answerWave`, `WAVE_MOOD`, `WAVE_CALM`).
  *
- * The moment it wants is a shopper: the FIRST customer to walk past you after
- * the shutters go up. That is when waving stops being a toy and starts being
- * the one thing in the game that moves somebody's patience upward for free
- * (`answerWave`, `WAVE_MOOD`), there is somebody standing there to wave AT, and
- * a wave that gets waved back is its own explanation. It also lands after the
- * tour has finished, which is what makes it a LESSON rather than a step — see
- * `maybeLesson` and `LESSONS`, whose triggers are questions about the snapshot
- * and where "a shopper is within a few tiles of you and the shop has been open
- * for a minute" is exactly that shape.
- *
- * Left as a step-shaped object because that is the shape it will be reused in,
- * and because the two things about it that took a while to get right should not
- * have to be worked out again: the `done` LATCH (an emote is over in a couple
- * of seconds and `done` is asked on the snapshot, so a wave made and finished
- * between two packets would leave the card asking for something you had already
- * done), and `skipWhen` (there is no keyboard on a phone and no other way in,
- * so on touch this is a card asking for a press that cannot be made).
- *
- * Nothing runs it today. It is deliberately not in `STEPS` and deliberately not
- * exported: a card in the array is a card in the tour.
+ * So it is the `wave` LESSON, down in `LESSONS`, fired by somebody being visibly
+ * cross. Two things about the parked version are worth knowing about, because
+ * both of them went with the demand and neither is a loss. It had a `done` LATCH
+ * (an emote is over in a couple of seconds and `done` is asked on the snapshot,
+ * so a wave made and finished between two packets would have left the card
+ * asking for something you had already done) — a briefing asks for nothing, so
+ * there is no predicate to race. And it had a `skipWhen` for the pill, which is
+ * on the lesson's `when` instead: a page skipped on a phone would tick the
+ * lesson off as learned and toast about a press that cannot be made.
  */
-// eslint-disable-next-line no-unused-vars
-const WAVE_STEP = {
-  id: 'wave',
-  kicker: 'Saying hello',
-  say: () => 'Press [[1]] to wave.',
-  hint: () => 'Four of them, on [[1]] to [[4]] — a wave, a cheer, a dance and a '
-    + 'point. Wave at somebody in the shop and they wave back, and they leave a '
-    + 'bit happier than they came in.',
-  // The strip is a row of buttons nobody has ever seen, so the card shows one of
-  // them — with the `1` in its corner, which is where the number on the card
-  // comes from. Holding [[V]] puts the whole row on screen and is deliberately
-  // not what the card asks for: the numbers work with it down, so a card that
-  // taught the strip would be teaching a press you do not need.
-  at: (t) => (t.ui.emotesUp ? { el: '#emotes', pad: 8 } : { mock: '.em-btn' }),
-  // Build the strip without showing it. `showEmotes` parses four SVGs on the
-  // first press and only ever runs from the key, so before anybody has held V
-  // there is no button in the document for the card to take its picture of —
-  // and it would open with an empty well on the one beat whose whole problem is
-  // that nothing on screen says this exists. Both calls are in the same frame,
-  // so nothing is drawn in between and the strip is as down as it was.
-  arm(t) { t.ui.showEmotes?.(true); t.ui.showEmotes?.(false); },
-  nudge(t) { if (meOf(t)?.emote) this.waved = true; },
-  start() { this.waved = false; },
-  done(t) { return !!this.waved || !!meOf(t)?.emote; },
-  skipWhen: () => pillDrives(),
-};
 
 /**
  * ...AND THE SAME SHOP FROM THE OTHER SIDE OF THE DOOR.
@@ -1703,10 +1669,13 @@ const GUEST_STEPS = [
   {
     id: 'g-hello',
     kicker: 'Somebody else\'s shop',
+    // The same shopfront the host's welcome card carries — a guest's first
+    // card is about the same building from the other side of the door, and a
+    // read-only card with an empty well is three lines over a hole.
+    art: helloArt,
     say: 'You are in. Same shop, same till — you are the second shopkeeper.',
-    hint: 'Everything is shared, money included: you can order stock, take '
-      + 'somebody on and build, and it all comes out of the same drawer. This '
-      + 'shows you the hands-on half. Skip is bottom right, on every card.',
+    hint: 'Everything is shared, money included. This shows you the hands-on '
+      + 'half. Skip is bottom right, on every card.',
     big: true,
   },
 
@@ -1767,6 +1736,9 @@ const GUEST_STEPS = [
       'That bar lists everything this thing can do. Same for every crate, shelf '
         + 'and machine in the shop.',
     ),
+    // The picture follows the target, because this card's target is whichever
+    // of the two the shop happens to have — see the note on `say`.
+    art: (t) => (nearestCrate(t) ? artForCrate() : artOfUnit(t, anyShelf(t))),
     at: (t) => {
       const c = nearestCrate(t);
       return c ? { world: c, y: CRATE_Y } : atUnit(anyShelf(t), SHELF_Y);
@@ -1792,6 +1764,10 @@ const GUEST_STEPS = [
       'Stock it pours in everything that fits. Arrows point at every shelf that '
         + 'will take what you are holding.',
     ),
+    art: (t) => artOfUnit(t, anyShelf(t)),
+    // The key to the two arrows, the same one the host's `pour` beat carries —
+    // a guest is shelving into the same shop and reads the same marks.
+    legend: arrowArt,
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     // The latch the `crate` beat needs for the same reason: empty hands are
     // where this started as well as where it ends, so the beat has to have SEEN
@@ -1809,13 +1785,12 @@ const GUEST_STEPS = [
     kicker: 'Shelves',
     say: 'Press and hold on a shelf to open its menu.',
     hint: () => perInput(
-      'A click uses a thing. Holding the button opens what it can do — the '
-        + 'price, what it is kept for, what is on it. Every shelf, crate, '
-        + 'machine and doorway in the shop has one.',
-      'A tap picks a thing out and lists what it can do along the bottom. '
-        + 'Holding opens the whole menu — the price, what it is kept for, what '
-        + 'is on it. Every shelf, crate, machine and doorway has one.',
+      'A click uses a thing. Holding opens what it can do — the price, what it '
+        + 'is kept for, what is on it. Every shelf, crate and machine has one.',
+      'A tap lists what a thing can do along the bottom. Holding opens the '
+        + 'whole menu. Every shelf, crate and machine has one.',
     ),
+    art: (t) => artOfUnit(t, anyShelf(t)),
     at: (t) => ({ world: anyShelf(t), y: SHELF_Y }),
     done(t) { return t.ui.openPanel === 'fixture'; },
   },
@@ -1823,11 +1798,10 @@ const GUEST_STEPS = [
   {
     id: 'g-off',
     kicker: 'That is the lot',
+    art: helloArt,
     say: 'That is the hands. The rest of the shop works the same for you.',
-    hint: 'Crew, prices, ordering and building are all open to you — worth a '
-      + 'word with whoever invited you before you spend the takings. If they '
-      + 'leave, the shop goes with them, and whatever you were holding comes '
-      + 'back to you next time you join.',
+    hint: 'Crew, prices, ordering and building are yours too. If your host '
+      + 'leaves, the shop goes with them.',
     big: true,
   },
 ];
@@ -1862,6 +1836,85 @@ const breakPad = (t) => ((layoutOf(t)?.break ?? []).length > 0);
 const ENERGY_LOW = 0.25;
 const beltsOf = (t) => layoutOf(t)?.belts ?? [];
 const armsOf = (t) => layoutOf(t)?.arms ?? [];
+
+/**
+ * How many people are queueing — walkers included.
+ *
+ * `TO_TILL` as well as `QUEUE`, and it is the same correction `lining` had to
+ * make on the server: `leaveShop` re-paths the whole line into `TO_TILL` after
+ * every sale, so a count of `QUEUE` alone answers "nobody is waiting" for the
+ * length of every shuffle. Read once a second by a card that is asking whether
+ * there is a LINE, that would flicker between two and none while a line of four
+ * was standing there.
+ */
+const lining = (t) => (t.state?.customers ?? [])
+  .filter((c) => c.state === 'QUEUE' || c.state === 'TO_TILL').length;
+
+/**
+ * A LINE, rather than somebody paying.
+ *
+ * One person at a till is the shop working; the card would then open on the
+ * first sale of the first morning, which is the one moment nothing has gone
+ * wrong yet. Two is the smallest number that is a queue, and it is the word the
+ * player would use for what they are looking at.
+ */
+const QUEUE_LESSON_AT = 2;
+
+/**
+ * The till to point at — and it is pointed AT, in the shop, not drawn on the
+ * card.
+ *
+ * The first cut showed a portrait of a checkout in the picture well, which is
+ * the right answer for the Shop briefing (a page about what a till IS, opened
+ * from the `?`, very possibly about a till you have not built) and is the wrong
+ * answer here by the width of the shop. This card fires because there is a line
+ * standing at a real counter *right now*, and "go and stand at the till" from a
+ * picture of a generic till is an instruction with no address on it. The mark on
+ * the tile is the address.
+ *
+ * Off the layout rather than the snapshot, for `shelvesOf`'s reason: a checkout
+ * record says what a till is doing and never where it is. `atUnit` cuts the
+ * outline from the unit's own meshes, so it cannot ring the thing standing one
+ * square nearer the camera.
+ */
+const anyTill = (t) => (layoutOf(t)?.checkouts ?? [])[0] ?? null;
+
+/**
+ * The one you would hire to work a till, and a picture of them.
+ *
+ * A CLERK, by name, because that is the whole answer. The card used to say
+ * "pick a robot, then add points to Serve", which is three presses deep in a
+ * panel nobody has opened, describing a mechanic (a shift is a ratio) at
+ * somebody whose shop has a queue in it right now. There is a robot in the
+ * catalogue whose whole job is standing at a till and it costs one press to
+ * take on. Name it.
+ *
+ * By `serve` in its authored jobs rather than by the id `clerk`, or this is
+ * `if (item.id === 'tomato')` wearing a hire — the cheapest kind that serves is
+ * the right answer whatever anybody authors next. `artForWorker` wants the
+ * catalogue row, which is the same row the crew strip draws its tile from.
+ */
+function clerkKind(t) {
+  const rows = (t.ui.catalog?.workers ?? [])
+    .filter((w) => (w.jobs ?? []).some((j) => j.job === 'serve' && j.weight > 0));
+  return rows.slice().sort((a, b) => (a.wage ?? 1e9) - (b.wage ?? 1e9))[0] ?? null;
+}
+
+/**
+ * ...and how cross somebody has to be before it is worth saying anything.
+ *
+ * `anger` rides on the wire already, derived rather than stored:
+ * `(MOOD_ANNOYED - mood) / (MOOD_ANNOYED - MOOD_FUMING)`, so 0 is somebody who
+ * has merely stopped being delighted and 1 is somebody about to walk out. Half
+ * way is the first point the shopper is *visibly* cross — `client/render/face.js`
+ * has been scowling for a while by then — which is what makes it a state you
+ * can see rather than a number the tutor knows and the player does not.
+ *
+ * Deliberately short of 1: a wave holds somebody where they are rather than
+ * lifting them (`WAVE_CALM`), so a card that waited for fuming would arrive
+ * with nothing left to save.
+ */
+const ANGER_HIGH = 0.5;
 
 /**
  * A picture of a piece, drawn from the piece's own catalog row.
@@ -1930,6 +1983,26 @@ const arrowRow = (open, say) => `
     </svg>
     <span>${esc(say)}</span>
   </div>`;
+
+/**
+ * A NUMBERED-FEELING LIST WITH A GLYPH ON EVERY LINE, in the same slot the two
+ * green arrows use.
+ *
+ * A card that has to say "do this, then this, then this" was a paragraph of
+ * commas — *"press H for your Crew, then take on a Clerk"* — and a paragraph is
+ * the one shape a list must not be: you cannot see how many steps there are,
+ * which one you are on, or where one ends and the next starts. Three short
+ * lines with the game's own icon down the left is read at a glance, and the icon
+ * is the thing you then go and look for on screen.
+ *
+ * `ICONS` rather than anything drawn here, for `mockOf`'s reason said about a
+ * glyph: the rail wears these exact marks, so the picture beside "open your
+ * Crew" IS the button, and a set somebody regenerates tomorrow comes with it.
+ * The sentence goes through `keyed`, so a step whose address is a key gets a key
+ * cap in the row.
+ */
+const iconRow = (svg, say) => `
+  <div class="tt-key-row">${svg}<span>${keyed(say)}</span></div>`;
 
 /* A declaration, for the reason `viewHint` gives: the step table above names it. */
 function arrowArt() {
@@ -2189,11 +2262,23 @@ const LESSONS = [
       {
         id: 'c-flat',
         kicker: 'Running low',
-        say: 'One of your crew is nearly out of charge.',
-        hint: 'They do not stop when they run down — they keep working, and '
-          + 'everything they do takes about twice as long. A shop full of flat '
-          + 'robots looks busy and gets nothing done, and nothing on screen '
-          + 'tells you that is what you are looking at.',
+        // The robot it is about, drawn from their own row — the flattest one in
+        // the shop, so the picture is the hire you would go and look at.
+        // `p.hire` and `p.tier` off the body, never `id.replace(/^staff-/)` —
+        // the snapshot carries that key for exactly this reason, and rebuilding
+        // it from the id makes an id format a protocol (see `snapshot`).
+        art: (t) => {
+          const low = (t.state?.players ?? [])
+            .filter((p) => p.staff && Number.isFinite(p.energy))
+            .sort((a, b) => a.energy - b.energy)[0];
+          const who = (t.state?.roster ?? []).find((r) => r.id === low?.hire)
+            ?? (t.state?.roster ?? [])[0];
+          const kind = (t.ui.catalog?.workers ?? []).find((w) => w.id === who?.kind);
+          return kind ? artForWorker(kind, low?.tier ?? who?.tier ?? 1) : null;
+        },
+        say: 'One of your robots is nearly out of charge.',
+        hint: 'They never stop — they just do everything at half speed, and '
+          + 'nothing on screen tells you that is what you are looking at.',
       },
       {
         id: 'c-pad',
@@ -2201,12 +2286,202 @@ const LESSONS = [
         // The brush's own swatch, exactly as a page about a fixture shows the
         // fixture: `artOf` forks on `surface` for precisely this row.
         art: (t) => artOf(t, 'break'),
-        say: 'Paint one out of the Logistics tab. They charge on it.',
-        hint: 'Drag out a bit of floor, anywhere they can walk to — indoors or '
-          + 'out the back. One square holds one robot, so paint a few squares if '
-          + 'you have a few. They come back fuller off a pad than they do resting '
-          + 'against a shelf, and they take themselves off to it when the shop is '
-          + 'quiet rather than waiting until they are flat.',
+        say: 'Paint a charging pad. They plug in there.',
+        hint: 'One square charges one robot, so paint a few. They take '
+          + 'themselves off to it when the shop is quiet.',
+        // The three presses, one to a line. The tab is named because a brush
+        // is not where anybody looks for a floor for the crew.
+        legend: () => iconRow(ICONS.build, perInput('Press [[G]] twice for the '
+          + 'build bar', 'Press the hammer twice for the build bar'))
+          + iconRow(ICONS.runner, 'Open the Logistics tab')
+          + iconRow(ICONS.floor, 'Drag out a patch of floor anywhere they can walk'),
+      },
+    ],
+  },
+
+  /**
+   * THE FIRST LINE AT THE TILL.
+   *
+   * The tour builds a shelf, fills it and opens the shutters, and then stops —
+   * so the first thing that happens in the shop after the tutorial ends is a
+   * queue, and not one word anywhere has said what to do about one.
+   *
+   * WHICH IS THE ONLY THING THIS CARD IS ALLOWED TO SAY, and the first cut got
+   * it wrong in the way this file's own rules already warn about. It explained
+   * what a till is: leave clear squares beside it to queue in, cash piles up on
+   * the counter, a dearer one is faster. Every word true, every word useless —
+   * a line has just formed, the question in the player's head is "what do I
+   * press", and none of that answers it. Worse, "leave clear squares beside it"
+   * is advice about where to BUILD a till, read by somebody who cannot build
+   * anything at this moment and would not want to if they could.
+   *
+   * So: one press a card, and the press comes first. Go and stand at it. If you
+   * are sick of standing at it, put a robot on it. Everything else about tills —
+   * the queue room, the ladder, the money on the counter — is the Shop briefing's
+   * `s-till` page, which is where you go to READ about a till rather than to get
+   * a line served.
+   *
+   * The failure this catches is the quietest in the game. A till with nobody on
+   * it is a till: it draws the same, it logs nothing, and the line simply gets
+   * longer until people storm out at −0.03 reputation each. Thirty-four of those
+   * is the whole range of the bar (see CLAUDE.md on the idle room), so a shop
+   * can be turned on by the town inside one afternoon with nothing on screen
+   * ever having said why. The ledger blames "Lost patience", which is exactly
+   * what happened and says nothing about nobody having been there.
+   *
+   * A `when` and not an `owns`: standing a till down is not the moment — you
+   * start with one — and a queue is. `QUEUE_LESSON_AT` is what makes it a state
+   * rather than a level: one person at a counter is the shop working, and a
+   * line is the first time the arrangement is under any strain at all.
+   *
+   * No `group`, and the toast says nothing about the `?` — `charge`'s argument
+   * exactly. The other three lessons are briefings about a build TAB and that
+   * is what the button brings back; this one is about a situation, and a `?`
+   * that reopened it would be a help button answering a question the shop is no
+   * longer asking. The till's own page in the Shop briefing is the thing you
+   * can go back and read.
+   */
+  {
+    id: 'queue',
+    when: (t) => lining(t) >= QUEUE_LESSON_AT,
+    toast: 'Somebody has to be on the till',
+    steps: [
+      {
+        // BOTH: the real till gets the frame in the shop, and the card shows
+        // what it is looking for. Dropping the picture because the thing is
+        // marked was tried and is wrong — the well went empty, and a card with
+        // a hole where its picture goes reads as broken. `pour` in the tour
+        // makes the same pair for the same reason.
+        id: 'q-till',
+        kicker: 'You have a queue',
+        kind: 'checkout',
+        at: (t) => atUnit(anyTill(t), SHELF_Y),
+        say: 'Go and stand at the marked till. You serve them yourself.',
+        hint: 'Nobody there, nobody served. They get cross and walk out.',
+      },
+
+      {
+        /**
+         * ...and the other answer, which is a press rather than a purchase.
+         *
+         * A picture of the CONTROL and not of a robot, for `mockOf`'s own
+         * reason: "open the crew strip" is an instruction to press a button
+         * somewhere on the HUD, and a seven-year-old reading it is looking for
+         * a strip. The `{ mock }`-only shape of `at` is exactly this case — a
+         * card with a picture of a button and nothing to draw a frame round,
+         * because a lesson marks nothing in the shop and asks for nothing.
+         */
+        id: 'q-clerk',
+        kicker: 'Hire a Clerk',
+        // The robot you are being told to hire, drawn from the same row the
+        // crew strip draws its tile from — see `clerkKind`.
+        art: (t) => {
+          const k = clerkKind(t);
+          return k ? artForWorker(k) : null;
+        },
+        say: (t) => `Standing there all day is no fun. Hire a ${clerkKind(t)?.name ?? 'Clerk'}.`,
+        hint: 'They stand at the till all day so you do not have to.',
+        // The three presses, one to a line — see `iconRow`. The second tap is
+        // not a flourish: a hire refunds nothing, so the tile arms itself and
+        // says "Tap to hire" before it spends anything (`staffGroups`), and a
+        // card that stopped at "tap the Clerk" would read as the press having
+        // failed.
+        legend: (t) => {
+          const who = clerkKind(t)?.name ?? 'Clerk';
+          return iconRow(ICONS.staff, perInput('Press [[H]] for your Crew',
+            'Press Crew on the right'))
+            + iconRow(ICONS.hire, 'Open the + tab')
+            + iconRow(ICONS.clerk, perInput(
+              `Click the ${who}, then click again to hire`,
+              `Tap the ${who}, then tap again to hire`,
+            ));
+        },
+      },
+
+      /**
+       * ...and where it ends, which is the half that makes the other two a
+       * LADDER rather than two chores.
+       *
+       * The portrait belongs on this page and not on the first one: this is the
+       * only page about a till you have not got yet, so the picture is doing
+       * the job it does in every other briefing — showing you the thing that is
+       * coming.
+       */
+      {
+        id: 'q-auto',
+        kicker: 'Then nobody',
+        kind: 'checkout',
+        say: 'The best till serves people all by itself.',
+        // "Press and hold" is the one gesture that is the same sentence in both
+        // grammars — see the tour's `menu` beat — so this needs no `perInput`.
+        hint: 'Press and hold on the till to open its menu, then press Upgrade. '
+          + 'Every one is faster, and the last needs nobody stood there.',
+      },
+    ],
+  },
+
+  /**
+   * SOMEBODY IS CROSS, AND THERE IS ONE THING YOU CAN DO ABOUT IT NOW.
+   *
+   * This card was written a long time ago and parked, as `WAVE_STEP`, because
+   * it had no moment: emotes are the one press in the game nothing on screen
+   * mentions — four number keys, no button, no menu, no ring — and a beat about
+   * them wedged into the tour read as a card about a toy in a run of cards about
+   * getting a shop going. The moment it was waiting for is this one. A wave is a
+   * toy in an empty shop and it is a tool in front of somebody who is about to
+   * walk out.
+   *
+   * `ANGER_HIGH` rather than "there is a shopper", which is the level trap this
+   * file is written around: every shop that has ever traded has a shopper in it.
+   * Being cross is a state, it is one you can see on the face
+   * (`client/render/face.js`), and it is one with a consequence — a storm-out is
+   * −0.03 on the slowest number in the game.
+   *
+   * It opens BEHIND the award card rather than over it, and that costs nothing
+   * to arrange: `maybeLesson` already refuses while `ui.award.open`, and the
+   * settle restarts once it is dismissed. A milestone stops the world and takes
+   * the screen; a second card behind it is one nobody reads.
+   *
+   * ⚠️ The whole lesson is off where the pill drives. There is no keyboard, the
+   * strip only opens from [[V]], and a card naming a press that cannot be made
+   * is worse than no card — which is `perInput`'s own argument, said about a
+   * page rather than about a sentence. It is on the LESSON rather than as a
+   * `skipWhen` on the page, or a shop on a phone would tick the lesson off as
+   * learned and toast about it.
+   */
+  {
+    id: 'wave',
+    when: (t) => !pillDrives()
+      && (t.state?.customers ?? []).some((c) => (c.anger ?? 0) >= ANGER_HIGH),
+    // Plain words and no key caps: a toast is text rather than a card, so it
+    // never goes through `keyed` and `[[1]]` would land on screen as brackets.
+    toast: 'Wave with 1 to 4 to calm people down',
+    steps: [
+      {
+        id: 'w-wave',
+        kicker: 'Saying hello',
+        /**
+         * The strip is a row of buttons nobody has ever seen, so the card shows
+         * one of them — with the `1` in its corner, which is where the number in
+         * the sentence comes from. Holding [[V]] puts the whole row on screen and
+         * is deliberately not what the card leads with: the numbers work with it
+         * down, so leading on the strip would teach a press you do not need.
+         */
+        at: () => ({ mock: '.em-btn' }),
+        /**
+         * Build the strip without showing it. `showEmotes` parses four SVGs on
+         * the first press and only ever runs from the key, so before anybody has
+         * held V there is no button in the document for the card to take its
+         * picture of — and it would open with an empty well on the one card whose
+         * whole problem is that nothing on screen says this exists. Both calls in
+         * the same frame, so nothing is drawn in between and the strip is as down
+         * as it was.
+         */
+        arm(t) { t.ui.showEmotes?.(true); t.ui.showEmotes?.(false); },
+        say: 'Somebody is getting cross. Stand near them and press [[1]].',
+        hint: 'They wave back and stop getting crosser for a bit. Once each.'
+          + '\n\n'
+          + 'It buys you time — now go and fix the queue.',
       },
     ],
   },
@@ -2244,22 +2519,18 @@ const LESSONS = [
         kicker: 'The shelf',
         kind: 'shelf',
         piece: 'shelf',
-        say: 'A shelf is what people take things off. One shelf holds a few different things at once, not just one.',
-        hint: 'Hold on a shelf to open it up. In there you can keep a space on it '
-          + 'for one thing — your robots then fill it with that and nothing else, '
-          + 'and the shop buys more when it runs low. It is also where you say what '
-          + 'to charge. People take things off the side it faces, so leave them room '
-          + 'to stand there. A dearer shelf holds more, and more kinds at once.',
+        say: 'A shelf holds a few different things at once, not just one.',
+        hint: 'Hold on it to set the price, or keep a space for one thing so the '
+          + 'shop buys more of it. Dearer shelves hold more.',
       },
 
       {
         id: 's-freezer',
         kicker: 'The chiller',
         kind: 'freezer',
-        say: 'Frozen food goes off fast on an ordinary shelf. A chiller is the only place it keeps.',
-        hint: 'Things last about four times as long in one. It takes frozen food and '
-          + 'nothing else — a loaf will not go in — so buy the chiller before you '
-          + 'order anything frozen, or the delivery sits in its box with nowhere to go.',
+        say: 'Frozen food only keeps in a chiller. It lasts four times as long.',
+        hint: 'Nothing else goes in one, so buy the chiller BEFORE you order '
+          + 'anything frozen.',
       },
 
       {
@@ -2272,22 +2543,18 @@ const LESSONS = [
          * roast chicken in a chiller used to come back as "where it wants to
          * be", and it still LOOKS like a sensible place to have put it.
          */
-        say: 'A hot counter is the same idea the other way round. Hot food only.',
-        hint: 'Roast chicken and pies want keeping warm, and a chiller is no better '
-          + 'for them than an ordinary shelf — it has to be a hot counter or it goes '
-          + 'off just the same. Anything that is not hot food will not go in one.',
+        say: 'Roast chicken and pies keep warm. Hot food only.',
+        hint: 'A chiller is no better for them than a plain shelf. Wrong one is '
+          + 'as bad as none.',
       },
 
       {
         id: 's-till',
         kicker: 'The till',
         kind: 'checkout',
-        say: 'A till is where people pay. Somebody has to be behind it — one of your robots, or you.',
-        hint: 'Leave a clear line of squares beside it for people to queue in, or '
-          + 'they have nowhere to wait. The money piles up on the counter and you '
-          + 'pick it up by walking over it. A dearer till serves people faster, and '
-          + 'the best one lets people pay for themselves — slower, but with nobody '
-          + 'stood there at all, so it still empties a queue on a busy afternoon.',
+        say: 'A till is where people pay. Somebody has to be behind it.',
+        hint: 'Leave a clear line of squares beside it to queue in. Cash piles on '
+          + 'the counter — walk over it to grab it.',
       },
 
       {
@@ -2295,11 +2562,8 @@ const LESSONS = [
         kicker: 'The skip',
         kind: 'bin',
         say: 'A skip is somewhere to throw things away.',
-        hint: 'Food that nobody buys goes off in the end, and with a skip in the shop '
-          + 'your robots carry the rotten stuff out to it instead of it just going. '
-          + 'They will never decide your good food is rubbish — that is your call, and '
-          + 'you can carry anything over and drop it in yourself. Once it is in the '
-          + 'skip it is gone, so nothing comes back out onto a shelf.',
+        hint: 'Your robots carry rotten food out to it. They never bin your good '
+          + 'stuff — that is your call. Once it is in, it is gone.',
       },
     ],
   },
@@ -2318,16 +2582,12 @@ const LESSONS = [
         id: 'l-belt',
         kicker: 'The conveyor',
         kind: 'belt',
-        say: 'A conveyor is a moving floor. Put a box on it and it carries the box along for you.',
+        say: 'A conveyor is a moving floor. It carries boxes along for you.',
         hint: () => perInput(
-          'It goes the way it points, and you drag to lay a whole line in one go — '
-            + 'every piece turns to follow you, so corners are free. To put a box on, '
-            + 'carry one over, stand next to the line and RIGHT-click it. '
-            + 'You and your robots walk straight over the top of them.',
-          'It goes the way it points, and you drag to lay a whole line in one go — '
-            + 'every piece turns to follow you, so corners are free. To put a box on, '
-            + 'carry one over, stand next to the line and press "Set the crate down '
-            + 'here". You and your robots walk straight over the top of them.',
+          'Drag to lay a whole line at once — corners are free. Carry a box over '
+            + 'and RIGHT-click the line to put it on.',
+          'Drag to lay a whole line at once — corners are free. Carry a box over, '
+            + 'then press "Set the crate down here".',
         ),
       },
 
@@ -2343,13 +2603,9 @@ const LESSONS = [
          * looks exactly like a working delivery line and quietly carries every
          * box to its own last cell and stops.
          */
-        say: 'A conveyor drives straight past your shelves. It never puts anything on one. A loader does.',
-        hint: 'A loader is a conveyor piece with hands. Put one in the middle of '
-          + 'your line with a shelf right next to it, and it lifts boxes off the '
-          + 'line and fills the shelf. It can reach all four of its sides, so one '
-          + 'loader can feed two aisles at once. If the boxes ever stop moving, the '
-          + 'shelf at the end is full — they queue up behind each other rather than '
-          + 'falling off, and start again the moment there is room.',
+        say: 'A conveyor drives straight past your shelves. A loader fills them.',
+        hint: 'Put one in your line with a shelf beside it. It reaches all four '
+          + 'sides, so one can feed two aisles.',
       },
 
       {
@@ -2357,33 +2613,31 @@ const LESSONS = [
         kicker: 'The sorter',
         kind: 'sorter',
         say: 'A sorter is a crossroads for boxes.',
-        hint: 'When a box reaches it, it looks down each way out and sends the box to '
-          + 'a line that can actually put it somewhere. Bread ends up at the bread '
-          + 'shelf and ice cream ends up at the freezer, and you never have to tell it '
-          + 'which is which. Press R to point the side branch where you want it.',
+        hint: () => 'Bread goes to the bread shelf, ice cream to the freezer. You '
+          + 'never tell it which is which. '
+          // `perInput`, because there is no [[R]] on a phone — the round button
+          // beside the bar is the turn there (`#rotbtn`, `syncRotate`), and a
+          // card naming a key nobody has is the failure that helper exists for.
+          + perInput('[[R]] points the side branch.',
+            'The round turn button points the side branch.'),
       },
 
       {
         id: 'l-packer',
         kicker: 'The packer',
         kind: 'packer',
-        say: 'A packer is a box that stands still and fills itself from the boxes going past.',
-        hint: 'Deliveries turn up as half-empty boxes, and a robot carrying a '
-          + 'half-empty box walks just as far as one carrying a full box — so three '
-          + 'half-boxes is three trips across the shop. A packer takes what it wants '
-          + 'out of each box that passes, lets the rest carry on, and lets go once it '
-          + 'is full. One full box, one trip.',
+        say: 'A packer fills itself from the boxes going past.',
+        hint: 'Three half-empty boxes is three trips across the shop. This makes '
+          + 'them one full one.',
       },
 
       {
         id: 'l-under',
         kicker: 'The tunnel',
         kind: 'under',
-        say: 'A tunnel has two ends. Boxes go in one and come out the other, underneath everything in between.',
-        hint: 'Put the two ends up to four squares apart, both facing the way the '
-          + 'boxes travel. The squares in the middle stay yours — walk on them, build '
-          + 'on them, or run another line straight over the top. It is how you get a '
-          + 'line under an aisle, through a wall, or past its own way back.',
+        say: 'Boxes go in one end and come out the other, underneath everything.',
+        hint: 'Put the ends up to four squares apart, both facing the way boxes '
+          + 'travel. The middle stays yours to build on.',
       },
 
       {
@@ -2391,12 +2645,11 @@ const LESSONS = [
         kicker: 'The lift',
         kind: 'lift',
         say: 'A lift joins the floor to the ceiling.',
-        hint: 'You can run conveyors along the ceiling, high above everything, where '
-          + 'they take up no room at all — the shelves and the floor underneath carry '
-          + 'on exactly as they were. A lift is the piece that joins the two. Whatever '
-          + 'feeds it decides which way it goes: a box that arrives along the floor '
-          + 'goes up, and one that arrives from the ceiling comes down. Press R to '
-          + 'pick which side it comes out.',
+        hint: () => 'Conveyors can run along the ceiling and take up no room at all. '
+          + 'A box off the floor goes up; one off the ceiling comes down. '
+          // See the sorter page: there is no [[R]] on a phone.
+          + perInput('Press [[R]] to pick which side it comes out.',
+            'Use the round turn button by the bar to pick which side it comes out.'),
       },
     ],
   },
@@ -2429,36 +2682,27 @@ const LESSONS = [
         id: 'f-rack',
         kicker: 'The grow rack',
         kind: 'plot',
-        say: 'A grow rack grows one crop at a time. You plant it, it grows on its own, then you pick it.',
-        hint: 'Hold on the rack to open it and pick a seed — each one costs a little '
-          + 'and says how many minutes it takes. If the tray is rough you have to turn '
-          + 'it over first, and the rack offers you that instead. When it is ready, '
-          + 'click it to pick. Your hands hold six things and the rest goes '
-          + 'into a box at your feet, so nothing is ever wasted. A farmhand will do '
-          + 'all three of those jobs for you. Racks work indoors and out.',
+        say: 'Plant a rack, it grows on its own, then you pick it.',
+        hint: 'Hold on it to buy a seed. Anything your hands cannot hold goes into '
+          + 'a box at your feet. A farmhand does all of it for you.',
       },
 
       {
         id: 'f-pen',
         kicker: 'The vat',
         kind: 'pen',
-        say: 'A vat makes food by itself. You put nothing in — you only take out.',
-        hint: 'It fills on its own clock, whether you are watching or not. When it '
-          + 'is full it STOPS, so it is worth emptying often: a vat left full all '
-          + 'night made nothing all night. Walk over and click it to collect. Your '
-          + 'robots will empty it too, and so will a loader sat next to it.',
+        say: 'A vat makes food by itself. You only ever take out.',
+        hint: 'When it is full it STOPS, so empty it often — a vat left full all '
+          + 'night made nothing all night.',
       },
 
       {
         id: 'f-deck',
         kicker: 'The culture floor',
         kind: 'paddock',
-        say: 'Paint culture floor around a vat and it runs more lines at once.',
-        hint: 'Every four squares you paint is one more line. Vats standing on the '
-          + 'same floor share it, so two vats on a small floor get half each — give '
-          + 'them their own patches instead. And a vat can only run so many lines '
-          + 'however much you paint, so a big floor under a small vat is wasted: buy '
-          + 'the better vat first.',
+        say: 'Paint floor round a vat and it makes more at once.',
+        hint: 'Four squares is one more batch. Two vats on one patch share it, so '
+          + 'give each its own. A better vat beats more floor.',
       },
 
       /**
@@ -2471,12 +2715,9 @@ const LESSONS = [
         id: 'f-sell',
         kicker: 'What you grow',
         kind: 'shelf',
-        say: 'What you grow is ordinary stock. Put it on a shelf and people buy it.',
-        hint: 'It costs you a seed instead of a whole delivery, so growing a thing is '
-          + 'cheaper than buying it in. Some of it is worth more cooked or mixed — an '
-          + 'appliance turns crops into something you can sell for more. And your '
-          + 'robots stop picking if there is nowhere left to put anything, so keep a '
-          + 'shelf or some space at the drop-off free for the farm.',
+        say: 'What you grow is ordinary stock. Shelve it and people buy it.',
+        hint: 'A seed is cheaper than a delivery. Keep a shelf or some drop-off '
+          + 'space free, or your robots stop picking.',
       },
     ],
   },
