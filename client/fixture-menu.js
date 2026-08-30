@@ -12,7 +12,7 @@
 
 import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, anchorTile, holdsGoods, shelfKind, sameFixture, sorterRoute, mergeRoute, conveyorFeeders, mergeStraight, CONVEYOR_KINDS } from '../shared/build.js';
 import { pieceFor } from '../shared/pieces.js';
-import { homeKind } from '../shared/tags.js';
+import { homeKind, departmentsOf, inDepartment, tagLabel } from '../shared/tags.js';
 import { LOT_KINDS, lotStacks, lotHas, lotLabel } from '../shared/lot.js';
 import { tierProgress, variantsOf } from '../shared/model.js';
 import { ICONS } from './icons.js';
@@ -302,7 +302,17 @@ export function showFixture(ui, f) {
     // shortlist did not have it. No `find`, and none needed — `QUICK_ROWS`
     // keeps it under the line the search box appears at, on purpose.
     group('Quick pick', ICONS.quick, quickRows(ui, items), null, 'Quick');
-    group(live?.assigned?.length ? 'Kept for' : 'Keep it for', ICONS.crate, items, 'items', 'Stock');
+    // …and the heading SAYS what the piece is for when the piece says so.
+    // Without it a Bakery is a list of nine rows where a shelf is a list of a
+    // hundred, with nothing anywhere to explain the difference — which reads as
+    // the menu having failed to load rather than as a rule. It is the one place
+    // the lock can be said at all: the refusal only fires on a press that can no
+    // longer be made, because the rows it would refuse are the rows that are
+    // gone. Empty on every piece nobody has tagged, which is every piece today.
+    const only = departmentsOf(pieceFor(ui.catalog.fixtures ?? [], { ...f, kind: shelfKind(kind) }))
+      .map(tagLabel);
+    const said = only.length ? ` (${only.join(' and ')})` : '';
+    group((live?.assigned?.length ? 'Kept for' : 'Keep it for') + said, ICONS.crate, items, 'items', 'Stock');
   }
 
   // What an appliance is set to make. The same argument the shelf above makes:
@@ -851,6 +861,14 @@ function styleRows(ui, f, { many = [f] } = {}) {
  */
 function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
   const home = shelfKind(f.kind);
+  // …and what this PIECE is for, which is the same argument as the paragraph
+  // above one axis over: a Bakery ticked for fish is a row `assignShelf`
+  // refuses, so it is a row that can only ever error. Resolved here rather than
+  // put on the wire because the client already holds the catalogue and already
+  // resolves this piece for its tiers and its variants two functions down — a
+  // field per shelf per frame to say a thing that never changes is bytes about
+  // nothing, which is `verify:emote`'s argument about `emote`.
+  const dept = pieceFor(ui.catalog.fixtures ?? [], { ...f, kind: home });
   // How many units this list is deciding for. Everything else below is read off
   // the unit the menu is named after — how many boards it has, what is standing
   // on them, what a board of this would hold — and that stays true of a
@@ -911,7 +929,7 @@ function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
   const coming = comingByItem(ui);
 
   const rows = (ui.catalog.items ?? [])
-    .filter((it) => homeKind(it) === home)
+    .filter((it) => homeKind(it) === home && inDepartment(dept, it))
     .map((it) => {
       // Ticked when they ALL keep a board for it. The press then says which way
       // it means explicitly, so a selection where four of six already keep it
@@ -1928,6 +1946,48 @@ function selectionDetail(ui, many) {
 function fixtureDetail(ui, f, live) {
   const line = (label, value) => `<div class="fx-line"><span>${label}</span><b>${value}</b></div>`;
 
+  /**
+   * GOODS, DRAWN — the same trade `paintLogLine` makes about a sentence.
+   *
+   * `artForModel` off the catalog row, the same call the supplier's rows, the
+   * board tip and the log's own chips make — a glyph here would be the
+   * five-floors-one-grey-icon bug again, since goods differ by their art and by
+   * nothing else. The name goes on `title`, so the one thing a picture cannot
+   * say is a hover away, and an item with no art falls back to its name in the
+   * chip rather than leaving a number standing next to nothing.
+   *
+   * Icon FIRST and the number after it, which is the log's chip the other way
+   * round on purpose: `.lg-good` lives inside a sentence, so its count shares
+   * the words' baseline and only the picture is centred. These are a row of
+   * their own, so they read left to right as "this thing, this many".
+   */
+  const chip = (id, text, state = '') => {
+    const item = ui.itemById?.(id) ?? null;
+    const art = item?.model ? artForModel(item.model) : null;
+    const name = ui.itemName(id);
+    return `<span class="fx-chip${state ? ` ${state}` : ''}" title="${esc(name)}">`
+      + `${art ?? ''}<b>${esc(text)}</b>${art ? '' : `<i>${esc(name)}</i>`}</span>`;
+  };
+  const chips = (html) => `<span class="fx-chips">${html}</span>`;
+
+  /**
+   * A fixture's states, side by side rather than stacked.
+   *
+   * `line` is the right shape for a fact you read ("Room for 4 in the line") and
+   * the wrong one for two or three quantities you COMPARE — what is going in,
+   * what is happening, and what is waiting are one sentence read left to right,
+   * and stacked they are three rows of mostly empty panel above the thing you
+   * opened the menu for.
+   *
+   * `.rp-tile`'s idiom from the Shop report — equal flex tiles, a dim label over
+   * the thing itself — rather than a second card style, and its own class rather
+   * than the report's because that one is sized for a 17px figure.
+   */
+  const card = (label, body) => `<div class="fx-card"><span>${label}</span>${body}</div>`;
+  const cards = (...c) => `<div class="fx-cards">${c.filter(Boolean).join('')}</div>`;
+  /** A card whose content is words rather than goods. */
+  const val = (text) => `<b class="fx-cval">${text}</b>`;
+
   if (holdsGoods(f.kind)) {
     const stacks = live?.stacks ?? [];
     const boards = live?.boards ?? 1;
@@ -2140,10 +2200,28 @@ function fixtureDetail(ui, f, live) {
 
   if (f.kind === 'plot') {
     const crop = live?.crop_id ? ui.catalog.crops.find((c) => c.id === live.crop_id) : null;
+    // The crop drawn as what it will BE, which is the one picture a bed can
+    // show: a crop's own `model` is staged art for the ground and has no flat
+    // `parts` for `artForModel` to take, where the item it yields is an ordinary
+    // catalog row with the same drawing the shelf and the supplier use. It is
+    // also the more useful of the two — what you are waiting for.
+    const growing = crop
+      ? chips(chip(crop.item_id, crop.name, 'wide'))
+      : '<i>nothing</i>';
+    // The third card only exists once something is in the ground, and the row
+    // stays even without it: `.fx-card` is `flex: 1 1 0`, so two share the width
+    // the way three do.
+    const ready = crop
+      ? card('Ready', live.ready
+        ? val('yes — pick it')
+        : val(`${Math.round((live.growth ?? 0) * 100)}%`))
+      : null;
     return `<div class="fx-detail">
-      ${line('Soil', live?.soil === 'tilled' ? 'turned over, ready' : 'rough — needs tilling')}
-      ${line('Growing', crop ? crop.name : '<i>nothing</i>')}
-      ${crop ? line('Ready', live.ready ? 'yes — go and pick it' : `${Math.round((live.growth ?? 0) * 100)}%`) : ''}
+      ${cards(
+    card('Soil', val(live?.soil === 'tilled' ? 'turned over' : 'needs turning')),
+    card('Growing', growing),
+    ready,
+  )}
     </div>`;
   }
 
@@ -2192,7 +2270,7 @@ function fixtureDetail(ui, f, live) {
 
   if (f.kind === 'station') {
     const inside = Object.entries(live?.contents ?? {})
-      .map(([id, n]) => `${n}× ${ui.itemName(id)}`).join(', ');
+      .map(([id, n]) => chip(id, `${n}`)).join('');
 
     // The recipes it is set to — one block per HEAD, each ingredient counted
     // against what is actually in the hopper. It listed every recipe the machine
@@ -2216,17 +2294,24 @@ function fixtureDetail(ui, f, live) {
       .filter((i) => i.item_id === id)
       .reduce((m, i) => Math.max(m, i.qty), 0), 0) * batches;
 
+    // One row of chips rather than a row per ingredient. What each chip has to
+    // keep is the pair of numbers — `have/need` is the whole question, and the
+    // colour is the answer at a glance — so the NAME is what the picture takes
+    // over, which is the one part of the row a drawing can say better than
+    // words. `held >= i.qty` is the per-batch test the original made and stays
+    // that: `wants` is the hopper's ceiling across every head, so colouring
+    // against it would read as short on a machine that can run right now.
     const body = heads.filter((h) => h.recipe).map((h) => `
       <div class="fx-recipe">
-        <div class="fx-recipe-h">
+        <span class="fx-recipe-h">
           <span>${esc(h.recipe.name)}</span>
           <b>makes ${h.recipe.output_qty ?? 1}×</b>
-        </div>
-        ${h.recipe.inputs.map((i) => `
-          <div class="fx-ing${held(i.item_id) >= i.qty ? ' ok' : ''}">
-            <span>${ui.itemName(i.item_id)}</span>
-            <b>${held(i.item_id)} / ${wants(i.item_id)}</b>
-          </div>`).join('')}
+        </span>
+        ${chips(h.recipe.inputs.map((i) => chip(
+    i.item_id,
+    `${held(i.item_id)}/${wants(i.item_id)}`,
+    held(i.item_id) >= i.qty ? 'ok' : 'short',
+  )).join(''))}
       </div>`).join('');
 
     // What is waiting to be picked up, which used only ever to be one batch and
@@ -2235,16 +2320,22 @@ function fixtureDetail(ui, f, live) {
     // for, so it names every one that has something on it.
     const trays = heads.filter((h) => h.output);
     const ready = trays.length
-      ? trays.map((h) => `${h.output.qty}× ${ui.itemName(h.output.item_id)}`).join(', ')
+      ? chips(trays.map((h) => chip(h.output.item_id, `${h.output.qty}`)).join(''))
       : '<i>nothing</i>';
     const running = heads.filter((h) => h.making);
+    // No count on a head that is running: what it is making is one thing, and a
+    // batch size here would be the same number the recipe's own "makes 2×"
+    // already says one line down.
+    const makes = running.length
+      ? chips(running.map((h) => chip(h.output?.item_id ?? h.recipe?.output_id ?? h.making, '')).join(''))
+      : '<i>idle</i>';
 
     return `<div class="fx-detail">
-      ${line('In the hopper', inside || '<i>empty</i>')}
-      ${line('Making', running.length
-    ? running.map((h) => ui.itemName(h.output?.item_id ?? h.recipe?.output_id ?? h.making)).join(', ')
-    : '<i>idle</i>')}
-      ${line('Ready to collect', ready)}
+      ${cards(
+    card('In the hopper', inside ? chips(inside) : '<i>empty</i>'),
+    card('Making', makes),
+    card('Ready', ready),
+  )}
       ${body || line('Set to make', '<i>no recipes yet</i>')}
     </div>`;
   }

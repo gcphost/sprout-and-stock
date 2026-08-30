@@ -10,7 +10,7 @@
  * no game state, no money — those live on the server side of the fence.
  */
 
-import { T, WALKABLE, BUILDABLE_INDOOR, BUILDABLE_OUTDOOR } from './tiles.js';
+import { T, WALKABLE, DRIVABLE, BUILDABLE_INDOOR, BUILDABLE_OUTDOOR } from './tiles.js';
 import {
   E, SOLID, RULED, edgeBetween, reachable, withEdge, computeIndoor, shopperCanCross,
 } from './edges.js';
@@ -1779,20 +1779,46 @@ export function canPlaceEdges(L, segs, kind = E.WALL) {
       // which means every unit in it has another unit for an end. `every` then
       // reads that as stranded whatever wall you drew, so a shop with an aisle
       // in it warned "that cuts 11 fixtures off from the door" about a single
-      // segment in a corner. Filtered against the shop as it stands *before*
-      // the change, which is what makes this a delta.
+      // segment in a corner. The ends are derived against the shop as it stands,
+      // so the two floods below are asking about the same list of spots.
       const stranded = fixturesOf(L)
         .map((f) => ({ f, spots: spotsOf(f, { layout: L }) }))
         .filter(({ f, spots }) => spots.length
           && indoors(Math.round(f.x), Math.round(f.z))
           && !spots.every(joined));
-      if (stranded.length) {
-        const what = FIXTURES[stranded[0].f.kind]?.label.toLowerCase() ?? 'fixture';
+      /**
+       * ...AND ONLY WHAT THIS PRESS CHANGES, which the paragraph above has
+       * claimed since it was written and nothing here computed.
+       *
+       * Everything so far is a fact about the shop AFTER the wall, so a unit
+       * that could not be reached this morning is reported on every wall you
+       * draw for the rest of the save — about something you did days ago,
+       * somewhere else in the building, and usually on purpose. That is the
+       * warning-that-always-fires trap this function's own comments name twice:
+       * a wall out on the grass, attached to nothing, enclosing nothing, warned
+       * "that cuts 2 fixtures off from the door" and there was no press that
+       * would not have.
+       *
+       * So the same question is asked of the shop as it stands, and only a unit
+       * that was reachable before and is not after survives. The second flood
+       * is inside this branch on purpose: it is only ever paid on a press that
+       * was about to warn, which is a handful of the presses in a build, and
+       * this runs on every frame of a drag.
+       */
+      const wasIndoors = (x, z) => insideStore(L, x, z);
+      const wasOnFloor = reachable(L, L.door.x, L.door.z,
+        (P, x, z) => wasIndoors(x, z) && isWalkableTile(P, x, z));
+      const wasJoined = (p) => wasOnFloor.has(`${Math.round(p.x)},${Math.round(p.z)}`);
+      const fresh = stranded.filter(({ f, spots }) =>
+        wasIndoors(Math.round(f.x), Math.round(f.z)) && spots.every(wasJoined));
+
+      if (fresh.length) {
+        const what = FIXTURES[fresh[0].f.kind]?.label.toLowerCase() ?? 'fixture';
         return {
           ok: true,
-          warn: stranded.length === 1
+          warn: fresh.length === 1
             ? `that cuts a ${what} off from the door`
-            : `that cuts ${stranded.length} fixtures off from the door`,
+            : `that cuts ${fresh.length} fixtures off from the door`,
         };
       }
     }
@@ -1960,12 +1986,16 @@ export function groundStroke(start, to, max = GROUND_STROKE_MAX, thick = 1, L = 
     const grow = (a, b, limit) => {
       const room = Math.min(thick - (b - a + 1), max - (b - a + 1));
       if (room <= 0) return [a, b];
-      // Down/right unless that leaves the world, in which case up/left.
+      // Down/right unless that leaves the world, in which case up/left. The
+      // limits are the last CELL rather than the last paintable one, because
+      // the border ring is paintable now — clamped a row in, a two-thick road
+      // dragged along the boundary would widen the wrong way and leave the ring
+      // bare, which is the strip this whole change is about.
       if (limit == null || b + room <= limit) return [a, b + room];
-      return [Math.max(1, a - room), b];
+      return [Math.max(0, a - room), b];
     };
-    if (deep <= wide && deep < thick) [az, bz] = grow(az, bz, L ? L.h - 2 : null);
-    else if (wide < thick) [ax, bx] = grow(ax, bx, L ? L.w - 2 : null);
+    if (deep <= wide && deep < thick) [az, bz] = grow(az, bz, L ? L.h - 1 : null);
+    else if (wide < thick) [ax, bx] = grow(ax, bx, L ? L.w - 1 : null);
   }
 
   const out = [];
@@ -2364,10 +2394,36 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
 
   let changed = 0;
   let bared = 0;
+  // Cells of the border ring this stroke would leave with nothing on wheels
+  // able to cross them — see `onRing` and the warning at the foot.
+  let severed = 0;
   for (const c of cells) {
     const x = Math.round(c.x);
     const z = Math.round(c.z);
-    if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return no('off the edge of the world');
+    /**
+     * THE WHOLE MAP, INCLUDING THE RING — which it did not use to be.
+     *
+     * This read `x < 1 … x >= L.w - 1`, so the outermost cell on all four sides
+     * was refused to the brush. The reason was real and is written down in
+     * `defaultStreet`: the ring is the public road, `laneVia` runs every lorry
+     * and every shopper's car out to it and then ALONG it to the edge of the
+     * map, and ground you cannot lay is ground the seed must not lay either —
+     * so the seeded street stops one row short of the world on purpose.
+     *
+     * What that argument never accounted for is that nothing on screen says any
+     * of it. A strip of ordinary lawn you cannot paint, with your own road and
+     * pavement stopping a square before it, does not read as "the public road",
+     * it reads as a bug — and it was reported as one. Two halves to the answer
+     * and this is the first: the ring is yours to paint, so the map has no
+     * dead border. `freezeRing` is the second, and paves it as a road on the
+     * way in so it LOOKS like the thing it has always been.
+     *
+     * Fixtures and walls are untouched: `canPlace` and `canPlaceEdges` still
+     * refuse the ring, so nothing anybody builds can ever stand in a lorry's
+     * way. The one thing a brush can still do to it is below.
+     */
+    if (x < 0 || z < 0 || x >= L.w || z >= L.h) return no('off the edge of the world');
+    const onRing = x === 0 || z === 0 || x === L.w - 1 || z === L.h - 1;
 
     const ground = tileAt(L, x, z);
     const was = groundKindOfTile(ground);
@@ -2499,6 +2555,14 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
     if (tile === ground) continue;
     if (was && padWas.has(was)) padLost.set(was, padLost.get(was) + 1);
     if (tile !== T.FLOOR && insideStore(L, x, z)) bared++;
+    // ...and the ring's own version of that sentence. A cell out there that
+    // nothing can drive over is a hole in the public road, and the public road
+    // is the only way anything with wheels reaches the edge of the map. Two
+    // brushes can make one — the break area and the paddock, the two pads that
+    // are walkable and not drivable — and both are perfectly reasonable things
+    // to want along the boundary, which is why this is a warning rather than a
+    // refusal. Judged on where the cell ENDS UP, like everything else here.
+    if (onRing && !DRIVABLE.has(tile)) severed++;
   }
 
   if (!changed) return { ok: true, unchanged: true };
@@ -2524,6 +2588,18 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
     warns.push(bared === 1
       ? 'that leaves a cell indoors that nothing can be built or dug on'
       : `that leaves ${bared} cells indoors that nothing can be built or dug on`);
+  }
+
+  // Blocking the road round the outside. Allowed — it is your land and a fence
+  // of paddock along the boundary is a thing somebody will want — but the
+  // delivery lorry and every shopper who drives here get to the edge of the map
+  // along that ring, and a shop nobody can deliver to is worth being told about
+  // before rather than discovered at the wholesaler. Said in the road's own
+  // words: nobody has to know what a border ring is to read it.
+  if (severed) {
+    warns.push(severed === 1
+      ? 'that blocks a square of the road round the outside — vans and cars drive on it'
+      : `that blocks ${severed} squares of the road round the outside — vans and cars drive on it`);
   }
 
   return warns.length ? { ok: true, warn: warns.join('; ') } : { ok: true };

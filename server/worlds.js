@@ -515,9 +515,30 @@ function starterOrder() {
     runHour: PREP_HOUR,
     // Not zero. The van has to be seen ARRIVING — a crate that is simply on the
     // pad when you look up is scenery, where one a lorry backs in and sets down
-    // is the sentence "goods come on a van" said without a card. Short enough
-    // that it lands while somebody is still reading the first card, so the beat
-    // that asks for the crate never waits on it.
+    // is the sentence "goods come on a van" said without a card.
+    //
+    // ...AND IT HAS TO LAND AFTER THE CARD THAT ASKS FOR IT, not before.
+    //
+    // This was 8, chosen so the crate was already on the pad by the time the
+    // tour got to it. Both halves of that turned out to be wrong. The first
+    // card is the establishing shot on the SHOPFRONT and the pad is round the
+    // back, so a van that drives in during it is a lorry nobody was pointed at
+    // — the one thing the wait exists to buy, spent where the camera is not.
+    // And `take-all` already has a waiting beat written for it ("Waiting for
+    // your delivery", the supplier in the well, the card breathing and the
+    // stranded timer held off) which, arriving early, no player has ever seen.
+    // So the crate is late on purpose: a few seconds of being told what is
+    // happening, then a lorry to watch doing it.
+    //
+    // Seconds of `elapsed`, which is NOT real seconds here — a new shop opens
+    // at `PREP_HOUR` and everything outside `daylight()` runs at `NIGHT_SPEED`,
+    // so the first 30 of these go by in 10 and every one after that costs a
+    // whole second. 34 is about fourteen seconds of sitting still, and the
+    // crate is down at twenty: `loadVan` sets off at this stamp and the goods
+    // land when the lorry has backed onto the pad, which is another six.
+    //
+    // Which is the whole width of the target. 8 was the card never seen; 40
+    // was a wait you noticed you were in.
     arrivesIn: STARTER_WAIT,
     wait: STARTER_WAIT,
   };
@@ -525,7 +546,7 @@ function starterOrder() {
 
 /** One crate of it, and how long the first van takes, in seconds. */
 const STARTER_CRATE = 12;
-const STARTER_WAIT = 8;
+const STARTER_WAIT = 34;
 
 
 function starterHire() {
@@ -625,15 +646,17 @@ export function createWorld({
    * ...and it starts two hours BEFORE trading, which is the other half of the
    * same sentence.
    *
-   * Shut at 08:00 with the town already out is a shop that is late; shut at
-   * 06:00 is a shop that has not opened yet, and the two are the same pixels
-   * with a different meaning on the clock. Written here for exactly the reason
-   * `open: false` is — a save with nothing to say still reads as mid-morning,
-   * so no headless game and no existing shop moves.
+   * Shut at 08:00 with the town already out is a shop that is late; shut the
+   * evening before is a shop that has not opened yet, and the two are the same
+   * pixels with a different meaning on the clock. Written here for exactly the
+   * reason `open: false` is — a save with nothing to say still reads as
+   * mid-morning, so no headless game and no existing shop moves.
    *
-   * It buys about five real seconds (`PREP_HOUR` says why), so it is the frame
-   * and not the fix. The line in `step` at 08:00 and the pulse on the sign are
-   * the fix.
+   * It is a prep WINDOW now rather than the frame it was: `PREP_HOUR` is
+   * closing time, so what a new shop starts with is the whole night — about a
+   * minute of real time with the shutters down, against the ten seconds 06:00
+   * bought. The line in `step` at 08:00 and the pulse on the sign still say the
+   * shop is shut; this is what gives you time to do something about it.
    */
   /**
    * ...and the palette unfolds rather than arriving whole, which is the third

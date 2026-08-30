@@ -149,3 +149,57 @@ export function zeroScale(values, height) {
   const span = top - bottom || 1;
   return { top, bottom, span, zero: (top / span) * height };
 }
+
+/**
+ * THE THREE GAUGES — what each one reads, and whether that is a problem.
+ *
+ * A number and a traffic light, and the light is the whole reason this is a
+ * function rather than three lines in `UI.setGauges`. It had exactly one
+ * reader for as long as the bars were the only thing that cared: the colour was
+ * decided inline, three ternaries against six literals, and the argument for
+ * every one of those numbers is in the comment above that method — amber is
+ * "the shop has a problem", red is "the shop is in a hole", and a bar that goes
+ * amber somewhere the shop is still fine is a warning you learn to ignore.
+ *
+ * The tutor is the second reader (`client/tutor.js`, the `gauge-*` lessons),
+ * and it wants precisely that judgement: a card that explains the Rep bar has
+ * to arrive on the frame the Rep bar changes colour, or it is a card about
+ * something that is not on screen. Restating the thresholds there would be two
+ * copies of six numbers with nothing to keep them together — the version of
+ * this bug you would actually ship is a lesson firing at a bar that is still
+ * green, which reads as the tutorial nagging at random.
+ *
+ * `shut` is Room's fourth answer and it is not a worse `bad`: the bar stops
+ * being a length there and becomes an alarm (see `setGauges`), and the door is
+ * genuinely closed, which is a different sentence from "nearly closed".
+ *
+ * The fallbacks are what a snapshot from an older server reads as, and each is
+ * the harmless direction: no reputation is a shop at zero, no mood is a shop
+ * with nobody in it (1, which is what `shopMood` itself answers for an empty
+ * room), and the settle floor's 0.35 is the gentle preset.
+ */
+export function gauge(id, state = {}) {
+  if (id === 'rep') {
+    const v = state.reputation ?? 0;
+    const settle = state.repSettle ?? 0.35;
+    return { v, tone: v >= 0.5 ? 'good' : v > settle ? 'warn' : 'bad' };
+  }
+  if (id === 'mood') {
+    const v = state.mood ?? 1;
+    return { v, tone: v >= 0.5 ? 'good' : v >= 0.2 ? 'warn' : 'bad' };
+  }
+  // Room counts DOWN to the door closing, so that long is good like the two
+  // above it. `turnAwayAt` is the preset's, on the wire for the reason the
+  // settle floor is: this bar has to mean the same thing in a relaxed world and
+  // a hard one.
+  const v = Math.max(0, Math.min(1, 1 - (state.occupancy ?? 0) / (state.turnAwayAt ?? 1.35)));
+  return {
+    v,
+    tone: v <= 0 ? 'shut' : v >= 0.48 ? 'good' : v >= 0.25 ? 'warn' : 'bad',
+  };
+}
+
+/** Which CSS colour a tone draws in. `shut` is red and says so with a pulse. */
+export const GAUGE_TONE = {
+  good: 'var(--good)', warn: 'var(--warn)', bad: 'var(--accent)', shut: 'var(--accent)',
+};

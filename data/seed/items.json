@@ -175,6 +175,101 @@
     }
   },
   {
+    "id": "bacon-melt",
+    "name": "Bacon Melt",
+    "tags": [
+      "prepared",
+      "lunch",
+      "breakfast",
+      "needs-warmer",
+      "junk",
+      "classic"
+    ],
+    "base_cost": 1.55,
+    "base_price": 5.43,
+    "shelf_life_days": 1,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#e0b070",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.14,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#b5503f",
+          "pos": [
+            0,
+            0.16,
+            0.02
+          ],
+          "scale": [
+            0.28,
+            0.04,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#c98f4a",
+          "pos": [
+            0,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.04,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "bacon-roll",
     "name": "Bacon Roll",
     "tags": [
@@ -321,6 +416,76 @@
     }
   },
   {
+    "id": "battered-fish",
+    "name": "Battered Fish",
+    "tags": [
+      "prepared",
+      "needs-warmer",
+      "dinner",
+      "lunch",
+      "classic",
+      "junk"
+    ],
+    "base_cost": 2.1,
+    "base_price": 6.93,
+    "shelf_life_days": 1,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "capsule",
+          "color": "#d8a24e",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.14,
+            0.18
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8bd70",
+          "pos": [
+            0,
+            0.16,
+            0
+          ],
+          "scale": [
+            0.24,
+            0.04,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "batteries",
     "name": "Batteries",
     "tags": [
@@ -400,6 +565,126 @@
           "drift": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "beans-on-toast",
+    "name": "Beans on Toast",
+    "tags": [
+      "prepared",
+      "breakfast",
+      "cheap",
+      "classic",
+      "vegetarian",
+      "kids"
+    ],
+    "base_cost": 0.5,
+    "base_price": 2.4,
+    "shelf_life_days": 1,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#d8a05a",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.12,
+            0.3
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#c9702e",
+          "pos": [
+            0,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.28,
+            0.05,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "capsule",
+          "color": "#e08a3a",
+          "pos": [
+            -0.06,
+            0.2,
+            0.04
+          ],
+          "scale": [
+            0.05,
+            0.03,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "capsule",
+          "color": "#e08a3a",
+          "pos": [
+            0.07,
+            0.2,
+            -0.03
+          ],
+          "scale": [
+            0.05,
+            0.03,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -578,6 +863,76 @@
           "back": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "berry-cordial",
+    "name": "Berry Cordial",
+    "tags": [
+      "beverage",
+      "premium",
+      "artisanal",
+      "summer",
+      "kids",
+      "gift"
+    ],
+    "base_cost": 0.7,
+    "base_price": 2.94,
+    "shelf_life_days": 0,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#a8305a",
+          "pos": [
+            0,
+            0.13,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.26,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e0dcd0",
+          "pos": [
+            0,
+            0.27,
+            0
+          ],
+          "scale": [
+            0.08,
+            0.04,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -801,6 +1156,101 @@
     }
   },
   {
+    "id": "breadcrumbs",
+    "name": "Breadcrumbs",
+    "tags": [
+      "pantry",
+      "shelf-stable",
+      "cheap",
+      "classic",
+      "vegan",
+      "bulky"
+    ],
+    "base_cost": 0.33,
+    "base_price": 1.4,
+    "shelf_life_days": 0,
+    "stack": 16,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#d8dde2",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.15,
+            0.18,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c9a06a",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.155,
+            0.1,
+            0.155
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#b9c1c8",
+          "pos": [
+            0,
+            0.185,
+            0
+          ],
+          "scale": [
+            0.15,
+            0.02,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "butter",
     "name": "Butter",
     "tags": [
@@ -866,6 +1316,101 @@
     }
   },
   {
+    "id": "caramel-frappe",
+    "name": "Caramel Frappe",
+    "tags": [
+      "beverage",
+      "trendy",
+      "summer",
+      "junk",
+      "kids",
+      "premium"
+    ],
+    "base_cost": 2.2,
+    "base_price": 7.04,
+    "shelf_life_days": 1,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#cfa878",
+          "pos": [
+            0,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.22,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f6efe2",
+          "pos": [
+            0,
+            0.23,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.05,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#d8b06a",
+          "pos": [
+            0,
+            0.27,
+            0
+          ],
+          "scale": [
+            0.03,
+            0.08,
+            0.03
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "carrot",
     "name": "Carrots",
     "tags": [
@@ -926,6 +1471,76 @@
           "back": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "carrot-juice",
+    "name": "Carrot & Apple Juice",
+    "tags": [
+      "beverage",
+      "healthy",
+      "organic",
+      "vegan",
+      "breakfast",
+      "cheap"
+    ],
+    "base_cost": 0.8,
+    "base_price": 3.2,
+    "shelf_life_days": 2,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e8873a",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.24,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f4d9b0",
+          "pos": [
+            0,
+            0.25,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.02,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -1390,6 +2005,265 @@
     }
   },
   {
+    "id": "chilli-cheese-melt",
+    "name": "Chilli Cheese Melt",
+    "tags": [
+      "prepared",
+      "lunch",
+      "needs-warmer",
+      "trendy",
+      "premium"
+    ],
+    "base_cost": 2.55,
+    "base_price": 8.41,
+    "shelf_life_days": 1,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#dfae6c",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.14,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8c96a",
+          "pos": [
+            0,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.29,
+            0.05,
+            0.23
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "capsule",
+          "color": "#bf3b2b",
+          "pos": [
+            0.06,
+            0.21,
+            0.05
+          ],
+          "scale": [
+            0.05,
+            0.03,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "chilli-con-carne",
+    "name": "Chilli con Carne",
+    "tags": [
+      "prepared",
+      "needs-warmer",
+      "dinner",
+      "lunch",
+      "classic",
+      "heavy"
+    ],
+    "base_cost": 1.53,
+    "base_price": 5.36,
+    "shelf_life_days": 1,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e0dcd2",
+          "pos": [
+            0,
+            0.07,
+            0
+          ],
+          "scale": [
+            0.19,
+            0.14,
+            0.19
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8e3524",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.17,
+            0.03,
+            0.17
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#c9702e",
+          "pos": [
+            0.04,
+            0.16,
+            0.03
+          ],
+          "scale": [
+            0.05,
+            0.03,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "chilli-powder",
+    "name": "Chilli Powder",
+    "tags": [
+      "condiment",
+      "shelf-stable",
+      "trendy",
+      "vegan",
+      "cheap",
+      "artisanal"
+    ],
+    "base_cost": 0.52,
+    "base_price": 2.08,
+    "shelf_life_days": 0,
+    "stack": 16,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#c9432c",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.18,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#6e4a38",
+          "pos": [
+            0,
+            0.19,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.04,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "chips",
     "name": "Crisps",
     "tags": [
@@ -1650,6 +2524,196 @@
           "drift": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "chocolate-panini",
+    "name": "Chocolate Panini",
+    "tags": [
+      "prepared",
+      "needs-warmer",
+      "kids",
+      "junk",
+      "party",
+      "premium"
+    ],
+    "base_cost": 1.7,
+    "base_price": 5.78,
+    "shelf_life_days": 1,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#dfae6c",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.14,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#6b4226",
+          "pos": [
+            0,
+            0.17,
+            0.01
+          ],
+          "scale": [
+            0.27,
+            0.04,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#c98f4a",
+          "pos": [
+            0,
+            0.21,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.04,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "churros",
+    "name": "Churros",
+    "tags": [
+      "prepared",
+      "needs-warmer",
+      "kids",
+      "party",
+      "junk",
+      "cheap"
+    ],
+    "base_cost": 0.48,
+    "base_price": 2.02,
+    "shelf_life_days": 1,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "capsule",
+          "color": "#d89a48",
+          "pos": [
+            -0.05,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.08,
+            0.26,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "capsule",
+          "color": "#e0a655",
+          "pos": [
+            0.05,
+            0.09,
+            0.03
+          ],
+          "scale": [
+            0.08,
+            0.24,
+            0.08
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8d5a2c",
+          "pos": [
+            0,
+            0.22,
+            0
+          ],
+          "scale": [
+            0.09,
+            0.02,
+            0.09
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -2482,6 +3546,75 @@
           "seam": false,
           "alpha": 1,
           "drift": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "espresso",
+    "name": "Espresso",
+    "tags": [
+      "beverage",
+      "premium",
+      "trendy",
+      "classic",
+      "breakfast"
+    ],
+    "base_cost": 0.87,
+    "base_price": 3.31,
+    "shelf_life_days": 1,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f0ece4",
+          "pos": [
+            0,
+            0.06,
+            0
+          ],
+          "scale": [
+            0.14,
+            0.12,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#4a2c1c",
+          "pos": [
+            0,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.02,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -3320,6 +4453,76 @@
     }
   },
   {
+    "id": "green-smoothie",
+    "name": "Green Smoothie",
+    "tags": [
+      "beverage",
+      "healthy",
+      "organic",
+      "vegan",
+      "trendy",
+      "breakfast"
+    ],
+    "base_cost": 1.1,
+    "base_price": 4.18,
+    "shelf_life_days": 2,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#7fb04e",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.24,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e6ede0",
+          "pos": [
+            0,
+            0.25,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.02,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "groundnuts",
     "name": "Groundnuts",
     "tags": [
@@ -3556,6 +4759,100 @@
           "back": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "honey-on-toast",
+    "name": "Honey on Toast",
+    "tags": [
+      "prepared",
+      "breakfast",
+      "premium",
+      "artisanal",
+      "kids"
+    ],
+    "base_cost": 1.1,
+    "base_price": 4.4,
+    "shelf_life_days": 2,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#cf9046",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.12,
+            0.3
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#e8a72c",
+          "pos": [
+            0,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.27,
+            0.035,
+            0.23
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f0bb50",
+          "pos": [
+            0.05,
+            0.2,
+            0.02
+          ],
+          "scale": [
+            0.07,
+            0.02,
+            0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -4896,6 +6193,101 @@
     }
   },
   {
+    "id": "milkshake",
+    "name": "Milkshake",
+    "tags": [
+      "beverage",
+      "kids",
+      "junk",
+      "summer",
+      "classic",
+      "party"
+    ],
+    "base_cost": 1.57,
+    "base_price": 5.34,
+    "shelf_life_days": 2,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f0c3cf",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.24,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#fbf2e8",
+          "pos": [
+            0,
+            0.26,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.08,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c94f6d",
+          "pos": [
+            0.05,
+            0.31,
+            0
+          ],
+          "scale": [
+            0.02,
+            0.1,
+            0.02
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "mince",
     "name": "Beef Mince",
     "tags": [
@@ -5063,6 +6455,101 @@
           "drift": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "mocha",
+    "name": "Mocha",
+    "tags": [
+      "beverage",
+      "premium",
+      "trendy",
+      "kids",
+      "winter",
+      "classic"
+    ],
+    "base_cost": 1.7,
+    "base_price": 5.78,
+    "shelf_life_days": 1,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#e6ded2",
+          "pos": [
+            0,
+            0.11,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.22,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#6b4226",
+          "pos": [
+            0,
+            0.22,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.03,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#c9a37a",
+          "pos": [
+            0,
+            0.24,
+            0
+          ],
+          "scale": [
+            0.11,
+            0.02,
+            0.11
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -5569,6 +7056,101 @@
           "back": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "peanut-butter",
+    "name": "Peanut Butter",
+    "tags": [
+      "pantry",
+      "shelf-stable",
+      "breakfast",
+      "classic",
+      "vegan",
+      "kids"
+    ],
+    "base_cost": 0.57,
+    "base_price": 2.28,
+    "shelf_life_days": 0,
+    "stack": 16,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#d8dde2",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.2,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#b5772f",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.165,
+            0.12,
+            0.165
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8d6540",
+          "pos": [
+            0,
+            0.21,
+            0
+          ],
+          "scale": [
+            0.14,
+            0.03,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -6326,6 +7908,75 @@
             0.19,
             0.07,
             0.19
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "protein-shake",
+    "name": "Protein Shake",
+    "tags": [
+      "beverage",
+      "healthy",
+      "trendy",
+      "lunch",
+      "premium"
+    ],
+    "base_cost": 1.25,
+    "base_price": 4.63,
+    "shelf_life_days": 2,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#c9a98a",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.24,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#4f6f8a",
+          "pos": [
+            0,
+            0.25,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.04,
+            0.13
           ],
           "rot": 0,
           "surface": false,
@@ -7671,6 +9322,126 @@
     }
   },
   {
+    "id": "sundae",
+    "name": "Chocolate Sundae",
+    "tags": [
+      "frozen",
+      "needs-freezer",
+      "kids",
+      "party",
+      "premium",
+      "summer"
+    ],
+    "base_cost": 1.93,
+    "base_price": 6.56,
+    "shelf_life_days": 14,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f2ece0",
+          "pos": [
+            0,
+            0.09,
+            0
+          ],
+          "scale": [
+            0.14,
+            0.18,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#fbf4e4",
+          "pos": [
+            0,
+            0.2,
+            0
+          ],
+          "scale": [
+            0.14,
+            0.12,
+            0.14
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#6b4226",
+          "pos": [
+            0,
+            0.26,
+            0
+          ],
+          "scale": [
+            0.1,
+            0.06,
+            0.1
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "sphere",
+          "color": "#a8305a",
+          "pos": [
+            0.05,
+            0.29,
+            0.02
+          ],
+          "scale": [
+            0.05,
+            0.05,
+            0.05
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "tinned-beans",
     "name": "Tinned Beans",
     "tags": [
@@ -7906,6 +9677,196 @@
     }
   },
   {
+    "id": "toasted-bagel",
+    "name": "Toasted Bagel",
+    "tags": [
+      "prepared",
+      "breakfast",
+      "trendy",
+      "viral",
+      "premium",
+      "kids",
+      "party"
+    ],
+    "base_cost": 2.05,
+    "base_price": 7.2,
+    "shelf_life_days": 2,
+    "stack": 10,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#c96a4e",
+          "pos": [
+            0,
+            0.07,
+            0
+          ],
+          "scale": [
+            0.32,
+            0.13,
+            0.32
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#e8a05a",
+          "pos": [
+            0,
+            0.14,
+            0
+          ],
+          "scale": [
+            0.31,
+            0.05,
+            0.31
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8f5a3c",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.11,
+            0.2,
+            0.11
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#f4dd8c",
+          "pos": [
+            0.09,
+            0.18,
+            0.04
+          ],
+          "scale": [
+            0.1,
+            0.03,
+            0.07
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "toasted-sourdough",
+    "name": "Toasted Sourdough",
+    "tags": [
+      "prepared",
+      "breakfast",
+      "premium",
+      "artisanal",
+      "classic"
+    ],
+    "base_cost": 1.17,
+    "base_price": 4.68,
+    "shelf_life_days": 2,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#c98f4a",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.34,
+            0.13,
+            0.28
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#f4dd8c",
+          "pos": [
+            0,
+            0.18,
+            0
+          ],
+          "scale": [
+            0.16,
+            0.03,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        }
+      ]
+    }
+  },
+  {
     "id": "toastie",
     "name": "Cheese Toastie",
     "tags": [
@@ -8053,6 +10014,75 @@
           "back": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "tomato-juice",
+    "name": "Tomato Juice",
+    "tags": [
+      "beverage",
+      "healthy",
+      "classic",
+      "vegan",
+      "breakfast"
+    ],
+    "base_cost": 1.05,
+    "base_price": 3.78,
+    "shelf_life_days": 2,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#c4452f",
+          "pos": [
+            0,
+            0.12,
+            0
+          ],
+          "scale": [
+            0.13,
+            0.24,
+            0.13
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#f0e4d8",
+          "pos": [
+            0,
+            0.25,
+            0
+          ],
+          "scale": [
+            0.12,
+            0.02,
+            0.12
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -8399,6 +10429,101 @@
           "drift": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "veggie-panini",
+    "name": "Veggie Panini",
+    "tags": [
+      "prepared",
+      "lunch",
+      "needs-warmer",
+      "healthy",
+      "vegetarian",
+      "organic"
+    ],
+    "base_cost": 1.25,
+    "base_price": 4.38,
+    "shelf_life_days": 1,
+    "stack": 8,
+    "model": {
+      "parts": [
+        {
+          "shape": "box",
+          "color": "#dfae6c",
+          "pos": [
+            0,
+            0.1,
+            0
+          ],
+          "scale": [
+            0.3,
+            0.14,
+            0.24
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#6faa4e",
+          "pos": [
+            0,
+            0.16,
+            0.02
+          ],
+          "scale": [
+            0.28,
+            0.03,
+            0.2
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "box",
+          "color": "#c4452f",
+          "pos": [
+            0,
+            0.19,
+            -0.02
+          ],
+          "scale": [
+            0.24,
+            0.03,
+            0.16
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }
@@ -8763,6 +10888,76 @@
           "drift": false,
           "motion": null,
           "tint": null
+        }
+      ]
+    }
+  },
+  {
+    "id": "yoghurt",
+    "name": "Yoghurt",
+    "tags": [
+      "dairy",
+      "needs-freezer",
+      "perishable",
+      "healthy",
+      "breakfast",
+      "classic"
+    ],
+    "base_cost": 0.93,
+    "base_price": 3.53,
+    "shelf_life_days": 8,
+    "stack": 12,
+    "model": {
+      "parts": [
+        {
+          "shape": "cylinder",
+          "color": "#f4f0e6",
+          "pos": [
+            0,
+            0.08,
+            0
+          ],
+          "scale": [
+            0.15,
+            0.16,
+            0.15
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
+        },
+        {
+          "shape": "cylinder",
+          "color": "#8fb0d0",
+          "pos": [
+            0,
+            0.17,
+            0
+          ],
+          "scale": [
+            0.155,
+            0.03,
+            0.155
+          ],
+          "rot": 0,
+          "surface": false,
+          "seam": false,
+          "alpha": 1,
+          "glow": false,
+          "shadow": false,
+          "drift": false,
+          "back": false,
+          "motion": null,
+          "tint": null,
+          "bone": null
         }
       ]
     }

@@ -403,9 +403,16 @@ Thirty sweeps, about a minute:
   the patience budget: `stepMood` drains everyone in `this.customers`, which
   since the drive includes people still on the approach road, so it asserts a
   driver arrives at mood 1 *and* that the same seconds spent in the shop do cost
-  them. Plus the road: that the border ring cannot be painted, that a drive laid
+  them. Plus the road: that a drive laid
   out of the bay re-routes the van onto it, that two road designs steer
   identically, and that tearing the tarmac up leaves the lane it had before. And
+  the ring, which is that claim's opposite and used to be its twin — it asserted
+  the border could not be painted and now asserts that it can, that the whole of
+  it is laid as road, that nothing you BUILD may stand on it, and that a paddock
+  across it is *warned about* while road over the same square says nothing. That
+  last pair is the one worth keeping: a warning that fires whatever you do is a
+  warning nobody reads, so the control is the same square painted the other way.
+  And
   the pavement, which is the same claim about feet: given two equally short ways
   the paved one is walked, paving nowhere near you changes nothing, no route ever
   gets *longer*, and a crossing painted across a lane is still drivable.
@@ -431,6 +438,70 @@ Thirty sweeps, about a minute:
   removes it on exit, and tags nothing — the items it needs are inputs to pure
   functions, so it builds them in memory rather than changing what the shop next
   door sells.
+
+- `verify:dept` guards `holds`' sibling one axis over, and the pair is worth
+  reading together: that one is a fact about the KIND (three kinds, a closed set
+  in `BUILD_KINDS`, and cold is a thing the sim does to goods) and this is a
+  fact about the PIECE, which is content — so a Bakery and a Deli are two rows
+  somebody authored, and locking one to bread is a tag rather than a fourth
+  kind. `kind` had no room for a fourth answer and `tags` has room for twelve,
+  which is the whole reason it can exist. The bug it is the fix for is that
+  those pieces were ART: `bakery-case` is `kind: shelf` and `deli-counter` is
+  `kind: freezer`, so the only thing a Deli ever refused was anything that did
+  not need chilling, and `pickItem` — the one function whose job is choosing a
+  range — scored every unit identically and cheerfully filled the bakery case
+  with liquorice. Nothing logged it and the case looked exactly like a bakery
+  case throughout, so what it read as is the themed pieces being decorative,
+  which is a fair description of what they were. Its control is doubled and is
+  the assertion deciding whether any of this is opt-in, since every `fixtures`
+  row in every save carries `tags: []`: a piece with no tags takes everything it
+  took the day before, in all five places, and so does one tagged with a
+  NON-category word — `decor` files a planter under Greenery and the palette
+  reads it, so a rule that took *any* tag would make a piece's `tags` a switch
+  whose other settings are booby traps. Its centrepiece is a PAIR worthless
+  split in half, asserted in one shop in one breath: the locked unit refuses the
+  wrong item AND still takes the right one, since either half alone is satisfied
+  by a unit that takes nothing whatsoever — which is the commonest way to get
+  this wrong and reads as the shelf being broken rather than as a rule. Then the
+  five doors, and the fifth is the one the feature is FOR: four of them stop a
+  press nobody would make (the chevrons, `boardFor`, the pour, the tick), and
+  `pickItem` is the shop choosing a range for a bare unit, which is the only one
+  anybody would ever have noticed was missing. The TICK has to be refused or it
+  is the door left open — a reservation outranks nearly every judgement the shop
+  makes about its own range (`droppedItem`, `backRoomTakes`, `homedAt`), so a
+  tick that was allowed is the rule switched off for that unit for ever, and it
+  would present as ticking fish onto a Bakery and blaming the crew when nothing
+  came. It binds YOUR hands too, which was the decision and is `holds`' own
+  argument arriving unchanged: `pourInto` empties a mixed box pile by pile, so a
+  loose rule puts the salsa on a board and leaves the bread in the box — one
+  press, no refusal, the one thing you cannot have meant. Plus the pair a rule
+  made TODAY against shelves stocked YESTERDAY needs, and the two halves pull
+  opposite ways: what is already standing STAYS and sells down (the re-flow's
+  shed is deliberately not asked, or adding a word to a catalogue row would tip
+  every bakery case in every world onto the floor), and the unit must stop being
+  that item's HOME — without which the Bakery still holds the most salsa in the
+  shop, wins `homeShelves`, and every other shelf is then refused for not being
+  the home, leaving one item with no legal home anywhere and its crates stranded
+  on the pad with every refusal correct. And that SEVERAL is an or, since an
+  `and` makes the second tag a way of emptying the unit; and that nothing
+  reaches the save, which is `repositionFixture`'s named-field trap arriving for
+  a setting that deliberately has no field to be forgotten. Two of its own
+  assertions are about the sweep rather than the shop and both earned their
+  place on the first run: a shelf record is rebuilt by every re-flow, so one
+  captured before the second unit goes up is detached and stock written onto it
+  goes nowhere; and an order is `{item_id, qty}` where a board and a crate hold
+  `stacks`, so reading the wrong shape answers "the shop chose nothing" whatever
+  the shop chose — which is exactly what a refused buyer looks like. Its last
+  section is the `charm` trap: a mechanic reading a content column no row has
+  ever set is indistinguishable from a broken one, so it asserts the shipped
+  pieces were tagged, that each has goods that can go on it, and that the
+  generic shelving every shop is built out of is still for anything. It authors
+  four pieces and a worker and removes all five on exit, and tags no items — the
+  ones it needs are real rows found by SEARCH rather than by id, so a catalogue
+  somebody edits tomorrow moves the sweep with it instead of breaking it. Four
+  deliberate mutations were run against it — the rule always saying yes, several
+  read as an `and`, the buyer not asking, and a locked unit still being a home —
+  and each was caught on the assertion that names it.
 
 - `verify:doors` guards the first rule in the game whose answer depends on WHO is
   asking. A signed way through is the same hole in the same wall — same enclosure,
@@ -1117,8 +1188,21 @@ Thirty sweeps, about a minute:
   the **receipt** banks what landed rather than face value, because the report's
   total is arithmetic on its own bars and a discount applied to the number but
   not to the breakdown explains less than all of the movement — on exactly the
-  days a beginner is reading it. It restates the ramp rather than importing
-  `GRACE_DAYS`, or every assertion passes whatever that constant becomes. It
+  days a beginner is reading it. Since the waiver it also guards the one cause
+  a new shop cannot do anything about: `createWorld` hands you three shelves
+  with nothing on them, so `R.EMPTY` — a **flat** toll per body, unlike
+  `R.MISSED`'s share of a list — bills a beginner for a range that does not
+  exist yet, measured at 27 leavers and 0.500 → 0.401 on the first morning with
+  the ramp already applied. `EMPTY_FREE_DAYS` waives it and then rejoins the
+  ordinary ramp, and the sweep's centrepiece is the PAIR that is worthless split
+  in half: empty free on days 1–3 **and** missed charged in full on those same
+  days, since either half alone is satisfied by an opening week where no loss is
+  charged at all — which is a different feature, and one that makes the first
+  three days inert. Its sharp half is that it EASES IN, asserted as three
+  strictly increasing days plus the specific fifth, because "free for three
+  days" passes on a cliff. It restates both ramps rather than importing
+  `GRACE_DAYS`/`EMPTY_FREE_DAYS`, or every assertion passes whatever those
+  constants become — which is how the waiver was caught rather than merged. It
   writes nothing at all: no content rows, no save, no cleanup.
 
 - `verify:undo` guards the one thing in build mode that is meant to leave no
@@ -2639,17 +2723,42 @@ what the next step was meant to be.
   loop and the street — 8, which is exactly what the starting shop already had,
   so a shop that has not grown comes out where it always did. No car park is
   seeded, and that is `parkReach` feeding `catchment` rather than tidiness.
-- **A road is a preference, and the border ring is not yours to paint.** Every
-  outdoor cell has been in `DRIVABLE` since the van first drove, so `T.ROAD`
-  cannot grant permission and does not try — `ROAD_COST` 1 against
+- **A road is a preference, and the border ring is a road that steers nobody.**
+  Every outdoor cell has been in `DRIVABLE` since the van first drove, so
+  `T.ROAD` cannot grant permission and does not try — `ROAD_COST` 1 against
   `OFF_ROAD_COST` 2 only changes which legal lane is *chosen*, and with no road
   painted every candidate scales by one constant, so no existing shop's lane
-  moves. The half nobody predicts: `canPaintGround` refuses row 0 and column 0,
-  which is exactly the border ring, so the leg *along* the border can never be
-  tarmac. What you price is the **spur** — and that is the better design said out
-  loud: the ring is the public road and you cannot pave it because it is not
-  yours; what you paint is the driveway, which is what decides which side of the
-  map anything arrives from.
+  moves. What you price is the **spur**: the ring is the public road, and what
+  you paint is the driveway, which is what decides which side of the map anything
+  arrives from.
+- **…and the ring stopped being unpaintable, which is a LOOK fixed and a price
+  rule gained.** `canPaintGround` refused row 0, column 0 and the two far edges
+  outright, on `defaultStreet`'s "the seed may only lay ground the player could
+  lay" — so the seeded road and pavement stopped a square short of the world on
+  every side. The rule was right and completely invisible: what a player sees is
+  one square of ordinary lawn all the way round that no tool will touch, which
+  reads as a bug and was reported as one. So the brush reaches the whole map and
+  `freezeRing` paves it as road, on its own mark beside `yardStamped` — the one
+  seed in the game that deliberately pays out to shops stamped long ago, because
+  every save in existence is looking at that strip. `canPlace` and
+  `canPlaceEdges` are **untouched**, which is what keeps a lorry's way clear:
+  nothing anybody BUILDS may stand there. Two things fell out of it and both are
+  sharper than the change. **The ring leg is not a choice, so it must not be
+  priced like one.** Every candidate lane ends by running along the border, so
+  nobody can opt out of it — and halving a leg everybody pays does not make the
+  ring cheaper, it makes the SHORTEST way round the border dominate and drowns
+  out the drive. Measured on `verify:park`'s own shop: a west drive beat the
+  short hop north 21 to 28, and with the ring priced as tarmac it lost 17 to 16,
+  so the van ignored a road the player had just laid with nothing on screen to
+  say why. `cellCost` charges every ring cell `OFF_ROAD_COST` whatever is painted
+  on it — which is also what keeps every existing lane exactly where it was,
+  since flat is what the ring has always cost. And **the two brushes that are
+  walkable but not `DRIVABLE`** — the break area and the paddock — can put a hole
+  in that road, so `canPaintGround` warns rather than refuses, which is why
+  `DRIVABLE` moved from `server/layout.js` into `shared/tiles.js`. The trap on
+  the way in was this file's own `fresh()` one: `verify:park` wipes `ground` and
+  re-stamps by hand, so a sweep that does not clear `ringPaved` and call
+  `freezeRing` is asserting about a world with no ring in it.
 - **`charm` feeds catchment, and the ceiling is the point.** Reputation is what
   the people who already came in think of you and the shop can max it out;
   catchment is how much of the town is in reach at all, which is the term

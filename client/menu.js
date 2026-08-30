@@ -478,6 +478,12 @@ export class Menu {
     music.hold('menu', false);
     localStorage.setItem(REMEMBERED, world.id);
     this.root.hidden = true;
+    // The front door is done, and from here it may not touch the loading
+    // screen — see `render`. A flag rather than nulling `resolve`, because what
+    // this is a fact about is the SCREEN having been handed over, and a menu
+    // that is still finishing an `act` behind it goes on redrawing itself
+    // perfectly legitimately.
+    this.handedOver = true;
     this.resolve?.({ worldId: world.id, name: this.name, world });
   }
 
@@ -672,10 +678,21 @@ export class Menu {
     // unhidden, and the gap between the two is a fetch. Both screens draw the
     // same ground (`.outdoors`), so they cannot both be up, and hiding the
     // loader at `choose()` would leave a bare field for as long as `/worlds`
-    // takes — which is precisely the wait the loader exists for. Unconditional
-    // and idempotent: after the shop opens the element is gone, and the Leave
-    // path builds a second Menu against it.
-    bootHide();
+    // takes — which is precisely the wait the loader exists for.
+    //
+    // ...but ONLY while this menu is still the thing on screen, and that clause
+    // is not tidiness. It was unconditional on the argument that "after the
+    // shop opens the element is gone" — true for as long as `bootDone` ran the
+    // moment the socket joined, and false the day the reveal started waiting
+    // for a shop to reveal (see `stepReveal`, client/main.js). What made it
+    // visible is that `create` goes through `act`, which refreshes the list
+    // AFTER the world it just made has been handed over: so making a shop said
+    // "Opening the shop…", and twenty milliseconds later a menu nobody can see
+    // pulled the loader off a shop that did not exist yet. Loading an existing
+    // save was fine throughout, because `play` is called straight off the row
+    // and nothing re-renders behind it — which is exactly the shape of a bug
+    // that reads as "new worlds are broken and old ones are not".
+    if (!this.handedOver) bootHide();
     // The LIST is the scroll container, and it is inside the thing being
     // rebuilt — so emptying `root` collapses it and the browser pins it to 0.
     // With eight shops that reads as the menu jumping to the top every time you

@@ -11,7 +11,7 @@ model, variants, tier ladder and price. It names a *kind* from the closed set in
 it blocks and which side you work it from are behaviour. So there can be four
 planters and two shelf designs, but not a new kind — see [building.md](building.md).
 
-130 pieces across 26 kinds.
+133 pieces across 26 kinds.
 
 ## Fixtures
 
@@ -102,6 +102,26 @@ Shapes: Standard, Corner, Endcap, Low, Wall run, Wall corner, Wall corner (other
 2. **Tall rack** — $420, holds ×2.4
 3. **Powered rack** — $900, holds ×3
 
+#### Drinks Dispenser
+
+`drinks-dispenser` · kind `shelf` · $190 to build
+
+21 parts · 3 stages, driven by tier · **7 boards of goods** (21 facings drawn) · has glass
+
+1. **Five taps** — free, as built
+2. **Six taps** — $150, holds ×1.25
+3. **Seven taps** — $320, holds ×1.5
+
+#### Pick'n'Mix
+
+`pick-n-mix` · kind `shelf` · $160 to build
+
+22 parts · 3 stages, driven by tier · **8 boards of goods** (24 facings drawn) · has glass
+
+1. **Four bins** — free, as built
+2. **Six bins** — $130, holds ×1.25
+3. **Eight bins** — $280, holds ×1.5
+
 ### `freezer`
 
 Indoors only, owns its cell (people walk around it), worked from the side it faces (`browseAt`), and reachable from either end, rotates.
@@ -182,6 +202,16 @@ Indoors only, owns its cell (people walk around it), worked from the side it fac
 1. **Heat lamp** — free, as built
 2. **Hot cabinet** — $170, keeps ×1.8, open all round
 3. **Carvery counter** — $400, holds ×1.3, keeps ×2.6
+
+#### Chef's Counter
+
+`chef-counter` · kind `warmer` · $300 to build
+
+11 parts · 3 stages, driven by tier · **3 boards of goods** (9 facings drawn)
+
+1. **Serving pass** — free, as built
+2. **Gantry shelf** — $200, holds ×1.3
+3. **Full carvery** — $420, holds ×1.6
 
 ### `checkout`
 

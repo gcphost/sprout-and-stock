@@ -830,6 +830,18 @@ function graze(g, pens, want, piece = GRASS) {
       const key = `${x},${z}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      // Never the border ring, which is the public road every lorry leaves the
+      // map along. It is paintable — you may put a paddock across it and the
+      // brush warns you — but a field is not what anybody would put there, and
+      // this helper is building a field. It used to be excluded by
+      // `canPaintGround` refusing the ring outright, so this line is that
+      // refusal moving from the rule into the sweep that was relying on it.
+      //
+      // It matters because a field has to be ONE region: these shelters land at
+      // (1,1) and (3,1), so a run allowed round the corner leaves two cells
+      // stranded past the second one, `paddockOf` floods a different number from
+      // each pen, and the even split this section is about stops being even.
+      if (x === 0 || z === 0 || x === L.w - 1 || z === L.h - 1) continue;
       if (!canPaintGround(L, [{ x, z }], 'paddock', piece).ok) continue;
       out.push({ x, z });
       queue.push({ x, z });

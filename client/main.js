@@ -77,7 +77,14 @@ ui.scene = scene;
 // arrives on the shop's clock rather than on a press, so it is the one overlay
 // that can land in the middle of a camera turn. Hoisted, so the forward
 // reference from here is fine.
-const award = new Award(ui, document.getElementById('award'), () => dropGesture('award card'));
+// ...and `awardBusy` is the half that stops it landing there in the first
+// place: the card holds until nothing is in flight and nothing has been pressed
+// for a beat, which is a longer beat while the build bar is up. Both hoisted.
+const award = new Award(
+  ui, document.getElementById('award'),
+  () => dropGesture('award card'),
+  () => awardBusy(),
+);
 // ...and the back reference, for the one thing that has to know a card is up:
 // `Tutor.maybeLesson` opens a coach mark off the snapshot rather than off a
 // press, so it is the only overlay in the game that can arrive UNDER another
@@ -273,6 +280,10 @@ net.onScreenshot(() => scene.screenshot());
 // carries (`achieved` — see `milestoneNews` in server/sim/goals.js), so it is
 // the real card rather than a mock of one:
 //   __sns.award.push({ id: 'year-one', name: 'A year', blurb: 'Still here.', catchment: 420 })
+//
+// It obeys `awardBusy` like any other card, so pressing Enter on the console
+// with the build bar up shows it about five seconds later rather than at once —
+// which is the feature working, not the call being ignored.
 //
 // ...and its neighbour, for the same reason one step further out. A mini-lesson
 // waits for a shop that OWNS the thing and cannot use it — the conveyor one for
@@ -2128,14 +2139,36 @@ const dropping = () => (myCarry() || myHaul())
  */
 const handsFull = () => !!(myCarry() || myHaul());
 
-function canDropAt(tile) {
+/**
+ * WHY this square will not take it — or null when it will.
+ *
+ * `canDropAt` was a bare boolean with four reasons inside it, and that was
+ * enough for as long as the only thing asking was a ghost. It is not enough for
+ * the ghost itself: `setFloorGhost` draws one flat 42%-alpha slab and the answer
+ * is its HUE, which over the shop floor puts "you can" and "you cannot" ΔE 4.4
+ * apart for a deuteranope — the same colour. Build mode gets away with it
+ * because `#build-hint` says the refusal in words and those lines stand rather
+ * than linger; the drop square has no build mode and therefore had no words at
+ * all, so a red slab was the entire signal.
+ *
+ * The reason lives HERE rather than in a second function beside it, because two
+ * copies of one rule is the green-ghost bug wearing a caption: a sentence that
+ * disagreed with the slab would be worse than the silence it replaced. One rule,
+ * two readers — the boolean for everything that only needs yes or no, and the
+ * words for the one caller that has somewhere to put them.
+ */
+function dropRefusal(tile) {
   const L = scene.storeLayout;
-  if (!L || !tile || !inReachOf(tile)) return false;
-  if (!isWalkableTile(L, tile.x, tile.z)) return false;
   const me = ui.me();
-  if (!me) return false;
-  if (SOLID.has(edgeBetween(L, Math.round(me.x), Math.round(me.z), tile.x, tile.z))) return false;
-
+  // No layout, no tile or no body is not a refusal anybody can read — and it is
+  // unreachable from the pill, which is only handed a square the ghost is
+  // already drawn on. It answers falsy-for-`canDropAt` and says so plainly.
+  if (!L || !tile || !me) return 'Not just now';
+  if (!inReachOf(tile)) return 'Too far away';
+  if (!isWalkableTile(L, tile.x, tile.z)) return 'Something is already there';
+  if (SOLID.has(edgeBetween(L, Math.round(me.x), Math.round(me.z), tile.x, tile.z))) {
+    return 'There is a wall in the way';
+  }
   // ...and the one square where "already has a crate on it" IS a refusal.
   //
   // A conveyor cell holds exactly one box — that is backpressure, and it is the
@@ -2145,11 +2178,19 @@ function canDropAt(tile) {
   // stop. `d.belt` rides in the snapshot as a bare boolean rather than the cell
   // id, so the test is where the box IS: a crate on a belt stands in the middle
   // of its own cell, and a part-way one is between two cells that are both busy.
-  if (conveyorAt(L, tile.x, tile.z)) {
-    return !(ui.state?.deliveries ?? []).some((d) => d.belt
-      && Math.round(d.x) === tile.x && Math.round(d.z) === tile.z);
+  //
+  // Its own sentence rather than "something is already there", because what is
+  // in the way here is a box that will move on by itself.
+  if (conveyorAt(L, tile.x, tile.z)
+    && (ui.state?.deliveries ?? []).some((d) => d.belt
+      && Math.round(d.x) === tile.x && Math.round(d.z) === tile.z)) {
+    return 'The conveyor already has a box here';
   }
-  return true;
+  return null;
+}
+
+function canDropAt(tile) {
+  return dropRefusal(tile) === null;
 }
 
 /**
@@ -4673,6 +4714,76 @@ function dropGesture(why = 'unknown') {
 addEventListener('blur', () => dropGesture('window blur'));
 
 /**
+ * WHEN THE PLAYER LAST DID ANYTHING — and whether now is a moment to interrupt.
+ *
+ * The award card is the one overlay raised by the shop's clock rather than by a
+ * press (client/award.js), so it is the one that can land in the middle of
+ * something. `dropGesture` was the first half of the answer and it is only ever
+ * damage control: the gesture is abandoned safely, and the shelf you were about
+ * to put down still does not exist. This is the other half — don't land there.
+ *
+ * The stamp is ONE capture listener per event on the window rather than a line
+ * in each handler, and that is deliberate for the reason `dropGesture`'s own
+ * note gives about sharing the blur teardown: a second list is the one that
+ * goes out of date the day a sixth gesture is added. Every press, key and wheel
+ * in the game passes here on its way to whatever handles it, including the ones
+ * on the HUD, which is right — reading the supplier is doing something too.
+ *
+ * `pointermove` is deliberately NOT in the list. A hover is not an act, and on
+ * a machine sitting untouched with the pointer over the canvas the smallest
+ * drift would hold the card back for ever. What a moving pointer is really
+ * doing while a tool is up — aiming — is covered by the longer window below
+ * instead, which is a bound rather than a hostage.
+ */
+let actedAt = 0;
+for (const ev of ['pointerdown', 'pointerup', 'wheel', 'keydown', 'keyup']) {
+  addEventListener(ev, () => { actedAt = performance.now(); }, { capture: true, passive: true });
+}
+
+/**
+ * How long the shop has to be quiet, in ms — and why there are two numbers.
+ *
+ * Shopkeeping is a sequence of finished sentences: you tap a shelf, the ring
+ * winds, it is over. A second of nothing after one of those really is a gap.
+ *
+ * Building is not. The gesture is *aim, then press*, so the second before a
+ * press looks precisely like the second after one — a still pointer, no keys,
+ * nothing in flight — and a card that took the screen there would be taking it
+ * at the one moment the player had already committed to a click. Which is the
+ * bug: the piece is not placed, the press is eaten by the backdrop, and what it
+ * reads as is the game cutting you off. So while the bar is up (or a fixture is
+ * in your hands, which is the same errand mid-flight) the card asks for long
+ * enough that it cannot be sitting inside anybody's aim.
+ */
+const AWARD_QUIET = 1200;
+const AWARD_QUIET_BUILD = 5000;
+
+/**
+ * Is a gesture in flight, or a hand on the controls?
+ *
+ * The hard half of `awardBusy`, and everything in it is transient by
+ * construction — a press ends, a key comes up, and both have `dropGesture`
+ * behind them for the ways they end without an event. Nothing here can wedge a
+ * card shut, which is why it may be a flat refusal rather than a timer.
+ */
+function midGesture() {
+  return !!(spin || edgeDrag || faceDrag || beltDrag || floorDrag || marquee || pinch)
+    || drag.id !== null
+    || touches.size > 0
+    // The server thinks a button is down, which means a ring is winding on
+    // something. That is the most literal "in the middle of it" there is.
+    || held
+    // ...and the keys, which is walking, or flying the view round the shop.
+    || keys.size > 0;
+}
+
+function awardBusy() {
+  if (midGesture()) return true;
+  const quiet = (ui.paletteArmed || ui.holding) ? AWARD_QUIET_BUILD : AWARD_QUIET;
+  return performance.now() - actedAt < quiet;
+}
+
+/**
  * IS A PRESS WITH THIS POINTER'S ID STILL IN FLIGHT?
  *
  * Every drag in here is keyed by the id of the press that started it, so the
@@ -4810,7 +4921,34 @@ addEventListener('visibilitychange', () => {
   keys.clear();
 });
 
-canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+/**
+ * THE BROWSER'S OWN MENU, EVERYWHERE EXCEPT WHERE IT IS SOMEBODY'S ONLY WAY IN.
+ *
+ * This is a game that fills the window, and the right button is one of its two
+ * buttons — it turns the camera, it puts a unit back on a shelf, and it is held
+ * on a menu row while a ring winds. Chrome's menu over any of that is never what
+ * anybody meant, and it is worse than an annoyance on the two surfaces where a
+ * press is measured in how long it lasts: the menu opens mid-hold, the pointer
+ * leaves for it, and the gesture is abandoned with nothing on screen to say why.
+ *
+ * It was three handlers on three elements — the canvas, the build bar and the
+ * pill — which is the shape that goes out of date the day a fourth surface is
+ * added, and it had: every panel, menu and card in the HUD still opened one.
+ * One listener on the document is the whole of it now.
+ *
+ * The exceptions are the point, and they are the reason this could not simply
+ * be a blanket refusal. A **text field** without its menu is a box you cannot
+ * select, copy or paste in — the Menu names a shop in one, and the invite code
+ * is read out of another, so refusing there takes away the only way to get a
+ * code onto the clipboard. A **link** keeps it for open-in-new-tab, which is
+ * the one thing the tip jar and the credits are for. Same line `selectstart`
+ * draws below and `#panel-body` draws in the stylesheet: refuse the game, leave
+ * the document alone.
+ */
+addEventListener('contextmenu', (e) => {
+  if (e.target?.closest?.('input, textarea, select, a[href], [contenteditable]')) return;
+  e.preventDefault();
+});
 
 /**
  * The browser's own idea of what a held press is.
@@ -4829,11 +4967,6 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
  */
 canvas.addEventListener('selectstart', (e) => e.preventDefault());
 canvas.addEventListener('dragstart', (e) => e.preventDefault());
-
-// The bar is a game toolbar, not a document — a browser menu over it is never
-// what anybody meant by right-clicking there. No `escape()` though: pressing it
-// on a button is a miss, not a decision to leave.
-document.getElementById('build')?.addEventListener('contextmenu', (e) => e.preventDefault());
 
 /**
  * Order a walk, and give the camera back to the person taking it.
@@ -6238,9 +6371,30 @@ function pressHints({ aim, board, onPile, drop }) {
 
   // Bare ground, which only has anything to say while your hands are full — a
   // hint on every empty square you cross is a pill that never goes away.
-  if (drop && canDropAt(drop)) {
+  //
+  // ...and the REFUSAL is a row too, which is the half that was missing and the
+  // one this list's own `off` rule was written for: "use it where the button
+  // belongs to this target and the state is the veto". A square you cannot set
+  // the box down on is exactly that — the press belongs to the square, and what
+  // stops it is a wall or a shelf rather than anything you got wrong.
+  //
+  // Dropping it was survivable while the ghost could say so on its own, and the
+  // ghost cannot: it is one flat translucent slab whose only difference between
+  // yes and no is a hue, and green against red is the worst pair there is —
+  // ΔE 4.4 to a deuteranope over the shop floor, which is the same colour. So
+  // for something like one player in twelve the red square WAS the silence.
+  // `dropRefusal` is the one rule both halves read, or the words and the slab
+  // could disagree.
+  //
+  // It costs nothing when the answer is yes, and it cannot fire on every square
+  // you cross: `drop` is only handed over when the ghost is being drawn, so the
+  // row appears exactly where the red square does and nowhere else.
+  const refusal = drop ? dropRefusal(drop) : null;
+  if (drop && !refusal) {
     ringRow('r', haul ? 'Set the crate down here' : 'Put it down here',
       () => net.send('place', { x: drop.x, z: drop.z }));
+  } else if (drop) {
+    ringRow('r', haul ? 'Set the crate down here' : 'Put it down here', null, refusal);
   }
   return out;
 }
@@ -7611,6 +7765,63 @@ for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown',
   addEventListener(ev, () => { livelyAt = performance.now(); }, { capture: true, passive: true });
 }
 
+// ---------------------------------------------------------------------------
+// WHEN THE SHOP IS ON SCREEN
+//
+// `net.connect` resolves on the room JOIN, which is three messages before there
+// is anything to look at: the catalog, the layout the whole scene is built from
+// and the first snapshot all arrive after it. So standing the loading screen
+// down there uncovered a shop that did not exist yet — measured on localhost,
+// against a real day-461 save, the gap was 66ms to the building and **453ms to
+// the first snapshot**, and what was under it for that half second was a blue
+// void, a HUD reading `Day 1 · $0.00` with all three meters full, and the rail.
+// Not a partly-drawn shop: a *different* shop, wrong in every figure, followed
+// by the real one snapping over it. On the web build there is a Worker to spawn
+// and a store to open first, so every one of those numbers is larger.
+//
+// Three things decide when it is honest to uncover, and each is its own state
+// rather than one test, because they do not all become true on the same frame.
+//
+// The **layout**, or there is no building. The **first snapshot**, or there is
+// a building with nobody in it and a HUD that is still inventing its numbers —
+// and that is the one worth waiting for, since a shop drawn empty and then
+// populated is the flash wearing a floor. And **one more frame after both**,
+// which is the camera: `camTarget` is parked on the door by the layout and only
+// moves onto your body inside `render`, so the settle has to happen on the far
+// side of a draw that has seen the snapshot. Hence a step counter and not a
+// boolean.
+//
+// It is deliberately a race against a clock as well. Everything above is a
+// promise about messages arriving, and a loading screen that waits for ever is
+// strictly worse than the flash it replaces — so a server that never sends a
+// snapshot gets you into the shop anyway, looking exactly as it did before.
+const REVEAL_GIVE_UP = 8000;
+
+let revealStep = 0;
+let revealNow = null;
+const shopShown = new Promise((done) => { revealNow = done; });
+
+function stepReveal() {
+  if (revealStep >= 2) return;
+  if (revealStep === 0) {
+    // A shop and a snapshot of it. `storeLayout` is what `restoreView` already
+    // waits for and means the same thing here: the scene has been built.
+    if (!scene.storeLayout || !latestState) return;
+    revealStep = 1;
+    return;
+  }
+  revealStep = 2;
+  revealNow();
+}
+
+/** ...and the shop is up, however that came about. */
+async function revealShop() {
+  await Promise.race([shopShown, new Promise((done) => {
+    setTimeout(done, REVEAL_GIVE_UP);
+  })]);
+  bootDone();
+}
+
 function loop() {
   const now = performance.now();
   const hz = scene.paused && now - livelyAt > LIVELY_MS ? PAUSED_HZ : DRAW_HZ;
@@ -7670,7 +7881,13 @@ function loop() {
   scene.setHoldProgress(holding
     ? (performance.now() - drag.pressedAt) / LONG_PRESS_MS
     : null);
+  // The frame that is about to be the first one anybody sees, so the eye starts
+  // where it is going rather than gliding in from the door. See `settleView`.
+  if (revealStep === 1) scene.settleView();
   scene.render();
+  // ...and the loading screen comes down on the far side of that draw. See
+  // `stepReveal`: the whole point is that what it uncovers is a finished frame.
+  stepReveal();
   // After the draw and before `saveView`, which touches localStorage on its own
   // cadence: what is being measured is the frame, and a write that happens once
   // every few seconds would land on one window as a spike belonging to nothing.
@@ -7712,7 +7929,11 @@ async function openWorld(worldId, name) {
   ui.worldId = worldId;
   await net.connect(name, worldId);
   rememberInUrl(worldId);
-  bootDone();
+  // The draw starts UNDER the loading screen, which is the whole change: the
+  // frames that build the shop, restore the view and take the first snapshot
+  // are frames nobody has to watch. See `stepReveal`.
+  loop();
+  await revealShop();
   shopOpen('own');
   // No welcome toast. There was one — "Drag to move · tap a plot to sow · walk up
   // to things to use them" — and every clause of it had stopped being true: a
@@ -7739,7 +7960,6 @@ async function openWorld(worldId, name) {
   // only the peer count it reads. Still lazy for the same reason it always was:
   // a build that cannot host never loads the module at all.
   if (net.host) import('./coop.js').then((m) => m.watchCoop(net));
-  loop();
 }
 
 async function start() {
@@ -7814,17 +8034,20 @@ async function start() {
 async function openAsGuest(channel, name) {
   bootSay('Joining the shop…');
   net.becomeGuest(channel, name);
-  bootDone();
+  // Under the veil, exactly as the host's own shop is — and a guest waits on
+  // more, since their layout and first snapshot come down a data channel from
+  // somebody else's machine rather than off a socket to this one.
+  loop();
+  await revealShop();
   shopOpen('guest');
   // ...and a guest gets shown round too, which for the whole of co-op they were
   // not: `maybeStart` is gated on a world this browser MADE, and a guest has no
   // world at all — so the one person in the game who has never seen it before
   // was the one person the tour never ran for. A different list, for a shop that
   // is furnished, trading and somebody else's. See `guestStart`.
-  tutor.guestStart();
   // No `?world=` in the address bar: the shop is not ours, and the link would
   // open a save this browser does not have. The invite code is the only way in.
-  loop();
+  tutor.guestStart();
 }
 
 start().catch((err) => {

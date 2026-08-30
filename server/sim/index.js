@@ -19,7 +19,7 @@ import { JOBS } from '../../shared/schemas.js';
 import { jobBudget, jobsAffordable, foldJobs } from '../../shared/jobs.js';
 import { activeModifiers, addModifier, pruneModifiers, clearModifiers } from '../db.js';
 import {
-  generateLayout, defaultPads, defaultStreet, defaultAwning, buildWalkGrid, isWalkable, carLanes, T,
+  generateLayout, defaultPads, defaultStreet, defaultRing, defaultAwning, buildWalkGrid, isWalkable, carLanes, T,
 } from '../layout.js';
 import {
   E, SOLID, edgeBetween, edgeFamily, edgeCharm, wayDefault, wayKind, fenceBase, shopperCanCross,
@@ -31,6 +31,7 @@ import {
 } from './economy.js';
 import {
   spoilRate, homeKind, desireFor, impulsePull, tagLabel, DEPARTMENTS,
+  departmentsOf, inDepartment,
 } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { hash01 } from '../../shared/hash.js';
@@ -85,12 +86,42 @@ export const CLOSE_HOUR = 20;
  * separate new worlds got played for a while with the shutters shut.
  *
  * Beginning before opening is the ritual instead: you turn up, and the day
- * starts when you raise them. Be honest about what it buys, though — the night
- * runs at `NIGHT_SPEED`, so those two hours are about **ten real seconds**.
- * It is a frame, not a prep window. The 08:00 line in `step` and the shutter
- * pulse in the HUD are what actually say the shop is shut.
+ * starts when you raise them.
+ *
+ * It was 06:00 for that, and 06:00 was honest about being **a frame rather than
+ * a prep window** — its own note said so. Two in-game hours is 30 world-seconds
+ * and the dark runs at `NIGHT_SPEED`, so what you actually got was *ten real
+ * seconds* between arriving and the town coming out. That is enough to say the
+ * shop is shut and nowhere near enough to do anything about it: laying a floor,
+ * standing up an aisle, ordering the first van and putting it away is a couple
+ * of minutes of work, and all of it therefore happened with customers already
+ * walking in.
+ *
+ * `CLOSE_HOUR` is the whole night instead — the twelve dark hours are 180
+ * world-seconds at 3×, so **sixty real seconds** of the shutters being down,
+ * six times what 06:00 bought. The frame is better too: you get the keys at
+ * closing time, you set the place up overnight, you open in the morning.
+ *
+ * Two things fall out of it and neither is a side effect worth hiding.
+ *
+ * **Midnight rolls, about twenty real seconds in.** So a new shop's first
+ * trading morning reads Day 2, and `onNewDay` runs once over a shop that has
+ * never opened. Most of that roll already knows what to do with such a day —
+ * `tradedToday` is false, so the board clocks are held and the reputation
+ * settle is skipped, both of which were written for exactly this — and what is
+ * left is a night's wages for the one starter hire, which is what a night shift
+ * costs. It is deliberately NOT special-cased: a first day that is exempt from
+ * the day roll is a second kind of day, and the roll is the thing every other
+ * rule in the game is measured against.
+ *
+ * **The starter van keeps its beat**, because `STARTER_WAIT` is counted in
+ * `elapsed` — which is world-seconds — and the whole wait now falls inside the
+ * dark rather than straddling 08:00. See the long note on `arrivesIn` in
+ * server/worlds.js: it was 34 world-seconds = fourteen real ones, and it is 34
+ * world-seconds = eleven real ones here. Same choreography, slightly tighter.
+ * If that number is ever retuned, it is real seconds it has to be retuned in.
  */
-export const PREP_HOUR = 6;
+export const PREP_HOUR = CLOSE_HOUR;
 /**
  * How much faster the world turns once the shop is shut.
  *
@@ -745,13 +776,52 @@ const REP_VISIT = 0.006;
  * *not* have, because the harsher presets are exactly the ones that need this —
  * a `hard` game with less grace would compound the bug this exists to fix.
  *
- * **Nothing is exempt.** Every cause in `shared/reputation.js` is a way for a
- * beginner's shop to bleed and the discount is applied in `moveRep`, which is
- * the one writer — so an eighth cause gets this for free rather than being the
- * one that still craters you. `R.SETTLED` is untouched by construction: it only
- * ever pulls up, so it is never a loss to discount.
+ * **Every cause is covered and exactly one is WAIVED**, and the difference
+ * between those two words is `EMPTY_FREE_DAYS` below. The discount is applied in
+ * `moveRep`, which is the one writer, so an eighth cause gets the ramp for free
+ * rather than being the one that still craters you. `R.SETTLED` is untouched by
+ * construction: it only ever pulls up, so it is never a loss to discount.
  */
 const GRACE_DAYS = 5;
+
+/**
+ * ...AND THE ONE CAUSE A NEW SHOP CANNOT DO ANYTHING ABOUT, which is the first
+ * exemption in here and is a debt rather than a tidy rule.
+ *
+ * The ramp above is a discount on how badly the shop is doing. `R.EMPTY` on day
+ * one is not a measurement of that: a new world is created with **three shelves
+ * and nothing on any of them** (`createWorld`, server/worlds.js) against a $250
+ * float, so the range a shopper is being let down by does not exist yet. Opening
+ * the shutters on the shop the game hands you is measured at 27 people through
+ * the door, every one of them leaving with nothing, and a flat −0.015 each:
+ * **0.500 → 0.401 in one morning, after the ramp had already taken four fifths
+ * of it off**. Face value is −0.495, which is half the scale on the first day
+ * anybody plays.
+ *
+ * `R.MISSED` sits beside it and is deliberately NOT waived, which is what keeps
+ * this from being "the opening week is free". That one is charged on the SHARE
+ * of a list the shop could not fill, so it is self-limiting and it is the half
+ * that tells you what to stock — the feed still fills with `no bakery`, the
+ * report still names the gap, and widening the range still pays. What goes is
+ * only the flat per-body toll, which says the same thing again with no
+ * instruction attached and says it once per visitor.
+ *
+ * **It rejoins the ramp rather than switching back on**, and that is the half
+ * that matters: free for the first three days and then eased in over the
+ * ordinary `GRACE_DAYS`, so the first day it costs anything it costs a fifth.
+ * A flat window would be a cliff — a shop bleeding at full price on day four
+ * with nothing about it having changed — which is the `packs` trap said about a
+ * grace period.
+ *
+ * The honest cost of it: this is a per-cause exemption, and the paragraph above
+ * spent its whole argument on not having one. The reason a hand-written list is
+ * dangerous is that a NEW cause quietly misses the discount; this is the
+ * opposite shape — one named cause getting more than the others — so a cause
+ * added tomorrow still lands on the ramp, and the risk is only that somebody
+ * later reads this as licence to waive a second one. It is not. The test it had
+ * to pass is that a player could not have avoided it on the day it was charged.
+ */
+const EMPTY_FREE_DAYS = 3;
 
 /**
  * How hard the town has to be pulling on a tag before it is a reason somebody
@@ -1907,7 +1977,7 @@ export class Game {
       done: [...(state.milestones?.done ?? [])],
       known: [...(state.milestones?.known ?? state.milestones?.done ?? [])],
     };
-    this.totals = { revenue: 0, sold: 0, harvested: 0, ...(state.totals ?? {}) };
+    this.totals = { revenue: 0, sold: 0, harvested: 0, shelved: 0, ...(state.totals ?? {}) };
     /**
      * Whether the palette unfolds with the ladder. Carried, never consulted —
      * see the `create` payload and `shared/reveal.js`. The sim's only job with
@@ -2013,6 +2083,10 @@ export class Game {
     // world nobody has stepped prints a headcount with nothing after it, which
     // is honest — "0" would say the shop holds nobody.
     this.capacity = null;
+    // Which half of it is the tight one — see `shopCapacity`. Seeded for the
+    // same reason `occupancy` is: anything that reads the world without
+    // stepping it gets an answer rather than `undefined`.
+    this.capacityBy = 'floor';
     // Measured once a tick beside occupancy. Zero rather than undefined so a
     // shop that has not stepped yet reads as tidy — every sweep that asserts on
     // mood without stepping would otherwise get NaN out of `stepMood`.
@@ -2100,6 +2174,14 @@ export class Game {
      * question the moment somebody paints over their last one.
      */
     this.yardStamped = state.yardStamped ?? false;
+    /**
+     * Whether the road round the outside has ever been laid — see `freezeRing`.
+     *
+     * Its OWN mark rather than `yardStamped`'s, and that is the whole reason it
+     * pays out at all: every shop in existence has the yard mark set, and every
+     * one of them is looking at the bare strip this fixes.
+     */
+    this.ringPaved = state.ringPaved ?? false;
     /**
      * The footfall map, restored.
      *
@@ -2246,6 +2328,7 @@ export class Game {
     const edits = w.edits ?? [];
     const ground = w.ground ?? w.floors ?? [];
     const yardStamped = w.yardStamped ?? false;
+    const ringPaved = w.ringPaved ?? false;
     const awningStamped = w.awningStamped ?? false;
     const shell = w.shell ?? null;
     // A stamped shop asks for what is standing in it; one nobody has opened yet
@@ -2442,6 +2525,7 @@ export class Game {
       // world. Which reads as never having painted them.
       paint: w.paint ?? {},
       yardStamped,
+      ringPaved,
       awningStamped,
       // …and the same for the footfall map, which is the field this note is
       // about wearing its third hat. `saveState` writes it; without this line
@@ -2484,6 +2568,10 @@ export class Game {
     // ...and the yard, which stamps on its own mark rather than on `shell`'s —
     // see `freezeYard` for the save this order exists to rescue.
     game.freezeYard();
+    // ...and the road round the outside, on its own mark rather than the yard's
+    // — see `freezeRing`, which is the one seed here that deliberately pays out
+    // to shops that were stamped long ago.
+    game.freezeRing();
     // ...and the shop front, for the same reason and on the same terms: it was
     // drawn rather than owned, so no save has ever had one to restore.
     game.freezeAwning();
@@ -2534,6 +2622,7 @@ export class Game {
       ground: this.ground,
       paint: this.paint,
       yardStamped: this.yardStamped,
+      ringPaved: this.ringPaved,
       awningStamped: this.awningStamped,
       // The footfall map. Out here AND named in `Game.create`'s payload — see
       // the note there on why one without the other deletes it.
@@ -2686,6 +2775,7 @@ export class Game {
       ground: this.ground,
       paint: this.paint,
       yardStamped: this.yardStamped,
+      ringPaved: this.ringPaved,
       awningStamped: this.awningStamped,
       // The footfall map. Out here AND named in `Game.create`'s payload — see
       // the note there on why one without the other deletes it.
@@ -3194,6 +3284,10 @@ export class Game {
       // the picture says "boxes", not "this is costing you patience".
       mess: round2(this.mess ?? 0),
       turnAwayAt: TURN_AWAY_AT,
+      // Which half of `shopCapacity` is the tight one — the floor, or the tills
+      // and stocked shelves. One string, because "the shop is full" is a fact
+      // and this is the press.
+      capacityBy: this.capacityBy ?? 'floor',
       /**
        * How far back the build stack goes, and how far forward.
        *
@@ -4280,8 +4374,8 @@ export class Game {
      * morning. And `wasTrading` starts *undefined* rather than false on purpose:
      * a save opened at teatime with the shutters down has not crossed anything,
      * so the first tick of a load never speaks. A new world does, because it
-     * begins at `PREP_HOUR` and crosses 08:00 a few seconds later, which is the
-     * whole reason the clock starts there.
+     * begins at `PREP_HOUR` and crosses 08:00 a minute of real time later,
+     * which is the whole reason the clock starts there.
      */
     const tradingNow = this.trading();
     if (tradingNow && this.wasTrading === false && !this.open) {
@@ -4608,7 +4702,7 @@ export class Game {
     // first minute. Here rather than at the nine call sites because this is the
     // one writer, which is what makes an eighth cause inherit it instead of
     // being the one that still craters a beginner.
-    if (delta < 0) delta *= this.repGrace();
+    if (delta < 0) delta *= this.repGrace(cause);
     const before = this.reputation;
     this.reputation = clamp(before + delta, 0, 1);
     const moved = this.reputation - before;
@@ -4634,18 +4728,31 @@ export class Game {
    * about the clamp said about this: the report answers "what is costing me",
    * and what a walk-out cost you on day 1 is what it actually took off the
    * number, not what it would have taken off an older shop.
+   *
+   * `R.EMPTY` is the one cause with a ramp of its own — the same ramp, started
+   * `EMPTY_FREE_DAYS` later, so it is waived while the shop has no range to be
+   * let down by and then eases in exactly as everything else did. Taking the
+   * cause as an argument rather than branching at the call site keeps this the
+   * one place any of it is decided.
    */
-  repGrace() {
-    return clamp(this.day / GRACE_DAYS, 0, 1);
+  repGrace(cause) {
+    const from = cause === R.EMPTY ? EMPTY_FREE_DAYS : 0;
+    return clamp((this.day - from) / GRACE_DAYS, 0, 1);
   }
 
   /**
    * Fold the finished day into the shop's lifetime tallies.
    *
-   * Three numbers, and only the three the ladder in `goals.js` measures — this
+   * Four numbers, and only the four the ladder in `goals.js` measures — this
    * is not a second `stats`. Everything else it wants is already a fact about
    * the shop right now (the day, the roster, reputation) and needs no memory at
-   * all; these three are the ones `stats` throws away every morning.
+   * all; these four are the ones `stats` throws away every morning.
+   *
+   * A save from before one of them was added reads it as 0 rather than as
+   * missing (`Game.create` spreads over the defaults), so the rungs measured
+   * against it start from the day it shipped. That is the same thing the takings
+   * rungs already say about a shop older than the ladder, and it is the honest
+   * half of "a milestone is a measurement".
    *
    * Beside `closeLedger` and before `persist`, for exactly the reason that one
    * is: filed the other side of the save and a restart loses the day you just
@@ -4655,6 +4762,7 @@ export class Game {
     this.totals.revenue = round2(this.totals.revenue + this.stats.revenue);
     this.totals.sold += this.stats.sold;
     this.totals.harvested += this.stats.harvested;
+    this.totals.shelved += this.stats.shelved;
   }
 
   /**
@@ -6296,6 +6404,11 @@ export class Game {
     // fixture could go anywhere, so a freezer lit up for bread. See `holds` in
     // `shared/tags.js` for why that is gone.
     if (homeKind(item) !== shelfKind(shelf.kind)) return false;
+    // …and the department, which is the same rule one axis over and has to be
+    // asked in the same breath for the same reason: this lights the shop up for
+    // what is in your hands, so a Bakery that stayed lit and then refused the
+    // press is the green-ghost bug with a chevron on it.
+    if (!this.departmentTakes(shelf, item)) return false;
     // A reservation binds even when the shelf is bare — that is the whole
     // difference between it and a board that merely happens to hold something.
     // A LIST of reservations binds the same way: ticking three boxes says these
@@ -6785,6 +6898,48 @@ export class Game {
     return boardsOf(content().fixtures ?? [], shelf);
   }
 
+  /** The piece a stored unit is, normalised the way `boardPull` normalises. */
+  shelfPiece(shelf) {
+    return pieceFor(content().fixtures ?? [], { ...shelf, kind: shelfKind(shelf.kind) });
+  }
+
+  /**
+   * The departments this unit is built for. Empty means anything.
+   *
+   * Read off the piece, so it is a fact about the thing you bought rather than
+   * about the unit — every Bakery in the shop answers the same, a restyle
+   * between two designs of one kind changes it, and nothing is stored on the
+   * placement. That last part is what makes it free: no save field, no
+   * migration, and a piece retagged over MCP re-answers for every unit of it in
+   * every world on the next content reload.
+   */
+  shelfDepartments(shelf) {
+    return departmentsOf(this.shelfPiece(shelf));
+  }
+
+  /**
+   * Would a Bakery take that?
+   *
+   * The department half of `holds`, and the two are asked side by side
+   * everywhere. Split out as a method rather than inlined for the reason
+   * `holds` was: it is asked in five places — the buyer choosing a range
+   * (`pickItem`), the crew placing an armful (`shelvesFor`), the press
+   * (`boardFor`), the highlight (`shelfAccepts`) and the tick (`assignShelf`)
+   * — and five hand-written copies of one rule is the eleven-places bug that
+   * `STOCK_KINDS` exists to have ended.
+   *
+   * A deleted item is refused rather than forgiven, which is `shelfAccepts`'
+   * answer and not `applyPlacements`'. This decides whether goods may go ON;
+   * the re-flow's shed decides whether goods already standing may STAY, and it
+   * deliberately does not ask this at all — see `stockShelf`.
+   */
+  departmentTakes(shelf, itemOrId) {
+    const item = typeof itemOrId === 'string'
+      ? content().byId.items[itemOrId] : itemOrId;
+    if (!item) return false;
+    return inDepartment(this.shelfPiece(shelf), item);
+  }
+
   /**
    * How much better or worse this board is than an average one, purely for
    * being where it is on the unit. Eye level is buy level.
@@ -6996,7 +7151,17 @@ export class Game {
     for (const sh of this.layout.shelves) {
       const side = sh.boh === true ? back : floor;
       if (toList(sh.assigned).includes(itemId)) side.kept.push(sh);
-      else if (this.shelfStack(sh, itemId)) side.holds.push(sh);
+      // A unit whose DEPARTMENT refuses this is not a home, however much of it
+      // is standing on it. Content is edited live, so tagging a piece is a rule
+      // made today against shelves stocked yesterday: the Bakery you have just
+      // locked to bread is still holding salsa, and holding the most of it, so
+      // it would win this vote and every other shelf in the shop would then be
+      // refused by `shelvesFor` for not being the home. One item, no legal home
+      // anywhere, its crates stranded on the pad — every refusal correct, the
+      // sum of them a shop that has stopped restocking salsa, four days after a
+      // press that was about the bakery. Not asked of the RESERVATION branch,
+      // which cannot be in this state: `assignShelf` refuses the tick.
+      else if (this.shelfStack(sh, itemId) && this.departmentTakes(sh, itemId)) side.holds.push(sh);
     }
     const pick = (side) => {
       // A reservation beats a holding, and beats it outright rather than joining
@@ -17060,6 +17225,20 @@ export class Game {
         ? `${item.name} needs a ${FIXTURES[home]?.label.toLowerCase() ?? home}`
         : `${item.name} doesn't need ${here === 'freezer' ? 'freezing' : 'heating'}`);
     }
+    // …and the department refuses your hands too, which is the answer to the
+    // one question this feature had. It could have been the shop's judgement
+    // alone — `giveUpBoard`, `orders.assign` and `backRoomTakes` all draw that
+    // line, and it is the right line for each of them — but every one of those
+    // is the shop deciding what to BUY, where this is a fact about the unit,
+    // like its cold. A Bakery you can personally fill with fish is a Bakery in
+    // name only, and the crate case settles it: `pourInto` empties a mixed box
+    // pile by pile, so a loose rule puts the fish on a board and leaves the
+    // bread in the box, one press, no refusal. See `holds` for the same
+    // argument the first time it was made.
+    if (!this.departmentTakes(shelf, item)) {
+      const said = this.shelfDepartments(shelf).map(tagLabel);
+      return err(`the ${this.fixtureSaid(shelf)} is only for ${said.join(' and ')}`);
+    }
     // A reservation refuses your hands too, and says how to take it back —
     // otherwise the shelf you set aside this morning reads as broken tonight.
     //
@@ -17191,6 +17370,17 @@ export class Game {
       moved += take;
       first = first ?? { item_id: pile.item_id, price: board.stack.price };
     }
+
+    // The one place stocking is counted — see `shelved` in `freshStats`. After
+    // the loop rather than inside it, so a mixed armful that filled three
+    // boards is one addition of what actually moved rather than three.
+    //
+    // `?? 0` for `repMoves`' reason one field along: `stats` reaches the
+    // constructor through `Object.assign`, so a payload written before this
+    // existed has no `shelved` on it — and `undefined + 12` is NaN, which is
+    // silent, permanent (`NaN >= 100` is false for ever) and folded straight
+    // into `totals` on the next day roll.
+    this.stats.shelved = (this.stats.shelved ?? 0) + moved;
 
     return {
       moved,
@@ -17353,6 +17543,19 @@ export class Game {
       return err(home !== 'shelf'
         ? `${item.name} needs a ${FIXTURES[home].label.toLowerCase()}`
         : `${item.name} doesn't need ${here === 'freezer' ? 'freezing' : 'heating'}`);
+    }
+    // …and the department, which HAS to be refused here rather than left to the
+    // three places goods actually move. A reservation outranks nearly every
+    // judgement the shop makes about its own range — `droppedItem`,
+    // `backRoomTakes` and `homedAt` all bow to it, and `shelvesFor` spells that
+    // out — so a tick that was allowed would be the one gesture that unlocks a
+    // Bakery, and it would not read as a way round anything: you would tick
+    // fish onto it, watch nothing ever arrive, and blame the crew. The two
+    // rules above it are refused here for exactly this reason and this is the
+    // third.
+    if (!this.departmentTakes(shelf, item)) {
+      const said = this.shelfDepartments(shelf).map(tagLabel);
+      return err(`the ${this.fixtureSaid(shelf)} is only for ${said.join(' and ')}`);
     }
 
     // You cannot ask for more kinds than it has boards to put them on. This is
@@ -20398,6 +20601,32 @@ export class Game {
   }
 
   /**
+   * Lay the road round the outside once — see `defaultRing` for what and why.
+   *
+   * `freezeYard`'s shape, with the one difference that is the point of it
+   * existing separately: this mark is its own. The yard's note argues against a
+   * second flag for the frontage, and it is right about the frontage — an
+   * existing shop waking up with a road through its lawn is a world editing
+   * itself. This is not that. The ring is a square of the map every save has
+   * always owned and never been able to touch, and paving it is the game
+   * finally drawing something that was already there, so old saves want it
+   * exactly as much as new ones do.
+   *
+   * Free, for `freezeAwning`'s reason said about ground: you are being handed a
+   * picture of the lane your deliveries already drive down, and billing for it
+   * on load would read as the game charging you for a patch.
+   */
+  freezeRing() {
+    if (this.ringPaved) return false;
+    this.ringPaved = true;
+    const seeded = defaultRing(this.layout);
+    if (!seeded.length) return false;
+    this.ground = [...this.ground, ...seeded];
+    this.regenerateLayout();
+    return true;
+  }
+
+  /**
    * Stamp the awning over the front door once, and stop drawing it.
    *
    * `freezeYard`'s argument, made about the shop front. The awning was four
@@ -21192,7 +21421,19 @@ export class Game {
     // eight people does not make it hold twelve. That direction is the whole
     // point — a tiny shop has to stay tiny however well you fit it out, or
     // "cramped" is a thing you can buy your way out of without moving a wall.
-    return Math.min(service, this.floorRoom());
+    //
+    // ...AND WHICH OF THE TWO IT WAS, which is a `min` throwing away the only
+    // thing anybody could act on. "Your shop is full" is a complaint; "your
+    // shop is full because there is nowhere left to stand" and "…because there
+    // is one till and four stocked shelves" are two different presses, and the
+    // number on its own cannot tell them apart — a shop with a huge floor and
+    // one till and a broom cupboard with six tills read identically. Recorded
+    // rather than returned so every existing caller is untouched, and read by
+    // the snapshot for the tutor's Room card (`gauge-room`, client/tutor.js),
+    // which is the whole reason it exists.
+    const floor = this.floorRoom();
+    this.capacityBy = floor < service ? 'floor' : 'service';
+    return Math.min(service, floor);
   }
 
   /**
@@ -24182,6 +24423,23 @@ function freshStats() {
   return {
     revenue: 0, spent: 0, sold: 0, abandoned: 0,
     spoiled: 0, spoiledValue: 0, harvested: 0, tilled: 0, leftEmpty: 0, turnedAway: 0, foundShut: 0, byItem: {},
+    /**
+     * Units that landed on a board today — the work of running a shop, as
+     * opposed to `sold`, which is the result of it.
+     *
+     * Written in exactly one place (`pourInto`) for the reason `repMoves` is
+     * written in exactly one: an armful, a crate off a shoulder, a single unit
+     * tapped across and a loader's swing are four verbs that all end there, and
+     * a count kept at the four call sites would drift the day a fifth arrived.
+     *
+     * It deliberately counts the CREW's work as well as yours — the shop
+     * stocked it either way, and a tally that only counted your own hands would
+     * fall to zero on exactly the shop that has grown enough to hire. What it
+     * does not count is `stock_shop`, which writes `stack.qty` directly: that
+     * is a staging tool for screenshots, and a milestone it could award is a
+     * milestone an agent hands you.
+     */
+    shelved: 0,
     // What walked out of a sensor shop without being billed for — see
     // `walkoutMiss`. Priced at RETAIL rather than wholesale, which is the one
     // place this differs from `spoiledValue` and the difference is real: rot is

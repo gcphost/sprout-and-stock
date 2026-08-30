@@ -4,7 +4,7 @@
  *
  * A shop that is going well and a shop that is going nowhere look identical for
  * the first twenty minutes: the numbers in the corner move, and nothing ever
- * *says* anything. This is the half that says it — forty-five rows, each one a
+ * *says* anything. This is the half that says it — fifty rows, each one a
  * number the shop already keeps, with a reward on the far side of it.
  *
  * Three rules hold the whole thing together, and each of them is why this is a
@@ -109,17 +109,23 @@ export const MILESTONES = [
     unit: 'count',
     need: 1,
     /**
-     * Every rung pays cash, and this one pays the float over again.
+     * Every rung pays cash, and this one pays four times the float.
      *
-     * A shop opens on $250, which is about two crates and a seed tray — so the
-     * first hour was spent waiting for one shelf to sell through before
-     * anything could be done at all. Doubling the float the moment somebody
-     * buys something turns the opening from a wait into a choice, and it is
+     * A shop opens on $250, which is about two crates and a seed tray — and the
+     * first thing anybody does is take on a robot, which is $220 for a Clerk.
+     * So the opening went: hire, buy the one chiller the shop is asked for, and
+     * stand in an empty building with $50 and nothing left to decide. That is
+     * not a slow start, it is a shop with the game switched off, and it lands on
+     * exactly the player who has no idea yet that a first sale is coming.
+     *
+     * It doubled the float for a while, which was the right shape against a
+     * ladder nobody was spending on a hire; $1,000 is what it costs to have made
+     * the two purchases the opening asks for and still have a shop to run. It is
      * paid out of the one event that proves the shop works rather than handed
      * over at creation, where it would just be a bigger starting number nobody
      * earned.
      *
-     * The opening is deliberately the steep part — 250, then 500 for the first
+     * The opening is deliberately the steep part — 1000, then 500 for the first
      * hundred taken, then 500 for the first seed in the ground — because that
      * is the stretch where the float is the reason nothing is happening. The
      * middle is just as deliberately flat: a shop taking $2,000 does not need
@@ -127,7 +133,7 @@ export const MILESTONES = [
      * it reads as a rung that is broken.
      */
     measure: (g) => lifetime(g, 'sold'),
-    reward: { cash: 250, supplies: 12 },
+    reward: { cash: 1000, supplies: 12 },
   },
   {
     /**
@@ -228,7 +234,7 @@ export const MILESTONES = [
     need: 500,
     measure: (g) => lifetime(g, 'revenue'),
     // Double what it asks for, and the last rung that pays a multiple of its own
-    // bar — the opening is `first-sale` 250, `take-100` 500, `first-plant` 500
+    // bar — the opening is `first-sale` 1000, `take-100` 500, `first-plant` 500
     // and this, and after it the ladder goes back to being sized against the
     // shop rather than against the float.
     reward: { cash: 1000, supplies: 18 },
@@ -259,6 +265,43 @@ export const MILESTONES = [
      */
     measure: (g) => (g.edits ?? []).filter((e) => e.k > 0).length,
     reward: { cash: 100, supplies: 12 },
+  },
+  /*
+   * ---------------------------------------------------------------------------
+   * THE STOCKING RUNGS, which are the only ones on the ladder about WORK rather
+   * than about takings.
+   *
+   * Every other counting rung measures something the town did — bought, walked
+   * out, came back. `shelved` is the one thing on here that is entirely yours:
+   * cases carried out of the bay and put on a board, by your hands or by the
+   * crew you pay for. It is also the number a player watches most and could
+   * never see, because the shop has always thrown it away at midnight.
+   *
+   * They sit *ahead* of the sales rungs at every bar, and that is the shape
+   * rather than an accident: you stock a thing before you sell it, and stock
+   * that never sells still counts. So `shelved-100` lands before `sold-100`,
+   * and by the far end the two ladders have drifted a long way apart — a shop
+   * with any spoilage at all shelves far more than it ever rings up.
+   *
+   * **None of the four pays `town`**, deliberately. The sixteen rungs that do
+   * are sized so that finishing the ladder exactly doubles the catchment you
+   * started with (see `milestoneReach`), and rungs added to say something about
+   * the middle of the game have no business moving the number the whole endgame
+   * is built on. Same rule the survival rungs were written under.
+   * ---------------------------------------------------------------------------
+   */
+
+  {
+    id: 'shelved-100',
+    name: 'A hundred put out',
+    blurb: 'Put a hundred things on your shelves — by hand, or by somebody you pay.',
+    unit: 'count',
+    need: 100,
+    // Ahead of `sold-100` below on purpose: about eight crates, which is the
+    // first morning of a shop that is actually being run. It is the earliest
+    // rung that rewards the thing a player spends most of their time doing.
+    measure: (g) => lifetime(g, 'shelved'),
+    reward: { cash: 200, supplies: 18 },
   },
   {
     id: 'sold-100',
@@ -431,6 +474,15 @@ export const MILESTONES = [
     reward: { cash: 300, supplies: 18 },
   },
   {
+    id: 'shelved-1000',
+    name: 'A thousand put out',
+    blurb: 'A thousand things carried out of the back and set on a shelf.',
+    unit: 'count',
+    need: 1000,
+    measure: (g) => lifetime(g, 'shelved'),
+    reward: { cash: 650, supplies: 36 },
+  },
+  {
     id: 'sold-500',
     name: 'Five hundred sales',
     blurb: 'The shop is a habit for somebody now.',
@@ -530,6 +582,15 @@ export const MILESTONES = [
     need: 500,
     measure: (g) => lifetime(g, 'harvested'),
     reward: { cash: 700, town: 1, supplies: 36 },
+  },
+  {
+    id: 'shelved-5000',
+    name: 'Five thousand put out',
+    blurb: 'Five thousand things on shelves. Somebody has been busy.',
+    unit: 'count',
+    need: 5000,
+    measure: (g) => lifetime(g, 'shelved'),
+    reward: { cash: 1400, supplies: 36 },
   },
   {
     id: 'sold-1000',
@@ -691,6 +752,18 @@ export const MILESTONES = [
     need: 365,
     measure: (g) => g.day,
     reward: { cash: 7500, town: 1, supplies: 60 },
+  },
+  {
+    id: 'shelved-25000',
+    name: 'Twenty-five thousand put out',
+    blurb: 'Twenty-five thousand things off a pallet and onto a shelf. That is a warehouse of work.',
+    unit: 'count',
+    need: 25000,
+    // The last of the four, and further from `shelved-5000` than that one was
+    // from `shelved-1000` — the same rule the takings ladder is spaced by, so
+    // it stays occasional for a shop that is still growing.
+    measure: (g) => lifetime(g, 'shelved'),
+    reward: { cash: 3250, supplies: 48 },
   },
   {
     id: 'sold-10000',

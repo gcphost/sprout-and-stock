@@ -513,19 +513,45 @@ lanes in the same order, ties included.
 
 ### Where the design was wrong
 
-**The border ring cannot be painted, so the *ring leg* can never be tarmac.**
-`canPaintGround` has refused row 0 and column 0 since the yard — "the seed may
-only lay ground the player could lay" — and the leg along the border is exactly
-that ring. The doc assumed a road would make the whole route cheaper; what it
-actually prices is the **spur**, the straight run from your bay or your space out
-to the border.
+**The *ring leg* can never be tarmac, so what a road prices is the spur.** The
+doc assumed a road would make the whole route cheaper; what it actually prices is
+the **spur**, the straight run from your bay or your space out to the border.
 
 That turns out to be the better design and the doc should have said it: **the
-ring is the public road and you cannot paint it because it is not yours. What
-you paint is the driveway.** And the driveway is the decision — it chooses which
-ring cell you come out on, and therefore which side of the map the van arrives
-from. Measured in the sweep: a bay whose van came down the north ring re-routes
-to the west the moment a drive is laid west out of it.
+ring is the public road, and what you paint is the driveway.** And the driveway
+is the decision — it chooses which ring cell you come out on, and therefore which
+side of the map the van arrives from. Measured in the sweep: a bay whose van came
+down the north ring re-routes to the west the moment a drive is laid west out of
+it.
+
+### …and the ring is a *look* you own, which is not the same thing
+
+This used to be enforced by the brush: `canPaintGround` refused row 0, column 0
+and the two far edges outright, on "the seed may only lay ground the player could
+lay". The rule was right and completely invisible. What a player sees is one
+square of lawn all the way round that no tool will touch, with the world's own
+seeded road and pavement stopping a square before it — which reads as a bug, and
+was reported as one.
+
+So the ring is paintable, and `freezeRing` lays it as road on every save, old and
+new, on its own mark beside `yardStamped`. It cost one line in `laneVia` and that
+line is the whole of what keeps step 6 true: **`cellCost` charges every ring cell
+the off-road rate whatever is painted on it.** The reason is that the ring leg is
+not a choice — every candidate lane ends by running along the border, so nobody
+can opt out of it. Halving a leg everybody pays does not make the ring cheaper,
+it makes the *shortest way round the border* dominate, and it drowns out the
+drive: measured on the sweep's own shop, a west drive beat the short hop north 21
+to 28, and with a naively priced ring it lost 17 to 16 — the van ignoring a road
+the player had just laid, with nothing on screen to say why. Pricing the ring
+flat also means no existing lane moved a tile, because flat is what the ring has
+always cost.
+
+Which leaves one thing a brush can still do out there, and it is warned rather
+than refused: a **break area or a paddock** is walkable and not `DRIVABLE`, so
+one painted across the ring is a hole in the public road. `canPaintGround` says
+so — *"that blocks a square of the road round the outside — vans and cars drive
+on it"* — and then lets you, the same call `canPlace` makes about walling your
+own shelf in.
 
 **Filing it in the palette took three goes, and the two wrong ones were wrong in
 opposite directions.** Yard and Customers were the obvious first move and both
@@ -677,9 +703,10 @@ down: the sweep was right about the game it was written for.
   is deleted, exactly as a walker on the approach is (`lastOrders`). Reversing a
   car needs a manoeuvre nothing in the game has, and letting it park first is the
   same pop one second later.
-- **A road cannot be laid on the border ring**, so the leg *along* the border is
-  never tarmac — see step 6. That is the design rather than a limit, but it is
-  the first thing somebody will try.
+- **Painting the border ring steers nothing**, so the leg *along* the border is
+  never worth tarmac — see step 6. It is paintable and it is paved by default;
+  what it is not is a decision, because every lane has to use it. That is the
+  design rather than a limit, but it is the first thing somebody will try.
 - **`simulate` cannot report on any of steps 4–6.** `stats.drove` exists and rides
   the snapshot, but `simulate`'s `totals` is a hand-written key list and
   `accumulate` walks nine scalars — so a balance run gives you a profit delta

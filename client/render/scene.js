@@ -85,6 +85,7 @@ import { buildPastimeProp, animateRest } from './pastime.js';
 import { animateEmote } from './emote.js';
 import { animateFace } from './face.js';
 import { buildLoopingProp, animatePuffs, animateMotion } from './motion.js';
+import { calm } from './calm.js';
 
 /** How many world tiles fit vertically on screen at 1× zoom. Smaller = closer in. */
 const FRUSTUM = 17;
@@ -226,7 +227,7 @@ const BOARD_LOOK = { aim: 'board', picked: 'boardPicked' };
 const CASH_Y = 0.95;
 const ZOOM_MIN = 0.7;         // wider than the old fixed view, for finding things
 const ZOOM_MAX = 12.0;        // ~1.4 tiles tall: a bot fills two thirds of it
-const ZOOM_DEFAULT = 1.45;    // ~12 tiles tall: the shop, not the whole county
+const ZOOM_DEFAULT = 1.82;    // ~9.3 tiles tall: the shop, not the whole county
 /** Per notch. Multiplicative, so a notch is the same *proportion* in or out. */
 const ZOOM_STEP = 1.12;
 
@@ -1104,20 +1105,6 @@ function faceVector(key) {
   return key.startsWith('x') ? { fx: s, fz: 0 } : { fx: 0, fz: s };
 }
 
-/**
- * The distinct cells a batch of boxes stands on, flat as [x, z, x, z, …].
- *
- * What `ghostNearWalls` measures against, and it is DEDUPED because the count is
- * the whole reason it is precomputed: a painted wall is a body, a skin either
- * side and a course of brick on each of those, so one cell of it is a dozen
- * boxes at the same two coordinates. A shop's worth is a few dozen cells and
- * several thousand boxes.
- *
- * A pier names `x`/`z` and a band names `cx`/`cz` — same fact, two spellings,
- * and both arrive here rather than being unified at the call sites, because the
- * band's pair is the CELL while its own position carries a thickness offset and
- * an offset along the run. It is the cell that is wanted.
- */
 function cellsOf(items) {
   const seen = new Set();
   const out = [];
@@ -1692,6 +1679,35 @@ const SKY_HORIZON_HIGH_LOOK = new THREE.Color(SKY_HORIZON);
 const SKY_MID = new THREE.Color();
 /** Scratch for `skyLight`, which runs twice a snapshot and must allocate none. */
 const SKY_MIX = new THREE.Color();
+/**
+ * How far `daylight` may move before the ground is baked again.
+ *
+ * The bake is the sunset's other half — every lamp in the shop is summed into
+ * the floor's own colours, and that sum is only right for one sun. It used to
+ * step on the in-game HOUR, on the reasoning that twelve steps between night
+ * and noon is finer than an eye can catch. That is true of twelve *equal*
+ * steps, and the day cycle is a sine: measured across the hours, the jumps run
+ * 0.216, 0.206, 0.186 … 0.033, 0.014 — so the fifth of the whole day's light
+ * that arrives between six and seven in the morning landed in a single frame,
+ * and one o'clock to two got a full pass over every cell for a change of 0.014
+ * that nobody could see. The steps were biggest exactly where the eye is,
+ * because dawn and dusk are the only hours anybody watches the light in — and
+ * `updateSky` glides through the same moment on the raw value, so what you
+ * actually saw was a floor snapping under a sky that was sliding. That reads as
+ * a rendering fault rather than as dusk.
+ *
+ * So it steps on the thing the bake DEPENDS on. The curve pays for itself: flat
+ * at midday where the old version worked hardest, fine at the ends where it
+ * used to jump. 0.01 is `setDaylight`'s own threshold, so the lamp pool and the
+ * floor move on one grid rather than two that can disagree by a step.
+ *
+ * The cost is a fact rather than a guess: a rebake on a mature day-461 shop —
+ * 1979 ground instances, 154 props, 17 emitters — measures **1.6ms**, and the
+ * whole day's travel is 2.0, so this is about 200 of them across 360 real
+ * seconds. If it ever does get expensive, this is the number to raise, and the
+ * thing to check afterwards is dawn rather than noon.
+ */
+const BAKE_STEP = 0.01;
 const SUN_HIGH = new THREE.Color(PALETTE.sunHigh);
 const SUN_DUSK = new THREE.Color(PALETTE.sunDusk);
 const FILL_HIGH = new THREE.Color(PALETTE.fillHigh);
@@ -1723,6 +1739,65 @@ const FILL_DUSK = new THREE.Color(PALETTE.fillDusk);
 const SUN_SHARE = 0.5;
 const BOUNCE_SHARE = 0.5;
 const BOUNCE_TINT = new THREE.Color(0xbcd8ff);
+
+/**
+ * WHAT A FLOOR GHOST LOOKS LIKE, AND WHY IT IS NOT ONLY A COLOUR.
+ *
+ * `setFloorGhost` drew one flat translucent slab and the verdict was its hue and
+ * nothing else — same size, same height, same opacity, no rim, no mark. Two
+ * things were wrong with that and only one of them is about colour blindness.
+ *
+ * The slab is 42% alpha, so the ground pulls every state toward itself and the
+ * separation on screen is far worse than the palette suggests: over shop floor
+ * the closest pair of the three lands **ΔE 3.4** apart for a protanope and 4.4
+ * for a deuteranope, which is "the same colour". In build mode that is survivable
+ * because `#build-hint` puts the refusal in words and those lines stand rather
+ * than linger. The DROP SQUARE is not in build mode, and `pressHints` used to
+ * emit a row only when `canDropAt` was true — so a square you cannot set the box
+ * down on was a red slab with no words anywhere on screen. Both halves are fixed:
+ * the mark here, and the greyed row in `pressHints`.
+ *
+ * And the green "ok" slab over GRASS is ΔE 2.9 from the grass in normal vision,
+ * which is not an accessibility bug at all — the affirmative ghost was nearly
+ * invisible to everybody on the farm, and only ever read indoors because the
+ * shop floor happens to be cream. That is what the rim is for, and it is why the
+ * rim goes on all three rather than only on the two that carry a mark.
+ *
+ * The marks are CLEAN / STRIPED / STRUCK OUT. They are told apart by whether the
+ * bars are parallel or crossed rather than by how many there are, because a
+ * count is something you stop and take and this is read at a glance with the
+ * pointer still moving. Both are drawn in the rim's ink, so the whole ladder
+ * survives greyscale.
+ */
+const GHOST_RIM = '#171219';
+/** How thick a bar is, in tiles. */
+const GHOST_BAR = 0.11;
+/** How far off centre each of a parallel pair sits, measured across the bars. */
+const BAR_OFF = 0.15;
+const DIAG = Math.PI / 4;
+const FLOOR_GHOST = {
+  ok: { colour: '#7cc46a', bars: [] },
+  warn: {
+    colour: '#e8a33d',
+    // Offset PERPENDICULAR to the bars: a box turned +45° about y runs along
+    // (cos, 0, -sin), so the normal in the tile plane is (1, 0, 1) — which is
+    // why both offsets move the same way on x and z. Shorter than the crossed
+    // pair because a chord taken off-centre is shorter than the diagonal.
+    bars: [
+      { dx: -BAR_OFF, dz: -BAR_OFF, turn: DIAG, len: 0.78 },
+      { dx: BAR_OFF, dz: BAR_OFF, turn: DIAG, len: 0.78 },
+    ],
+  },
+  no: {
+    colour: '#e2564a',
+    // The full diagonal of the 0.86 fill is 1.216; 1.14 keeps the ✕ just inside
+    // it rather than running out over the rim.
+    bars: [
+      { dx: 0, dz: 0, turn: DIAG, len: 1.14 },
+      { dx: 0, dz: 0, turn: -DIAG, len: 1.14 },
+    ],
+  },
+};
 
 /**
  * A two-pixel-wide canvas is enough for the sky: the browser stretches its
@@ -1997,6 +2072,11 @@ export class Scene {
      * client/tutor.js) and the pan is pinned to the tile rather than to you.
      */
     this.tourOwns = false;
+    /**
+     * ...and whether the walls are being held WHOLE while somebody is being
+     * shown round — see `holdWallCut`, which is where the argument is.
+     */
+    this.wallCutHeld = false;
     /**
      * ...and the TILE it is pinned to, which is what makes "every frame" true.
      *
@@ -2631,7 +2711,19 @@ export class Scene {
     // build mode wants the tile under the pointer now, and a card putting the
     // crate in the middle of the screen wants you to watch it get there. Same
     // flag the swing uses, so one drag ends either — see `aimView`.
-    if (slow) { this.tourShot = true; this.tourOwns = true; }
+    // ...and `calm()` takes the SLOW half away, which leaves the aim. A watched
+    // camera move is the one thing in here that moves the whole field of view
+    // without the player having asked, which is the textbook vestibular
+    // trigger — and the fallback needs no invention, because it is what this
+    // call already does for build mode: write the pan and let the render loop's
+    // ordinary lerp carry the view over. Still a glide rather than a cut, just
+    // not a shot you are meant to sit through.
+    //
+    // `hold` is deliberately NOT gated with it. That is the tour saying which
+    // tile the card is about, and dropping it would leave the camera drifting
+    // off the thing being explained — a lesson pointing at something off
+    // screen, which is worse for everybody and is not a motion question.
+    if (slow && !calm()) { this.tourShot = true; this.tourOwns = true; }
     // ...and `hold` is the tour saying it means to STAY there, which `trackEye`
     // honours every frame — see `tourHold`. A build-mode tap sets neither: that
     // is an aim, and the pan being carried along by your own feet afterwards is
@@ -2650,6 +2742,32 @@ export class Scene {
    * frame a card stopped pointing at anything.
    */
   releaseHold() { this.tourHold = null; }
+
+  /**
+   * Keep the near walls WHOLE, whatever the zoom is doing.
+   *
+   * The one thing the cutaway cannot know, and the reason it is a hold rather
+   * than a wider `WALL_CUT_VIEW`: the saw is right about somebody who has leant
+   * in to look at a shelf, and the first thing anybody ever sees is not that.
+   * The opening view of a shop you have just made is a whole building — the
+   * roofline, the shopfront, the walls it is made of — and the tour is a robot
+   * standing in it telling you it is yours. A building whose front has been
+   * sawn off for that picture does not read as the camera getting out of the
+   * way, because nothing has been asked for yet and there is nothing behind it
+   * you were trying to see: it reads as the shop being half built. The zoom is
+   * exactly where it wants to be for that shot, so the answer is to hold the
+   * walls up for it rather than to open the view wider — a default backed out
+   * far enough to clear the saw is a county view every session pays for, for
+   * one card at the beginning of one of them.
+   *
+   * It lasts one card. Pressing Next is somebody who has read it and is looking
+   * at the shop, and from there the saw is doing its job — see `go` in
+   * client/tutor.js, which releases it on the first advance and on `quit`.
+   *
+   * Read every frame in `ghostNearWalls`, so it takes hold and lets go on the
+   * next one rather than needing anything rebuilt.
+   */
+  holdWallCut(on) { this.wallCutHeld = !!on; }
 
   /**
    * Point the view somewhere, and SWING there rather than cut.
@@ -2993,6 +3111,28 @@ export class Scene {
       this.camPan.z *= PAN_LIMIT / len;
     }
     return this.camPan;
+  }
+
+  /**
+   * ARRIVE. Put the eye where it is going, this frame, with no glide.
+   *
+   * `camLook` eases toward `camTarget + camPan` and every other caller wants
+   * that — it is the follow, and the follow is what makes walking read as
+   * walking. There is exactly one moment it is wrong, and it is the first
+   * moment of all: the layout parks the target on the door and the first
+   * snapshot moves it onto your body, so a camera that eases between those two
+   * spends its opening half-second flying across the shop from a doorway
+   * nobody asked to look at. Which is not a glide anybody reads as a glide —
+   * there is no before, so what it looks like is the shop sliding about while
+   * it loads.
+   *
+   * It is the same call `setFirstPerson` makes for the same reason one storey
+   * down, and it is deliberately not `applyView`'s job: that one is putting a
+   * POSE back and this is about where the eye has got to, which is a different
+   * field and settles a frame later.
+   */
+  settleView() {
+    this.camLook.copy(this.camTarget).add(this.camPan);
   }
 
   /**
@@ -4433,10 +4573,10 @@ export class Scene {
     // A watcher that is also a LAMP has to take its glow with it. Re-aiming the
     // pool is cheap; the bake behind it is a pass over every cell times every
     // lamp, so this is gated on the value having actually moved a step — the
-    // same bargain `syncDayCycle` strikes when it rebakes on the hour rather
-    // than continuously. `open` is a step already, so a shop shutting pays for
-    // exactly one; a lamp somebody wires to `time` pays for a dozen a day, which
-    // is the order the sunset itself costs.
+    // same bargain `syncDayCycle` strikes with `BAKE_STEP`. `open` is a step
+    // already, so a shop shutting pays for exactly one; a lamp somebody wires to
+    // `time` pays for twelve a day, which is well under what the sunset itself
+    // now costs.
     if (this._litWatchers?.length && this.lightsWant() !== this._litAt) {
       this.aimLights(this._layout?.layout ?? this._layout);
       this.rebakeGround();
@@ -5626,10 +5766,40 @@ export class Scene {
     // the camera and the shop have to be batches of their own. A wall with no
     // outside — any wall at all in a shop whose enclosure has come down — keys
     // as '' and is never faded.
-    const push = (kind, vertical, spec) => {
-      const k = `${kind}:${vertical ? 'v' : 'h'}:${spec.color ?? ''}:${spec.skin ?? ''}:${spec.face ?? ''}`;
-      if (!runs.has(k)) runs.set(k, { kind, vertical, face: spec.face ?? '', boxes: [] });
+    // ...and by which HALF of the saw line it is, for the same reason: the stub
+    // below the cut never fades, so it cannot share a batch with the half that
+    // does.
+    const add = (kind, vertical, spec, stub) => {
+      const k = `${kind}:${vertical ? 'v' : 'h'}:${spec.color ?? ''}:${spec.skin ?? ''}:${spec.face ?? ''}:${stub ? 's' : ''}`;
+      if (!runs.has(k)) runs.set(k, { kind, vertical, face: spec.face ?? '', stub, boxes: [] });
       runs.get(k).boxes.push(spec);
+    };
+
+    /**
+     * Where the saw runs on this cell, alternating a tooth either side of
+     * `WALL_CUT_Y`.
+     *
+     * The along-wall coordinate is the integer one — `emit` puts the half on the
+     * axis the wall spans — so the parity is a fact about the cell rather than
+     * about which way the wall was drawn, and two runs meeting at a corner agree
+     * about where the tear is.
+     */
+    const sawAt = (vertical, cx, cz) => WALL_CUT_Y
+      + (Math.abs(Math.round(vertical ? cz : cx)) % 2 ? WALL_CUT_TOOTH : -WALL_CUT_TOOTH);
+
+    /**
+     * A wall the cutaway can take down is built in two halves split at the saw.
+     *
+     * Two batches rather than one alpha, and the stub is the point of the whole
+     * thing — see `WALL_CUT_Y`. A wall with nothing to say (`face` is '') never
+     * fades, so it is never split either: a second batch of it would be two
+     * draws describing one solid wall.
+     */
+    const push = (kind, vertical, spec) => {
+      const cut = spec.face ? sawAt(vertical, spec.cx, spec.cz) : 0;
+      if (!(spec.y0 < cut && spec.y1 > cut)) { add(kind, vertical, spec, spec.y1 <= cut); return; }
+      add(kind, vertical, { ...spec, y1: cut }, true);
+      add(kind, vertical, { ...spec, y0: cut }, false);
     };
 
     // What each face is finished in, if anything. The overlay rides on the
@@ -5865,10 +6035,23 @@ export class Scene {
       if (z < L.h && verticalAt(x, z)) seg(true, x, z);
       if (x > 0 && horizontalAt(x - 1, z)) seg(false, x - 1, z);
       if (x < L.w && horizontalAt(x, z)) seg(false, x, z);
+      // A PARTITION wins over the sum, and it is asked first rather than last.
+      //
+      // It used to be the fallback — "nothing pointing anywhere and yet walls
+      // meeting here" — which is only ever true of a corner between two
+      // partitions. The commoner case is a partition meeting an OUTER wall, and
+      // there the outer wall's sign is non-zero, so the sum answered and the
+      // partition was dropped from the answer entirely. That corner then follows
+      // the outer wall alone: a partition cut out from under it leaves its coping
+      // and its door pier standing at full wall height with nothing beneath them,
+      // which is a beam and a column hanging in mid-air over a sawn wall.
+      //
+      // `always` is the right answer for both, because a partition comes down
+      // whenever the cutaway is on at all: a corner touching one is a corner
+      // whose masonry is going, whatever the wall on its other side does.
+      if (inside) return FACE_IN;
       if (fx || fz) return `${Math.sign(fx)},${Math.sign(fz)}`;
-      // Nothing pointing anywhere and yet walls meeting here: a corner between
-      // two partitions, which fades when they do.
-      return inside ? FACE_IN : '';
+      return '';
     };
 
     const cornerCaps = new Map();
@@ -5895,6 +6078,7 @@ export class Scene {
       const caps = new THREE.InstancedMesh(box, material(style.top), points.length);
       caps.receiveShadow = true;
       caps.userData.outward = faceVector(face);
+      caps.userData.face = face;
       caps.userData.hue = style.top;
       caps.userData.spots = cellsOf(points);
       points.forEach((point, i) => {
@@ -5926,26 +6110,50 @@ export class Scene {
     // Grouped by face for `ghostNearWalls`, the same as everything else on a
     // boundary: a pier left solid in a wall you are seeing
     // through is a column of masonry standing in mid-air.
-    for (const [face, piers] of byFace(doorCorners)) {
-      const posts = new THREE.InstancedMesh(box, material(piers[0].color), piers.length);
-      posts.castShadow = true;
-      posts.receiveShadow = true;
-      posts.userData.outward = faceVector(face);
-      posts.userData.hue = piers[0].color;
-      posts.userData.spots = cellsOf(piers);
-      piers.forEach((post, i) => {
-        // A hair wider than the wall lets the pier meet both thin edge shells
-        // cleanly at the point they share, instead of leaving a daylight seam.
-        const span = post.t + 0.02;
-        dummy.position.set(post.x, post.h / 2, post.z);
-        dummy.scale.set(span, post.h, span);
-        dummy.rotation.set(0, 0, 0);
-        dummy.updateMatrix();
-        posts.setMatrixAt(i, dummy.matrix);
-      });
-      posts.instanceMatrix.needsUpdate = true;
-      this.edgeGroup.add(posts);
-    }
+    /**
+     * A run of masonry standing at lattice points, split at the saw the way the
+     * walls either side of it are.
+     *
+     * Both callers draw the same column from a different list, so this is one
+     * function: a door's two jambs, and the centre pier two arches share. A pier
+     * left whole in a wall you are seeing through is masonry standing in mid-air,
+     * and one that went with it is a doorway with no jamb on it — which is why it
+     * is split rather than simply included.
+     */
+    const addPosts = (items) => {
+      for (const [face, list] of byFace(items)) {
+        const vec = faceVector(face);
+        for (const stub of vec ? [true, false] : [null]) {
+          const posts = new THREE.InstancedMesh(box, material(list[0].color), list.length);
+          posts.castShadow = true;
+          posts.receiveShadow = true;
+          posts.userData.outward = stub ? null : vec;
+          posts.userData.face = face;
+          posts.userData.hue = list[0].color;
+          posts.userData.spots = cellsOf(list);
+          list.forEach((post, i) => {
+            // A hair wider than the wall lets the pier meet both thin edge shells
+            // cleanly at the point they share, instead of leaving a daylight seam.
+            const span = post.t + 0.02;
+            // A pier stands on the corner between two runs, so it takes the saw
+            // of the one along x and is clamped to its own height — a lintel is
+            // shorter than the wall and must not grow a stub taller than itself.
+            const cut = Math.min(post.h, sawAt(false, post.x, post.z));
+            const y0 = stub ? 0 : (stub === null ? 0 : cut);
+            const y1 = stub ? cut : post.h;
+            dummy.position.set(post.x, (y0 + y1) / 2, post.z);
+            dummy.scale.set(span, Math.max(0.02, y1 - y0), span);
+            dummy.rotation.set(0, 0, 0);
+            dummy.updateMatrix();
+            posts.setMatrixAt(i, dummy.matrix);
+          });
+          posts.instanceMatrix.needsUpdate = true;
+          this.edgeGroup.add(posts);
+        }
+      }
+    };
+
+    addPosts(doorCorners);
 
     /**
      * An arch's sides are corbelled into its own cell, so one arch remains an
@@ -5970,27 +6178,26 @@ export class Scene {
       }
     }
 
-    for (const [face, joins] of byFace(archJoins)) {
-      const posts = new THREE.InstancedMesh(box, material(joins[0].color), joins.length);
-      posts.castShadow = true;
-      posts.receiveShadow = true;
-      posts.userData.outward = faceVector(face);
-      posts.userData.hue = joins[0].color;
-      posts.userData.spots = cellsOf(joins);
-      joins.forEach((post, i) => {
-        const span = post.t + 0.02;
-        dummy.position.set(post.x, post.h / 2, post.z);
-        dummy.scale.set(span, post.h, span);
-        dummy.rotation.set(0, 0, 0);
-        dummy.updateMatrix();
-        posts.setMatrixAt(i, dummy.matrix);
-      });
-      posts.instanceMatrix.needsUpdate = true;
-      this.edgeGroup.add(posts);
-    }
+    addPosts(archJoins);
 
-    for (const { kind, vertical, face, boxes } of runs.values()) {
+    for (const { kind, vertical, face, stub, boxes } of runs.values()) {
       const style = EDGE_STYLE[kind];
+      /**
+       * The cells of the WHOLE run, shared by every mesh built from it.
+       *
+       * A run becomes three or four meshes — an opaque body, a glass body, a
+       * coping, and the coping again for the stub — and each used to take
+       * `cellsOf` of its own boxes. Those sets are not the same: a coping only
+       * covers the boxes that reach the top, glass only the panes. `inTheWay`
+       * takes a batch down if ANY of its cells qualifies, so two subsets of one
+       * wall can and do answer differently — and what that draws is the body
+       * gone and the coping still there, which is a beam the length of the wall
+       * hanging in mid-air with nothing under it.
+       *
+       * One list means every piece of one wall goes together or stays together,
+       * which is the only answer that can be right: they are one wall.
+       */
+      const runSpots = cellsOf(boxes);
       const opaque = boxes.filter((b) => b.alpha === undefined);
       const clear = boxes.filter((b) => b.alpha !== undefined);
       for (const [set, alpha] of [[opaque, 1], [clear, GLASS]]) {
@@ -6005,15 +6212,15 @@ export class Scene {
         // so it is uniform in this too.
         mesh.castShadow = alpha === 1 || !!set[0].shadow;
         mesh.receiveShadow = true;
-        mesh.userData.outward = faceVector(face);
-        // What it takes to put this batch back — `ghostNearWalls` swaps the
-        // material for a see-through one keyed to the same colour, and a batch
-        // that could not name its own hue and alpha would have to come back as a
-        // guess. Glass is in here too and keeps its own, or a shopfront fades to
-        // the ghost's alpha and then cannot fade back.
+        // A stub is given none, which is how a batch says "never" — see
+        // `faceVector`, whose '' is the same answer arrived at from the other
+        // end. It is the one field `ghostNearWalls` opens on.
+        mesh.userData.outward = stub ? null : faceVector(face);
+        mesh.userData.face = face;
+        mesh.userData.wall = !stub;
         mesh.userData.hue = set[0].color ?? style.color;
         mesh.userData.alpha = alpha;
-        mesh.userData.spots = cellsOf(set);
+        mesh.userData.spots = runSpots;
         set.forEach((b, i) => {
           // A band may project across the line — that is a bay window, and it is
           // the one thing here that is geometry rather than a stack of heights.
@@ -6064,20 +6271,67 @@ export class Scene {
       // A contrasting coping along the top, so a wall reads as built rather
       // than as a coloured slab.
       if (!style.top) continue;
+      /**
+       * Where this run's coping goes: the wall's own head, or the SAW.
+       *
+       * A stub gets one for the same reason a wall does, and it is what decides
+       * whether any of the cutaway reads. Cream masonry sawn off flush against a
+       * cream shop floor is a step of a quarter of a tile between two shades of
+       * the same colour — the teeth are all there and none of them can be seen,
+       * which lands as a wall that is simply short. The coping is the cut FACE:
+       * one band of the wall's top colour, a hair proud, stepping up and down
+       * with the tear.
+       */
+      const capTop = (b) => (stub ? sawAt(vertical, b.cx, b.cz) : style.h);
       // Skins excluded: a coping is the top of the WALL, and a second one laid
       // on each painted face would be two more slabs a hair either side of it —
       // three copings on a painted wall, which reads as the wall having grown.
-      const capped = boxes.filter((b) => b.y1 >= style.h - 0.001
+      const capped = boxes.filter((b) => b.y1 >= capTop(b) - 0.001
         && b.alpha === undefined && !b.skin);
       if (!capped.length) continue;
       const cap = new THREE.InstancedMesh(box, material(style.top), capped.length);
       cap.receiveShadow = true;
+      // A saw cap keeps its face rather than being excused like the stub under
+      // it, because it is the one part of a cut that must come and GO with the
+      // cutaway. The stub is the same cream as the wall it was cut out of, so it
+      // is invisible while the wall is whole; a band of coping across the middle
+      // of one is a stripe of nothing, on every wall in the shop, at the zoom
+      // where you are looking at the building rather than into it.
       cap.userData.outward = faceVector(face);
-      cap.userData.hue = style.top;
-      cap.userData.spots = cellsOf(capped);
+      cap.userData.face = face;
+      cap.userData.wall = true;
+      cap.userData.spots = runSpots;
+      cap.userData.sawCap = stub;
+      cap.visible = !stub;
       capped.forEach((b, i) => {
-        dummy.position.set(b.cx, style.h + 0.03, b.cz);
-        dummy.scale.set(vertical ? style.t + 0.06 : 1, 0.07, vertical ? 1 : style.t + 0.06);
+        // ALONG the wall, a coping covers exactly what it is the top of — which
+        // is a whole cell for every band that is wall, and a tenth of one for a
+        // band that is joinery. The body loop has read `off`/`len` since a brick
+        // course needed them; this one assumed 1 because, while a cap only ever
+        // sat at `style.h`, nothing narrower than a cell ever reached that
+        // height.
+        //
+        // The SAW retired that assumption and did it silently. A jamb runs deck
+        // to head line, so it straddles `WALL_CUT_Y` and splits like any other
+        // band — and its lower half then ends exactly ON the cut, which is the
+        // one test `capped` makes. So every framed opening in the shop grew a
+        // full-width coping across the middle of its own hole: a bar at knee
+        // height spanning the way in, in the wall's own top colour, on every
+        // doorway, glazed doorway and shopfront entrance at once. Which reads as
+        // the door being drawn wrong rather than as the cutaway being wrong,
+        // because the wall either side of it is cut correctly.
+        //
+        // Only ACROSS the wall does a cap still overhang (`+ 0.06`): that is a
+        // coping standing proud of the face it caps, and a jamb wants it as much
+        // as a wall does.
+        const off = b.off ?? 0;
+        const len = b.len ?? 1;
+        dummy.position.set(
+          b.cx + (vertical ? 0 : off),
+          capTop(b) + 0.03,
+          b.cz + (vertical ? off : 0),
+        );
+        dummy.scale.set(vertical ? style.t + 0.06 : len, 0.07, vertical ? len : style.t + 0.06);
         dummy.rotation.set(0, 0, 0);
         dummy.updateMatrix();
         cap.setMatrixAt(i, dummy.matrix);
@@ -6454,15 +6708,14 @@ export class Scene {
       : fillTop + this.lights.spill;
     this.ambient.color.copy(FILL_HIGH);
 
-    // The baked half of the same sunset, on the hour. Every lamp in the shop is
-    // already in the floor's colours (`bakeInto`), and that sum is only right
-    // for one value of `lit` — so the ground has to be told the sun moved, the
-    // same way the sky just was. By hour rather than continuously because it is
-    // a pass over every cell times every lamp, and because a floor that eased
-    // from night to noon over twelve steps is a floor nobody can see stepping.
-    const hour = Math.floor(t * 24);
-    if (hour !== this.bakedHour) {
-      this.bakedHour = hour;
+    // The baked half of the same sunset. Every lamp in the shop is already in
+    // the floor's colours (`bakeInto`), and that sum is only right for one value
+    // of `lit` — so the ground has to be told the sun moved, the same way the
+    // sky just was. Stepped on the SUN and not on the clock: see `BAKE_STEP`,
+    // which is the whole argument and the measurement behind it.
+    const step = Math.round(daylight / BAKE_STEP);
+    if (step !== this.bakedStep) {
+      this.bakedStep = step;
       this.rebakeGround();
     }
 
@@ -12878,17 +13131,38 @@ export class Scene {
     }
     if (!cells?.length || !this.storeLayout) return;
 
-    const colour = state === 'no' ? '#e2564a' : (state === 'warn' ? '#e8a33d' : '#7cc46a');
+    const look = FLOOR_GHOST[state] ?? FLOOR_GHOST.ok;
     const group = new THREE.Group();
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    for (const c of cells) {
-      const mesh = new THREE.Mesh(geo, material(colour, 0.42));
-      // Above whatever ground is already there, so the ghost reads over floor
-      // (0.06 tall) as well as over grass, and slightly inset so a rectangle
-      // shows its own grid rather than reading as one undivided sheet.
-      mesh.position.set(c.x, 0.1, c.z);
-      mesh.scale.set(0.94, 0.05, 0.94);
+    /** A flat plate: square when `turn` is null, a turned bar when it is not. */
+    const slab = (x, z, y, h, colour, alpha, w, turn = null) => {
+      const mesh = new THREE.Mesh(geo, material(colour, alpha));
+      mesh.position.set(x, y, z);
+      mesh.scale.set(w, h, turn === null ? w : GHOST_BAR);
+      if (turn !== null) mesh.rotation.y = turn;
       group.add(mesh);
+    };
+    for (const c of cells) {
+      // THE RIM, which is the half of this that is not about colour blindness at
+      // all. A green "you can build here" slab laid on grass is ΔE 2.9 from the
+      // grass in NORMAL vision — the affirmative ghost was very nearly invisible
+      // to everybody out on the farm, and only ever read indoors because the
+      // floor happens to be cream. A dark contour is the one mark that lands on
+      // any ground, and it is the language the rest of the game already draws in.
+      slab(c.x, c.z, 0.092, 0.030, GHOST_RIM, 0.55, 1.00);
+      // The fill, inset inside the rim. Slightly tighter than the old 0.94 to
+      // leave the contour somewhere to be, and still inset from the tile so a
+      // rectangle shows its own grid rather than reading as one undivided sheet.
+      slab(c.x, c.z, 0.122, 0.026, look.colour, 0.42, 0.86);
+      // ...and the MARK, which is the whole point: the state has to survive the
+      // hue going. Clean / striped / struck out is a ladder you can read in
+      // greyscale, and the two that are not clean are told apart by whether the
+      // bars are PARALLEL or CROSSED rather than by how many there are — a
+      // count is something you have to stop and take, and this is a thing you
+      // read at a glance while the pointer is moving.
+      for (const b of look.bars) {
+        slab(c.x + b.dx, c.z + b.dz, 0.150, 0.022, GHOST_RIM, 0.78, b.len, b.turn);
+      }
     }
     this.actorRoot.add(group);
     this.floorGhost = group;
@@ -13804,7 +14078,11 @@ export class Scene {
     // The icon is the bubble's own job now — it has to measure the model to fit
     // it, and two callers doing that measurement is two badges that disagree
     // about how big a tomato is.
-    const bubble = buildBubble(item.model);
+    //
+    // The one caller that is a BODY, and the only one that asks for the small
+    // size — see `BUBBLE.body`. Everything else in the game hangs its readout
+    // over a fixture.
+    const bubble = buildBubble(item.model, { body: true });
     this.readoutsDirty = true;
     rec.obj.add(bubble);
     rec.bubble = bubble;
@@ -14436,12 +14714,13 @@ export class Scene {
     }
     if (!item) return;
 
-    const bubble = buildBubble();
+    // The model goes IN rather than being added on afterwards, and that is not
+    // tidying: the goods ARE the bubble now, so an icon added by a caller is a
+    // second one beside it at a different size — this one measured a tomato at
+    // 0.42 against a shopper's 0.52, which is exactly the disagreement the
+    // builder's own note says it exists to settle.
+    const bubble = buildBubble(item.model);
     this.readoutsDirty = true;
-    const icon = buildModel(item.model, { castShadow: false });
-    icon.scale.setScalar(0.42);
-    icon.position.y = -0.14;
-    bubble.add(icon);
     bubble.position.y = bubbleY;
     // Offset the bob per fixture so a field going ripe doesn't pulse in lockstep.
     bubble.userData.phase = (rec.overlay.position.x + rec.overlay.position.z) * 0.7;
@@ -15019,7 +15298,18 @@ export class Scene {
    * the one place a shop has a dozen of them at once. What that reads as is the
    * fade working on the yard and giving up on the shop floor.
    *
-   * See `LABEL_NEAR` for why. Three things about the shape of it.
+   * See `LABEL_NEAR` for why. Four things about the shape of it.
+   *
+   * There are THREE reasons not to draw one and they multiply: how closely you
+   * are looking (`legible`), where in the shot the box is (`nearness`), and how
+   * far you would have to walk to it (`reach`). The last is the one that was
+   * missing, and the first two cannot cover for it — see `LABEL_REACH_NEAR`.
+   *
+   * And build mode draws NONE of them, which is `freeRoam` rather than a flag of
+   * its own: what is in a box is not a question you are asking while laying
+   * floor, and the same test is already the honest answer to "has the view come
+   * off the body", which is the one state in which `reach` would be measuring
+   * from somewhere nobody is looking.
    *
    * It is an OPACITY rather than a `visible` flag across the band, because a
    * caption that snapped on as you panned would read as the label popping into
@@ -15040,12 +15330,15 @@ export class Scene {
    */
   fadeCrateLabels() {
     // The zoom half is one number for the whole shop, so it is asked once and
-    // multiplied in rather than recomputed per box. Either half at zero is
-    // gone: they are two reasons not to draw a caption, not two votes.
-    const zoom = this.legible(LABEL_VIEW_FULL, LABEL_VIEW_GONE);
+    // multiplied in rather than recomputed per box. Any half at zero is gone:
+    // they are reasons not to draw a caption, not votes.
+    const zoom = this.freeRoam ? 0 : this.legible(LABEL_VIEW_FULL, LABEL_VIEW_GONE);
     const fade = (tag, at) => {
       if (!tag) return;
-      const lit = zoom && this.nearness(at.position.x, at.position.z, LABEL_NEAR, LABEL_FAR) * zoom;
+      const lit = zoom
+        && this.nearness(at.position.x, at.position.z, LABEL_NEAR, LABEL_FAR)
+        * this.reach(at.position.x, at.position.z, LABEL_REACH_NEAR, LABEL_REACH_FAR)
+        * zoom;
       tag.visible = lit > 0.02;
       if (tag.visible) tag.material.opacity = lit;
     };
@@ -15072,25 +15365,22 @@ export class Scene {
    * not because a taller wall looks wrong, but because it eats the shop. Ghost
    * the near ones and the height is free.
    *
-   * FADED RATHER THAN HIDDEN, and it was built the other way first, which is the
-   * interesting part. Taking a wall away is the obvious implementation and it
-   * makes every rule around it *finicky*: a wall that vanishes has to vanish for
-   * a reason the player can feel, so the outer faces needed a facing test, the
-   * partitions needed a per-line "is this actually between us" test, and each of
-   * those pops as you turn or walk. The cost of being wrong is the whole wall.
-   * At 15% the cost of being wrong is nothing — you can still see it is there,
-   * you can see through it, and the room keeps its shape — so the rules
-   * underneath get to be crude. That is the trade: a softer effect buys a
-   * simpler rule, and the simpler rule is what stops it feeling fussy.
+   * CUT RATHER THAN FADED, and it was a fade for a long time first, which is the
+   * interesting part. A ghost looks like the safe implementation: the cost of
+   * being wrong about a wall is nothing, because you can still see it is there
+   * and the room keeps its shape, so the rules underneath get to be crude. What
+   * it will not survive is a furnished shop. A wall is four boxes deep on one
+   * line — a body, a painted skin either side and a course of brick on each of
+   * those — and transparency compounds, so what you actually get is a milky film
+   * hanging in front of every aisle behind it, and smoked glass over anything
+   * anybody has decorated. Every attempt to make that bearable made the rules
+   * MORE finicky rather than less: a reach band so it only happened near you,
+   * which then followed you around the shop.
    *
-   * The COPING fades with it, and it was held back at first — left solid so a
-   * ghosted wall drew a hard line along its own top, on the reasoning that the
-   * plan of the shop should stay readable. In a room you have leant right into
-   * that line is not a plan, it is a solid bar hanging in the air across the
-   * thing you zoomed in on, and it reads worse than the wall did: a wall you can
-   * see through is obviously a wall, where a beam with nothing under it is
-   * obviously nothing. What makes the outline idea work in a plan view is that
-   * you can see the whole outline, and this only ever fires when you cannot.
+   * A saw has none of that. The claim a ghost was making — this wall carries on —
+   * is made better by a stub of solid masonry with a sawn coping on it, at a
+   * height it costs nothing to see over, which is the convention every set of
+   * building instructions is drawn in. See `WALL_CUT_Y`.
    *
    * Read off the camera every frame rather than baked at build, because the view
    * turns: a set of walls chosen when the shop was laid out would come straight
@@ -15098,28 +15388,22 @@ export class Scene {
    * of a decision. It is a dot product and a material compare per batch, and
    * there are a few dozen.
    *
-   * ...and only while they are actually IN THE WAY, which is TWO tests and needs
-   * both. `wallCutView` is how closely you are leant in: pulled right out you
-   * are looking at a building rather than into a room, the near walls are a
-   * tenth of the screen and hide almost nothing. `inTheWay` is WHERE you
-   * are looking, and it is the one that was missing — leant in over the middle of
-   * an empty shop floor, the far wall is still turned at you and still fades,
-   * with nothing anywhere near it, which reads as the effect firing at random
-   * because from where you are sitting it did. A wall has to be across what you
-   * are looking at, and you have to be close enough for it to matter.
+   * ...and only while you are leant in far enough for a wall to be in the way,
+   * which is `wallCutView` and is now the ONLY test: pulled right out
+   * you are looking at a building rather than into a room, the near walls are a
+   * tenth of the screen and hide almost nothing. It is a fact about the PITCH as
+   * well as the zoom, because a wall covers `h * cos(pitch)` of the frustum — see
+   * the method, which says the number for the frame rather than for the 40° it
+   * was chosen at.
    *
-   * BOTH OF THEM ARE FACTS ABOUT THE PITCH, and neither knew the pitch could
-   * move — which is the whole of what this got wrong. The paragraph above says
-   * it and then does not use it: a wall conceals `h / tan(pitch)` of floor, so
-   * every number here is written against the 40° the view opens at and drifts
-   * the moment somebody drags the camera down. `PITCH_MIN` is 3°. At 12° — an
-   * ordinary lean, looking along an aisle — a 2.1 wall hides ten tiles of shop
-   * and is nine of them from what you are looking at, so it failed a four-tile
-   * reach and stayed solid while being the only thing on screen. Tilted the
-   * other way it is the opposite mistake: from overhead a wall hides nothing
-   * and faded anyway, which is a plan view of your own shop with its plan
-   * rubbed out. Both are read off `camPitch` now, and both are still exactly
-   * their old numbers at `PITCH_HOME` — see the two methods.
+   * WHERE YOU ARE STANDING is deliberately not asked, and it used to be. There
+   * was a band round the middle of the view, so only walls near what you were
+   * looking at came down — added because a fade over a whole shop was a milky
+   * film nobody could read through, and the ration made it bearable. The ration
+   * is what you could see: half a shop cut and half of it whole is a hole rather
+   * than a plan, and the hole follows you, so walls close behind you and open in
+   * front as you walk. Once the fade became a SAW that stopped being a trade
+   * worth making. See the note in the loop for what it costs.
    *
    * Three more things about which walls qualify.
    *
@@ -15127,64 +15411,117 @@ export class Scene {
    * kind of game (the Sims calls it walls-down and has a button for it) — and it
    * goes wholesale, on the trade above. See `FACE_IN`.
    *
+   * ⚠️ A partition is symmetric, so it has no outside and no facing to test, and
+   * it therefore comes down whenever the cutaway is on at all — while the outer
+   * walls beside it come down only when they face the camera. Those two meet at
+   * CORNERS, and there the saw stops dead against a full-height wall with the
+   * coping and the door pier still standing over it. Measured on a real save at
+   * 11,5: `H 11,5` is face `in`, and `V 11,4` and `H 10,5` running into the same
+   * lattice point are `x-` and `z-`. It is a live inconsistency rather than a
+   * solved one — no direction you can give a partition resolves it, so one of
+   * the two rules has to move, and which one is a design call nobody has made.
+   *
    * A wall with NOTHING TO SAY is never touched, and telling that apart from a
    * partition is the whole of `isPartition`. Both are a zero from `outSign`, and
    * one of them is every wall in a shop whose enclosure has come down, since
    * `computeIndoor` answers zero indoor cells rather than fewer (this file's own
-   * third trap). Both-indoors fades; both-outdoors stays solid. Fold those two
-   * together and knocking one hole in a wall turns the entire building to glass.
-   *
-   * FACING IS NOT THE RULE, and it read as one for as long as this existed. The
-   * dot against `camOffset` says which side of a wall the camera is on, which
-   * stands in for "between the camera and the shop" only while the shop is the
-   * only place you ever are. Walk out to the yard and the building is between
-   * you and the camera: the wall across your view is the one whose outside
-   * points away, so it stayed solid over the crate you had walked out there to
-   * pick up, while the front of the same building faded correctly the whole
-   * time. That is the shape of the report — half the effect working. `inTheWay`
-   * already answers the honest question, and facing is now what guards its
-   * corner-lean band alone. See the note there.
+   * third trap). Both-indoors is cut; both-outdoors stays whole. Fold those two
+   * together and knocking one hole in a wall saws the entire building off.
    *
    * And FIRST PERSON keeps everything. The cutaway is a convention of the
    * overhead view — down at eye level the wall in front of you is the room.
    *
-   * A ghosted wall casts no SHADOW while it is ghosted. Glass already works this
-   * way for the same reason: three has no half-shadow (the map is a depth pass,
-   * so a part casts fully or not at all whatever its opacity), and a wall you can
-   * see straight through laying a hard black stripe across the aisle reads as a
-   * wall that is still there and a renderer that has lost track of it.
+   * ...as does the FIRST CARD OF THE TOUR, which is the same kind of exception
+   * one step further out: the opening shot is a whole building and the saw has
+   * nothing behind it anybody is trying to see. See `holdWallCut`.
+   *
+   * A cut wall casts no SHADOW above the saw, and that needs no code: three
+   * skips an invisible mesh in the depth pass as well, so the stripe a wall was
+   * laying across the aisle goes with the masonry that was laying it.
    */
   ghostNearWalls() {
     if (!this.edgeGroup) return;
     const { x, z } = this.camOffset;
-    const cut = !this.fpv && this.viewTiles() <= this.wallCutView();
+    const cut = !this.fpv && !this.wallCutHeld
+      && this.viewTiles() <= this.wallCutView();
     // The view axis on the ground, pointing TOWARD the camera, and how deep a
     // wall reaches along it — both fixed for the frame rather than per batch,
     // since a few dozen batches ask the same two questions about one camera.
     const flat = Math.hypot(x, z) || 1;
     const look = { hx: x / flat, hz: z / flat, deep: this.wallHides() };
+    // What each WALL FACE decided, before anything that merely stands on one is
+    // asked. Corners and door piers follow the masonry they cap rather than
+    // answering for themselves, and the difference is not a nicety: `inTheWay`
+    // takes a whole batch down if ANY of its cells qualifies, which is right —
+    // a batch is one face of one building and half a wall going is worse than
+    // all of it — but a corner cap is a SINGLE cell. So a run hides because one
+    // of its twelve cells is near you, and the cap on its end is judged on its
+    // own one cell, fails, and stays at full height with the wall gone from
+    // under it. Measured on shop-8: three corner caps at 2.17 still standing.
+    const byWall = new Map();
+    for (const o of this.edgeGroup.children) {
+      if (!o.userData.wall) continue;
+      const f = o.userData.outward;
+      if (!f) continue;
+      const facing = f.always || f.fx * x + f.fz * z > 0;
+      if (cut && this.inTheWay(o.userData.spots, look, facing)) byWall.set(o.userData.face, true);
+    }
+    /**
+     * What a corner's masonry follows: the walls meeting it, ORed.
+     *
+     * An axis face is its own answer. A VERTEX face is the two summed
+     * (`vertexFace`), so it resolves back to the up-to-two axis faces it was
+     * made of — and either of them going takes the corner with it, because a
+     * coping bridging a wall that has gone and one that has not is a beam with
+     * one end in mid-air.
+     */
+    const follows = (face) => {
+      if (!face) return false;
+      if (!face.includes(',')) return byWall.get(face) ?? false;
+      const [fx, fz] = face.split(',').map(Number);
+      return (fx ? byWall.get(`x${fx > 0 ? '+' : '-'}`) : false)
+        || (fz ? byWall.get(`z${fz > 0 ? '+' : '-'}`) : false) || false;
+    };
     for (const o of this.edgeGroup.children) {
       const f = o.userData.outward;
-      if (!f || !o.userData.hue) continue;
+      if (!f) continue;
       // Which side of the wall the CAMERA is on. It is no longer a veto — see
       // `inTheWay`, which now asks it only of the walls standing BEHIND what you
       // are looking at.
-      const facing = f.always || f.fx * x + f.fz * z > 0;
-      const ghost = cut && this.inTheWay(o.userData.spots, look, facing);
-      // `material` is a cache keyed by colour and alpha, so both of these are
-      // shared objects that already exist — this is an identity compare and an
-      // assignment, never an allocation. Writing `.opacity` instead is the trap
-      // named all over this file: that field belongs to every prop in the game
-      // painted the same colour.
-      const want = material(o.userData.hue, ghost ? WALL_GHOST : (o.userData.alpha ?? 1));
-      if (o.material === want) continue;
-      o.material = want;
-      // Its OWN flag back, remembered the first time it is touched rather than
-      // re-derived from the alpha. A coping never cast one, and a batch handed
-      // "opaque, therefore casts" would start laying a shadow it has not laid
-      // since the shop was built — a fade that leaves something DARKER behind it.
-      o.userData.cast ??= o.castShadow;
-      o.castShadow = !ghost && o.userData.cast;
+      // NOTHING answers for itself. Every piece of masonry takes the answer its
+      // FACE came to, which is the only granularity at which this can be right.
+      //
+      // A batch is not a wall. One face of a building is a plain run, a doorway,
+      // that doorway's frame, a window, a coping over each, a pier at every
+      // jamb and a cap at each end — a dozen batches, each with its own cells,
+      // each asked separately whether it was near enough to what you were
+      // looking at. They disagree constantly, and every disagreement draws as
+      // masonry hanging in mid-air: the wall gone with its door frame still
+      // standing, a coping the length of the run with nothing under it, a corner
+      // cap on the end of a wall that has been cut away.
+      //
+      // Asked once per face, a frontage is one thing that goes or stays. There
+      // is no seam left for two batches to fall either side of, because there is
+      // only one answer to fall on.
+      const ghost = follows(o.userData.face);
+      // The cut FACE, which exists only while there is a cut: shown rather than
+      // faded, and never touched for material.
+      if (o.userData.sawCap) { o.visible = ghost; continue; }
+      // TAKEN AWAY rather than faded, which is the half of the cut the saw made
+      // redundant. A wall is not one layer — a body, a painted skin either side
+      // and a course of brick on each of those is four boxes deep on one line,
+      // and transparency compounds — so a ghost is never the clean hint it reads
+      // as on paper: over a furnished shop it is a milky film hanging in front of
+      // every aisle behind it, and over a painted wall it is smoked glass. What
+      // it was buying is the claim that the wall carries on, and the stub and its
+      // sawn coping make that claim better, in solid masonry, at the one height
+      // where it costs nothing to see over.
+      //
+      // Nothing needs putting back but the flag: an invisible mesh is skipped by
+      // the shadow pass as well, so a cut wall stops laying its stripe across the
+      // aisle without being asked.
+      if (o.visible === !ghost) continue;
+      o.visible = !ghost;
     }
   }
 
@@ -15198,6 +15535,27 @@ export class Scene {
    */
   nearness(x, z, near, far) {
     const d = Math.hypot(x - this.camLook.x, z - this.camLook.z);
+    return d <= near ? 1 : Math.max(0, (far - d) / (far - near));
+  }
+
+  /**
+   * The same band measured off the PLAYER rather than off the middle of the
+   * view, for readouts that answer "what is in the one I walked up to".
+   *
+   * Not a second spelling of `nearness`: they are two different questions that
+   * happen to agree most of the time, because the camera is chained to the body
+   * with a 14-tile leash. Where they part is the case this exists for — lean in
+   * on the far end of the shop and the view centre is right on top of a yard you
+   * are nowhere near, so zoom and `nearness` both say yes about thirty boxes you
+   * would have to walk to. That is what a caption should not answer.
+   *
+   * `camTarget` is the player's DRAWN position (see `trackEye`), which is the
+   * right one and not merely the convenient one: it is re-derived from the mesh
+   * once a frame including in free roam, so it means "where the body is" rather
+   * than "where the view is parked".
+   */
+  reach(x, z, near, far) {
+    const d = Math.hypot(x - this.camTarget.x, z - this.camTarget.z);
     return d <= near ? 1 : Math.max(0, (far - d) / (far - near));
   }
 
@@ -15251,6 +15609,7 @@ export class Scene {
   wallCutView() {
     return WALL_CUT_VIEW * (Math.cos(this.camPitch) / Math.cos(PITCH_HOME));
   }
+
 
   /**
    * Is any of these cells standing between the middle of the view and the
@@ -15427,7 +15786,21 @@ export class Scene {
     // so a lawn paused for a minute snaps to a new lean the moment you unpause.
     // Exactly the argument `animateStations` makes about a blade, and here it is
     // about the other kind of blade.
-    if (!this.paused) WIND_CLOCK.value += dt * WIND_SPEED;
+    // ...and `calm()` is the second thing that stops it, for a different reason
+    // that lands in the same place. The lawn is the largest moving surface in
+    // the game and the only one out at the edge of vision, which is where a
+    // vestibular trigger does its work — and unlike every other moving thing in
+    // the shop it says NOTHING: a blade of grass leaning is not a fact anybody
+    // reads. So it is the one loop that can be switched off whole without
+    // taking information with it, which is `calm`'s own test for a caller.
+    //
+    // Stopping the CLOCK rather than the shader: the lean is a sine of this
+    // value, so a frozen clock is every blade held at the angle it had, which
+    // is a still lawn rather than a lawn snapping upright. Same trick the pause
+    // above plays, and it means the shader, the uniform and the material cache
+    // are untouched — nothing has to be rebuilt when somebody changes the
+    // setting mid-session, which is exactly when they will.
+    if (!this.paused && !calm()) WIND_CLOCK.value += dt * WIND_SPEED;
     // Everybody on foot. Per frame for the reason vehicles are — see
     // `ACTOR_CHASE`, which is that reason arriving for people the day the shop
     // stopped being on the same machine as the screen.
@@ -16223,8 +16596,12 @@ const BELT_CRATE = 1;
  *
  * It is measured off `camLook` (the centre of the view) rather than off the
  * player, because what the label answers is "what is in that one", and the one
- * you mean is the one you are looking at — build mode flies the view away from
- * the body entirely.
+ * you mean is the one you are looking at. That is still the whole of what THIS
+ * band is for and it is no longer the whole rule: `LABEL_REACH_NEAR` is the
+ * second radius, off the body, and it is the one that says how far you would
+ * have to walk. The case that used to argue against ever measuring from the
+ * player — build mode flying the view off the body — is answered by not drawing
+ * captions there at all. See `fadeCrateLabels`.
  *
  * It is a WORLD radius, and on its own it does NOT answer zoom — which is what
  * the first cut of this got wrong, and the reason is arithmetic rather than
@@ -16239,6 +16616,43 @@ const LABEL_NEAR = 4.5;
 const LABEL_FAR = 7.5;
 
 /**
+ * ...and the same band measured off the PLAYER, which is the half the paragraph
+ * above argues its way out of and then needs anyway.
+ *
+ * The argument there is sound about which crate you MEAN — the one you are
+ * looking at — and it quietly answers a different question from the one a
+ * caption is for. Zoom says how closely you are looking and `LABEL_NEAR` says
+ * where in the shot, and neither of them says how far away the box actually is:
+ * lean in on the yard from the far side of the shop and every one of thirty
+ * boxes passes both tests, which is the wall of overlapping captions the whole
+ * fade exists to prevent, arriving through the one door left open.
+ *
+ * Its own pair rather than reusing `LABEL_NEAR`/`LABEL_FAR`, because they are
+ * bands on different things and want tuning apart — which they immediately did,
+ * twice, and both times in the same direction. That one is "near the middle of
+ * the shot"; this one is "near enough to touch it", and it is anchored on the
+ * gesture rather than on the room. It is TIGHTER than `UNLOAD_REACH` (1.8), and
+ * that is the whole of what was wrong with every wider number tried: a caption
+ * is not a label on a thing you might go to, it is the answer to a box you are
+ * standing at. Anything that reaches the next box along is a yard shouting at
+ * you, which is the wall of overlapping text this fade exists to prevent — and
+ * the band from 4.5 down to here was all still that, just less of it.
+ *
+ * A one-tile band rather than the three the others get, because the whole radius
+ * is only 1.5: proportionally it is the same easing, and it still rules out the
+ * snap `fadeCrateLabels` opens by refusing.
+ *
+ * The reason this could not be written before is build mode, which is exactly
+ * what the paragraph above names: the view flies off the body entirely, so the
+ * player is nowhere near what you are looking at and every caption in the shop
+ * would go out. `fadeCrateLabels` drops the lot there instead — what is in a box
+ * is not a question you are asking while laying floor — and with that case gone,
+ * the body is a fair thing to measure from everywhere else.
+ */
+const LABEL_REACH_NEAR = 1.5;
+const LABEL_REACH_FAR = 2.5;
+
+/**
  * ...and the half that DOES answer zoom, in tiles of view height — full while
  * the view is shorter than the first, gone once it is taller than the second.
  *
@@ -16249,9 +16663,18 @@ const LABEL_FAR = 7.5;
  * radius could ever have said this. `FRUSTUM / zoom` is that number said the way
  * a person would say it: how much shop is on screen top to bottom.
  *
- * The zoom the game opens at shows about 11.7 tiles, and the report this came
- * from is a screenshot at roughly that — so a caption has to be most of the way
- * gone there and back at a glance the moment you lean in. 8 and 12.
+ * The zoom the game opens at shows about 11.7 tiles. This pair was 8 and 12,
+ * chosen so a caption was most of the way GONE there — and that was the right
+ * answer to the wrong question, because at the time zoom was the only thing
+ * doing any work. `LABEL_REACH_NEAR` is what the tightness was actually for: at
+ * 1.5 tiles off the body only the box you are standing at ever says anything,
+ * however far out the view is, so crowding cannot come back through this door.
+ *
+ * Which leaves zoom answering the one thing it was always the honest measure of
+ * — whether the text is big enough to READ — and nothing else. So it opens
+ * right out: 14 and 22, so the opening view is fully lit rather than nearly
+ * gone, and a caption survives being pulled back a good way past it before there
+ * is genuinely nothing left to read.
  *
  * A bubble had its own, WIDER pair on the argument that it is a picture rather
  * than a word, it survives being small, and finding the one bare shelf in a room
@@ -16263,8 +16686,8 @@ const LABEL_FAR = 7.5;
  * the opening zoom (~11.7 tiles) shows none of it and one notch in shows all of
  * it, which is the "lean in and ask" the fade is for.
  */
-const LABEL_VIEW_FULL = 8;
-const LABEL_VIEW_GONE = 12;
+const LABEL_VIEW_FULL = 14;
+const LABEL_VIEW_GONE = 22;
 const BUBBLE_VIEW_FULL = 8;
 const BUBBLE_VIEW_GONE = 11;
 
@@ -16281,17 +16704,42 @@ const BUBBLE_VIEW_GONE = 11;
  * view height you are close enough that a wall genuinely is the thing in front
  * of what you came in to look at.
  *
- * It is the weaker of the two tests and always was: zoom says how closely you
- * are looking and says nothing at all about WHAT, so on its own it fades the
- * walls of a room you are nowhere near. `WALL_GHOST_REACH` is the other half.
+ * It is the ONLY test now beside which way a wall faces, and that is deliberate
+ * — see `ghostNearWalls`. It was the weaker of two while there was a reach band
+ * beside it, on the reasoning that zoom says how closely you are looking and
+ * nothing at all about WHAT. True, and the answer turned out to be that the
+ * cutaway should not care: a shop half cut is worse than a shop cut.
  *
- * Quoted at `PITCH_HOME`, which is where 5 was chosen and was the unstated half
+ * Quoted at `PITCH_HOME`, which is where it was chosen and was the unstated half
  * of it: what this is really a threshold on is how much of the SCREEN a wall
  * takes, and a wall covers `h * cos(pitch)` of the frustum. See `wallCutView`,
  * which says the same number for the pitch actually being drawn.
+ *
+ * It was 5 for as long as the cutaway was a FADE, and the two numbers belong to
+ * each other: a whole building turning to smoke as you touch the wheel reads as
+ * the shop falling apart, so it had to wait until you were nose-first against a
+ * shelf — which is three notches past the zoom the game opens at and most of the
+ * range you actually play in. A sawn wall is not that picture. A stub with the
+ * rest ghosted over it is still a building, still your paint and still your
+ * shopfront, so it can happen while the shop is a shop rather than only once it
+ * is a shelf. See `WALL_CUT_Y`.
  */
-const WALL_CUT_VIEW = 5;
+const WALL_CUT_VIEW = 9.5;
 
+/**
+ * Where a wall is sawn through while the cutaway is on, in tiles.
+ *
+ * `WALL_H` is 2.1 and a wall hides `h / tan(pitch)` of the floor behind it — the
+ * arithmetic, and the reason the walls could never grow without this. Below the
+ * cut a wall stays solid whatever the camera is doing, and that stub is the
+ * whole difference between a cutaway and a shop with its walls deleted: the plan
+ * still reads, the skirting still meets the floor, and the ink still has a
+ * contour to draw. Above it is what goes.
+ *
+ * Under the lowest board of everything that stands against a wall — the counter
+ * line is 0.745 — so the stub hides no stock. Anything higher and the point of
+ * cutting is given back one shelf at a time.
+ */
 /**
  * How much of a wall is left when it is being seen through.
  *
@@ -16302,6 +16750,21 @@ const WALL_CUT_VIEW = 5;
  * painted one from being a pane of smoked glass.
  */
 const WALL_GHOST = 0.15;
+
+const WALL_CUT_Y = 0.52;
+
+/**
+ * How far the sawn edge wanders either side of `WALL_CUT_Y`.
+ *
+ * A cut is a claim that the wall CARRIES ON and has been broken away for you,
+ * which is the convention every set of building instructions is drawn in, and a
+ * dead flat line makes the opposite claim — that the wall is simply short. One
+ * tooth per cell, alternating, because the pitch is what decides whether any of
+ * this reads: finer than about a tile and the teeth are a few pixels at play
+ * zoom, which lands as bad art rather than as a tear. It costs no geometry at
+ * all — the split has to pick a height per cell either way, so it picks two.
+ */
+const WALL_CUT_TOOTH = 0.13;
 
 /**
  * How near the middle of the view a wall has to be before it counts as being in

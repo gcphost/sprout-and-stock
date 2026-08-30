@@ -19,6 +19,23 @@
  * the same sweep — and two cards on top of each other is one card you never
  * see. They are shown one at a time with a count of what is still to come.
  *
+ * **...and it WAITS for a gap.** The card is raised by the shop's clock, so the
+ * one thing it cannot do is arrive at a moment the player chose — and the
+ * moment it lands in is very often the middle of a build: a tool armed, a ghost
+ * on the floor, the press already decided on. `dropGesture` covers the gesture
+ * that was in flight, and covering it is the wrong ending anyway; what you
+ * wanted was the shelf. So `busy` (main.js `awardBusy`) holds the card back
+ * until nothing is in flight AND nothing has been pressed for a beat, and the
+ * beat is longer while the build bar is up, because aiming the next piece looks
+ * exactly like doing nothing. Nothing is lost by waiting: the money, the town
+ * and the crates are banked by the server on the tick it was earned, the log
+ * has its line and the sting has already played. The card is the congratulation
+ * and a congratulation can hold.
+ *
+ * The wait is only ever in front of the FIRST card of a run — `dismiss` shows
+ * the next one straight away, because by then the player is reading cards and
+ * "3 more to come" is a promise the card itself made.
+ *
  * **The medal hangs off the top.** It is `position: absolute` above the card
  * rather than inside it, over a band of gold and a sunburst that turns. That is
  * the whole visual argument: everything else in this HUD is a cream panel with
@@ -31,6 +48,15 @@ import { money } from './money.js';
 import { SUPPORT_URL, SUPPORT_LABEL, awardSupport } from './links.js';
 import { opensAt } from '../shared/reveal.js';
 
+/**
+ * How often to ask whether the player has stopped, in ms.
+ *
+ * Well under the shortest quiet window main.js asks for, or the card would land
+ * up to a poll late — which on a gap the player has already started to fill is
+ * the interruption this exists to remove, arriving a beat behind.
+ */
+const POLL = 200;
+
 export class Award {
   /**
    * `takeInput` is what to do to a gesture that is already in flight — see
@@ -42,12 +68,16 @@ export class Award {
    * it belongs to the canvas, which is main.js's. A default of nothing keeps
    * this constructible from a sweep.
    */
-  constructor(ui, el, takeInput = () => {}) {
+  constructor(ui, el, takeInput = () => {}, busy = () => false) {
     this.ui = ui;
     this.el = el;
     this.takeInput = takeInput;
+    this.busy = busy;
     this.queue = [];
     this.showing = null;
+    // The poll that watches for the gap. Only ever running while something is
+    // waiting to be shown, so an idle shop costs nothing at all.
+    this.timer = null;
     // Whether the clock was already stopped when the first card went up. Held
     // across the whole run of them: pausing per card would hand the world back
     // between two awards that arrived together.
@@ -99,10 +129,46 @@ export class Award {
 
   get open() { return this.showing !== null; }
 
+  /**
+   * A card is up, OR one is waiting for the player to stop.
+   *
+   * The question anything that wants to open its own overlay has to ask, which
+   * is `Tutor.maybeLesson` and nothing else. `open` alone was the whole answer
+   * while a card went up the tick it was earned; now there is a gap between
+   * earning it and showing it, and a lesson that started in that gap would be
+   * covered over by the award a second later — which is the one thing the
+   * tutor's guard exists to prevent, arriving through the door this change
+   * opened.
+   */
+  get waiting() { return this.open || this.queue.length > 0; }
+
   /** One announcement off the wire. */
   push(won) {
     this.queue.push(won);
-    if (!this.open) this.next();
+    this.poke();
+  }
+
+  /**
+   * Is now a good moment? Asked on arrival and then every `POLL` until it is.
+   *
+   * The interval rather than the frame loop, because this is the one overlay
+   * that is not driven by anything the player did — main.js's loop would be a
+   * second place that has to remember to ask, and it would ask sixty times a
+   * second to answer a question that changes about once.
+   */
+  poke() {
+    if (this.open) return;
+    if (!this.queue.length) { this.hold(false); return; }
+    if (this.busy()) { this.hold(true); return; }
+    this.hold(false);
+    this.next();
+  }
+
+  /** Start or stop the poll. Idempotent, so `poke` can call it either way. */
+  hold(on) {
+    if (on === !!this.timer) return;
+    if (on) this.timer = setInterval(() => this.poke(), POLL);
+    else { clearInterval(this.timer); this.timer = null; }
   }
 
   next() {
@@ -173,6 +239,7 @@ export class Award {
   }
 
   close() {
+    this.hold(false);
     this.el.classList.remove('show');
     this.el.hidden = true;
     this.showing = null;

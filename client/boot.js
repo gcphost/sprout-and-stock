@@ -72,9 +72,26 @@ export function bootHide() {
   root.hidden = true;
 }
 
-/** The shop is up. */
+/**
+ * The shop is up — and by the time this runs it is genuinely up, which it was
+ * not for the whole life of this screen.
+ *
+ * It used to be called the moment the socket joined, three messages before
+ * there was anything to uncover, so what it revealed was an empty sky under a
+ * HUD reading `Day 1 · $0.00` for about half a second before the real shop
+ * arrived over the top of it. The wait is `stepReveal` in client/main.js; this
+ * end only has to get out of the way nicely.
+ *
+ * Faded rather than cut, and then REMOVED rather than left at zero: it covers
+ * the whole viewport, and an invisible sheet over the shop is a shop you cannot
+ * click. The timer is the belt to that brace — `prefers-reduced-motion` takes
+ * the transition away (see index.html), and a transition that never runs never
+ * fires the event. Removing twice is a no-op, so both paths can simply fire.
+ */
 export function bootDone() {
-  root.remove();
+  root.classList.add('done');
+  root.addEventListener('transitionend', () => root.remove(), { once: true });
+  setTimeout(() => root.remove(), 600);
 }
 
 /**

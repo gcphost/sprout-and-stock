@@ -39,7 +39,7 @@ import { showFixture, ONE_AT_A_TIME } from './fixture-menu.js';
 import { wireDrag, restorePos } from './panel-drag.js';
 import { wireCorner } from './corner.js';
 import { artForVariant, artForModel, artForWorker } from './thumb.js';
-import { rciHtml, cashflowHtml } from './hud-meters.js';
+import { rciHtml, cashflowHtml, gauge, GAUGE_TONE } from './hud-meters.js';
 import { footfallShown, setFootfallShown } from './footfall.js';
 import { money } from './money.js';
 import { opensAt } from '../shared/reveal.js';
@@ -4407,19 +4407,26 @@ export class UI {
      * back to the gentle 0.35 for a server that predates the field, which keeps
      * a stale tab honest rather than colourless.
      */
-    const rep = state.reputation ?? 0;
-    const settle = state.repSettle ?? 0.35;
-    this.el.rep.style.width = `${Math.round(rep * 100)}%`;
-    this.el.rep.style.background = rep >= 0.5 ? 'var(--good)'
-      : rep > settle ? 'var(--warn)' : 'var(--accent)';
+    /**
+     * ...and all six of those thresholds moved into `gauge` (client/hud-meters.js)
+     * the day something other than a bar wanted them.
+     *
+     * The tutor's `gauge-*` lessons fire on a bar going amber, which is only
+     * honest while it is the SAME amber — two copies of six numbers drift, and
+     * the drift ships as a card explaining a bar that is still green. The
+     * argument for each number is where it always was, in the comment above
+     * this method; what is here now is the drawing.
+     */
+    const rep = gauge('rep', state);
+    this.el.rep.style.width = `${Math.round(rep.v * 100)}%`;
+    this.el.rep.style.background = GAUGE_TONE[rep.tone];
 
-    const mood = state.mood ?? 1;
-    this.el.mood.style.width = `${Math.round(mood * 100)}%`;
-    this.el.mood.style.background = mood >= 0.5 ? 'var(--good)'
-      : mood >= 0.2 ? 'var(--warn)' : 'var(--accent)';
+    const mood = gauge('mood', state);
+    this.el.mood.style.width = `${Math.round(mood.v * 100)}%`;
+    this.el.mood.style.background = GAUGE_TONE[mood.tone];
 
-    const room = Math.max(0, Math.min(1, 1 - (state.occupancy ?? 0) / (state.turnAwayAt ?? 1.35)));
-    const shut = room <= 0;
+    const { v: room, tone } = gauge('room', state);
+    const shut = tone === 'shut';
     // Out of room, the bar has nothing left to say with length — a 0%-wide bar
     // is just an empty track, and an empty track is what "no data" looks like.
     // So it fills instead and pulses: not a quantity any more, an alarm.
@@ -4429,9 +4436,7 @@ export class UI {
     // that went amber somewhere the shop was still fine is a warning you learn
     // to ignore.
     this.el.full.style.width = shut ? '100%' : `${Math.round(room * 100)}%`;
-    this.el.full.style.background = shut ? 'var(--accent)'
-      : room >= 0.48 ? 'var(--good)'
-        : room >= 0.25 ? 'var(--warn)' : 'var(--accent)';
+    this.el.full.style.background = GAUGE_TONE[tone];
     this.el.full.classList.toggle('shut', shut);
   }
 
@@ -5066,12 +5071,10 @@ export class UI {
       // Half of these rows have to be HELD, and a long press on a control is
       // also how a browser is asked for its own menu — so the gesture the pill
       // is built around is the one gesture that puts Chrome's context menu over
-      // it, mid-ring. The canvas has refused this since the first fixture menu
-      // (see `contextmenu` in client/main.js); the pill is the second surface in
-      // the game where a press is measured in how long it lasts, so it refuses
-      // it for exactly the same reason. `touch-action` and the callout are the
-      // other two halves and live in the stylesheet, on the rows.
-      this.el.prompt.addEventListener('contextmenu', (e) => e.preventDefault());
+      // it, mid-ring. That refusal is document-wide now (`contextmenu` in
+      // client/main.js, which spells out the two exceptions), so the pill needs
+      // nothing of its own; `touch-action` and the callout are the other two
+      // halves and live in the stylesheet, on the rows.
       // `pointerdown` and NOT `click`, which is the whole of what makes a held
       // row a hold: a click fires on release, so holding the button did nothing
       // until you let go and then behaved exactly like a tap. Firing on the way

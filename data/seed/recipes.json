@@ -1,5 +1,23 @@
 [
   {
+    "id": "bacon-melt-recipe",
+    "name": "Bacon Melt",
+    "station": "sandwich-press",
+    "inputs": [
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "bacon",
+        "qty": 1
+      }
+    ],
+    "output_id": "bacon-melt",
+    "output_qty": 2,
+    "minutes": 5
+  },
+  {
     "id": "bacon-recipe",
     "name": "Bacon Rashers",
     "station": "butcher",
@@ -58,6 +76,24 @@
     "minutes": 5
   },
   {
+    "id": "battered-fish-recipe",
+    "name": "Battered Fish",
+    "station": "deep-fryer",
+    "inputs": [
+      {
+        "item_id": "white-fish",
+        "qty": 1
+      },
+      {
+        "item_id": "batter",
+        "qty": 1
+      }
+    ],
+    "output_id": "battered-fish",
+    "output_qty": 2,
+    "minutes": 6
+  },
+  {
     "id": "beans-recipe",
     "name": "Tinned Beans",
     "station": "preserving-pot",
@@ -74,6 +110,42 @@
     "output_id": "tinned-beans",
     "output_qty": 5,
     "minutes": 14
+  },
+  {
+    "id": "beans-toast-recipe",
+    "name": "Beans on Toast",
+    "station": "toaster",
+    "inputs": [
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "tinned-beans",
+        "qty": 1
+      }
+    ],
+    "output_id": "beans-on-toast",
+    "output_qty": 3,
+    "minutes": 8
+  },
+  {
+    "id": "berry-cordial-recipe",
+    "name": "Berry Cordial",
+    "station": "juicer",
+    "inputs": [
+      {
+        "item_id": "berries",
+        "qty": 1
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      }
+    ],
+    "output_id": "berry-cordial",
+    "output_qty": 3,
+    "minutes": 4
   },
   {
     "id": "berry-swirl-recipe",
@@ -108,6 +180,20 @@
     "minutes": 10
   },
   {
+    "id": "breadcrumbs-recipe",
+    "name": "Breadcrumbs",
+    "station": "mill",
+    "inputs": [
+      {
+        "item_id": "bread",
+        "qty": 1
+      }
+    ],
+    "output_id": "breadcrumbs",
+    "output_qty": 3,
+    "minutes": 5
+  },
+  {
     "id": "butter-recipe",
     "name": "Churned Butter",
     "station": "churn",
@@ -120,6 +206,50 @@
     "output_id": "butter",
     "output_qty": 3,
     "minutes": 10
+  },
+  {
+    "id": "caramel-frappe-recipe",
+    "name": "Caramel Frappe",
+    "station": "coffee-machine",
+    "inputs": [
+      {
+        "item_id": "coffee",
+        "qty": 1
+      },
+      {
+        "item_id": "milk",
+        "qty": 1
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      },
+      {
+        "item_id": "ice-cream",
+        "qty": 1
+      }
+    ],
+    "output_id": "caramel-frappe",
+    "output_qty": 3,
+    "minutes": 3
+  },
+  {
+    "id": "carrot-juice-recipe",
+    "name": "Carrot & Apple Juice",
+    "station": "juicer",
+    "inputs": [
+      {
+        "item_id": "carrot",
+        "qty": 2
+      },
+      {
+        "item_id": "apple",
+        "qty": 1
+      }
+    ],
+    "output_id": "carrot-juice",
+    "output_qty": 2,
+    "minutes": 3
   },
   {
     "id": "cereal-recipe",
@@ -158,6 +288,68 @@
     "minutes": 20
   },
   {
+    "id": "chilli-cheese-melt-recipe",
+    "name": "Chilli Cheese Melt",
+    "station": "sandwich-press",
+    "inputs": [
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "cheese",
+        "qty": 1
+      },
+      {
+        "item_id": "chilli",
+        "qty": 1
+      }
+    ],
+    "output_id": "chilli-cheese-melt",
+    "output_qty": 2,
+    "minutes": 5
+  },
+  {
+    "id": "chilli-con-carne-recipe",
+    "name": "Chilli con Carne",
+    "station": "stock-pot",
+    "inputs": [
+      {
+        "item_id": "mince",
+        "qty": 1
+      },
+      {
+        "item_id": "tinned-beans",
+        "qty": 1
+      },
+      {
+        "item_id": "chilli",
+        "qty": 1
+      },
+      {
+        "item_id": "stock",
+        "qty": 1
+      }
+    ],
+    "output_id": "chilli-con-carne",
+    "output_qty": 3,
+    "minutes": 14
+  },
+  {
+    "id": "chilli-powder-recipe",
+    "name": "Chilli Powder",
+    "station": "mill",
+    "inputs": [
+      {
+        "item_id": "chilli",
+        "qty": 3
+      }
+    ],
+    "output_id": "chilli-powder",
+    "output_qty": 4,
+    "minutes": 6
+  },
+  {
     "id": "chocolate-box-recipe",
     "name": "Box of Chocolates",
     "station": "candy-kettle",
@@ -174,6 +366,24 @@
     "output_id": "chocolate-box",
     "output_qty": 2,
     "minutes": 14
+  },
+  {
+    "id": "chocolate-panini-recipe",
+    "name": "Chocolate Panini",
+    "station": "sandwich-press",
+    "inputs": [
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "chocolate",
+        "qty": 1
+      }
+    ],
+    "output_id": "chocolate-panini",
+    "output_qty": 2,
+    "minutes": 5
   },
   {
     "id": "chocolate-recipe",
@@ -196,6 +406,24 @@
     "output_id": "chocolate",
     "output_qty": 3,
     "minutes": 12
+  },
+  {
+    "id": "churros-recipe",
+    "name": "Churros",
+    "station": "deep-fryer",
+    "inputs": [
+      {
+        "item_id": "dough",
+        "qty": 1
+      },
+      {
+        "item_id": "sugar",
+        "qty": 1
+      }
+    ],
+    "output_id": "churros",
+    "output_qty": 4,
+    "minutes": 5
   },
   {
     "id": "cider-recipe",
@@ -336,6 +564,20 @@
     "output_id": "doughnuts",
     "output_qty": 5,
     "minutes": 8
+  },
+  {
+    "id": "espresso-recipe",
+    "name": "Espresso",
+    "station": "coffee-machine",
+    "inputs": [
+      {
+        "item_id": "coffee",
+        "qty": 1
+      }
+    ],
+    "output_id": "espresso",
+    "output_qty": 3,
+    "minutes": 2
   },
   {
     "id": "fish-fingers-recipe",
@@ -572,6 +814,28 @@
     "minutes": 14
   },
   {
+    "id": "green-smoothie-recipe",
+    "name": "Green Smoothie",
+    "station": "blender",
+    "inputs": [
+      {
+        "item_id": "kale",
+        "qty": 1
+      },
+      {
+        "item_id": "apple",
+        "qty": 1
+      },
+      {
+        "item_id": "lettuce",
+        "qty": 1
+      }
+    ],
+    "output_id": "green-smoothie",
+    "output_qty": 2,
+    "minutes": 3
+  },
+  {
     "id": "gummy-recipe",
     "name": "Gummy Bears",
     "station": "candy-kettle",
@@ -588,6 +852,24 @@
     "output_id": "gummy-bears",
     "output_qty": 5,
     "minutes": 10
+  },
+  {
+    "id": "honey-toast-recipe",
+    "name": "Honey on Toast",
+    "station": "toaster",
+    "inputs": [
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "honey",
+        "qty": 1
+      }
+    ],
+    "output_id": "honey-on-toast",
+    "output_qty": 3,
+    "minutes": 8
   },
   {
     "id": "hot-chips-recipe",
@@ -796,6 +1078,28 @@
     "minutes": 8
   },
   {
+    "id": "milkshake-recipe",
+    "name": "Milkshake",
+    "station": "blender",
+    "inputs": [
+      {
+        "item_id": "milk",
+        "qty": 1
+      },
+      {
+        "item_id": "ice-cream",
+        "qty": 1
+      },
+      {
+        "item_id": "berries",
+        "qty": 1
+      }
+    ],
+    "output_id": "milkshake",
+    "output_qty": 3,
+    "minutes": 3
+  },
+  {
     "id": "mince-pies-recipe",
     "name": "Mince Pies",
     "station": "oven",
@@ -830,6 +1134,28 @@
     "output_id": "mince",
     "output_qty": 3,
     "minutes": 8
+  },
+  {
+    "id": "mocha-recipe",
+    "name": "Mocha",
+    "station": "coffee-machine",
+    "inputs": [
+      {
+        "item_id": "coffee",
+        "qty": 1
+      },
+      {
+        "item_id": "cocoa-powder",
+        "qty": 1
+      },
+      {
+        "item_id": "milk",
+        "qty": 1
+      }
+    ],
+    "output_id": "mocha",
+    "output_qty": 3,
+    "minutes": 3
   },
   {
     "id": "mustard-recipe",
@@ -924,6 +1250,24 @@
     "output_id": "pastry",
     "output_qty": 4,
     "minutes": 7
+  },
+  {
+    "id": "peanut-butter-recipe",
+    "name": "Peanut Butter",
+    "station": "mill",
+    "inputs": [
+      {
+        "item_id": "groundnuts",
+        "qty": 2
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "peanut-butter",
+    "output_qty": 3,
+    "minutes": 6
   },
   {
     "id": "peanuts-recipe",
@@ -1022,6 +1366,24 @@
     "output_id": "protein-bar",
     "output_qty": 4,
     "minutes": 10
+  },
+  {
+    "id": "protein-shake-recipe",
+    "name": "Protein Shake",
+    "station": "blender",
+    "inputs": [
+      {
+        "item_id": "milk",
+        "qty": 1
+      },
+      {
+        "item_id": "protein-bar",
+        "qty": 1
+      }
+    ],
+    "output_id": "protein-shake",
+    "output_qty": 2,
+    "minutes": 3
   },
   {
     "id": "rice-cakes-recipe",
@@ -1266,6 +1628,28 @@
     "minutes": 10
   },
   {
+    "id": "sundae-recipe",
+    "name": "Chocolate Sundae",
+    "station": "soft-serve",
+    "inputs": [
+      {
+        "item_id": "ice-cream",
+        "qty": 1
+      },
+      {
+        "item_id": "chocolate",
+        "qty": 1
+      },
+      {
+        "item_id": "berries",
+        "qty": 1
+      }
+    ],
+    "output_id": "sundae",
+    "output_qty": 3,
+    "minutes": 4
+  },
+  {
     "id": "tinned-soup-recipe",
     "name": "Tinned Soup",
     "station": "preserving-pot",
@@ -1302,6 +1686,42 @@
     "minutes": 8
   },
   {
+    "id": "toasted-bagel-recipe",
+    "name": "Toasted Bagel",
+    "station": "toaster",
+    "inputs": [
+      {
+        "item_id": "rainbow-bagel",
+        "qty": 1
+      },
+      {
+        "item_id": "butter",
+        "qty": 1
+      }
+    ],
+    "output_id": "toasted-bagel",
+    "output_qty": 2,
+    "minutes": 6
+  },
+  {
+    "id": "toasted-sourdough-recipe",
+    "name": "Toasted Sourdough",
+    "station": "toaster",
+    "inputs": [
+      {
+        "item_id": "sourdough",
+        "qty": 1
+      },
+      {
+        "item_id": "butter",
+        "qty": 1
+      }
+    ],
+    "output_id": "toasted-sourdough",
+    "output_qty": 3,
+    "minutes": 6
+  },
+  {
     "id": "toastie-recipe",
     "name": "Cheese Toastie",
     "station": "sandwich-press",
@@ -1318,6 +1738,24 @@
     "output_id": "toastie",
     "output_qty": 4,
     "minutes": 7
+  },
+  {
+    "id": "tomato-juice-recipe",
+    "name": "Tomato Juice",
+    "station": "juicer",
+    "inputs": [
+      {
+        "item_id": "tomato",
+        "qty": 2
+      },
+      {
+        "item_id": "salt",
+        "qty": 1
+      }
+    ],
+    "output_id": "tomato-juice",
+    "output_qty": 2,
+    "minutes": 3
   },
   {
     "id": "turkey-carvery-recipe",
@@ -1386,5 +1824,45 @@
     "output_id": "veg-skewers",
     "output_qty": 3,
     "minutes": 9
+  },
+  {
+    "id": "veggie-panini-recipe",
+    "name": "Veggie Panini",
+    "station": "sandwich-press",
+    "inputs": [
+      {
+        "item_id": "bread",
+        "qty": 1
+      },
+      {
+        "item_id": "tomato",
+        "qty": 1
+      },
+      {
+        "item_id": "lettuce",
+        "qty": 1
+      }
+    ],
+    "output_id": "veggie-panini",
+    "output_qty": 2,
+    "minutes": 5
+  },
+  {
+    "id": "yoghurt-recipe",
+    "name": "Yoghurt",
+    "station": "churn",
+    "inputs": [
+      {
+        "item_id": "milk",
+        "qty": 2
+      },
+      {
+        "item_id": "dairy-culture",
+        "qty": 1
+      }
+    ],
+    "output_id": "yoghurt",
+    "output_qty": 4,
+    "minutes": 10
   }
 ]

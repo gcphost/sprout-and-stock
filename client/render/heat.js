@@ -71,15 +71,51 @@ const CUT = 0.06;
  * That pair is the worst there is for a red-green colourblind reader — CLAUDE.md
  * records it costing the Shop report a contrast pass — and this is a readout
  * with no words on it at all, so the colour is doing every bit of the work. A
- * blue → teal → yellow ramp separates on lightness as well as on hue, which
- * means it still reads as a gradient in greyscale, and alpha climbs with it so
- * quiet ground stays quiet instead of being painted navy.
+ * blue → teal → lime → ember ramp separates on lightness as well as on hue,
+ * which means it still reads as a gradient in greyscale, and alpha climbs with
+ * it so quiet ground stays quiet instead of being painted navy.
+ *
+ * The ember at the top is red-ish and that is not the pair being avoided: what
+ * makes green-against-red unreadable is two colours of the SAME lightness on
+ * opposite sides of one axis. Here the hot end is dark, saturated and nearly
+ * opaque against a pale wash, so the separation survives every kind of vision —
+ * see the note on `RAMP` for the numbers and for why lightness had to go DOWN.
+ */
+/**
+ * ...and the top of it has to be measured as PIXELS rather than as hexes, which
+ * is where the amber that used to sit at 1.00 came unstuck.
+ *
+ * `#f2b133` against the `#a8c04a` below it is ΔE 24 in the palette, which reads
+ * as a comfortable step and is not the number anybody sees: every stop is laid
+ * over the ground at its own alpha, and both of these are washes over a cream
+ * floor, so what actually reached the screen was **ΔE 5.3** — and 3.1 over
+ * grass. The two hottest stops were one colour for everybody, and to a
+ * protanope the top third of the scale was flat (2.5 on the raw hexes, worse
+ * composited). What that reads as is an overlay that works until you look for
+ * the busiest aisle, which is the only reason you opened it.
+ *
+ * Lightness cannot fix it here, and that is the counter-intuitive half. The
+ * ground is light, so a *lighter* hot end moves TOWARD the background: `#ffdd8e`
+ * scores better than the amber on the raw hexes (ΔE 10.8 vs 2.5) and worse on
+ * the pixels (5.0), because compositing eats exactly the lightness you added.
+ * So the hot end goes darker and more saturated, and takes most of its
+ * separation from ALPHA — which is the one axis no colour blindness touches.
+ *
+ * Measured over both grounds, warm→hot: 5.3 → 21.6 on floor, 3.1 → 15.9 on
+ * grass. The lower half is untouched.
+ *
+ * KNOWN AND LEFT ALONE: cold→mid is 2.3 over floor and 1.4 over grass, in
+ * NORMAL vision — the bottom two stops are one wash. That is arguably the
+ * `CUT` promise working ("quiet ground stays quiet instead of being painted
+ * navy") rather than a bug, so it is a decision rather than an oversight, and
+ * it is written down here so the next person measures it rather than
+ * rediscovering it.
  */
 const RAMP = [
   { at: 0.00, rgb: [0x3b, 0x51, 0x8b], a: 0.20 },
   { at: 0.35, rgb: [0x2a, 0x91, 0x8c], a: 0.36 },
   { at: 0.65, rgb: [0xa8, 0xc0, 0x4a], a: 0.50 },
-  { at: 1.00, rgb: [0xf2, 0xb1, 0x33], a: 0.66 },
+  { at: 1.00, rgb: [0xc9, 0x46, 0x1f], a: 0.92 },
 ];
 
 function rampAt(t) {

@@ -75,7 +75,9 @@
 import { Game } from '../server/sim/index.js';
 import { writeContent, content } from '../server/content.js';
 import { remove } from '../server/db.js';
-import { padCells, isPad, isGround, GROUND_KINDS } from '../shared/build.js';
+import {
+  padCells, isPad, isGround, GROUND_KINDS, canPlace, canPaintGround,
+} from '../shared/build.js';
 import { findPath } from '../server/sim/pathing.js';
 import { T } from '../shared/tiles.js';
 import { modelExtent } from '../shared/model.js';
@@ -147,12 +149,19 @@ function fresh() {
   g.edits = [];
   g.ground = [];
   g.yardStamped = false;
+  // The `fresh()` trap in its second form, and this file is where it bites:
+  // `g.ground = []` above throws away the road round the outside that
+  // `Game.create` had just laid, so a sweep that did not put the mark back would
+  // re-stamp the yard onto a world with no ring in it — and section 7 asserts
+  // about that ring. See `freezeRing`.
+  g.ringPaved = false;
   g.shell = null;
   g.ownedUpgrades = [];
   g.roster = [];
   g.regenerateLayout(null, {}, { want: SHOP });
   g.freezeShell();
   g.freezeYard();
+  g.freezeRing();
   g.cash = 100000;
   g.addPlayer('me', 'Tester');
   g.players.me.build = { on: true };
@@ -428,7 +437,7 @@ const freeAt = (g, c) => {
 }
 
 // ---------------------------------------------------------------------------
-// 7. The road is a preference, and the border ring is not yours to paint.
+// 7. The road is a preference, and the border ring is a road you own.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -440,11 +449,51 @@ const freeAt = (g, c) => {
   const before = JSON.stringify(g.layout.vanRoute);
   check(g.layout.vanRoute != null, 'a shop with no road still has a lane for the van', before);
 
-  // The ring itself is the world's. Every build tool refuses row 0, which means
-  // the leg ALONG the border can never be tarmac — what you paint is the drive
-  // from that road to your yard. See docs/deliveries.md step 6.
+  /**
+   * THE RING IS TARMAC, AND IT IS YOURS — which is this section's claim
+   * inverted, and the inversion is the point rather than a relaxation.
+   *
+   * It read `check(!ring.ok, 'the border ring cannot be painted')`, and the
+   * argument behind it was true and invisible: the leg ALONG the border is how
+   * every lorry and every shopper's car reaches the edge of the map, so the ring
+   * is the public road and what you paint is the drive out to it. Nothing on
+   * screen ever said so. What a player sees is one square of ordinary lawn all
+   * the way round that the brush refuses, with the world's own seeded road and
+   * pavement stopping a square before it — which reads as a bug, and was
+   * reported as one.
+   *
+   * So it is paved by `freezeRing` and paintable by everybody, and this is the
+   * pair that makes that mean something. Fixtures and walls are untouched, which
+   * is what keeps a lorry's way clear: nothing anybody BUILDS can stand on it.
+   */
+  const paved = g.layout.ground.filter((f) => (
+    f.z === 0 || f.x === 0 || f.z === g.layout.h - 1 || f.x === g.layout.w - 1
+  ));
+  eq(paved.length, 2 * (g.layout.w + g.layout.h) - 4, 'the whole ring is laid as ground');
+  check(paved.every((f) => f.k === 'road'), 'and every square of it is road');
+
   const ring = g.buildGround('me', { x: 4, z: 0, piece: 'verify-park-road-a', to: { x: 6, z: 0 } });
-  check(!ring.ok, 'the border ring cannot be painted', ring.error ?? 'it was');
+  check(ring.ok, 'the border ring is yours to paint', ring.error ?? '');
+  check(!canPlace(g.layout, { kind: 'shelf', x: 4, z: 0, rot: 0 }).ok,
+    'and nothing you BUILD may stand on it — which is what keeps the lorry a lane');
+
+  /**
+   * ...and the one brush that can take the lane away says so first.
+   *
+   * A break area and a paddock are walkable and NOT drivable (`DRIVABLE`), so
+   * they are the two strokes that can put a hole in the road round the outside.
+   * Warned rather than refused, because it is your land and a paddock along the
+   * boundary is a reasonable thing to want — the same call `canPlace` makes
+   * about walling your own shelf in. Its control is the pair: laying road over
+   * the same square says nothing at all, or the warning fires whatever you do
+   * and is a warning nobody reads.
+   */
+  const blocks = canPaintGround(g.layout, [{ x: 8, z: 0 }], 'paddock', 'verify-park-pad');
+  check(blocks.ok, 'a paddock across the ring is allowed');
+  check(/road round the outside/.test(blocks.warn ?? ''),
+    'and warns that it blocks the road vans and cars drive on', blocks.warn ?? 'no warning');
+  const fine = canPaintGround(g.layout, [{ x: 8, z: 0 }], 'road', 'verify-park-road-a');
+  check(fine.ok && !fine.warn, 'while road over the same square warns about nothing', fine.warn ?? '');
 
   // A drive out of the west side of the bay. Longer in tiles than the lane the
   // van already takes and cheaper in road, which is the whole mechanic.

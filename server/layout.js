@@ -22,7 +22,7 @@
  */
 
 import { makeRng } from '../shared/rng.js';
-import { T, WALKABLE } from '../shared/tiles.js';
+import { T, WALKABLE, DRIVABLE } from '../shared/tiles.js';
 import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
@@ -1926,8 +1926,11 @@ const VAN_OFF = 8;
  * outdoor going: grass, the path, an outdoor floor somebody paved, the road,
  * and the three pads, which are the one kind of ground whose whole job is that
  * things arrive on them.
+ *
+ * It MOVED to `shared/tiles.js` when the border ring became paintable — this
+ * file is still its main reader, and the brush is now its second one. See the
+ * note there.
  */
-const DRIVABLE = new Set([T.GRASS, T.PATH, T.FLOOR, T.BAY, T.DROP, T.PARK, T.ROAD]);
 
 /**
  * What a cell costs to drive over, and the only thing `T.ROAD` does.
@@ -1990,12 +1993,36 @@ function laneFinder(L) {
     return DRIVABLE.has(L.tiles[i]) && !L.blocked[i] && !L.indoor[i];
   };
 
-  // What one cell of driving costs. The road's entire mechanism — see
-  // `ROAD_COST`. Read off `tiles` rather than off the ground overlay, because
-  // which DESIGN of road you painted is a look and this is not: two roads of
-  // different colours must steer a van identically, the same claim
-  // `verify:floor` makes about floors.
-  const cellCost = (x, z) => (L.tiles[z * L.w + x] === T.ROAD ? ROAD_COST : OFF_ROAD_COST);
+  /**
+   * What one cell of driving costs. The road's entire mechanism — see
+   * `ROAD_COST`. Read off `tiles` rather than off the ground overlay, because
+   * which DESIGN of road you painted is a look and this is not: two roads of
+   * different colours must steer a van identically, the same claim
+   * `verify:floor` makes about floors.
+   *
+   * ...EXCEPT ON THE RING, WHICH IS NOT A CHOICE — and that exception is the
+   * whole of what keeps a driveway worth painting.
+   *
+   * Every candidate lane ends the same way: out to the border and then along it,
+   * off the map. The spur is the part you can steer, and the ring leg is the
+   * part you cannot — nobody gets to skip it. For as long as the ring was grass
+   * nothing had to say so, because it was grass for everybody. The day it became
+   * paintable (and paved by `freezeRing`, so it is tarmac on every save) that
+   * stopped being true, and the effect was not that the ring got a bit cheaper:
+   * halving the compulsory leg makes the SHORTEST way round the border dominate
+   * the comparison, and it drowns out the drive. Measured on the sweep's own
+   * shop: a drive west out of the bay beat the short hop north 21 to 28, and
+   * with a paved ring it lost 17 to 16 — so the van ignored a road the player
+   * had just laid, and there is nothing on screen anywhere to say why.
+   *
+   * So the ring is priced as the public road it is: one flat rate, whatever
+   * anybody paints on it. Which is also what keeps every existing lane exactly
+   * where it is — the rate is what the ring has always cost.
+   */
+  const onRing = (x, z) => x === 0 || z === 0 || x === L.w - 1 || z === L.h - 1;
+  const cellCost = (x, z) => (
+    !onRing(x, z) && L.tiles[z * L.w + x] === T.ROAD ? ROAD_COST : OFF_ROAD_COST
+  );
 
   // Straight out of `b` until the world runs out. Null if anything is in the
   // way — there is no going round, that is the point.
@@ -2286,11 +2313,12 @@ export function defaultPads(L) {
  * Three claims, and the third is the one that makes it worth seeding rather
  * than leaving to the palette:
  *
- * - **The seed may only lay ground the player could lay.** `canPaintGround`
- *   refuses the border ring, so the road is the bottom *paintable* row rather
- *   than the map edge. A street you can only delete three quarters of is worse
- *   than no street, because it looks like it worked — the lesson the first
- *   version of the yard cost.
+ * - **The seed may only lay ground the player could lay.** A street you can only
+ *   delete three quarters of is worse than no street, because it looks like it
+ *   worked — the lesson the first version of the yard cost. This used to bound
+ *   the road to the bottom *paintable* row, one short of the map edge, because
+ *   `canPaintGround` refused the border ring; the ring is paintable now, so the
+ *   rule is unchanged and its answer moved out by one.
  * - **It is ground, so it is yours.** Move it, widen it, tear it out, pave the
  *   whole forecourt. Nothing here is a rule; the road prefers itself to the
  *   grass and the pavement does the same for feet, and both of those are
@@ -2308,20 +2336,32 @@ export function defaultPads(L) {
 export function defaultStreet(L) {
   const out = [];
   const lay = (x, z, kind) => {
-    if (x < 1 || z < 1 || x >= L.w - 1 || z >= L.h - 1) return;
+    if (x < 0 || z < 0 || x >= L.w || z >= L.h) return;
     if (L.tiles[z * L.w + x] !== T.GRASS) return;
     out.push({ x, z, k: kind, p: null });
   };
 
-  // The bottom paintable rows, all the way across: the road, then the pavement
-  // between it and the shop. `ROAD_THICK` rather than a 2 written here, because
-  // the brush lays that many and a seeded road narrower than a drawn one would
-  // be the world shipping something the player cannot reproduce — the yard's
-  // rule about laying only what the player could lay, said about width.
-  const walkZ = L.h - 2 - ROAD_THICK;
-  for (let x = 1; x < L.w - 1; x++) {
-    for (let d = 0; d < ROAD_THICK; d++) lay(x, L.h - 2 - d, 'road');
-    lay(x, walkZ, 'path');
+  // The bottom rows, all the way across: the road, then the pavement between it
+  // and the shop. `ROAD_THICK` rather than a 2 written here, because the brush
+  // lays that many and a seeded road narrower than a drawn one would be the
+  // world shipping something the player cannot reproduce — the yard's rule
+  // about laying only what the player could lay, said about width.
+  //
+  // It starts at the LAST row rather than the last paintable one, which is the
+  // first bullet above said the other way round now that the ring is paintable.
+  // It used to stop a square short of the world on all four sides, and the grass
+  // strip that left is exactly what this change is for: the road and the
+  // pavement now run to the edge, and `defaultRing` carries the tarmac round
+  // the other three sides.
+  const walkZ = L.h - 1 - ROAD_THICK;
+  for (let x = 0; x < L.w; x++) {
+    for (let d = 0; d < ROAD_THICK; d++) lay(x, L.h - 1 - d, 'road');
+    // The pavement stops at the ring where the road does not, and the asymmetry
+    // is the point: the bottom row IS the road round the outside, so tarmac
+    // there is continuous with it, while a paving slab in the two side columns
+    // is a notch cut out of that road at each corner. The frontage is the shop's
+    // and the ring is the town's.
+    if (x > 0 && x < L.w - 1) lay(x, walkZ, 'path');
   }
 
   // ...and the walk up to the door, which meets the strip the generator lays
@@ -2330,6 +2370,56 @@ export function defaultStreet(L) {
     lay(L.door.x, z, 'path');
     lay(L.door.x + 1, z, 'path');
   }
+  return out;
+}
+
+/**
+ * The road round the outside — the border ring, drawn as the thing it is.
+ *
+ * The ring is where every lorry and every shopper's car reaches the edge of the
+ * map: `laneVia` runs a spur straight out of the shop to it and then a leg
+ * ALONG it, off the world. That has been true since vehicles existed, and
+ * nothing on screen has ever said so. What you saw was a one-square strip of
+ * ordinary lawn that the floor brush refused, with your own seeded road and
+ * pavement stopping a square before it — which reads as a bug, and was reported
+ * as one.
+ *
+ * So it is tarmac. Three things about that.
+ *
+ * **It is paint, not a rule.** These are ordinary `road` ground cells: yours,
+ * removable, repaintable, priced at nothing because you are being handed a
+ * picture of something that was already there. The ring is not special-cased in
+ * the renderer and there is no third state between "the shop's ground" and
+ * "outside the world" — the alternative was drawing it in code, which is
+ * exactly the trap `defaultAwning` and `defaultPads` were pulled out of.
+ *
+ * **A road is a preference and never a permission** (`GROUND.road`, `ROAD_COST`),
+ * so this cannot open or close a lane. What it can do is make the ring cheap to
+ * drive on, which is a *tie-break*: a shop whose van used to leave by the
+ * nearest border may now leave by a slightly further one. That is a lane
+ * moving, not a lane going away, and `vanRoute` is recomputed every re-flow
+ * anyway — nothing is stored against the old one.
+ *
+ * **Its own mark, unlike the frontage.** `freezeYard` folds the yard and the
+ * street into one stamp precisely so an existing shop does not wake up with a
+ * road through its lawn — and this is the case that argument does not cover,
+ * because every shop in existence has that mark set already and every one of
+ * them is looking at the bare strip this fixes. So `freezeRing` has its own
+ * boolean, exactly as `freezeAwning` does, and pays out once to old saves and
+ * new alike.
+ *
+ * Only over grass, like every other seed here: a shop that has painted its own
+ * road, pavement or paddock out to the boundary keeps what it painted.
+ */
+export function defaultRing(L) {
+  const out = [];
+  const lay = (x, z) => {
+    if (L.tiles[z * L.w + x] !== T.GRASS) return;
+    out.push({ x, z, k: 'road', p: null });
+  };
+  for (let x = 0; x < L.w; x++) { lay(x, 0); lay(x, L.h - 1); }
+  // The corners are already done, which is what the bounds here are about.
+  for (let z = 1; z < L.h - 1; z++) { lay(0, z); lay(L.w - 1, z); }
   return out;
 }
 

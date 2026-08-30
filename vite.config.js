@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import fs from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -10,8 +11,48 @@ import path from 'node:path';
  */
 const LOCAL = process.env.VITE_SNS_LOCAL === '1';
 
+/**
+ * THE LINK CARD'S PICTURE, emitted at a name that never changes.
+ *
+ * `client/favicon.svg` gets into the build by being referenced from a `<link>`,
+ * which Vite rewrites to a content-hashed name — and that is exactly what an
+ * `og:image` may not be. Two reasons, and each one alone is enough. Vite does
+ * not rewrite `meta[content]` at all (it transforms `href`/`src` on a known set
+ * of tags, which `<meta>` is not in), so a relative path in there ships to
+ * Discord as the literal string. And an unfurler is not a browser sitting on
+ * the page: it fetches the URL it is given from somewhere else entirely, so the
+ * tag has to carry a whole absolute `https://…` that has to be *known while the
+ * HTML is being written* — which a hash decided at bundle time is not.
+ *
+ * So it is emitted by hand at `og.png`. `emitFile` rather than turning
+ * `publicDir` back on, because a static folder is a second way for a file to
+ * reach the build and this project deliberately has none — see the favicon
+ * comment in client/index.html, which is the same decision written from the
+ * other end.
+ *
+ * It is only ever read by something else's crawler, so nothing on the page
+ * imports it and nothing would notice it going missing. `SITE` in
+ * client/index.html is the other half; the two have to agree on the filename.
+ */
+function ogImage() {
+  const src = path.resolve(import.meta.dirname, 'client/og.png');
+  return {
+    name: 'sns-og-image',
+    // `buildStart` and not `generateBundle`: a missing file should fail the
+    // build at the top rather than after everything else has been written.
+    buildStart() {
+      if (!fs.existsSync(src)) {
+        this.warn(`no ${path.relative(import.meta.dirname, src)} — link previews will have no picture`);
+        return;
+      }
+      this.emitFile({ type: 'asset', fileName: 'og.png', source: fs.readFileSync(src) });
+    },
+  };
+}
+
 export default defineConfig({
   root: 'client',
+  plugins: [ogImage()],
   publicDir: false,
   /**
    * `.env` lives at the repo root, not next to the client.

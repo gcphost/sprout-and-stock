@@ -83,6 +83,21 @@ export const TAG_LABELS = {
   junk: 'junk food',
   healthy: 'something healthy',
   cheap: 'a bargain',
+  // The departments that name a SHOP rather than the goods in it, which is a
+  // second way of misreading and the one `inDepartment` brought in. Both
+  // existing readers are "they came in for ___" sentences, so "they came in for
+  // bakery" was already the wrong half of the word; a shelf refusing a loaf
+  // with "this is only for bakery" is the same wrong half said to somebody
+  // holding the thing. The ones that already name the goods — `meat`, `dairy`,
+  // `frozen` — are left alone, because the fallback is the tag and a label that
+  // only restates it is a row somebody has to keep in step for nothing.
+  bakery: 'bread and cakes',
+  beverage: 'drinks',
+  snack: 'snacks',
+  prepared: 'ready meals',
+  candy: 'sweets',
+  condiment: 'sauces and spreads',
+  pantry: 'cupboard food',
 };
 
 /** How to say a tag out loud. Itself, unless it misreads — see `TAG_LABELS`. */
@@ -305,6 +320,65 @@ export function homeKind(item) {
  */
 export function holds(kind, item) {
   return homeKind(item) === kind;
+}
+
+/**
+ * Which departments a PIECE is built for — its category tags, and nothing else.
+ *
+ * `holds` is the same shape one axis over, and the pair is worth reading
+ * together. That one is a fact about the *kind*: three kinds of shelving, a
+ * closed set in `BUILD_KINDS`, and cold is a thing the sim does to goods. This
+ * is a fact about the *piece*, which is content — so a Bakery and a Deli are
+ * two rows somebody authored, and locking one to bread is a tag rather than a
+ * new kind. That is the whole reason it can exist at all: `kind` had no room
+ * for a fourth answer, and `tags` has room for twelve.
+ *
+ * The `category` group and nothing else, deliberately. Every tag on a piece is
+ * fair game for something — `decor` files a planter under Greenery, and the
+ * palette reads it — so a rule that took *any* tag would make a lamp tagged
+ * `lamp` a unit that holds only items tagged `lamp`, which is nothing. Reading
+ * one named group is what keeps a piece's tags a list rather than a switch
+ * whose other settings are booby traps. It is also the group `DEPARTMENTS`
+ * already names, which is the demand meter's channel set — so the shelf you
+ * built for produce is filed under the bar that tells you how much produce you
+ * have, and the two cannot drift.
+ *
+ * **Empty means anything**, which is the assertion that decides whether any of
+ * this is opt-in: every `fixtures` row in every save carries `tags: []` today,
+ * so a catalogue nobody has authored departments onto is exactly the catalogue
+ * it is now. A piece is locked by somebody adding a word to it, never by
+ * default, and never by a migration.
+ *
+ * SEVERAL is an or, not an and. A Deli tagged `meat` and `dairy` is a counter
+ * that takes both, which is what a deli counter is; asking an item to carry
+ * every department a unit names would make the second tag a way of emptying the
+ * unit, and nothing anybody authored would mean what it looked like.
+ */
+export function departmentsOf(piece) {
+  const tags = piece?.tags;
+  if (!tags?.length) return [];
+  return DEPARTMENTS.filter((d) => tags.includes(d));
+}
+
+/**
+ * May a unit built for these departments carry this item?
+ *
+ * Everybody's rule — the buyer choosing a range, the crew with an armful, and
+ * your own hands — which is the answer to the one question this feature had.
+ * `holds` went two-way for a reason that applies here word for word: a crate is
+ * mixed and `pourInto` empties it pile by pile, so a box of bread and salsa
+ * tipped into a bakery case with a loose rule puts the salsa on a board and
+ * leaves the bread in the box. There is no ordering that says "and then stop".
+ *
+ * It takes the PIECE rather than a precomputed list because the caller that
+ * cares about the walk (`shelvesFor`, asked per pile per worker per tick) is
+ * already resolving a piece per shelf for `shelfBoards`, so this rides along on
+ * a lookup that was happening anyway.
+ */
+export function inDepartment(piece, item) {
+  const want = departmentsOf(piece);
+  if (!want.length) return true;
+  return want.some((d) => item?.tags?.includes(d));
 }
 
 /** How many shelf slots one stack of this item occupies. */

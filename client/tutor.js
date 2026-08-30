@@ -79,6 +79,11 @@ import {
   artForPiece, artForGround, artForCrate, artForWorker,
 } from './thumb.js';
 import { ICONS } from './icons.js';
+// The bars' own judgement of themselves — see `gauge`. Imported rather than
+// restated, or a card explains a bar that is still green. No cycle: this file
+// is imported by `sections.js`, and `hud-meters.js` reaches for nothing but
+// `shared/tags.js` and `money.js`.
+import { gauge } from './hud-meters.js';
 import { pieceOffered, toolRevealed } from '../shared/reveal.js';
 import { T } from '../shared/tiles.js';
 
@@ -362,10 +367,20 @@ function artOfUnit(t, unit) {
  */
 const atUnit = (unit, y) => ({ world: unit, y, fixture: unit?.id ?? null });
 
-/** The nearest crate of stock on the floor — the one the marker should point at. */
+/**
+ * The nearest crate of stock on the floor — the one the marker should point at.
+ *
+ * `waste` and not `rubbish`, and it was spelled the second way from the day it
+ * was written. The flag on the wire is `waste` (see `deliveries` in `snapshot`,
+ * where it rides only when true), so the filter matched nothing and the tour's
+ * "go and pick up the box" beat would happily ring a bin bag — with a card
+ * beside it about the delivery that has just arrived. Invisible in every shop
+ * without a skip, which is every shop the tour has ever run in, because rot
+ * only becomes a box if you own one.
+ */
 function nearestCrate(t) {
   const me = meOf(t);
-  const crates = (t.state?.deliveries ?? []).filter((d) => !d.rubbish && lotSize(d) > 0);
+  const crates = (t.state?.deliveries ?? []).filter((d) => !d.waste && lotSize(d) > 0);
   if (!crates.length) return null;
   if (!me) return crates[0];
   return crates.slice().sort((a, b) => dist(a, me) - dist(b, me))[0];
@@ -1099,7 +1114,12 @@ const STEPS = [
      */
     say: (t) => {
       const c = nearestCrate(t);
-      if (!c) return 'Van is on its way. Crates get left on the pad round the back.';
+      // WAITING. Nothing to press, so the card stops giving instructions and
+      // says what is happening and where to watch it — the first draft here was
+      // "Van is on its way. Crates get left on the pad round the back", which is
+      // two facts and no address, on the one beat where the player is sitting
+      // still with nothing to do.
+      if (!c) return 'Waiting for your delivery.';
       if (!atIt(t, c)) {
         return perInput('Click the crate. You walk over and pick the whole box up.',
           'Tap the crate. You walk over and pick the whole box up.');
@@ -1116,7 +1136,35 @@ const STEPS = [
         'Right next to it, it happens there and then. Tap something further '
           + 'off and you walk over first. A box holds far more than your arms.',
       )
-      : 'Somebody has to carry it in off the pad. Today that is you.'),
+      /**
+       * WAITING, AND IT NAMES NO KEY.
+       *
+       * This said "Press [[B]] for the Supplier to see where your van is", and
+       * on the one beat with nothing to do it handed out homework: a key to
+       * learn, a panel to open, and a list to read, for an answer the button
+       * itself is already drawing. The well is a live copy of that button (see
+       * `at` below), so the honest card is a caption for the picture already in
+       * front of them — the gold count and the ring that wraps it — and no
+       * press at all.
+       *
+       * `perInput` would say the same words twice: nothing here is a click, a
+       * tap or a key.
+       */
+      : 'The ring round the Supplier button fills as the van gets nearer.'),
+    /**
+     * ...and while it is waiting, the well shows the two things the sentence
+     * names — the button to watch the order on, and the pad the crates land on.
+     *
+     * `mock` rather than `art`, which is the mechanism rather than a
+     * preference: `art` is painted once when the step opens (see `paint`), so a
+     * picture chosen on "is there a crate yet" would still be the pad twenty
+     * seconds after the van arrived. `mockAt` is called from `place` on every
+     * snapshot, so it is the one half of the card's picture that can walk with
+     * the sentence — which is exactly what a two-phase beat needs.
+     */
+    at: (t) => (nearestCrate(t)
+      ? { world: nearestCrate(t), y: CRATE_Y }
+      : { mock: '[data-rail="stock"]' }),
     // The box itself, drawn from the same numbers and colours the one on the
     // floor is built from (`artForCrate`). The thing IS marked in the shop, so
     // this is the one case the header's "a second picture would be a diagram of
@@ -1128,8 +1176,19 @@ const STEPS = [
     // value there is the drab colourway, and what the card drew was a crate of
     // rubbish over a sentence about the delivery you are being sent to fetch.
     art: () => artForCrate(),
+    // ...and the pad the box will be standing on, drawn from the brush's own
+    // swatch. Under the words rather than in the well, because the well is the
+    // crate — this is a footnote saying WHERE, the way the arrow key is a
+    // footnote saying which.
+    // ...and it says a different thing on each side of the wait, for the reason
+    // `at` and `say` do. While the van is out the list is about the button in
+    // the well — what the gold number counts — and once the box is on the pad
+    // that row has answered itself and goes, leaving the one line that is still
+    // true: where deliveries land.
+    legend: (t) => (nearestCrate(t) ? '' : iconRow(ICONS.supplier,
+      'The gold number is how many are coming.'))
+      + iconRow(ICONS.crate, 'Every delivery lands on the pad round the back.'),
     arm(t) { t.ui.toggleBuild?.(false, { quiet: true }); t.ui.showBar(null); },
-    at: (t) => ({ world: nearestCrate(t), y: CRATE_Y }),
     // Nobody's fault and nothing to press. Without this the card reads as an
     // instruction you are failing, and the stranded-timer offers to skip the
     // one beat the whole tour is building up to.
@@ -1185,18 +1244,25 @@ const STEPS = [
   {
     id: 'menu',
     kicker: 'Shelves',
-    say: 'Press and hold on that shelf to open its menu.',
-    // A hold is the other half of every press in the game and nothing on screen
-    // says so. It is the only way to reach what a thing can DO, and a player
-    // who never finds it never prices anything, never sets a shelf aside and
-    // never sells a fixture back.
-    hint: () => perInput(
-      'A click uses a thing. Holding the button opens what it can do. That '
-        + 'is true of every shelf, crate, machine and doorway in the shop.',
-      'A tap picks a thing out and lists what it can do along the bottom. '
-        + 'Holding opens the whole menu — every shelf, crate, machine and '
-        + 'doorway in the shop has one.',
-    ),
+    say: 'Press and HOLD on the marked shelf.',
+    /**
+     * A hold is the other half of every press in the game and nothing on screen
+     * says so. A player who never finds it never prices anything, never sets a
+     * shelf aside and never sells a fixture back.
+     *
+     * NAME WHAT IS INSIDE. This said "holding opens what it can do", which is
+     * a description of a menu rather than a reason to open one — and it spent
+     * its last clause on where else the gesture works, which is a fact for
+     * later and not an answer to "why am I holding this button". The contrast
+     * is the useful half: a quick press already does something else, so the
+     * card has to say which press is which.
+     */
+    hint: 'Inside: the price, what it is kept for, moving it, selling it back.',
+    // The two presses DRAWN rather than contrasted in prose — see `pressRow`.
+    legend: () => pressRow(false, perInput('A quick click takes one thing off it.',
+      'A quick tap lists what it can do.'))
+      + pressRow(true, perInput('Holding opens the shelf itself.',
+        'Holding opens the shelf itself.')),
     art: (t) => artOfUnit(t, anyShelf(t)),
     at: (t) => atUnit(anyShelf(t), SHELF_Y),
     done(t) { return t.ui.openPanel === 'fixture'; },
@@ -1287,14 +1353,21 @@ const STEPS = [
      * money at all, and `done` is the panel being up rather than the roster
      * having grown.
      */
+    /**
+     * THE NAME ON SCREEN AND THE KEY, which "open the crew strip" was neither.
+     *
+     * There is no "crew strip" anywhere in the game — the section is called
+     * **Crew** and it is on [[H]] (`client/sections.js`). A card that invents a
+     * name for a thing sends somebody hunting for a word that is not there, and
+     * the hint under it was three lines of what a hire IS, which is not the
+     * question anybody has while looking for a button.
+     */
     say: (t) => (t.ui.bar === 'staff'
-      ? perInput('Click their tile to open them up.', 'Tap their tile to open them up.')
-      : 'You are not doing all that yourself. Open the crew strip.'),
+      ? perInput('Click your robot to open them up.', 'Tap your robot to open them up.')
+      : perInput('Press [[H]] to open your Crew.', 'Press Crew on the right.')),
     hint: (t) => (t.ui.bar === 'staff'
-      ? 'The shop came with a hand. They serve, they fill shelves, they work '
-        + 'the beds — and the lease comes off the takings every morning.'
-      : 'Everyone here is a machine you lease. This is where you take on more '
-        + 'of them, and where you look at the ones you have.'),
+      ? 'The shop came with one. They serve, fill shelves and work the beds.'
+      : 'Everyone who works here is a robot you lease by the day.'),
     // ...and the card shows the button it is naming, which is the half a
     // sentence cannot carry to somebody who has never seen the HUD — see
     // `mockOf`. The mock walks with the phase, because the sentence does.
@@ -1342,15 +1415,15 @@ const STEPS = [
           ? 'They have a point spare. Add it to a job you want more of.'
           : 'Move a point around. Take one off a job they will not be doing.';
       }
-      if (t.ui.bar !== 'staff') return 'Open the crew strip again — the robot icon.';
-      return perInput('Open them up — click their tile on the strip.',
-        'Open them up — tap their tile on the strip.');
+      // The section's own name and key, for the `hire` beat's reason.
+      if (t.ui.bar !== 'staff') return perInput('Press [[H]] for your Crew again.', 'Press Crew on the right again.');
+      return perInput('Click your robot to open them up.',
+        'Tap your robot to open them up.');
     },
     hint: (t) => (t.ui.openPanel === 'worker'
-      ? 'Each number is a share of their day. The total is capped, so adding to '
-        + 'one takes from another. A greyed-out + means that job is already full.'
-      : 'You choose what they spend the day on: the till, putting stock out, '
-        + 'sweeping up, the beds.'),
+      ? 'Press + on a job to give it more of their day. The total is capped, so '
+        + 'one job goes up and another comes down.'
+      : 'You choose what they spend the day on — the till, stock, sweeping, the beds.'),
     // The whole list, never the Serve `+`. That button goes dead the moment the
     // shift is full — which on a fresh clerk it usually already is — so a hole
     // cut round it is a hole round a button that cannot be pressed, with the
@@ -1412,20 +1485,34 @@ const STEPS = [
       // helper exists for — and the shop turns it to face a wall by itself
       // (`faceAlong`), which is what makes the later fix a fix rather than a
       // chore.
-      return perInput(
-        // The wheel is NOT mentioned, and that is a fix rather than a saving:
-        // it turns what is in your HANDS (`ui.holding` — a unit you picked up
-        // to move), and off the bar it goes on zooming, because the palette is
-        // a mode you sit in for minutes and the view still has to move while
-        // you are in it. The card said the wheel turned an armed tile, which is
-        // a press that does something else — the green-ghost bug in a sentence.
-        '[[R]] turns it before you place it. Green means it fits. Amber means it '
-          + 'fits but will block something, and the shop lets you do it anyway.',
-        'It turns its back to a wall on its own. The round button by the bar '
-          + 'turns it a quarter at a time before you place it. Green means it '
-          + 'fits. Amber means it fits but will block something, and the shop '
-          + 'lets you do it anyway.',
-      );
+      // The three things the ghost is telling you are a LIST — see `legend`
+      // below. What is left in the words is the one that is not a colour.
+      return 'It turns its back to a wall on its own.';
+    },
+    /**
+     * WHAT THE GHOST IS SAYING, one line each.
+     *
+     * This was a paragraph — "[[R]] turns it before you place it, green means
+     * it fits, amber means it fits but will block something" — three separate
+     * facts about a picture the player is looking at right now, in a shape that
+     * makes you match a word to a colour from memory. Two of the three ARE
+     * colours, so they are drawn (`swatchRow`), and the gold square nothing
+     * anywhere explains gets a line of its own: it is the side people have to
+     * stand on to use the thing, which is the single most useful mark on screen
+     * while you are deciding where a shelf goes.
+     *
+     * The wheel is deliberately absent, and that is a fix rather than a saving:
+     * it turns what is in your HANDS (`ui.holding`), and off the bar it goes on
+     * zooming. The card used to say the wheel turned an armed tile, which is a
+     * press that does something else — the green-ghost bug in a sentence.
+     */
+    legend: (t) => {
+      if (t.ui.toolId?.() !== cheapestFreezer(t)?.id) return null;
+      return iconRow(ICONS.rotate, perInput('[[R]] turns it before you place it.',
+        'The round turn button beside the bar turns it.'))
+        + swatchRow('#ffd66b', 'The gold square is where people stand to use it.')
+        + swatchRow('#7cc46a', 'Green: it fits here.')
+        + swatchRow('#e0a53c', 'Amber: it fits, but it blocks something. Still allowed.');
     },
     // The piece you are being sent to find, drawn from its own catalog row —
     // the same picture the palette tile wears, which is the half of "pick the
@@ -1492,12 +1579,15 @@ const STEPS = [
     // supplier. You can order from in there too, which is the same `done`.
     say: (t) => (inSupplier(t)
       ? 'Buy a case of something cheap.'
-      : 'Open the supplier. It is where you buy stock.'),
+      // The section's own name and key, for the `hire` beat's reason.
+      : perInput('Press [[B]] to open the Supplier.', 'Press Supplier on the right.')),
+    // "grown in the beds out the side" was here for a long time and stopped
+    // being true when the farm came indoors (docs/vats.md): there are no beds,
+    // there is no side, and a new shop has neither — so the one sentence naming
+    // three sources named a place that does not exist.
     hint: (t) => (inSupplier(t)
-      ? 'It comes on the van to the pad round the back, same as the first one, '
-        + 'and you carry it in from there — or your crew do.'
-      : 'Stock comes from three places: bought in here, grown in the beds out '
-        + 'the side, or made on a machine.'),
+      ? 'It turns up on the van at the pad round the back, same as the first one.'
+      : 'This is where you buy stock in. Later you can grow it or make it too.'),
     // The hole is the whole panel, because choosing WHAT to buy is the half of
     // this step that is yours — but a lit panel cannot say which press ends it,
     // and forty rows of `×6` is exactly the list where that matters. So the
@@ -1834,6 +1924,173 @@ const breakPad = (t) => ((layoutOf(t)?.break ?? []).length > 0);
  * problem look like it is already solving itself.
  */
 const ENERGY_LOW = 0.25;
+
+/**
+ * A GAUGE THAT HAS BEEN OFF GREEN LONG ENOUGH TO MEAN SOMETHING.
+ *
+ * The three bars in the corner are the only thing in the game that reports a
+ * problem without naming one, and nothing anywhere says what they are. So they
+ * get a card each — and the whole difficulty is the trigger, because every one
+ * of them dips constantly in the ordinary course of a day. Two people at a till
+ * moves Mood, one busy minute moves Room, and a card that fired on either is a
+ * tutorial that goes off while the shop is working.
+ *
+ * The tone is `gauge`'s and not a number of this file's own, which is the point
+ * of it living in `client/hud-meters.js`: the bar's amber is argued for as
+ * "a shop with a problem rather than a shop in a hole" (see `setGauges`), which
+ * is exactly the drop worth a card — big enough to be real, small enough to
+ * still be fixable. Restating those six numbers here would ship as a card that
+ * explains a bar which is still green.
+ *
+ * And then it has to STAY there. `maybeLesson`'s own settle is two seconds,
+ * which is right for a purchase and nothing at all for a bar that wobbles: this
+ * counts from the first pass off green and clears the moment it comes back, so
+ * what fires is a shop that has been in trouble for a quarter of a minute
+ * rather than one that had a rush.
+ *
+ * `bad` and `shut` count as well as `warn`. A player whose Room bar went
+ * straight from green to red needs the card MORE, not less, and a trigger that
+ * insisted on catching amber on the way past would miss exactly the shops that
+ * are worst off.
+ *
+ * ⚠️ It is a predicate that WRITES, which nothing else in here does, and there
+ * is one thing to know about that: `maybeLesson` returns early while any card
+ * is open (`this.on`), so the clock is not ticked down while somebody is
+ * reading — it simply keeps whatever it had. That is the honest direction. The
+ * bar really was down for those seconds.
+ */
+const GAUGE_DIP_MS = 15000;
+
+/**
+ * ...and the clock itself, which is the half worth sharing.
+ *
+ * Every `when` about a shop in TROUBLE has the same problem: the state it
+ * watches is also what a busy minute looks like. A bar dips, a van lands and
+ * fills the bay, a queue forms and clears. `heldFor` is "this has been true
+ * without a break for long enough to mean it" — one Map on the tour, keyed by
+ * whatever the caller calls it, cleared the instant the thing stops being true.
+ * The alternative every time is a threshold tuned until it stops crying wolf,
+ * which is a number that ends up describing a disaster rather than a problem.
+ */
+function heldFor(t, key, ok, ms) {
+  t.dips ??= new Map();
+  if (!ok) { t.dips.delete(key); return false; }
+  const since = t.dips.get(key) ?? Date.now();
+  t.dips.set(key, since);
+  return Date.now() - since >= ms;
+}
+
+const sagging = (t, id) => heldFor(t, `gauge:${id}`,
+  gauge(id, t.state ?? {}).tone !== 'good', GAUGE_DIP_MS);
+
+/**
+ * HOW FULL THE YARD IS, as a fraction, over the bay and the drop-off together.
+ *
+ * One cell holds one crate — the rule the pads have had since they became
+ * paintable, which is what makes how big you paint one a decision — so the
+ * count of boxes standing on those cells over the number of cells IS how full
+ * it is. Read off the layout and the crates rather than asked for on the wire,
+ * because both halves are already there: `bay` and `drop` are regions with
+ * their cells on them, and every crate carries where it is standing.
+ *
+ * The two pads TOGETHER, and that is the whole reason this is one number rather
+ * than two. They are one problem — the shop has more stock than it has anywhere
+ * to put — and a shop that keeps a small bay and a big stockroom is not in
+ * trouble because one of them is full. `bayRoom` on the wire is the other
+ * question (what will the supplier still let you order) and cannot answer this
+ * one: it is a count of units with no denominator, so a full six-cell bay and a
+ * full sixty-cell one read the same.
+ *
+ * Boxes riding a conveyor are not standing anywhere and are somebody else's
+ * problem; rubbish is not, and counts, because a skip's worth of rot parked on
+ * the dock is taking exactly the same cells.
+ */
+function padLoad(t) {
+  const L = layoutOf(t);
+  const cells = [...(L?.bay?.cells ?? []), ...(L?.drop?.cells ?? [])];
+  if (!cells.length) return 0;
+  const on = new Set(cells.map((c) => `${c.x},${c.z}`));
+  const boxes = (t.state?.deliveries ?? [])
+    .filter((d) => !d.belt && on.has(`${Math.round(d.x)},${Math.round(d.z)}`));
+  return boxes.length / cells.length;
+}
+
+/**
+ * Full enough to be a problem, for long enough to not be a delivery.
+ *
+ * The hold is doing the real work here. A van lands its whole run in one tick
+ * and the crew clear it over the next minute, so the bay is legitimately at the
+ * brim several times a day in a shop that is working perfectly — fire on the
+ * fraction alone and the card arrives on every delivery, which is a tutorial
+ * that goes off when the game goes right. Still full most of a minute later is
+ * a shop with nowhere to put things.
+ */
+const PAD_FULL = 0.6;
+const PAD_HOLD_MS = 45000;
+
+/**
+ * ...and the picture of the bar the card is about — drawn, never cloned.
+ *
+ * `mockOf` is the usual answer for a HUD control and cannot be used here, for a
+ * reason worth writing down before somebody tries it: it strips `style` off the
+ * clone (see its own note), and a gauge's LENGTH is an inline style. What comes
+ * back is three empty tracks, which is a picture of a readout with no data in
+ * it — the opposite of the card.
+ *
+ * Drawn also lets it say the thing the card is for. The real gauge is 42x5
+ * pixels in the corner of the screen; this is the same three rows at about
+ * twice the size with the one being talked about short and amber, so the
+ * picture IS the sentence "that bar, that colour". Same two colours the HUD
+ * uses (`--good`, `--warn`), out of the same variables, so a repaint takes the
+ * card with it.
+ */
+const GAUGE_TAGS = { rep: 'Rep', mood: 'Mood', room: 'Room' };
+
+function gaugeArt(which) {
+  const rows = Object.entries(GAUGE_TAGS).map(([id, tag]) => {
+    const low = id === which;
+    return `<div class="tt-gg"><span class="tt-gtag">${tag}</span>`
+      + `<span class="tt-gtrack"><i class="${low ? 'low' : ''}" `
+      + `style="width:${low ? 32 : 88}%"></i></span></div>`;
+  });
+  return `<div class="tt-gauges">${rows.join('')}</div>`;
+}
+
+/**
+ * WHAT IS DRAGGING THE MOOD DOWN, as one of three, in the order the sim
+ * charges for them.
+ *
+ * Mood is the one bar with several causes, so a card that said "people are fed
+ * up" would be a readout in words — true, and not a press. `stepMood` adds up
+ * exactly three things on top of the flat rate of being in a shop at all
+ * (server/sim/index.js): the line, the crush, and the mess, at 1.0, 1.2 per
+ * whole multiple over `CROWD_FROM`, and 0.9 over `MESS_FROM`. Every one of them
+ * is a thing the player can go and do something about in the next few seconds,
+ * so the card names whichever one is actually happening.
+ *
+ * The crush is deliberately LAST despite being the dearest, and hands over to
+ * the Room bar's own card rather than repeating it: a shop that is too small is
+ * not something you fix in the next few seconds, and Room is the bar that
+ * exists to say it. Falling through to `null` is a mood dragged down by nothing
+ * on this list — an ugly shop, which is `moodBase` and charm — and that is a
+ * sentence rather than a press.
+ *
+ * The thresholds are restated from the sim rather than shared, and that is the
+ * one soft spot in here: `MESS_FROM` is where the shop starts being CHARGED for
+ * the mess, so it is the honest line to speak at, and it is a number on the
+ * server that this file cannot import. `mess` is on the wire precisely so the
+ * client can say something about it (see `snapshot`).
+ */
+const MESS_FROM = 0.1;
+
+function moodBlame(t) {
+  const s = t.state ?? {};
+  if ((s.customers ?? []).filter((c) => c.till).length >= 2) return 'line';
+  if ((s.mess ?? 0) > MESS_FROM) return 'mess';
+  if (gauge('room', s).tone !== 'good') return 'crowd';
+  return null;
+}
+
 const beltsOf = (t) => layoutOf(t)?.belts ?? [];
 const armsOf = (t) => layoutOf(t)?.arms ?? [];
 
@@ -2003,6 +2260,61 @@ const arrowRow = (open, say) => `
  */
 const iconRow = (svg, say) => `
   <div class="tt-key-row">${svg}<span>${keyed(say)}</span></div>`;
+
+/**
+ * A PRESS, DRAWN — which button, and whether it is held.
+ *
+ * The one thing the whole tutorial exists to teach is that a quick press and a
+ * held press are two different verbs, and it was being taught in *prose*: "a
+ * quick click takes stock off it, HOLDING opens the shelf itself". That is the
+ * shape this file's own rules call a paragraph of alternatives — two abstract
+ * halves of one sentence, in a card whose picture well is showing something
+ * else entirely.
+ *
+ * So it is the pill's own glyph. `mouseGlyph` is the exact mouse the press hint
+ * has been putting in front of the player since the first crate, with the exact
+ * button filled in, which is `client/thumb.js`'s argument about the palette said
+ * about a gesture: the card teaches the press in the vocabulary the HUD has
+ * already been speaking. A hand-drawn mouse here would be a picture of a mouse;
+ * this is a picture of the thing the pill means.
+ *
+ * The HOLD is a **ring round it**, because that is what a hold looks like in the
+ * shop — `stepActions` winds a charge ring on the target for as long as the
+ * button is down, and it is green, and it is the only thing on screen that ever
+ * says "keep holding". Drawing a second identical mouse and captioning one of
+ * them HOLD is what the pill does in a 9.5px strip where there is no room for
+ * anything else; on a card with room, the two rows have to be told apart by
+ * looking rather than by reading.
+ */
+const pressRow = (hold, say, right = false) => iconRow(
+  '<svg class="tt-press" viewBox="0 0 24 24" aria-hidden="true">'
+  // Three-quarters of a turn, opening at the top left, so it reads as a ring
+  // that is still winding rather than as a circle drawn round the mouse.
+  + (hold ? '<path class="tt-hold-arc" d="M8.5 3.6 A 10 10 0 1 1 3.6 15.5"/>' : '')
+  + mouseGlyph(right, 'x="7.8" y="6" width="8.4" height="12"')
+  + '</svg>',
+  say,
+);
+
+/**
+ * A COLOUR, drawn as the colour — for a card explaining what a colour means.
+ *
+ * The build ghost says three things with two of them and nothing on screen
+ * names either: green is "it fits", amber is "it fits and will block
+ * something", and the gold square on the floor beside it is the side people
+ * stand on to use the thing. All three were a paragraph, which is the worst
+ * possible shape for it — you cannot match a word to a colour you are looking
+ * at without holding both in your head.
+ *
+ * Straight off `GHOST_COLOURS` and `MARKER_LOOK` (client/render/props.js), the
+ * way `arrowRow` lifts the chevron's green: the swatch is the colour the shop
+ * is drawing, or the card is teaching a key to a picture nobody is looking at.
+ */
+const swatchRow = (hex, say) => iconRow(
+  `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18"
+    height="18" rx="2" fill="${hex}" stroke="rgba(58,49,40,.55)" stroke-width="1.6"/></svg>`,
+  say,
+);
 
 /* A declaration, for the reason `viewHint` gives: the step table above names it. */
 function arrowArt() {
@@ -2230,13 +2542,24 @@ const LESSONS = [
    * Both halves, and the second is what keeps it from nagging. A hire runs low
    * every single day in every shop there has ever been; that is the resource
    * working. What is worth interrupting somebody about is running low with
-   * nowhere to go, because THAT is the state with a consequence you cannot see:
-   * a flat unit is not idle and does not stop, it is pinned at `TIRED_PACE` and
-   * does everything at a bit over half speed for the rest of the save
-   * (`tiredness`, server/sim/staff.js). So the shop gets slower and slower with
-   * nothing on screen saying why, every hire visibly working the whole time —
-   * which reads as the game grinding down rather than as a thing you can fix
-   * for the price of some floor paint.
+   * nowhere to go, because THAT is the state with a consequence you cannot see.
+   *
+   * AND THE CARD SAID THE WRONG THING ABOUT IT FOR A WHILE, which is worth
+   * keeping because the wrong version is the one that sounds better. It read
+   * "they never stop — they just do everything at half speed", and they do
+   * stop: `seatIn` (server/sim/staff.js) answers null when there is no room,
+   * and a hire with no seat takes the break where the pastime authored it,
+   * which is leaning on whatever they are standing next to. That fallback is
+   * the whole promise of the feature — see `verify:break`, whose first claim is
+   * that a shop with no break area still takes breaks.
+   *
+   * What the room actually buys is two things and neither is "a break at all".
+   * A seated break restores `SEATED_RESTORE` — half as much again — so they are
+   * up sooner and go down less often, which is what pays for the walk round.
+   * And they rest THERE rather than in the middle of an aisle. The slowness is
+   * real and is the other half of it (`tiredness` stretches everything by up to
+   * `TIRED_PACE` while they are low), but it is a consequence of resting badly
+   * rather than of never resting.
    *
    * A `when` and not an `owns`, obviously, but worth saying why the owns-shaped
    * version is wrong: "the shop has no break area" is true of every shop on day
@@ -2277,8 +2600,8 @@ const LESSONS = [
           return kind ? artForWorker(kind, low?.tier ?? who?.tier ?? 1) : null;
         },
         say: 'One of your robots is nearly out of charge.',
-        hint: 'They never stop — they just do everything at half speed, and '
-          + 'nothing on screen tells you that is what you are looking at.',
+        hint: 'They stop and rest right where they stand. A pad puts more back, '
+          + 'so they are up sooner and out of the way.',
       },
       {
         id: 'c-pad',
@@ -2291,9 +2614,22 @@ const LESSONS = [
           + 'themselves off to it when the shop is quiet.',
         // The three presses, one to a line. The tab is named because a brush
         // is not where anybody looks for a floor for the crew.
+        //
+        // AND EVERY ICON IS THE ONE ON THE THING IT NAMES. A row that says
+        // "open the Logistics tab" beside a picture that is not the Logistics
+        // tab is a treasure hunt: this said it beside `runner`, a porter's
+        // trolley, while the tab on the bar wears `crate` — so the one row in
+        // the list whose whole job is telling you which of six buttons to press
+        // was pointing at none of them. `BUILD_GROUPS` in `client/sections.js`
+        // is where they are set (`shop` shelf, `appliance` station, `farm`
+        // plot, `logistics` crate, `shell` build, `outdoors` outdoors), and it
+        // cannot be imported here — sections.js imports THIS file, for the
+        // Menu's tutorial switches — so the rule is a look rather than a
+        // lookup. Check it against that table when writing a row that names a
+        // tab.
         legend: () => iconRow(ICONS.build, perInput('Press [[G]] twice for the '
           + 'build bar', 'Press the hammer twice for the build bar'))
-          + iconRow(ICONS.runner, 'Open the Logistics tab')
+          + iconRow(ICONS.crate, 'Open the Logistics tab')
           + iconRow(ICONS.floor, 'Drag out a patch of floor anywhere they can walk'),
       },
     ],
@@ -2390,7 +2726,12 @@ const LESSONS = [
           const who = clerkKind(t)?.name ?? 'Clerk';
           return iconRow(ICONS.staff, perInput('Press [[H]] for your Crew',
             'Press Crew on the right'))
-            + iconRow(ICONS.hire, 'Open the + tab')
+            // "Lease" is what the tab says (`staffGroups`, client/sections.js),
+            // and this row said "the + tab" — a name that is on nothing on
+            // screen, in the one list whose whole job is naming the presses in
+            // order. Same rule as the Logistics icon above: a row that names a
+            // tab has to carry the tab's own word and the tab's own picture.
+            + iconRow(ICONS.hire, 'Open the Lease tab')
             + iconRow(ICONS.clerk, perInput(
               `Click the ${who}, then click again to hire`,
               `Tap the ${who}, then tap again to hire`,
@@ -2438,7 +2779,7 @@ const LESSONS = [
    * −0.03 on the slowest number in the game.
    *
    * It opens BEHIND the award card rather than over it, and that costs nothing
-   * to arrange: `maybeLesson` already refuses while `ui.award.open`, and the
+   * to arrange: `maybeLesson` already refuses while `ui.award.waiting`, and the
    * settle restarts once it is dismissed. A milestone stops the world and takes
    * the screen; a second card behind it is one nobody reads.
    *
@@ -2721,6 +3062,213 @@ const LESSONS = [
       },
     ],
   },
+
+  /**
+   * ROT ON THE FLOOR AND NOTHING THAT CAN SHIFT IT.
+   *
+   * The purest `when` in the file: a stuck state, visible from across the shop,
+   * with exactly one press that ends it. Spoiled stock stopped evaporating at
+   * midnight and became a crate marked `waste` standing where the shelf is
+   * (see the note above `anyBin` in server/sim/index.js) — and owning a skip is
+   * what lets the crew carry one OUT, never what decides whether rubbish
+   * exists. So a shop without one silently accumulates boxes that take floor,
+   * cost patience through `mess`, and cannot be moved by anybody.
+   *
+   * The trigger is a box and not `stats.spoiled`, which is the same claim said
+   * the wrong way round: the counter climbs in a shop that owns three skips and
+   * is dealing with it perfectly well. What is wrong is the box nothing can
+   * lift, so that is what is asked about.
+   *
+   * No hold (`heldFor`), unlike its neighbours: this state does not wobble.
+   * Nothing in the game clears a waste crate except a skip, so the first one is
+   * both the earliest and the last honest moment to say something.
+   */
+  {
+    id: 'rubbish',
+    when: (t) => (layoutOf(t)?.bins ?? []).length === 0
+      && (t.state?.deliveries ?? []).some((d) => d.waste),
+    toast: 'Food went off — nothing can shift it',
+    steps: [
+      {
+        id: 'r-skip',
+        kicker: 'Rubbish',
+        // `kind` and not `art`: the picture comes off the catalog row, so a
+        // restyled skip restyles the card, and the `· soon` badge is handled
+        // for free if the ladder has not opened the button yet.
+        kind: 'bin',
+        say: 'Build a Skip. Your robots carry the rubbish out to it.',
+        hint: 'Food that goes off turns into boxes. Nothing in the shop can '
+          + 'move one until you own a Skip.',
+        legend: () => iconRow(ICONS.build, perInput('Press [[G]] twice for the '
+          + 'build bar', 'Press the hammer twice for the build bar'))
+          // Shop rather than Logistics, and it is worth checking rather than
+          // guessing: `KIND_TOOLS.bin` says `group: 'shop'` on the judgement
+          // that a skip is a thing you stand somewhere, like a till.
+          + iconRow(ICONS.shelf, 'Open the Shop tab')
+          + iconRow(ICONS.close, 'Put the Skip down somewhere out of the way'),
+      },
+    ],
+  },
+
+  /**
+   * A YARD THAT IS NOT DRAINING.
+   *
+   * The bay and the drop-off are where everything the shop owns passes through,
+   * and when they stop emptying nothing anywhere says so — a full pad and a pad
+   * that has just taken a delivery are the same picture. What it costs is
+   * invisible in the other direction too: `bayRoom` collapses, so the supplier
+   * quietly stops ordering, and what you notice days later is shelves that will
+   * not fill (see the `restock` refusal trap in CLAUDE.md).
+   *
+   * The answer is shelving the shoppers never see, which is the one kind of
+   * space that does not compete with the shop floor for room — and the switch
+   * that makes a shelf into that is three presses deep in a menu, which is
+   * precisely the sort of thing nobody finds on their own.
+   */
+  {
+    id: 'pads',
+    when: (t) => heldFor(t, 'pads', padLoad(t) >= PAD_FULL, PAD_HOLD_MS),
+    toast: 'Your yard has stopped emptying',
+    steps: [
+      {
+        id: 'p-back',
+        kicker: 'Stacking up',
+        kind: 'shelf',
+        say: 'Boxes are stacking up. Put a shelf out the back.',
+        // What the switch is FOR, in the two things it changes that you can see
+        // — not what it is. The label it turns into is named because the row is
+        // a toggle that reads as its current state, so the words on the button
+        // before and after are both worth having.
+        hint: 'A shelf set to In the back is crew only, so it never takes shop '
+          + 'floor. The shop orders extra to keep it full.',
+        legend: () => iconRow(ICONS.build, perInput('Press [[G]] twice for the '
+          + 'build bar', 'Press the hammer twice for the build bar'))
+          + iconRow(ICONS.shelf, 'Open the Shop tab and stand a shelf out the back')
+          + iconRow(ICONS.crate, perInput(
+            'Press and hold it, then press On the shop floor',
+            'Tap and hold it, then press On the shop floor',
+          )),
+      },
+    ],
+  },
+
+  /**
+   * THE THREE BARS IN THE CORNER, one card each, when one of them goes amber.
+   *
+   * The only thing in the game that reports a problem without naming one. They
+   * are 42x5 pixels, they carry three words between them, and nothing anywhere
+   * says what any of them measures or what to do when one drops — so the shop
+   * gets quietly worse while the one part of the screen that knows says so in a
+   * language nobody was taught.
+   *
+   * `when` and not `owns`, obviously. What is worth saying is a shop in trouble
+   * (see `sagging` for the trigger and why it has a clock on it), and each card
+   * is a briefing about a SITUATION rather than about a build tab — so no
+   * `group`, for the reason `charge` has none: the `?` reopens a tab's pages,
+   * and there is no tab whose contents are the Rep bar.
+   *
+   * They go LAST in the array and in this order, and both halves are decisions.
+   * Last, because `LESSONS.find` is first-match-wins and every lesson above is
+   * about a thing you just built — a card about the shop being crowded should
+   * not out-rank the one explaining the conveyor you bought thirty seconds ago.
+   * And Room before Mood, because a crush drags both bars down at once and Room
+   * is the one that names the fix; Mood hands its crowd branch straight over to
+   * it, which only ever reads once this card is learned.
+   *
+   * ⚠️ None of the three may ever tell you what the bar IS and stop there. That
+   * is the whole failure mode of a card about a readout — "Rep is how much of
+   * the town picks your shop" is true, is on the hover already, and is not
+   * something to press. Every one of these leads with the press and spends the
+   * hint on the meaning.
+   */
+  {
+    id: 'gauge-room',
+    when: (t) => sagging(t, 'room'),
+    toast: 'Your shop is nearly full',
+    steps: [
+      {
+        id: 'g-room',
+        kicker: 'Nearly full',
+        art: () => gaugeArt('room'),
+        /**
+         * ...and WHICH of the two halves is the tight one, which is the whole
+         * reason `capacityBy` is on the wire.
+         *
+         * `shopCapacity` is the LOWER of what the tills and stocked shelves can
+         * serve and what the floor can hold, and a `min` throws away the only
+         * part anybody can act on: a barn with one till and a broom cupboard
+         * with six read as exactly the same number. "Your shop is full" would
+         * be a complaint; these are two different presses, and the wrong one is
+         * money spent on a thing that moves nothing.
+         */
+        say: (t) => (t.state?.capacityBy === 'service'
+          ? 'Your shop is full. Put in another till.'
+          : 'Your shop is full. Make the building bigger.'),
+        hint: (t) => (t.state?.capacityBy === 'service'
+          ? 'A till holds far more people than a shelf does. When this bar runs '
+            + 'out, people are turned away at the door.'
+          : 'Every square indoors is somebody who can stand in it. When this bar '
+            + 'runs out, people are turned away at the door.'),
+        legend: (t) => iconRow(ICONS.build, perInput('Press [[G]] twice for the '
+          + 'build bar', 'Press the hammer twice for the build bar'))
+          + (t.state?.capacityBy === 'service'
+            ? iconRow(ICONS.shelf, 'Open the Shop tab')
+              + iconRow(ICONS.checkout, 'Put down another till')
+            : iconRow(ICONS.build, 'Open the Building tab, then Walls')
+              + iconRow(ICONS.house, 'Drag your walls further out')),
+      },
+    ],
+  },
+
+  {
+    id: 'gauge-mood',
+    // A cause as well as a dip, which is what keeps every branch below a press.
+    // Mood dragged down by none of the three (an ugly shop — `moodBase`, which
+    // is charm) is a real state and is not something to do in the next few
+    // seconds, so it waits rather than getting a card that shrugs.
+    when: (t) => sagging(t, 'mood') && !!moodBlame(t),
+    toast: 'People in the shop are fed up',
+    steps: [
+      {
+        id: 'g-mood',
+        kicker: 'Mood is dropping',
+        art: () => gaugeArt('mood'),
+        say: (t) => {
+          const why = moodBlame(t);
+          if (why === 'line') return 'Somebody is waiting. Go and stand at the till.';
+          if (why === 'mess') return 'Boxes are all over the floor. Put them away.';
+          return 'Your shop is too crowded. Watch the Room bar under this one.';
+        },
+        // The one thing the bar means, and the reason to care about it at all:
+        // it is Rep's early warning, and Rep is the slowest number in the game.
+        // Said once, under a sentence that already named the press.
+        hint: 'This is how the people in your shop feel right now. Let it sit '
+          + 'low and your Rep follows it down.',
+      },
+    ],
+  },
+
+  {
+    id: 'gauge-rep',
+    when: (t) => sagging(t, 'rep'),
+    toast: 'Fewer people are choosing your shop',
+    steps: [
+      {
+        id: 'g-rep',
+        kicker: 'Rep is slipping',
+        art: () => gaugeArt('rep'),
+        // The one card of the three whose press is a PANEL, and it earns that:
+        // reputation is seven separate causes added up over days (`REP_CAUSES`,
+        // shared/reputation.js), the Shop report draws them worst-first, and no
+        // sentence here could name which one is yours. Name + key, off the
+        // section row rather than invented — `id: 'shop'`, name Shop, key `t`.
+        say: () => perInput('Press [[T]] for Shop. It says what upset people.',
+          'Press Shop on the right. It says what upset people.'),
+        hint: 'Rep is how much of the town picks you over everywhere else. Fix '
+          + 'the biggest thing on that list first.',
+      },
+    ],
+  },
 ];
 
 /** The briefing for a build tab, if that tab has one — the `?` asks this. */
@@ -2806,6 +3354,9 @@ export class Tutor {
     // tools, `quit` writes the lesson's own mark, and `maybeLesson` will not
     // open a second one over the top.
     this.lesson = null;
+    // ...and the preview flag with it, or a run started by the shop after one
+    // started by `teach` would inherit "you asked for this" and never mark.
+    this.asked = false;
     // When the shop first said a lesson was wanted. A settle rather than an
     // instant open, because the trigger is a purchase and a purchase is very
     // often the middle of a drag — see `maybeLesson`.
@@ -2857,6 +3408,9 @@ export class Tutor {
     this.steps = STEPS;
     this.guest = false;
     this.lesson = null;
+    // ...and the preview flag with it, or a run started by the shop after one
+    // started by `teach` would inherit "you asked for this" and never mark.
+    this.asked = false;
     if (!this.world || tutorOff()) return;
     if (listOf(DONE_KEY).includes(this.world)) return;
     if (!listOf(NEW_KEY).includes(this.world)) return;
@@ -2880,6 +3434,9 @@ export class Tutor {
     this.world = null;
     this.guest = true;
     this.lesson = null;
+    // ...and the preview flag with it, or a run started by the shop after one
+    // started by `teach` would inherit "you asked for this" and never mark.
+    this.asked = false;
     this.steps = GUEST_STEPS;
     this.start();
   }
@@ -2908,7 +3465,10 @@ export class Tutor {
     if (this.on || tutorOff()) { this.wantedAt = 0; return; }
     // Not over the top of the card that congratulates you. It stops the world
     // and takes the screen, and a second card behind it is one nobody reads.
-    if (this.ui?.award?.open) { this.wantedAt = 0; return; }
+    // `waiting` rather than `open`, because a card that has been earned and is
+    // holding for a gap in play is one that is about to take the screen — and a
+    // lesson opened in that gap is the same buried card, one second later.
+    if (this.ui?.award?.waiting) { this.wantedAt = 0; return; }
     const learned = listOf(LEARNED_KEY);
     /**
      * What each counting lesson's piece stood at the first time this looked.
@@ -2951,10 +3511,28 @@ export class Tutor {
    * they open in play, and `quit` marks it learned exactly as it would. Clear
    * that with `__sns.ui.tutor.forget()`.
    */
+  /**
+   * ...and ASKING for a lesson does not spend it.
+   *
+   * It used to: `teach` goes through `start` and out through `quit` like
+   * everything else, and `quit` marks a finished lesson learned — which is
+   * right for one the shop offered and you read, and exactly wrong for one you
+   * went and fetched. Two ways that bites, and both were reported as the
+   * feature not working. Reading the copy from the console to check it (the
+   * whole reason this call exists) silently switches it off for ever, so a
+   * lesson tested once never fires in the shop it was written for. And pressing
+   * the `?` on the build bar out of curiosity spends the briefing you have not
+   * needed yet.
+   *
+   * Nothing is lost by leaving it unmarked: if the shop later hits the state,
+   * you get the card a second time, which is one card. Losing it is silent and
+   * permanent, and the only way back is a console call nobody knows about.
+   */
   teach(id) {
     const l = LESSONS.find((x) => x.id === id || x.group === id);
     if (!l || this.on) return false;
     this.lesson = l;
+    this.asked = true;
     this.steps = l.steps;
     this.start();
     return true;
@@ -3028,6 +3606,10 @@ export class Tutor {
     // still pinned to the last card's tile is the tour steering the view of a
     // shop it has finished talking about.
     this.scene?.releaseHold?.();
+    // ...and the walls, which is the other half of "or exits the tutorial": Esc
+    // or Skip on the very first card has to give them back too, or a tour turned
+    // down leaves the shop uncuttable for the rest of the session.
+    this.scene?.holdWallCut?.(false);
     this.el.hidden = true;
     this.el.classList.remove('show');
     document.body.classList.remove('tutoring');
@@ -3037,7 +3619,10 @@ export class Tutor {
     // way back — see `forgetLessons`, which that row now calls beside
     // `replayTutor`.
     const done = this.lesson;
-    if (done) addTo(LEARNED_KEY, done.id);
+    // ...unless you went and asked for it — see `teach`.
+    const asked = this.asked;
+    this.asked = false;
+    if (done) { if (!asked) addTo(LEARNED_KEY, done.id); }
     else if (this.guest) write(GUEST_KEY, '1');
     else if (this.world) { addTo(DONE_KEY, this.world); dropFrom(NEW_KEY, this.world); }
     // Cleared AFTER the mark and before anything can re-open: `maybeLesson`
@@ -3069,6 +3654,14 @@ export class Tutor {
     // box on your shoulder — is stepped over rather than shown and failed. Asked
     // BEFORE `arm`, so a skipped step never opens a menu on its way past.
     if (this.step.skipWhen?.(this)) { this.go(i + 1); return; }
+    // The near walls stay WHOLE for the opening card and come back down on the
+    // first Next — the argument is at `Scene.holdWallCut`. It is set on every
+    // `go` rather than once at `start`, because that is what makes the release
+    // fall out of the advance instead of being a second thing to remember: any
+    // step but the first hands the walls back, and Back to the first takes them
+    // again. Not for a LESSON, which arrives in the middle of a game somebody is
+    // already playing and has no opening shot to protect.
+    this.scene?.holdWallCut?.(!this.lesson && i === 0);
     // Cleared here rather than in `look`, so a step whose target does not exist
     // yet — the crate beat, opened while the van is still on the road — gets its
     // one look on the tick it lands rather than never. `update` asks again.
@@ -3362,7 +3955,10 @@ export class Tutor {
     const next = this.el.querySelector('.tt-next');
     delete next.dataset.stranded;
     this.lostAt = 0;
-    next.textContent = 'Next';
+    // "Next" on the last card is a promise of another one, and what the press
+    // actually does is end the tour — so the button says which. `go` past the
+    // end is `quit`, so this is a label rather than a second path.
+    next.textContent = this.i >= this.steps.length - 1 ? 'Done' : 'Next';
     next.hidden = !!s.done;
     this.offer();
     /**
@@ -3405,10 +4001,20 @@ export class Tutor {
     // `words` for the same reason the picture is: it is a fact about the card
     // rather than about the phase, and a block of rows that swapped under a
     // sentence you were reading would be a second thing to re-find.
-    const legend = this.el.querySelector('.tt-legend');
-    const rows = typeof s.legend === 'function' ? s.legend(this) : (s.legend ?? null);
-    legend.hidden = !rows;
-    legend.innerHTML = rows ?? '';
+    // Cleared rather than written, because the key under the words WALKS with
+    // the sentence — see `words`. A card whose phases are a rail button, then a
+    // palette tile, then a ghost on the floor has a key for the last of those
+    // and none for the first two, and a legend written once at open would be
+    // the one for the phase the card happened to start in. It is keyed on its
+    // own markup there, so an unchanged block is not rewritten ten times a
+    // second under a CSS animation that was already running.
+    // `undefined` and NOT `null`, which is the whole of what makes this clear.
+    // A card with no key computes `null`, so a cache reset to `null` compares
+    // equal on the next frame and the previous card's rows are left standing in
+    // the DOM — the shelf's two mouse rows sitting under a card about the crew,
+    // which reads as the tutorial having lost its place. The sentinel means
+    // "nothing has been written for this step yet", which is a third state.
+    this.legendHtml = undefined;
     this.card.classList.toggle('big', !!s.big);
     this.said = null;
     this.words();
@@ -3506,13 +4112,43 @@ export class Tutor {
         : said(s.hint),
     ];
     const key = now.join('\u0000');
-    if (key === this.said) return;
+    // BEFORE the early return, and keyed on itself: the key under the words is
+    // usually a fact about the same phase the sentence is, but nothing
+    // guarantees it — a card whose words are a constant and whose legend is not
+    // would never update, which is the shape of a bug nobody finds twice.
+    const grew = this.legend();
+    if (key === this.said) { if (grew) this.fits(); return; }
     this.said = key;
     const [kicker, say, hint] = now;
     this.el.querySelector('.tt-kicker').textContent = kicker;
     this.el.querySelector('.tt-say').innerHTML = keyed(say);
     this.el.querySelector('.tt-hint').innerHTML = keyed(hint);
     this.fits();
+  }
+
+  /**
+   * The key under the words, which walks with them.
+   *
+   * Asked every frame with the sentence rather than once when the card opens,
+   * because a step's phases are different subjects: the freezer beat is a rail
+   * button, then a tile on the palette, then a ghost on the floor, and only the
+   * last of those has three colours to explain. Written only when the markup
+   * actually changes — this runs at 10Hz over a live canvas, and re-setting
+   * `innerHTML` would restart the row animations under a reader.
+   */
+  legend() {
+    const s = this.step;
+    const rows = (typeof s?.legend === 'function' ? s.legend(this) : (s?.legend ?? null)) || null;
+    if (rows === this.legendHtml) return false;
+    this.legendHtml = rows;
+    const el = this.el.querySelector('.tt-legend');
+    el.hidden = !rows;
+    el.innerHTML = rows ?? '';
+    // Answers whether the card's HEIGHT just moved, so `words` can re-ask
+    // `fits` on the frames where only this changed — a legend that appeared
+    // under an unchanged sentence is exactly the case that turns the words
+    // into a scroller.
+    return true;
   }
 
   /**
@@ -3765,7 +4401,9 @@ export class Tutor {
       this.lostAt = 0;
       if (btn.dataset.stranded) {
         delete btn.dataset.stranded;
-        btn.textContent = 'Next';
+        // Same label `paint` chose, or a card that stranded and recovered on
+        // the last beat comes back saying "Next" about a press that finishes.
+        btn.textContent = this.i >= this.steps.length - 1 ? 'Done' : 'Next';
         btn.hidden = !!this.step?.done;
       }
       return;

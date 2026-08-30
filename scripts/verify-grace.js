@@ -82,7 +82,25 @@ const close = (a, b, label, tol = 1e-9) => check(Math.abs(a - b) < tol, label, `
  * the ramp is ever retuned, this file is *supposed* to fail and be read.
  */
 const DAYS = 5;
-const graceOn = (day) => Math.min(day / DAYS, 1);
+
+/**
+ * ...and the second ramp, which is the one cause that starts later.
+ *
+ * `R.EMPTY` is waived while a new shop has no range to be let down by — three
+ * shelves and nothing on them is what `createWorld` hands you — and then eases
+ * in over the same `DAYS`. Restated here for the reason above, and the pair is
+ * what makes the file able to tell a waiver from "the opening week is free":
+ * `R.MISSED` is charged on the ordinary ramp on every one of the same days.
+ */
+const EMPTY_FREE = 3;
+
+/** The first day on which every cause is at face value. */
+const OLD = DAYS + EMPTY_FREE;
+
+const graceOn = (day, cause) => {
+  const from = cause === R.EMPTY ? EMPTY_FREE : 0;
+  return Math.min(Math.max((day - from) / DAYS, 0), 1);
+};
 
 /** A shop with a day on it and nothing else. `moveRep` needs no layout. */
 function fresh(day, rep = 0.5) {
@@ -102,7 +120,7 @@ function fresh(day, rep = 0.5) {
   // Swept over the table rather than a list here, for the reason in the header:
   // an eighth cause added tomorrow is covered by this loop the day it exists.
   for (const c of REP_CAUSES) {
-    for (const day of [DAYS, DAYS + 1, 60, 365]) {
+    for (const day of [OLD, OLD + 1, 60, 365]) {
       const g = fresh(day);
       const moved = g.moveRep(-0.03, c.id);
       close(moved, -0.03, `day ${day}: \`${c.id}\` is charged in full`);
@@ -121,7 +139,8 @@ for (const c of REP_CAUSES) {
   for (const day of [1, 2, 3, 4]) {
     const g = fresh(day);
     const moved = g.moveRep(-0.1, c.id);
-    close(moved, -0.1 * graceOn(day), `day ${day}: \`${c.id}\` is charged at ${graceOn(day)}`);
+    close(moved, -0.1 * graceOn(day, c.id),
+      `day ${day}: \`${c.id}\` is charged at ${graceOn(day, c.id)}`);
   }
 }
 
@@ -176,7 +195,7 @@ for (const c of REP_CAUSES) {
   // And it is the DISCOUNTED figure that is banked, not face value: the report
   // answers "what is costing me", and what a walk-out cost you on day 2 is what
   // it actually took off the number.
-  close(g.stats.repMoves[R.STORMED], -0.05 * graceOn(2), 'the tally banks what landed');
+  close(g.stats.repMoves[R.STORMED], -0.05 * graceOn(2, R.STORMED), 'the tally banks what landed');
 }
 
 // ---------------------------------------------------------------------------
@@ -208,17 +227,82 @@ for (const c of REP_CAUSES) {
     return g;
   };
   const young = take(1);
-  const grown = take(DAYS);
+  const grown = take(OLD);
   const lostYoung = 0.5 - young.reputation;
   const lostGrown = 0.5 - grown.reputation;
-  close(lostYoung, lostGrown * graceOn(1),
-    'an identical day costs a new shop exactly the ramp of what it costs an old one');
+  // Summed per cause rather than scaled as one number, because there are two
+  // ramps now: a single factor would have been the whole claim while `R.EMPTY`
+  // rode the same curve as everything else, and it would go on passing today
+  // only if the waiver did nothing.
+  const expectYoung = beating.reduce((n, [d, c]) => n - d * graceOn(1, c), 0);
+  close(lostYoung, expectYoung,
+    'an identical day costs a new shop exactly the ramps of what it costs an old one');
   check(lostGrown > 0.1, 'and the day being measured is a genuinely bad one',
     `only lost ${lostGrown}`);
   // The claim in shop terms, which is the one worth reading in a year: the day
   // that cost a real save a quarter of the scale costs a beginner a twentieth.
   check(lostYoung < 0.05, 'a beginner survives the day that sank the real save',
     `lost ${lostYoung}`);
+}
+
+// ---------------------------------------------------------------------------
+// 8. THE WAIVER, which is the one cause a new shop cannot do anything about.
+//
+// A new world is three shelves with nothing on any of them against a $250
+// float, so the range a shopper is being let down by does not exist yet — and
+// `R.EMPTY` is a FLAT toll per body, charged once per visitor whatever they
+// wanted. Measured on the shop the game actually hands you, doors open on day
+// one: 27 people in, 27 out with nothing, 0.500 → 0.401 *after* the ramp had
+// already taken four fifths off.
+//
+// Every claim in here is invisible twice over. A shopper who walked out of a
+// day-1 shop and one who walked out of a day-8 shop are the same person in the
+// same doorway with the same empty hands, and the shop afterwards is the same
+// shop — only the slowest number in the game moved, and it moved by an amount
+// nobody can eyeball.
+// ---------------------------------------------------------------------------
+{
+  const cost = (day, cause) => Math.abs(fresh(day).moveRep(-0.1, cause));
+
+  // The waiver, and its PAIR — worthless split in half. "Nobody is charged for
+  // an empty-handed leave while the shop is new" is satisfied by an opening
+  // week in which no loss is charged at all, which is a different feature and
+  // one that would make the first three days inert. `R.MISSED` on the very same
+  // days is what says only one cause was waived.
+  for (const day of [1, 2, EMPTY_FREE]) {
+    close(cost(day, R.EMPTY), 0, `day ${day}: an empty-handed leave costs nothing`);
+    close(cost(day, R.MISSED), 0.1 * graceOn(day, R.MISSED),
+      `day ${day}: ...while a staple you had none of is still charged`);
+    check(cost(day, R.MISSED) > 0, `day ${day}: ...and that is a real charge`);
+  }
+
+  // A waived charge opens no bucket, or the report draws a row saying a cause
+  // took nothing off — which is a breakdown explaining a movement that never
+  // happened, on exactly the days a beginner is reading it.
+  const g = fresh(1);
+  g.moveRep(-0.015, R.EMPTY);
+  check(!(R.EMPTY in g.stats.repMoves), 'day 1: ...and no row appears on the receipt');
+
+  // It REJOINS the ramp rather than switching back on. A flat window would be a
+  // cliff — full price on day four with nothing about the shop having changed —
+  // which is the `packs` trap said about a grace period, and "it is free for
+  // three days" passes on it.
+  const after = [EMPTY_FREE + 1, EMPTY_FREE + 2, EMPTY_FREE + 3].map((d) => cost(d, R.EMPTY));
+  check(after[0] > 0 && after[0] < after[1] && after[1] < after[2],
+    'and then eases in, a day at a time', `got ${after.join(', ')}`);
+  close(after[0], 0.1 / DAYS, 'the first day it costs anything, it costs a fifth');
+  close(cost(OLD, R.EMPTY), 0.1, 'and it is face value by the end of its own ramp');
+
+  // The opening morning, in the shape it was measured in. The 27 leavers are
+  // the whole complaint; the missed staples beside them are what the player is
+  // still being told to fix.
+  const morning = fresh(1);
+  for (let i = 0; i < 27; i++) morning.moveRep(-0.015, R.EMPTY);
+  close(morning.reputation, 0.5, 'a first morning of nothing but empty hands costs a new shop nothing');
+  const old = fresh(OLD);
+  for (let i = 0; i < 27; i++) old.moveRep(-0.015, R.EMPTY);
+  check(0.5 - old.reputation > 0.35, '...and would have cost an established one the shop',
+    `lost ${(0.5 - old.reputation).toFixed(3)}`);
 }
 
 // ---------------------------------------------------------------------------

@@ -123,6 +123,24 @@ export const WALKABLE = new Set([
   T.BELT,
 ]);
 
+/**
+ * Ground a VEHICLE can cross — before anything standing on it is taken into
+ * account, the same way `WALKABLE` is.
+ *
+ * It lives here rather than in `server/layout.js`, where it was written and
+ * where `laneVia` is still its main reader, because the border ring became
+ * something you can paint. The ring is how everything with wheels reaches the
+ * edge of the map, so "would this stroke leave a cell nothing can drive over"
+ * is a question the BRUSH has to be able to ask — and `canPaintGround` is in
+ * shared/, so a second copy of this set over there would be the "keep in sync"
+ * comment this file exists to replace.
+ *
+ * Note what is missing and why it is the whole point: `T.BREAK` and `T.PADDOCK`
+ * are walkable and not drivable, so they are the two brushes that can sever a
+ * lane. A plot is not here either, but a bed cannot be dug on the ring.
+ */
+export const DRIVABLE = new Set([T.GRASS, T.PATH, T.FLOOR, T.BAY, T.DROP, T.PARK, T.ROAD]);
+
 /** Ground you can stand a shop fixture on — bare indoor floor and nothing else. */
 export const BUILDABLE_INDOOR = new Set([T.FLOOR]);
 

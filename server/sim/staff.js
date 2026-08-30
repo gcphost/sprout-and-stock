@@ -4013,6 +4013,12 @@ function shelvesFor(game, itemId, c, spoken = null) {
   const backTakes = game.backRanges();
   const usable = game.layout.shelves.filter((sh) => {
     if (shelfKind(sh.kind) !== home) return false;
+    // …and the unit's department, asked in the same breath as its kind because
+    // it is the same kind of fact: what this piece is FOR. Deliberately above
+    // the reservation override below it — a Bakery ticked for fish is a state
+    // `assignShelf` refuses outright, so there is nothing here to override, and
+    // a waiver would be the one door left open into it.
+    if (!game.departmentTakes(sh, item)) return false;
     // ...unless you TICKED that unit for it, which is the override every other
     // judgement the shop makes about its own range already bows to — the same
     // one `droppedItem` and `homedAt` honour. A stockroom kept for what the
@@ -4190,6 +4196,13 @@ function pickItem(game, shelf, c) {
       // it for every bare board, order nothing, and quietly never stock that
       // board with anything else — which reads as the shelf being broken.
       if (game.droppedItem(it.id)) return false;
+      // The department, and this is the half the whole feature is for: the
+      // other four sites stop goods being PUT somewhere, and this one is the
+      // shop choosing a range for a bare unit. Without it a Bakery you have
+      // just built is filled with whatever scores best — which is what a
+      // themed piece did for its entire existence, and it reads as the art
+      // being decorative rather than as a rule nobody wrote.
+      if (!game.departmentTakes(shelf, it)) return false;
       return homeKind(it) === shelfKind(shelf.kind);
     })
     .map((it) => {

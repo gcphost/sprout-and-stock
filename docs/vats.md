@@ -551,7 +551,8 @@ sells well and says nothing. The obvious answer is that it becomes the premium
 line rather than the default one.
 
 **The outdoors does not go away.** The van drives, shoppers park, the road and
-the pavement steer them, and the border ring is not paintable. What ends is the
+the pavement steer them, and the border ring is the road round the outside — you
+may paint it, and no amount of paint out there steers anybody. What ends is the
 *farm* being outdoors. The field the generator lays down (`FRONT_DEPTH`) becomes
 floor you may build on, which is the expansion space this shop has never had.
 

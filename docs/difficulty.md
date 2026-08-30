@@ -286,6 +286,46 @@ no `elapsed` trap. Deliberately the shop's own age rather than time since the
 save was opened, or picking a world back up after a month away hands it another
 free week.
 
+### The one cause that is waived, and the debt that comes with it
+
+`EMPTY_FREE_DAYS = 3`. The ramp above is a discount on how badly the shop is
+doing, and `R.EMPTY` on day one is not a measurement of that. A new world is
+created with **three shelves and nothing on any of them** (`createWorld`) against
+a $250 float, so the range a shopper is being let down by does not exist yet —
+and `R.EMPTY` is a *flat* `-0.015` per body, charged once per visitor whatever
+they came in for. Measured on the shop the game hands you, doors open on day one:
+**27 people in, 27 out with nothing, 0.500 → 0.401** — and that is already after
+the ramp took four fifths off. Face value is `-0.495`, half the scale on the
+first day anybody plays. Waived, the same morning costs **0.500 → 0.481**.
+
+**`R.MISSED` is deliberately not waived**, and that pair is what keeps this from
+being "the opening week is free". It is charged on the *share* of a list the shop
+could not fill, so it is self-limiting, and it is the half carrying the
+instruction: the feed still fills with `no bakery`, the report still names the
+gap, and widening the range still pays. What goes is only the flat per-body toll,
+which says the same thing again with nothing attached and says it once per
+visitor.
+
+**It rejoins the ramp rather than switching back on.** Free for three days, then
+eased in over the ordinary `GRACE_DAYS` — so the first day it costs anything it
+costs a fifth, and full price arrives on day 8. A flat window would be a cliff: a
+shop bleeding at face value on day four with nothing about it having changed,
+which is the `packs` trap said about a grace period.
+
+**The honest cost.** This is the first per-cause exemption, and the section above
+spends its whole argument on not having one. The shapes are not the same — the
+danger a hand-written list carries is that a *new* cause quietly misses the
+discount, and this is the opposite: one named cause getting more than the others,
+so a cause added tomorrow still lands on the ramp. The risk is only that somebody
+later reads it as licence to waive a second one. The test it had to pass is that
+**a player could not have avoided it on the day it was charged**, and no other
+cause in the table meets that — a queue, a crush and a bare shelf are all things
+the shop did.
+
+The real fix underneath is that a new shop opens with nothing to sell, and this
+does not touch it. It buys the first three days back; stocking the opening shop
+is still the change that would make them worth playing.
+
 ### ...and the two numbers underneath it, which were the actual complaint
 
 Grace fixed the first week and the shop still played wrong on day 6, trading
@@ -379,12 +419,24 @@ below-the-line walk-in is untouched — grace delays it rather than removing it.
 Both want a balance run taken from a **new** world rather than an established
 save, which is the run nobody has done.
 
-`verify:grace` — 124 checks. Its control is the assertion that decides whether
-this is opt-in at all: a shop past the ramp is the old game to the digit, on
+`verify:grace` — 139 checks. Its control is the assertion that decides whether
+this is opt-in at all: a shop past *both* ramps is the old game to the digit, on
 every cause in `REP_CAUSES`, in both directions. Every save in existence is
-played well past day 5, so if that control is wrong this step has quietly
-rebalanced all of them. It restates the ramp rather than importing `GRACE_DAYS`,
-so a retune is supposed to fail it and be read.
+played well past day 8, so if that control is wrong this step has quietly
+rebalanced all of them. It restates both ramps rather than importing
+`GRACE_DAYS`/`EMPTY_FREE_DAYS`, so a retune is supposed to fail it and be read —
+which is exactly what happened when the waiver landed.
+
+Its §8 is the waiver, and its centrepiece is a **pair worthless split in half**:
+`R.EMPTY` free on days 1–3 *and* `R.MISSED` charged on the ordinary ramp on those
+same days. Either half alone is satisfied by an opening week in which no loss is
+charged at all, which is a different feature and one that makes the first three
+days inert. Then: that a waived charge opens no bucket on the receipt, or the
+report draws a row explaining a movement that never happened; that it eases in
+rather than switching on, asserted as three strictly increasing days plus the
+specific fifth, since "free for three days" passes on a cliff; and the opening
+morning itself — 27 empty-handed leaves costing a new shop nothing and an
+established one the whole shop.
 
 ---
 

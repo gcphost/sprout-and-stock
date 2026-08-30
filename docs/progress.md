@@ -1,6 +1,6 @@
 # Milestones
 
-Status: **steps 1–3 built.** Forty-five rungs, three kinds of reward, a card
+Status: **steps 1–3 built.** Fifty rungs, three kinds of reward, a card
 that stops the world, and a panel you can watch fill.
 
 ---
@@ -138,6 +138,22 @@ and nobody walks out of a queue over an award. Three details are load-bearing:
   added to before the early return, or a direction held across the pause is
   released to a handler that has already returned and the shop walks at a key you
   let go of. Same trap flying the camera in build mode had to be written around.
+- **It waits for a gap.** It is the one overlay raised by the shop's clock rather
+  than by a press, so it is the one that can arrive in the middle of something —
+  and it did, most often in the middle of a build, where it eats the press you
+  had already decided on and the piece never gets placed. `dropGesture` is only
+  damage control there; the fix is not to land in it. `awardBusy` (client/main.js)
+  holds the card until nothing is in flight — no press, no drag, no keys, no ring
+  winding — and nothing has been pressed for `AWARD_QUIET`. That window is 1.2s
+  ordinarily and **5s while the build bar is up or a fixture is in your hands**,
+  because building is aim-then-press: the second *before* a press looks exactly
+  like the second after one, and a card in there is a card in the middle of
+  somebody's aim. Only the first card of a run waits — the rest follow the
+  button, because "3 more to come" is a promise the card itself made. Nothing is
+  lost by holding: the cash, the town and the crates are banked by the server on
+  the tick the rung was earned, and the log line and the sting have already
+  landed. And `Tutor.maybeLesson` asks `award.waiting` rather than `award.open`,
+  or a lesson opened in the gap is buried by the award a second later.
 
 Visually it is the one thing in the HUD allowed to look like a game: a gold band,
 a medal hanging off the top edge over a turning sunburst, and a pop on the way
@@ -152,18 +168,19 @@ Three things, and all three are deliberate:
 - Up to **+16 catchment** across the whole ladder, against a base of 16 — a
   doubled town, spread over the length of a shop's life and earned rather than
   bought. Ten of those sixteen are past `take-10000`, which used to be the top.
-- Up to **1,386 units of free stock**, spread over forty-five awards, each
+- Up to **1,536 units of free stock**, spread over fifty awards, each
   capped by what the bay can hold — so a shop with a small yard collects less of
   it, which is the guard doing its job rather than a rung misfiring.
-- **$76,600 in cash across all forty-five**, climbing 250 → 500 → 500 → … →
-  1500 → … → 12,000. A shop opens on $250 — two crates and a seed tray — so the
-  opening hour was a wait for one shelf to sell through rather than a decision,
-  and the first rung pays the float over again. Every rung pays *something*: a
-  ladder with a gap in it reads as a rung that is broken.
+- **$82,850 in cash across all fifty**, opening at 1000 and then climbing
+  500 → 500 → … → 1500 → … → 12,000. A shop opens on $250 — two crates and a
+  seed tray — so the opening hour was a wait for one shelf to sell through
+  rather than a decision, and the first rung pays four times the float. Every
+  rung pays *something*: a ladder with a gap in it reads as a rung that is
+  broken.
 
   **The opening is the steep part, and that is the shape rather than an
-  accident.** `first-sale` 250, `take-100` 500, `first-plant` 500, `take-500`
-  1000 — the first stretch is worth $2,250, against a middle where a shop taking
+  accident.** `first-sale` 1000, `take-100` 500, `first-plant` 500, `take-500`
+  1000 — the first stretch is worth $3,000, against a middle where a shop taking
   $2,000 collects $400. Those two are the rungs that get spent on something: $500 is
   five raised beds' worth of the plot ladder's first step (4 × $90 takes every
   starting bed up one), and taking all four the whole way to Greenhouse is
@@ -221,6 +238,41 @@ next sweep, the way `known` promises — no card, no gift, one log line.
 A week is about forty minutes of play (`DAY_SECONDS` is 360, and the night is
 compressed), so this is the cadence the ladder had between `first-build` and
 `sold-100` and then lost for a fortnight.
+
+## The stocking rungs are the only ones about work
+
+`shelved` is the fourth lifetime tally and the only counting rung on the ladder
+that is not a measurement of what the *town* did. Sales, walk-outs, takings and
+returns are all somebody else's verdict; putting a case on a board is the thing
+the player actually spends their time doing, and the shop threw the number away
+at midnight like every other daily stat. Four rungs: **100, 1,000, 5,000,
+25,000**.
+
+They sit *ahead* of the sales rungs at every bar, which is the shape rather than
+an accident — you stock a thing before you sell it, and stock that never sells
+still counts. By the far end the two ladders have drifted a long way apart, since
+a shop with any spoilage at all shelves considerably more than it rings up.
+
+**Written in one place.** `Game.pourInto` is where goods land on a board, and it
+is already shared by all four verbs that put them there — an armful, a crate off
+a shoulder, a single unit tapped across, and a loader's swing. A count kept at
+the four call sites would drift the day a fifth arrived, which is the argument
+`moveRep` and `boardFor` are each built on. It counts the **crew's** work as well
+as yours, because the shop stocked it either way and a tally of your own hands
+alone would fall to zero on exactly the shop that has grown enough to hire. It
+does not count `stock_shop`, which writes `stack.qty` directly — that is a
+staging tool for screenshots, and a milestone an agent can hand you is not one.
+
+**None of the four pays `town`**, for the reason the survival rungs do not: the
+sixteen that do are sized so the ladder is worth a whole starting town, and rungs
+added to say something about the middle of the game have no business moving the
+number the endgame is built on.
+
+A save from before the field reads it as 0 rather than as missing, so these four
+start counting from the day they shipped. That is the same thing the takings
+rungs already say about a shop older than the ladder, and it is the honest half
+of "a milestone is a measurement" — an established shop banks nothing it cannot
+prove.
 
 ## Next, if it earns it
 

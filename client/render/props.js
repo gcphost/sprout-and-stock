@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { partsAt, seamStep, skinnedParts, modelBounds, FRONT_LIP } from '../../shared/model.js';
-import { FACE_CALM, VEHICLE_LOOK, shade } from './palette.js';
+import { FACE_CALM, VEHICLE_LOOK, CRATE_LOOK, shade } from './palette.js';
 import { crateParts, CRATE, CRATE_H, CRATE_WALL, CRATE_DECK, CRATE_STEP } from './crate.js';
 import { BUILDS, STOCK_HAIR, STOCK_HAIR_COLOR } from '../../shared/looks.js';
 import { signed } from '../money.js';
@@ -1228,72 +1228,106 @@ export function buildVehicle(model, { t = 1 } = {}) {
 }
 
 /**
- * The little floating bubble above a customer showing what they're after,
- * above a player showing what they're carrying, and over a bare board showing
- * what it is waiting for.
+ * How big the goods are drawn when they are the whole readout, and where they
+ * float. In tiles.
  *
- * The look is the original one, restored. It was rebuilt once — icon in front
- * of the shell, unlit dark badge, `modelExtent` fitting each item to fill it —
- * on the argument that a translucent shell painted over its own subject and
- * that one fixed scale suits no item. Every word of that is true and it came
- * out worse in the hand: a solid badge is a hard-edged sticker floating over a
- * soft-shaded shop, and an icon sized to fill it is a lump rather than a
- * glance. What reads is a small thing in a soft bubble.
- *
- * Left here because the reasoning is worth not repeating: if this is picked up
- * again, the thing to change is the ART — a flat sprite of the same 2D item
- * drawing the HUD uses — not the size of a model in a ball.
- *
- * Pass the model and it builds the icon; pass nothing for a bubble with a
- * thought and no subject. That much of the rebuild stays, because two callers
- * measuring an item two ways is two badges that disagree about how big a
- * tomato is.
+ * `size` is up from the 0.52 the item was drawn at inside the sphere this
+ * replaced, because it is no longer sitting in anything: the ball was 0.52
+ * across on its own and the item inside it read at about half that. Standing
+ * alone it has to carry the whole readout, so it grows to roughly what the
+ * container used to occupy — which is what keeps `fadeBubbles`, the charge ring
+ * that draws over a bubble and the `position.y` at every call site honest,
+ * since all of those were choreographed against how big a bubble LOOKS.
  */
-export function buildBubble(model = null) {
-  const g = new THREE.Group();
-  // Translucent, and big enough to hold the icon. It used to be an opaque
-  // sphere smaller than the thing inside it, so every shopper walked around
-  // with an item clipping through a solid white ball.
-  const shell = new THREE.Mesh(GEO.sphere, bubbleMaterial());
-  shell.scale.set(0.52, 0.44, 0.52);
-  shell.renderOrder = 1;
-  g.add(shell);
+const BUBBLE = {
+  size: 0.62,
+  /**
+   * ...and smaller over a BODY, which is the one axis worth having here.
+   *
+   * A fixture's readout floats over a static unit most of a tile wide with
+   * clear air above it, and it is read from across the shop. A body's hangs a
+   * few pixels over a head that is 0.68 across and moving, in an aisle with
+   * seven other people in it — so the same size that reads as a label over a
+   * shelf reads as a thing the shopper is wearing. It is the only bubble in the
+   * game with something directly underneath it competing for the same glance.
+   */
+  body: 0.48,
+  /**
+   * How far down the model sits, as a share of its own size, so it straddles
+   * the anchor rather than hanging off it. A SHARE and not a number, or the two
+   * sizes above need two offsets and the smaller one rides high.
+   */
+  centre: 0.26,
+  /** Where it floats over whoever, or whatever, is thinking it. */
+  y: 1.32,
+};
 
-  // Two little trailing dots, so it reads as a thought rather than a balloon.
-  for (let i = 0; i < 2; i++) {
-    const dot = new THREE.Mesh(GEO.sphere, bubbleMaterial());
-    const s = 0.12 - i * 0.04;
-    dot.scale.setScalar(s);
-    dot.position.set(-0.16 - i * 0.1, -0.3 - i * 0.12, 0.16 + i * 0.1);
-    g.add(dot);
-  }
+/**
+ * The little floating thing above a customer showing what they're after, and
+ * over a bare board, a ripe bed or a full vat showing what is on ITS mind.
+ *
+ * IT IS THE GOODS AND NOTHING ELSE, which is the third answer to this and the
+ * one worth keeping. The other two are written down because each was built,
+ * looked at and thrown away, and both failures are the same failure.
+ *
+ * It was a translucent sphere at half opacity with the item floating inside it,
+ * and that look was itself a restoration — it had been rebuilt once as an
+ * opaque badge and reverted because "a solid badge is a hard-edged sticker
+ * floating over a soft-shaded shop". Every word of that was true of the shop it
+ * was written about, and the shop moved: the cel ink went in, the HUD went to
+ * cream paper with one ranked contour, and the sphere ended up the last thing
+ * in the game still drawn to the old rules — soft, unlit and, because
+ * `depthWrite: false` keeps a mesh out of the depth buffer the silhouette pass
+ * reads, carrying no line at all. From a chair that is a smudge over a
+ * shopper's head, and it reads as the ink pass being broken rather than as art
+ * nobody updated.
+ *
+ * Then it was a flat CARD — the HUD's paper with a contour built out of
+ * geometry, stood up in the world. Two things were wrong and only one was
+ * fixable: a rectangle is much heavier than a circle of the same width, so
+ * matching the sphere's numbers gave a readout that read twice its size; and a
+ * flat plane in a shop where every other object has three visible faces is the
+ * one thing on screen that does not belong — the sphere's sin, arriving from
+ * the other direction.
+ *
+ * Then it was a CRATE, on the argument that everything in this shop moves in a
+ * box so a want is a box with the thing in it. That is a good argument and it
+ * is still the wrong readout, for the reason both of the others were: **the
+ * container was never the message.** A bubble is about eight pixels of item at
+ * the zoom anybody plays at, and every one of the three spent most of those
+ * pixels on the thing holding it. The goods are the only part anybody was ever
+ * reading.
+ *
+ * So: the item's own model, bigger, floating. It is the same art the shelf
+ * below it is drawn from, so a tomato in a thought and a tomato on a board can
+ * never disagree, and there is nothing left here to restyle.
+ */
+export function buildBubble(model = null, { body = false } = {}) {
+  const g = new THREE.Group();
+
+  // A flag rather than a number, so the two sizes live together in `BUBBLE`
+  // where they can be compared. A caller passing its own would be free to pick
+  // a third, which is how the 0.42-against-0.52 disagreement this replaced got
+  // in — and the question a caller can actually answer is not "how big" but
+  // "is this hanging off a person".
+  const size = body ? BUBBLE.body : BUBBLE.size;
 
   if (model) {
     const icon = buildModel(model, { castShadow: false });
-    // Sized to sit *inside* the shell rather than burst out of it.
-    icon.scale.setScalar(0.52);
-    icon.position.y = -0.17;
+    icon.scale.setScalar(size);
+    icon.position.y = -size * BUBBLE.centre;
     g.add(icon);
   }
 
-  g.position.y = 1.32;
-  // The shell is a sphere and could not care less, but the two trailing dots
-  // are placed off one shoulder to read as a thought coming *from* whoever is
-  // under it. Left alone they trail off the front of a shopper's face as soon
-  // as you turn the view.
+  g.position.y = BUBBLE.y;
+  // Yaw-only billboarding — `Scene.faceReadouts` composes `Ry(camAngle)·base`.
+  // A prop does not need it to be legible the way a card did, and it gets it
+  // anyway for the reason every other readout does: a model is authored nose
+  // east, so left alone it presents whichever face the world happens to point
+  // at the camera, and a bottle turns its label away at two of the four
+  // quarter turns. Which reads as the art being wrong on some angles.
   faceCam(g);
   return g;
-}
-
-let bubbleMat = null;
-function bubbleMaterial() {
-  if (!bubbleMat) {
-    bubbleMat = new THREE.MeshLambertMaterial({
-      color: 0xffffff, transparent: true, opacity: 0.5,
-      depthWrite: false, flatShading: true,
-    });
-  }
-  return bubbleMat;
 }
 
 /** A stack of item props on a flat top — more units means a taller pile. */

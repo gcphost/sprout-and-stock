@@ -51,9 +51,24 @@ const KEY = 'sns-ui-scale';
    words; above about 1.15 the panel is wider than the shop behind it on the
    window this was reported from. The step is coarse on purpose — this is a
    thing you set once, and a 1% nudge is a press that answers the number it
-   already had. */
+   already had.
+
+   ...AND 1.15 WAS THE WRONG KIND OF CEILING, which is worth separating out
+   because the reason above is still true. "The panel is wider than the shop
+   behind it" is a LOOK, measured on one window — and the top of this range is
+   not a taste control, it is the only magnification this game has. The HUD is
+   full of 8, 9 and 10px type; at the 0.85 default an 8px legend renders at
+   6.8 real pixels, and 1.15 buys somebody who cannot read that a third of a
+   step. Capping a legibility control on how tidy the result looks is deciding
+   for the person who needs it, on a window that is not theirs.
+
+   So the top is 1.5 and the cost is theirs to weigh: the panel does get wide,
+   the shop does get crowded, and both are visible the instant they press it
+   and reversible by pressing the other way. The bottom is untouched — 0.7 is
+   a legibility floor, and that IS a real one, because past it the words stop
+   being words for everybody. */
 export const UI_MIN = 0.7;
-export const UI_MAX = 1.15;
+export const UI_MAX = 1.5;
 export const UI_STEP = 0.05;
 /* A notch down from where the stylesheet was drawn, which is the change this
    file was added for. It is the DEFAULT rather than the only setting, because

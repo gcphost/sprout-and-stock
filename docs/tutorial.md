@@ -30,11 +30,26 @@ Three arrays and one parked object:
   action.
 - `GUEST_STEPS` — swapped in whole for somebody who **joined**. No money, no
   shutters; just the hands.
-- `LESSONS` — briefings that arrive later. `charge`, `shop`, `logistics`,
-  `farm`. **A lesson tells and asks nothing** — no target, no veil, no
-  predicate, nothing armed — *unless its trigger is itself the missing thing*
-  (`charge` is the one that gets to point at a press, because being stuck is
-  what fired it).
+- `LESSONS` — briefings that arrive later. Two families. The **tab** ones are
+  `shop`, `logistics`, `farm`: an `owns` count, a `group`, and the `?` on the
+  build bar reopens them. The **situation** ones are `charge`, `queue`, `wave`
+  and the three gauges (`gauge-room`, `gauge-mood`, `gauge-rep`): a `when`, no
+  `group`, and nothing reopens them, because the `?` answers "what is in this
+  tab" and there is no tab whose contents are the Rep bar. `rubbish` and `pads`
+  are two more of those — rot standing on the floor of a shop with no skip, and
+  a yard that has stopped draining.
+  **A lesson tells and asks nothing** — no target, no veil, no predicate,
+  nothing armed — *unless its trigger is itself the missing thing*, which is
+  what the whole situation family is: being stuck is what fired it, so it gets
+  to point at a press.
+- The three **gauges** are the corner bars, and they are the one case where the
+  trigger is harder than the copy. They fire off `gauge` in
+  `client/hud-meters.js` — the bar's own amber, imported rather than restated,
+  or the card explains a bar that is still green — held for `GAUGE_DIP_MS` by
+  `sagging`, because every one of those bars dips for a second whenever a queue
+  forms. Room reads `capacityBy` off the wire to know whether the fix is a till
+  or a wall; Mood reads `moodBlame` to name which of the three drains is
+  actually happening, and does not fire at all when none of them is.
 - `WAVE_STEP` — written, parked, not in any array. Its moment is the first
   shopper walking past after the shutters go up.
 
@@ -93,7 +108,10 @@ mark on the one press inside a lit panel. `up` climbs from the thing you can
 
 - **`layoutOf(t)`** → `t.scene.storeLayout`: `shelves` `checkouts` `bins`
   `belts` `arms` `sorters` `packers` `unders` `lifts` `plots` `pens` `props`
-  `break` `ground` `paint` `door` `store` `w` `h`. This is where an `owns`
+  `break` `bay` `drop` `ground` `paint` `door` `store` `w` `h`. The three pads
+  are `{x, z, cells}` or **null**, and `cells` is what makes "how full is the
+  yard" answerable without a wire field — one cell holds one crate (`padLoad`).
+  This is where an `owns`
   count comes from.
 - **`t.state`** (the snapshot): `undos` / `redos` (the build stack, **not on the
   save**, so it means "presses made since you sat down"), `shutters`, `roster`,
@@ -202,9 +220,17 @@ break) · `esc` · `meOf` · `lotSize` · `shelvesOf` · `anyShelf` · `nearestC
 
    ```
    🤖  Press [[H]] for your Crew
-   ＋  Open the + tab
+   ＋  Open the Lease tab
    👤  Click the Clerk, then click again to hire
    ```
+
+   **And the icon on a row that names a tab is that tab's own icon.** They are
+   set in `BUILD_GROUPS` / `staffGroups` (`client/sections.js`) and cannot be
+   imported here — that file imports `tutor.js` — so it is a look rather than a
+   lookup, and it has drifted twice: a Logistics row wearing a porter's trolley
+   while the tab wears a crate, and a "+ tab" that is called Lease. The one row
+   whose whole job is saying which of six buttons to press is the worst place
+   in the game to point at the wrong one.
 
 6. **Say which button, and never a key that isn't there.** "Tap" is the wrong
    word on a mouse and `[[R]]` is a lie on a phone — `perInput` forks every one.
