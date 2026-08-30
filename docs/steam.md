@@ -241,6 +241,36 @@ mapping from `GOALS` and assert the two agree (see *Verifying it*).
 
 ## What Steam wants that is not code
 
+### Store positioning
+
+The public description must sell the scale-up, not make the game sound like a
+plant-growing sim. Food inputs are part of the supply graph, but they are not
+the player fantasy. The core arc is: do the work yourself; hire and direct a
+robot crew; then replace repeated walks with a production line of conveyors,
+loaders, sorters, and processing machines.
+
+The canonical wording and boundaries are in [game.md](game.md); keep this copy
+aligned with it when either changes.
+
+**Short description:**
+
+> Build a robot-run food factory and shop. Grow a one-bot operation into a busy
+> crew, make your own products, and automate the flow from raw inputs to packed
+> shelves.
+
+**Long-description opening:**
+
+> You are the only human in a growing robotic food business. Begin with a single
+> worker and a few crates to carry, then hire a crew to cook, stock, collect, and
+> serve. As the floor fills and the walking becomes the bottleneck, lay
+> conveyors, fit loaders and sorters, and build production lines that transform
+> raw inputs into cuts, sausages, bacon, cheese, dough, and ready-to-sell food.
+> Keep your factory and shop supplied as changing demand tests every decision.
+
+Use footage that shows the progression in that order: one robot and manual
+crates; a working crew; machines making products; then a visible conveyor line
+feeding shelves. Do not lead with grow racks, crops, or a quiet exterior shot.
+
 Nothing here is hard; all of it takes calendar time, and some of it takes weeks
 you cannot compress.
 

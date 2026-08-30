@@ -136,6 +136,41 @@ function tabGroups(all) {
 }
 
 /**
+ * THE RUN OF ROWS THAT IS THE ONE THING WHICH SCROLLS.
+ *
+ * A section's rows are drawn as one flat column and the body is the scroller,
+ * which is right for a list and wrong for a tab that has something above the
+ * list AND something below it. The Menu's Game tab is the case: a row saying
+ * who else is in this shop at the top, the switches in the middle, and the two
+ * ways out as a `footBar` at the bottom. Once the switches are long enough to
+ * overflow the panel's declared height, scrolling the body takes BOTH of those
+ * with them — so the way out is somewhere off the end of a list whose whole
+ * job was to have a bottom, and "Invite a friend" scrolls up out of the panel.
+ *
+ * So a row may say `pane: true`, and the maximal RUN of them becomes a
+ * `.pnl-mid`. That is not a new layout: `showPanel` already reads `.pnl-mid`
+ * to decide `paned`, which is the three-pane column a fixture menu has had
+ * since it grew a verb bar — head, the one scroller, foot — and `scrollerOf`
+ * already answers with it, so the fades, the drag and the kept scroll offset
+ * all follow with nothing else told about it.
+ *
+ * A RUN rather than every flagged row, because two panes in one column is two
+ * things that both give, and the layout has no way to say how much each gets.
+ * A section that flags two separated blocks gets the first one scrolling and
+ * the second pinned, which is a layout somebody has to look at rather than a
+ * silent halving of the panel.
+ */
+function paneWrap(cells, rows) {
+  const first = rows.findIndex((r) => r.pane);
+  if (first < 0) return cells.join('');
+  let last = first;
+  while (last + 1 < rows.length && rows[last + 1].pane) last += 1;
+  cells[first] = `<div class="pnl-mid">${cells[first]}`;
+  cells[last] += '</div>';
+  return cells.join('');
+}
+
+/**
  * The thing that actually scrolls inside a panel body.
  *
  * There are two layouts and they scroll different elements: a menu that
@@ -3433,7 +3468,7 @@ export class UI {
     // where it reads as the filter having eaten the list. An empty bucket is
     // good news in most of them (nothing is short), so it says which.
     const body = rows.length
-      ? rows.map((r, i) => this.rowHtml(r, i, !!heads)).join('')
+      ? paneWrap(rows.map((r, i) => this.rowHtml(r, i, !!heads)), rows)
       : `<div class="foot">${this.query ? 'Nothing matches that.'
         : esc(groups?.[at]?.empty
           ?? `Nothing ${(groups?.[at]?.label ?? '').toLowerCase() || 'here'} right now.`)}</div>`;

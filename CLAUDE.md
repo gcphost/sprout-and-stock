@@ -1,7 +1,9 @@
 # Sprocket & Stock — working agreement
 
-A shop-and-farm game staffed entirely by robots, built by two people at the same
-time, each with their own agent, against one shared running world.
+A robot-run production, logistics, and shop game, built by two people at the
+same time, each with their own agent, against one shared running world. The
+arc is hands-on work, then a crew of specialised robots, then conveyor and
+loader automation; growing inputs is one production source, not the premise.
 
 The player is the only human who works here. Every hire is a machine — that has
 been true of the *art* since workers became content (`server/sim/names.js` draws

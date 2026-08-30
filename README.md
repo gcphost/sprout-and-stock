@@ -1,15 +1,19 @@
 # ⚙️ Sprocket & Stock
 
-A cozy shop-and-farm sim where you are the only human on the payroll — and a
-game you and someone else build **while playing it**.
+A cozy robot-run food factory and shop where you are the only human on the
+payroll — and a game you and someone else build **while playing it**.
 
-You buy the robots, you set what each one cares about, and they grow the crops
-out back, fill the shelves out front and work the queue. Get the dials wrong and
-they'll spend the day politely doing the wrong job. Meanwhile the world decides
-what the town is doing today — a heat wave, a viral snack, a supply shortage —
-and the shop has to react.
+Start with one robotic worker and a few jobs that need doing by hand. Grow that
+crew into a busy operation, give each robot priorities, and make them collect,
+process, stock, cook, and serve. When the walking stops scaling, redesign the
+floor: conveyors move crates, loaders transfer them, sorters split the flow, and
+machines turn raw inputs into the products on the shelf. Make your own cuts,
+sausages, bacon, cheese, dough, and finished meals — then keep the whole thing
+moving while the town's demand shifts around you.
 
 Everyone who works here is a machine. Everyone who shops here, mostly, isn't.
+
+The canonical game pitch and progression are in [docs/game.md](docs/game.md).
 
 **Play it in a browser:** <https://sprocket.willbowman.dev> — no download, no
 account, and a friend can join your shop over a link.
@@ -51,9 +55,10 @@ are a till with somebody waiting and a ripe bed under your own feet.
 - **A tap is one, a hold is the lot.** Left button takes, right button puts. Tap
   a shelf board for a single loaf; hold it and the whole board goes into a crate
   on your shoulder.
-- **To farm:** walk to a bed and hold to turn the soil, pick the crop in the
-  bed's own menu to sow, then harvest once it's grown. Whatever doesn't fit in
-  your hands lands in a crate at your feet.
+- **Make and move the goods.** Some inputs come from grow racks, vats, and
+  pens; then machines turn them into ingredients and products. Carry the first
+  crates yourself, assign robots to the repeat work, then build conveyors,
+  loaders, and sorters when the crew can no longer keep up.
 - **`G` opens build mode.** Press it again for the catalogue. Buy and place
   shelves, freezers, hot counters, tills, beds and appliances; drag walls along
   tile edges to draw rooms; paint floors, paint walls a side at a time, and paint
@@ -101,7 +106,7 @@ Needs [Node.js 20+](https://nodejs.org). Works the same on macOS and Windows.
 git clone <your repo url> sprout-and-stock
 cd sprout-and-stock
 npm install
-npm run seed     # load the starter items, crops and customers
+npm run seed     # load the starter catalogue and customers
 npm run dev      # → http://localhost:5173
 ```
 
@@ -161,7 +166,7 @@ one.
 
 ### Why it doesn't conflict
 
-Content — items, crops, customers, fixtures, events, upgrades — lives in a
+Content — items, inputs, customers, fixtures, events, upgrades — lives in a
 **SQLite database**, not in source files. Adding an item is an `INSERT`,
 validated on the way in, live on the next tick. Two people adding content at the
 same time simply cannot collide, and bad content is rejected with an explanation

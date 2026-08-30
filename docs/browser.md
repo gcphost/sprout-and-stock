@@ -10,11 +10,12 @@ This document comes *before* [docs/shipping.md](shipping.md) and
 [docs/steam.md](steam.md) rather than replacing them, and the reasoning is about
 audience rather than architecture. A standalone binary is a real project — code
 signing, notarisation, an updater, a store page, two platforms of native module
-rebuilds — and it is all spent getting somebody to *install* a shop-and-farm sim
-they have not played yet. A URL is one afternoon of porting and the same person
-is standing in the shop in four seconds. The binary is still the better answer
-for the people who love it; it is the wrong answer for the people who have never
-heard of it, and there are far more of the second kind.
+rebuilds — and it is all spent getting somebody to *install* a robot-run
+production and logistics game they have not played yet. A URL is one afternoon
+of porting and the same person is standing in the shop in four seconds. The
+binary is still the better answer for the people who love it; it is the wrong
+answer for the people who have never heard of it, and there are far more of the
+second kind.
 
 Where this document and those two disagree, this one wins for the **web** build
 and neither of them wins for the desktop build. That is the shape of the whole

@@ -3117,8 +3117,22 @@ export const SECTIONS = [
       // nothing else on this tab: they persist, they are not in the save, and
       // every one of them is still set the way you left it in the next shop you
       // open. See `switchRows`.
+      //
+      // ...AND IT IS THE ONE THING ON THIS TAB THAT SCROLLS (`pane`, see
+      // `paneWrap` in client/ui.js). The tab has something above the list and
+      // something below it — who else is in this shop, and the two ways out of
+      // it — and a body that scrolls takes both of those away with the
+      // switches. Which is exactly what a fourth switch did: the way out went
+      // off the bottom of a bar whose whole job is to be the bottom, and the
+      // row that lets somebody in scrolled up out of the panel. The switches
+      // are the part of this tab you read down; the other two are the parts you
+      // press, so they are the parts that stay.
+      //
+      // The HEADING stays out of it, which is the small decision here: it names
+      // what is scrolling, so it would be the first thing to go and the list
+      // under it would then be four unlabelled rows.
       { sep: 'You' },
-      ...switchRows(ui),
+      ...switchRows(ui).map((r) => ({ ...r, pane: true })),
 
       // ...AND THE TWO WAYS OUT, as a FOOT pinned to the bottom of the tab.
       //

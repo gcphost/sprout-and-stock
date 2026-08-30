@@ -72,6 +72,13 @@ const yes = (b) => (b ? 1 : 0);
 /** How many of a kind of fixture are standing in the shop. */
 const built = (g, kind) => (g.placements ?? []).filter((p) => p.kind === kind).length;
 
+// Building is an attractive early-game choice, so the ladder needs to leave a
+// little more working float after each rung. Keep the increase proportional at
+// every stage rather than making the early rungs generous and the later ones
+// comparatively smaller. Nearest $25 keeps the amounts easy to read on cards.
+const MILESTONE_CASH_MULTIPLIER = 1.25;
+const boostedCash = (cash) => Math.round((cash * MILESTONE_CASH_MULTIPLIER) / 25) * 25;
+
 /**
  * THE ONE RULE A NEW RUNG HAS TO OBEY, because it is not obvious and the sweep
  * is unforgiving: **the first instant a measure is true is the award**.
@@ -810,7 +817,14 @@ export const MILESTONES = [
     measure: (g) => lifetime(g, 'revenue'),
     reward: { cash: 12000, town: 1, supplies: 60 },
   },
-];
+].map((milestone) => ({
+  ...milestone,
+  // Stock-only rewards deliberately stay stock-only: in particular, the
+  // walkout lesson should never feel like a cash bonus for bad service.
+  reward: milestone.reward.cash > 0
+    ? { ...milestone.reward, cash: boostedCash(milestone.reward.cash) }
+    : milestone.reward,
+}));
 
 /**
  * Which departments the shop currently has goods on a board of.

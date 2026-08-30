@@ -4129,14 +4129,21 @@
        asked is exactly "is there a foot in here". `flex: none` on the children
        is the guard that costs nothing and saves a real bug — a flex child
        defaults to shrinking, so a tab longer than the panel would squash its
-       rows instead of scrolling.
+       rows instead of scrolling. `:not(.pnl-mid)` is the one exception and it
+       is the opposite case rather than a hole in that guard: a tab that
+       declared a scrolling middle (`paneWrap`, client/ui.js) is saying which
+       part of it gives, so that part must be the one child here that is
+       allowed to. Written as a `:not` rather than left to the cascade — the
+       paned rule above does out-specify this one, which is a fact about two
+       selectors in two halves of a stylesheet and not something the next
+       person to touch either should have to work out.
 
        ACCENT ON THE TIP JAR, and it is the stepped-down `#a8442f` rather than
        `--accent` for the reason the boot error and the Shop report's warning
        tiles give: `--accent` is a *mark* colour measured against a panel, and a
        14px word on a tinted keyline owes its reader 4.5:1. This pair is 4.8. */
     #panel-body:has(> .footbar) { display: flex; flex-direction: column; }
-    #panel-body:has(> .footbar) > * { flex: none; }
+    #panel-body:has(> .footbar) > *:not(.pnl-mid) { flex: none; }
     /* A WELL RATHER THAN A LEDGE. `#panel-body` is `0 9px 3px`, so a bar that
        only padded its top sat its buttons 9px off each side and 3px off the
        bottom — and a `.fbtn` carries a 3px drop, which lands the drop itself on
