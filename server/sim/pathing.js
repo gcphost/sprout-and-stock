@@ -159,9 +159,29 @@ export function findPath(grid, layout, start, goal,
   let tx = gx;
   let tz = gz;
   if (!isWalkable(grid, layout, tx, tz)) {
-    const alt = NEIGHBOURS
-      .map(([dx, dz]) => ({ x: gx + dx, z: gz + dz }))
-      .find((p) => isWalkable(grid, layout, p.x, p.z));
+    /**
+     * ...and the neighbour has to be one you could reach the thing FROM, which
+     * is a second question and was not being asked.
+     *
+     * Walkable alone is true of the far side of your own wall — the note in
+     * `faceAlong` is about exactly this, that a divider has ordinary floor on
+     * both sides of it. So a bed against the west wall of the shop retargets to
+     * the grass outside, the route is real, the walk is honest, and the hire
+     * arrives somewhere they cannot work the thing they walked to. It looked
+     * like it worked for as long as the verbs measured a plain radius: they
+     * reached through the wall and picked the crop. Now that they do not, the
+     * same route is a hire who arrives and stalls, so the two halves have to
+     * move together.
+     *
+     * `canStep` is the same test the search itself uses for every other step,
+     * which is the point — a side you cannot step to the goal from is not a
+     * side of it. The old answer is kept as the fallback rather than returning
+     * null: a target with no legal side at all is a fixture somebody has walled
+     * in, and getting as close as possible is what the shop did before.
+     */
+    const sides = NEIGHBOURS.map(([dx, dz]) => ({ x: gx + dx, z: gz + dz }))
+      .filter((p) => isWalkable(grid, layout, p.x, p.z));
+    const alt = sides.find((p) => canCross(layout, p.x, p.z, gx, gz)) ?? sides[0];
     if (!alt) return null;
     tx = alt.x;
     tz = alt.z;

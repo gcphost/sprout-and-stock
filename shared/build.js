@@ -1281,6 +1281,58 @@ export function standableSide(L, f, t) {
 }
 
 /**
+ * ...and the same question asked over a GAP rather than over one line.
+ *
+ * `standableSide` is the adjacent case, and it is the only case `edgeBetween`
+ * can answer — hand it two tiles that are not neighbours and it says `NONE`,
+ * which reads as "no wall between them" and is really "I was not asked". Every
+ * reach test in the shop is a radius (`REACH` 1.6, `UNLOAD_REACH` 1.8, a till
+ * at 2.2), so the thing you are working is routinely two tiles away and often
+ * diagonal, and a plain circle has never had an opinion about what is in the
+ * way. Which is how you stock a shelf through the wall of your own stockroom:
+ * you are one tile from it, the maths says 1.0, and the only thing between you
+ * is the divider you drew.
+ *
+ * Two L-shaped walks and it passes if EITHER is clear, which is the whole of
+ * the shape. A single line would refuse anybody standing at a corner, and a
+ * flood fill is a search on the hottest loop in the game for a question about
+ * two tiles. Either-of-two is what "can an arm get round there" means at this
+ * distance: a straight wall between the two tiles blocks both walks, and a
+ * doorway or an open corner leaves one of them standing.
+ *
+ * Only the EDGES are asked, deliberately. What stands on the tile in between
+ * does not stop you reaching over it — a shelf you can lean across is the
+ * ordinary way an aisle works, and testing `blocked` here would refuse the
+ * second unit of every back-to-back pair in the shop.
+ */
+export function openBetween(L, a, b) {
+  if (!L) return true;
+  const ax = Math.round(a.x);
+  const az = Math.round(a.z);
+  const bx = Math.round(b.x);
+  const bz = Math.round(b.z);
+  if (ax === bx && az === bz) return true;
+  const walk = (xFirst) => {
+    let x = ax;
+    let z = az;
+    // Bounded by construction — every step closes one axis by one — but capped
+    // anyway, because this runs per hire per tick and a bad caller must cost a
+    // frame rather than the server.
+    for (let i = 0; i < 8 && (x !== bx || z !== bz); i++) {
+      let nx = x;
+      let nz = z;
+      if (xFirst ? x !== bx : z === bz) nx = x + Math.sign(bx - x);
+      else nz = z + Math.sign(bz - z);
+      if (SOLID.has(edgeBetween(L, x, z, nx, nz))) return false;
+      x = nx;
+      z = nz;
+    }
+    return x === bx && z === bz;
+  };
+  return walk(true) || walk(false);
+}
+
+/**
  * A step in model space, turned to face the way a fixture was actually stood.
  *
  * Models are authored facing east — rot 0 — so "the +z end of this unit" is

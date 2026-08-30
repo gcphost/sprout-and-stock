@@ -168,10 +168,10 @@ Three things, and all three are deliberate:
 - Up to **+16 catchment** across the whole ladder, against a base of 16 — a
   doubled town, spread over the length of a shop's life and earned rather than
   bought. Ten of those sixteen are past `take-10000`, which used to be the top.
-- Up to **1,536 units of free stock**, spread over fifty awards, each
+- Up to **1,608 units of free stock**, spread over fifty-three awards, each
   capped by what the bay can hold — so a shop with a small yard collects less of
   it, which is the guard doing its job rather than a rung misfiring.
-- **$82,850 in cash across all fifty**, opening at 1000 and then climbing
+- **$84,950 in cash across all fifty-three**, opening at 1000 and then climbing
   500 → 500 → … → 1500 → … → 12,000. A shop opens on $250 — two crates and a
   seed tray — so the opening hour was a wait for one shelf to sell through
   rather than a decision, and the first rung pays four times the float. Every

@@ -59,7 +59,7 @@ import {
   shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces, LIFT_WAYS,
   SORTER_ROUTES, sorterRoute, FAVOURING,
   MERGE_ROUTES, mergeRoute, conveyorFeeders, mergeStraight, CONVEYOR_KINDS,
-  covers, footprintMid, footprint, paddockOf, pennedIn,
+  covers, footprintMid, footprint, paddockOf, pennedIn, openBetween,
 } from '../../shared/build.js';
 import {
   pieceFor, kindOf, defaultPiece, countKey, boardsOf, openOf, fixtureLabel, bodiesOf,
@@ -1987,7 +1987,7 @@ export class Game {
        */
       owed: state.milestones?.owed ?? 0,
     };
-    this.totals = { revenue: 0, sold: 0, harvested: 0, shelved: 0, ...(state.totals ?? {}) };
+    this.totals = { revenue: 0, sold: 0, harvested: 0, shelved: 0, discarded: 0, ...(state.totals ?? {}) };
     /**
      * Whether the palette unfolds with the ladder. Carried, never consulted —
      * see the `create` payload and `shared/reveal.js`. The sim's only job with
@@ -4773,6 +4773,7 @@ export class Game {
     this.totals.sold += this.stats.sold;
     this.totals.harvested += this.stats.harvested;
     this.totals.shelved += this.stats.shelved;
+    this.totals.discarded += this.stats.discarded;
   }
 
   /**
@@ -6131,7 +6132,7 @@ export class Game {
 
     const crate = this.deliveries.find((d) => d.id === e.at);
     if (crate) {
-      if (!near(p, crate, UNLOAD_REACH)) return null;
+      if (!reach(this.layout, p, crate, UNLOAD_REACH)) return null;
       // Empty-handed at a crate is a LIFT, and full hands is the armful it
       // always was. One address, two jobs, chosen by the state you are in
       // rather than by a modifier nobody would find — and the choice is the
@@ -6300,7 +6301,7 @@ export class Game {
     //
     // Only a crate. A shelf is worked from a side and `spotsNearest` already
     // puts the one you are standing on first, so it does not have this shape.
-    if (palletId && near(p, target, UNLOAD_REACH)
+    if (palletId && reach(this.layout, p, target, UNLOAD_REACH)
         && this.canWalk(p.x, p.z, Math.round(target.x), Math.round(target.z))) {
       // Turn to it, for `placeAt`'s reason: reaching into a box while square to
       // the shop reads as the aim having been ignored.
@@ -8999,7 +9000,10 @@ export class Game {
    * press, is better off arriving than being refused.
    */
   atFixture(p, f, radius = REACH) {
-    return this.reachSpots(f).some((s) => near(p, s, radius));
+    // Through the wall as well, or the ring arms in front of you and the verb
+    // it arms answers "too far" — the green-ghost bug wearing a stockroom
+    // divider. `reach` and `near` have to move together for that reason.
+    return this.reachSpots(f).some((s) => reach(this.layout, p, s, radius));
   }
 
   /**
@@ -9582,7 +9586,7 @@ export class Game {
     // The gate, or the block itself — measured to its MIDDLE, since `pen.x` is
     // the min corner and the far side of a 2x2 is a tile and a half from it.
     const mid = footprintMid('pen', pen.x, pen.z);
-    if (!near(p, pen.useAt ?? mid, REACH) && !near(p, mid, REACH)) return err('too far from it');
+    if (!reach(this.layout, p, pen.useAt ?? mid, REACH) && !reach(this.layout, p, mid, REACH)) return err('too far from it');
     if (!(pen.qty > 0)) return err('nothing ready yet');
     const made = this.penMakes(pen);
     // Content is edited live, so the row that named what this makes can be
@@ -9613,7 +9617,7 @@ export class Game {
     const p = this.players[playerId];
     const plot = this.layout.plots.find((x) => x.id === plotId);
     if (!p || !plot) return err('no such plot');
-    if (!near(p, plot)) return err('too far from that plot');
+    if (!reach(this.layout, p, plot)) return err('too far from that plot');
     if (plot.crop_id) return err('something is already growing there');
     if (plot.soil === 'tilled') return err('that soil is already turned');
 
@@ -9627,7 +9631,7 @@ export class Game {
     const plot = this.layout.plots.find((x) => x.id === plotId);
     const crop = content().byId.crops[cropId];
     if (!p || !plot || !crop) return err('no such plot or crop');
-    if (!near(p, plot)) return err('too far from that plot');
+    if (!reach(this.layout, p, plot)) return err('too far from that plot');
     if (plot.crop_id) return err('that plot is already planted');
     if (plot.soil !== 'tilled') return err('turn the soil over first');
     if (this.cash < crop.seed_cost) return err(`need $${crop.seed_cost.toFixed(2)} for seed`);
@@ -9997,7 +10001,7 @@ export class Game {
     const p = this.players[playerId];
     const plot = this.layout.plots.find((x) => x.id === plotId);
     if (!p || !plot) return err('no such plot');
-    if (!near(p, plot)) return err('too far from that plot');
+    if (!reach(this.layout, p, plot)) return err('too far from that plot');
     if (!plot.ready) return err('not ready yet');
 
     const crop = content().byId.crops[plot.crop_id];
@@ -11408,7 +11412,7 @@ export class Game {
     if (!p || !st) return err('no such appliance');
     const busy = this.notWhileBuilding(p);
     if (busy) return busy;
-    if (!near(p, st.useAt, REACH) && !near(p, st, REACH)) return err('too far from it');
+    if (!reach(this.layout, p, st.useAt, REACH) && !reach(this.layout, p, st, REACH)) return err('too far from it');
     // Hands, else the crate on your shoulder — the same order `actionFor` puts
     // them in, so a tap and a hold on the same machine draw from the same place.
     const res = put
@@ -11457,7 +11461,7 @@ export class Game {
       ? this.deliveries.find((d) => d.id === crateId)
       : this.nearest(this.deliveries, p, UNLOAD_REACH);
     if (!crate) return err('no crate here');
-    if (!near(p, crate, UNLOAD_REACH)) return err('too far from the crate');
+    if (!reach(this.layout, p, crate, UNLOAD_REACH)) return err('too far from the crate');
     // A pile is boxes only — see `crateStacked`. Both directions, because one
     // unit into the crate under two others is the same unanswerable "which one"
     // as one unit out of it, and the client aims the top box of a pile rather
@@ -11598,7 +11602,7 @@ export class Game {
       ? this.deliveries.find((d) => d.id === crateId)
       : this.nearest(this.deliveries, p, UNLOAD_REACH);
     if (!crate) return err('no crate here');
-    if (!near(p, crate, UNLOAD_REACH)) return err('too far from the crate');
+    if (!reach(this.layout, p, crate, UNLOAD_REACH)) return err('too far from the crate');
 
     // A buried crate used to be refused here, on the grounds that taking one out
     // from underneath drops the tower through the floor. It does not: the
@@ -12145,7 +12149,7 @@ export class Game {
     const p = this.players[playerId];
     const st = (this.layout.stations ?? []).find((s) => s.id === stationId);
     if (!p || !st) return err('no such appliance');
-    if (!near(p, st.useAt, REACH) && !near(p, st, REACH)) return err('too far from it');
+    if (!reach(this.layout, p, st.useAt, REACH) && !reach(this.layout, p, st, REACH)) return err('too far from it');
     const held = p[from];
     if (!held) return err(from === 'haul' ? 'no crate to empty' : 'nothing in hand');
 
@@ -15603,7 +15607,10 @@ export class Game {
   armLand(arm, at, crate) {
     const skip = (this.layout.bins ?? []).find((b) => b.x === at.x && b.z === at.z);
     if (crate.waste) {
-      if (skip) this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+      if (skip) {
+        this.discardWaste(crate);
+        this.deliveries = this.deliveries.filter((d) => d.id !== crate.id);
+      }
       return;
     }
     // Stock into a skip, which is only ever what the shop has given up on —
@@ -16921,7 +16928,7 @@ export class Game {
       ? this.deliveries.find((d) => d.id === deliveryId)
       : this.nearest(this.deliveries, p, UNLOAD_REACH);
     if (!del) return err('no delivery here');
-    if (!near(p, del, UNLOAD_REACH)) return err('too far from the pallet');
+    if (!reach(this.layout, p, del, UNLOAD_REACH)) return err('too far from the pallet');
 
     const want = Math.min(this.carryCapacity(p) - lotTotal(p.carry), Math.max(0, cap));
     if (want <= 0) return err('hands full');
@@ -17002,7 +17009,7 @@ export class Game {
       : this.nearest(this.stockCrates(), p, UNLOAD_REACH);
     if (!del) return err('no crate here');
     if (del.waste) return err('that is rubbish, not stock');
-    if (!near(p, del, UNLOAD_REACH)) return err('too far from the pallet');
+    if (!reach(this.layout, p, del, UNLOAD_REACH)) return err('too far from the pallet');
     // Only ever OUT OF THE YARD, which is `wholeCrate`'s termination argument
     // said about the second box. A crate in an aisle is one somebody already
     // carried out of the bay, so packing from it is goods travelling backwards
@@ -17111,7 +17118,7 @@ export class Game {
     const p = this.players[playerId];
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
-    if (!near(p, shelf)) return err('too far from that shelf');
+    if (!reach(this.layout, p, shelf)) return err('too far from that shelf');
     // A box on your shoulder does NOT stop your hands filling. It used to —
     // the mirror of the refusal `crateBoard` carried — and both were one rule
     // said twice: goods may only ever be in one place at a time. That rule
@@ -17178,7 +17185,7 @@ export class Game {
     const p = this.players[playerId];
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
-    if (!near(p, shelf)) return err('too far from that shelf');
+    if (!reach(this.layout, p, shelf)) return err('too far from that shelf');
     // An armful in your hands is NOT a refusal here any more. It was one on the
     // grounds that nobody shoulders a box while holding six loaves, which is
     // true of a person and was a rule about the wrong thing: hands and a
@@ -17306,7 +17313,7 @@ export class Game {
     const p = this.players[playerId];
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
-    if (!near(p, shelf)) return err('too far from that shelf');
+    if (!reach(this.layout, p, shelf)) return err('too far from that shelf');
     if (!p.haul) return err('no crate to empty');
 
     const res = this.pourInto(shelf, p.haul);
@@ -17405,7 +17412,7 @@ export class Game {
     const p = this.players[playerId];
     const shelf = this.layout.shelves.find((s) => s.id === shelfId);
     if (!p || !shelf) return err('no such shelf');
-    if (!near(p, shelf)) return err('too far from that shelf');
+    if (!reach(this.layout, p, shelf)) return err('too far from that shelf');
     if (!p.carry) return err('nothing in hand');
 
     // A unit holds three kinds and hands now hold three kinds, so one press
@@ -18638,13 +18645,20 @@ export class Game {
    * it — and paying for it would make the bin a second, worse till. What it
    * costs is the walk and the goods.
    */
+  /** Count rubbish that has actually made it into a Skip. */
+  discardWaste(lot) {
+    const qty = lot?.waste ? lotTotal(lot) : 0;
+    this.stats.discarded = (this.stats.discarded ?? 0) + qty;
+    return qty;
+  }
+
   binGoods(playerId, binId) {
     const p = this.players[playerId];
     if (!p) return err('no such player');
     const bin = (this.layout.bins ?? []).find((b) => b.id === binId);
     if (!bin) return err('no such bin');
     if (!p.carry && !p.haul) return err('nothing in hand');
-    if (!near(p, bin.useAt ?? bin, UNLOAD_REACH)) return err('take it over to the bin');
+    if (!reach(this.layout, p, bin.useAt ?? bin, UNLOAD_REACH)) return err('take it over to the bin');
 
     const gone = lotTotal(p.carry) + lotTotal(p.haul);
     // Everything, pile by pile — both hands and the shoulder. It used to name
@@ -18652,6 +18666,7 @@ export class Game {
     // is the one line where you most want to see what you just destroyed.
     const tipped = [...lotStacks(p.carry), ...lotStacks(p.haul)]
       .map((s) => ({ item_id: s.item_id, qty: s.qty }));
+    this.discardWaste(p.haul);
     p.carry = null;
     p.haul = null;
     this.logGoods(null, { pre: 'Threw away ', post: '.', goods: tipped });
@@ -23871,7 +23886,7 @@ export class Game {
     const p = this.players[playerId];
     const till = this.layout.checkouts.find((t) => t.id === tillId);
     if (!p || !till) return err('no such till');
-    if (!near(p, till, 2.2)) return err('too far from the till');
+    if (!reach(this.layout, p, till, 2.2)) return err('too far from the till');
     if (!till.queue?.length) return err('nobody waiting');
 
     // Serve the first shopper who has actually reached their slot. Insisting on
@@ -24450,6 +24465,9 @@ function freshStats() {
      * milestone an agent hands you.
      */
     shelved: 0,
+    // Rubbish that actually reached a Skip. `spoiled` is what went off;
+    // this is the cleanup that followed, whether a player, crew or loader did it.
+    discarded: 0,
     // What walked out of a sensor shop without being billed for — see
     // `walkoutMiss`. Priced at RETAIL rather than wholesale, which is the one
     // place this differs from `spoiledValue` and the difference is real: rot is
@@ -24677,6 +24695,29 @@ function countUpgrade(w, kind, key) {
 }
 
 const near = (a, b, radius = REACH) => Math.hypot(a.x - b.x, a.z - b.z) <= radius;
+
+/**
+ * ...AND THE SAME CIRCLE WITH THE WALLS IN IT.
+ *
+ * Every reach test in the shop was `near` alone, which is a radius and has
+ * never had an opinion about what is between the two ends of it. `REACH` is
+ * 1.6 and `UNLOAD_REACH` is 1.8, so the thing you are working is routinely a
+ * tile or two away — and a wall is drawn on the line between two tiles, not on
+ * either of them. Stand in the stockroom with a divider in front of you and the
+ * shelf on the aisle side is 1.0 away: the maths agrees, the verb fires, and
+ * you have stocked a shelf through a wall. The crew do it too, and worse,
+ * because `goToShelf` reports "arrived" for anybody already inside the radius
+ * without taking a step — so a hire who happens to be on the wrong side of a
+ * divider works the unit from there for the rest of the save.
+ *
+ * It is not a routing test and must not become one: A* is the hot loop and the
+ * question here is two tiles apart. `openBetween` is the whole of it.
+ *
+ * The distance is unchanged in every case, so nothing anybody could already do
+ * standing on a working spot has moved — the only presses this refuses are ones
+ * that were reaching through masonry.
+ */
+const reach = (L, a, b, radius = REACH) => near(a, b, radius) && openBetween(L, a, b);
 
 /**
  * The side of a thing you work it from — one spelling, for three callers.

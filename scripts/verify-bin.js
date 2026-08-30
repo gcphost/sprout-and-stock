@@ -316,6 +316,7 @@ function withBin(g) {
   const done = until(g, () => wasteCrates(g).length === 0 && !hand(g)?.haul);
   check(done !== null, 'the rubbish goes out', 'it was still there after 150s');
   eq(goodsNow(), 6, 'and every unit of the good stock is still there');
+  eq(g.stats.discarded, 9, 'and all nine spoiled units count as cleared');
 
   // Nothing left holding it either — a hire that ended the run with rubbish
   // welded to their shoulder is the `TIRED_PACE` pin all over again.
@@ -350,7 +351,7 @@ function withBin(g) {
   const bin = withBin(g);
   const p = g.players.me;
   p.carry = { stacks: [{ item_id: KEEPS.id, qty: 4 }] };
-  p.haul = { stacks: [{ item_id: ROTS.id, qty: 7 }] };
+  p.haul = { stacks: [{ item_id: ROTS.id, qty: 7 }], waste: true };
 
   const far = g.binGoods('me', bin.id);
   check(!far.ok, 'not from across the shop', 'it worked from anywhere');
@@ -360,6 +361,7 @@ function withBin(g) {
   const res = g.binGoods('me', bin.id);
   check(res.ok, 'standing at it, in it goes', res.error ?? '');
   eq(res.binned, 11, 'both hands at once — an armful and the box on your shoulder');
+  eq(g.stats.discarded, 7, 'only the rubbish on your shoulder counts as cleared');
   check(!p.carry && !p.haul, 'and you are empty-handed');
 
   // No money either way. Charging is the trap `stow` already documents — it

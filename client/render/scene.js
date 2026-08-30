@@ -1770,6 +1770,10 @@ const BOUNCE_TINT = new THREE.Color(0xbcd8ff);
  * survives greyscale.
  */
 const GHOST_RIM = '#171219';
+/** Each floor ghost must leave a visible gap to the neighbouring cell. */
+const GHOST_RIM_SIZE = 0.94;
+/** The coloured fill nests inside that rim rather than covering the cell. */
+const GHOST_FILL_SIZE = 0.80;
 /** How thick a bar is, in tiles. */
 const GHOST_BAR = 0.11;
 /** How far off centre each of a parallel pair sits, measured across the bars. */
@@ -1790,11 +1794,11 @@ const FLOOR_GHOST = {
   },
   no: {
     colour: '#e2564a',
-    // The full diagonal of the 0.86 fill is 1.216; 1.14 keeps the ✕ just inside
-    // it rather than running out over the rim.
+    // The full diagonal of the inset fill is 1.131; 1.02 keeps the ✕ inside
+    // its own cell rather than reaching into the one beside it.
     bars: [
-      { dx: 0, dz: 0, turn: DIAG, len: 1.14 },
-      { dx: 0, dz: 0, turn: -DIAG, len: 1.14 },
+      { dx: 0, dz: 0, turn: DIAG, len: 1.02 },
+      { dx: 0, dz: 0, turn: -DIAG, len: 1.02 },
     ],
   },
 };
@@ -13159,11 +13163,11 @@ export class Scene {
       // to everybody out on the farm, and only ever read indoors because the
       // floor happens to be cream. A dark contour is the one mark that lands on
       // any ground, and it is the language the rest of the game already draws in.
-      slab(c.x, c.z, 0.092, 0.030, GHOST_RIM, 0.55, 1.00);
+      slab(c.x, c.z, 0.092, 0.030, GHOST_RIM, 0.55, GHOST_RIM_SIZE);
       // The fill, inset inside the rim. Slightly tighter than the old 0.94 to
       // leave the contour somewhere to be, and still inset from the tile so a
       // rectangle shows its own grid rather than reading as one undivided sheet.
-      slab(c.x, c.z, 0.122, 0.026, look.colour, 0.42, 0.86);
+      slab(c.x, c.z, 0.122, 0.026, look.colour, 0.42, GHOST_FILL_SIZE);
       // ...and the MARK, which is the whole point: the state has to survive the
       // hue going. Clean / striped / struck out is a ladder you can read in
       // greyscale, and the two that are not clean are told apart by whether the
@@ -16258,7 +16262,7 @@ export class Scene {
     // drawn a second time for a normals buffer. See `Ink.render`.
     this.ink.render(
       this.scene, this.camera, this.camera.position.distanceTo(this.camLook), this.inkNoCrease,
-      this.marksOn(),
+      this.marksOn(), this.sun,
     );
     this.drawn();
   }

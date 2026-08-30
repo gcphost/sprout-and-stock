@@ -87,6 +87,9 @@ const COMPOSITE = /* glsl */`
   uniform sampler2D tScene;
   uniform sampler2D tDepth;
   uniform sampler2D tNormal;
+  /* The live directional-light depth map. It is the same map the ordinary
+     renderer used a moment ago; this pass only decides how its coverage looks. */
+  uniform sampler2DShadow tSunShadow;
   /* The NORMALS pass's own depth, which is the only thing that can say what was
      not in it. See creaseMask below. */
   uniform sampler2D tNormalDepth;
@@ -96,6 +99,11 @@ const COMPOSITE = /* glsl */`
      day INK_NORMAL_SCALE moved, which is a look that changes when somebody
      tunes a performance dial. */
   uniform vec2 texel, nTexel;
+  uniform vec2 sunShadowTexel;
+  uniform mat4 sunShadowMatrix, cameraWorld, cameraProjectionInverse;
+  uniform float sunShadowBias, sunNormalBias, sunShadowOn;
+  uniform vec3 shadowColor;
+  uniform float shadowOpacity;
 
   uniform float near, far, isOrtho;
 
@@ -135,6 +143,36 @@ const COMPOSITE = /* glsl */`
 
   vec3 readNormal(vec2 uv) {
     return normalize(texture2D(tNormal, uv).xyz * 2.0 - 1.0);
+  }
+
+  /* Rebuild the world point behind this screen pixel, then ask the EXISTING
+     sun map how much light reaches it. A broad, regular PCF kernel gives us
+     coverage to draw with; the smoothstep makes its interior a flat ink block
+     and keeps the transition deliberately narrow. */
+  vec3 worldAt(vec2 uv) {
+    float d = texture2D(tDepth, uv).x;
+    vec4 clip = vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+    vec4 view = cameraProjectionInverse * clip;
+    view /= view.w;
+    return (cameraWorld * view).xyz;
+  }
+
+  float sunShadowAt(vec2 uv) {
+    if (sunShadowOn < 0.5 || texture2D(tDepth, uv).x >= 0.999999) return 0.0;
+    vec3 viewNormal = readNormal(uv);
+    vec3 worldNormal = normalize((cameraWorld * vec4(viewNormal, 0.0)).xyz);
+    vec4 coord = sunShadowMatrix * vec4(worldAt(uv) + worldNormal * sunNormalBias, 1.0);
+    coord.xyz /= coord.w;
+    coord.z += sunShadowBias;
+    if (coord.x < 0.0 || coord.x > 1.0 || coord.y < 0.0 || coord.y > 1.0 || coord.z > 1.0) return 0.0;
+    float lit = 0.0;
+    for (int y = -1; y <= 1; y++) {
+      for (int x = -1; x <= 1; x++) {
+        lit += texture(tSunShadow, vec3(coord.xy + vec2(float(x), float(y)) * sunShadowTexel, coord.z));
+      }
+    }
+    float covered = 1.0 - lit / 9.0;
+    return smoothstep(0.08, 0.92, covered);
   }
 
   vec3 toSRGB(vec3 c) {
@@ -252,6 +290,10 @@ const COMPOSITE = /* glsl */`
     col = mix(vec3(dot(col, LUMA)), col, saturation);
     col = (col - 0.5) * contrast + 0.5;
 
+    /* ---- live shadows, drawn as ink ------------------------------------- */
+    float shadow = sunShadowAt(vUv);
+    col = lay(col, shadowColor, shadow * shadowOpacity);
+
     /* ---- what is marked, UNDER the ink ------------------------------------
        Under, deliberately. The band starts at the object's own edge and runs
        outward, and the silhouette line is drawn on that same edge — so laid
@@ -366,8 +408,18 @@ export class Ink {
          contour branch is skipped, and this only has to be a bound texture
          rather than a meaningful one. */
       tNormalDepth: { value: this.blank },
+      tSunShadow: { value: null },
       texel: { value: new THREE.Vector2() },
       nTexel: { value: new THREE.Vector2() },
+      sunShadowTexel: { value: new THREE.Vector2(1, 1) },
+      sunShadowMatrix: { value: new THREE.Matrix4() },
+      cameraWorld: { value: new THREE.Matrix4() },
+      cameraProjectionInverse: { value: new THREE.Matrix4() },
+      sunShadowBias: { value: 0 },
+      sunNormalBias: { value: 0 },
+      sunShadowOn: { value: 0 },
+      shadowColor: { value: new THREE.Color('#5d6774') },
+      shadowOpacity: { value: 0.46 },
       near: { value: 0.5 },
       far: { value: 200 },
       isOrtho: { value: 1 },
@@ -587,14 +639,23 @@ export class Ink {
    * has changed. False is the common case: nothing is marked until the pointer
    * is over something.
    */
-  render(scene, camera, inkRef, noCrease = null, marks = false) {
+  render(scene, camera, inkRef, noCrease = null, marks = false, sun = null) {
     const r = this.renderer;
     const u = this.composite.mat.uniforms;
 
-    // 1 — the shop, once.
+    // 1 — the shop, once. The live shadow map is still rendered by this call;
+    // receivers are only muted for the colour draw because the composite below
+    // applies that exact map as one clean ink layer instead.
+    const receivers = [];
+    scene.traverse((o) => {
+      if (!o.receiveShadow) return;
+      receivers.push(o);
+      o.receiveShadow = false;
+    });
     r.setRenderTarget(this.rtScene);
     r.clear();
     r.render(scene, camera);
+    for (const o of receivers) o.receiveShadow = true;
 
     /**
      * 2 — its normals, but only if anybody is going to read them.
@@ -757,6 +818,17 @@ export class Ink {
     // 3 — the contour and the grade, in one go.
     u.tScene.value = this.rtScene.texture;
     u.tDepth.value = this.rtScene.depthTexture;
+    const depth = sun?.shadow.map?.depthTexture;
+    u.tSunShadow.value = depth ?? null;
+    u.sunShadowOn.value = depth ? 1 : 0;
+    if (depth) {
+      u.sunShadowTexel.value.set(1 / sun.shadow.mapSize.x, 1 / sun.shadow.mapSize.y);
+      u.sunShadowMatrix.value.copy(sun.shadow.matrix);
+      u.sunShadowBias.value = sun.shadow.bias;
+      u.sunNormalBias.value = sun.shadow.normalBias;
+    }
+    u.cameraWorld.value.copy(camera.matrixWorld);
+    u.cameraProjectionInverse.value.copy(camera.projectionMatrixInverse);
     u.near.value = camera.near;
     u.far.value = camera.far;
     u.isOrtho.value = camera.isOrthographicCamera ? 1 : 0;

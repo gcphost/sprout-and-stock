@@ -4,7 +4,7 @@
  *
  * A shop that is going well and a shop that is going nowhere look identical for
  * the first twenty minutes: the numbers in the corner move, and nothing ever
- * *says* anything. This is the half that says it — fifty rows, each one a
+ * *says* anything. This is the half that says it — fifty-three rows, each one a
  * number the shop already keeps, with a reward on the far side of it.
  *
  * Three rules hold the whole thing together, and each of them is why this is a
@@ -180,8 +180,8 @@ export const MILESTONES = [
   },
   {
     id: 'take-100',
-    name: 'First hundred',
-    blurb: 'Take $100 over the counter.',
+    name: 'Earn $100',
+    blurb: 'Earn $100 over the counter.',
     unit: 'money',
     need: 100,
     measure: (g) => lifetime(g, 'revenue'),
@@ -228,8 +228,8 @@ export const MILESTONES = [
   },
   {
     id: 'take-500',
-    name: 'Five hundred taken',
-    blurb: 'Keep the tills busy until the shop has taken $500.',
+    name: 'Earn $500',
+    blurb: 'Keep the tills busy until the shop has earned $500.',
     unit: 'money',
     need: 500,
     measure: (g) => lifetime(g, 'revenue'),
@@ -312,6 +312,15 @@ export const MILESTONES = [
     measure: (g) => lifetime(g, 'sold'),
     reward: { cash: 200, supplies: 24 },
   },
+  {
+    id: 'discarded-25',
+    name: 'First clear-out',
+    blurb: 'Take 25 spoiled items to a Skip.',
+    unit: 'count',
+    need: 25,
+    measure: (g) => lifetime(g, 'discarded'),
+    reward: { cash: 100, supplies: 12 },
+  },
   /*
    * ---------------------------------------------------------------------------
    * THE SURVIVAL RUNGS, which are the one sub-ladder you cannot fail and the
@@ -366,7 +375,7 @@ export const MILESTONES = [
   },
   {
     id: 'take-2000',
-    name: 'Two thousand taken',
+    name: 'Earn $2,000',
     blurb: 'Word is getting round.',
     unit: 'money',
     need: 2000,
@@ -533,11 +542,29 @@ export const MILESTONES = [
   },
   {
     id: 'take-10000',
-    name: 'Ten thousand taken',
+    name: 'Earn $10,000',
     blurb: 'The corner shop that everybody uses.',
     unit: 'money',
     need: 10000,
     measure: (g) => lifetime(g, 'revenue'),
+    reward: { cash: 1500, supplies: 36 },
+  },
+  {
+    id: 'discarded-250',
+    name: 'Keeping it tidy',
+    blurb: 'Take 250 spoiled items to a Skip.',
+    unit: 'count',
+    need: 250,
+    measure: (g) => lifetime(g, 'discarded'),
+    reward: { cash: 500, supplies: 24 },
+  },
+  {
+    id: 'discarded-1000',
+    name: 'Nothing left behind',
+    blurb: 'Take 1,000 spoiled items to a Skip.',
+    unit: 'count',
+    need: 1000,
+    measure: (g) => lifetime(g, 'discarded'),
     reward: { cash: 1500, supplies: 36 },
   },
 
@@ -647,7 +674,7 @@ export const MILESTONES = [
   },
   {
     id: 'take-25000',
-    name: 'Twenty-five thousand taken',
+    name: 'Earn $25,000',
     blurb: 'The shop has turned over more than most people earn in a year.',
     unit: 'money',
     need: 25000,
@@ -710,7 +737,7 @@ export const MILESTONES = [
   },
   {
     id: 'take-50000',
-    name: 'Fifty thousand taken',
+    name: 'Earn $50,000',
     blurb: 'Half way to the number that sounds silly.',
     unit: 'money',
     need: 50000,
@@ -737,7 +764,7 @@ export const MILESTONES = [
   },
   {
     id: 'take-100000',
-    name: 'Six figures',
+    name: 'Earn $100,000',
     blurb: 'A hundred thousand dollars over the counter.',
     unit: 'money',
     need: 100000,
@@ -776,7 +803,7 @@ export const MILESTONES = [
   },
   {
     id: 'take-250000',
-    name: 'A quarter of a million',
+    name: 'Earn $250,000',
     blurb: 'The last rung. There is nothing above this one — it is your shop now.',
     unit: 'money',
     need: 250000,

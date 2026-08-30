@@ -35,7 +35,7 @@
 import { content } from '../content.js';
 import { findPath, followPath } from './pathing.js';
 import { suggestedPrice, wholesalePrice, IMPULSE_RADIUS } from './economy.js';
-import { shelfKind, isWalkableTile, REACH } from '../../shared/build.js';
+import { shelfKind, isWalkableTile, REACH, openBetween } from '../../shared/build.js';
 import { homeKind, impulsePull } from '../../shared/tags.js';
 import { hash01 } from '../../shared/hash.js';
 import { lotStacks, lotTotal, lotQty, lotHas, lotMain } from '../../shared/lot.js';
@@ -315,6 +315,8 @@ export function syncStaff(game) {
       breakAt: null,
       /** Since when they have had nothing to do — see `tryCharge`. */
       idleFrom: null,
+      /** The job whose walk just ended, offered first on the next draw. */
+      arrived: null,
       /** ...and whether the charge they are on is one they took for that reason. */
       idleCharge: false,
     };
@@ -397,6 +399,32 @@ export function stepStaff(game, dt) {
     // Walking to a job takes priority over picking a new one.
     if (s.path && s.path.length) {
       followPath(s, speedOf(s), dt);
+      /**
+       * ...AND SO DOES HAVING JUST ARRIVED, which is the half that was missing.
+       *
+       * This branch is the whole of a hire's commitment to an errand, and it
+       * lasts exactly as long as there are steps left in the route. The tick the
+       * last one is taken the walk is over, `s.claim` is released twelve lines
+       * down, and a fresh weighted draw runs — so a hire who has just crossed
+       * the shop to stock a shelf is standing at it with the job that sent them
+       * there holding no more sway than any other. `unload` wins the draw, and
+       * off they go again with the armful still in their hands.
+       *
+       * It reads as a bot that cannot make its mind up, and it is the opposite:
+       * every tick of it is a correct weighted draw, the walk was real, the
+       * crate was real, and the shelf does get stocked eventually — a minute and
+       * two crossings of the shop later. Nothing logs anything, because nothing
+       * went wrong. Reported from a chair as "walks to where it goes, walks back
+       * to do something, then goes back to actually stock the shelf".
+       *
+       * So the job that planned the walk gets the FIRST refusal on the tick it
+       * ends, which is one line and costs nothing when the job has genuinely
+       * finished: it is offered, it declines, and the draw runs as it always
+       * did. Remembered on the worker rather than acted on here, because the
+       * cooldown below may hold them for a tick or two before the draw is
+       * reached at all.
+       */
+      if (!s.path?.length) s.arrived = s.job;
       continue;
     }
 
@@ -492,7 +520,27 @@ export function stepStaff(game, dt) {
     // exists to prevent, caused by the line itself. `ferry` cost an hour to it.
     if (s.shifting && (!s.carry || !jobs.some((j) => SHIFTERS.has(j.job)))) s.shifting = null;
     let took = false;
-    for (const { job } of drawOrder(game, jobs)) {
+    /**
+     * FINISH WHAT YOU WALKED HERE FOR — see the note where `arrived` is set.
+     *
+     * Spent whatever happens, so it can only ever be worth one offer: a job that
+     * has genuinely finished declines, and the draw underneath is the draw that
+     * always ran. Nothing about the rng stream moves — the head is still drawn
+     * from the same list with the same call — so two `simulate` runs of one seed
+     * still match.
+     *
+     * A QUEUE still outranks it, which is the one exception and is not a new
+     * rule: `drawOrder` puts `serve` at the front the moment anybody is lining
+     * up, on a measurement (85% of ticks away from the till, the line lasting
+     * 5.6x longer), and pinning an errand over the top of that would hand a
+     * seventh of it back. An errand costs one action; a shopper at the counter
+     * is the thing the shop is for.
+     */
+    const back = s.arrived;
+    s.arrived = null;
+    const order = drawOrder(game, jobs);
+    const first = back && !anyLining(game) && jobs.find((j) => j.job === back);
+    for (const { job } of first ? [first, ...order.filter((j) => j.job !== back)] : order) {
       const run = JOBS[job];
       if (!run) continue;         // authored a job this build doesn't have
       try {
@@ -1437,7 +1485,28 @@ function idle(game, s) {
 
   if (s.carry || s.pastime || topJob(game, s) !== 'serve') return;
 
-  const tills = game.layout.checkouts;
+  /**
+   * ...and NOT a counter the shopkeeper is stood behind, which is the one
+   * question this and `serve` have to agree about.
+   *
+   * `serve` filters `minded` tills out and stands the clerk down — that is the
+   * whole of the shopkeeper exemption — and then this line, four hundred lines
+   * away, walked them straight back to the same tile. What that produces is not
+   * a hire standing on you: `stepAside` moves whoever loses the id comparison
+   * one square off a shared cell, so the pair oscillate. Step off, get sent
+   * back, step off. One tick each way, for as long as you stand there.
+   *
+   * It reads as a bot who wants the till and cannot work out that you have it —
+   * which is exactly what it is, except that `serve` had already worked it out.
+   * Nothing logs anything and both halves are behaving correctly; only the two
+   * of them together are wrong.
+   *
+   * Filtering rather than skipping, so the posts still spread: with two tills
+   * and one of them yours, the clerk takes the other. With one till and you on
+   * it there is nowhere to be, and a hire with nowhere to be stays where they
+   * are, which is what everybody who is not a clerk already does.
+   */
+  const tills = game.layout.checkouts.filter((t) => !minded(game, t));
   const servers = (game.roster ?? [])
     .map((e) => game.players[`staff-${e.id}`])
     .filter((p) => p && !p.carry && topJob(game, p) === 'serve');
@@ -1558,7 +1627,12 @@ function stall(s) {
 
 /** Walk to `goal`; returns true once standing there. */
 function goTo(game, s, goal, reach = 1.2) {
-  if (Math.hypot(s.x - goal.x, s.z - goal.z) <= reach) return true;
+  // Through a wall is not there — see `goToShelf`, which makes the same point
+  // about the verb that follows. Harmless for the goals with no verb behind
+  // them (a seat, a post, a step aside): a hire the wrong side of masonry walks
+  // round, which is what standing there was always supposed to mean.
+  if (Math.hypot(s.x - goal.x, s.z - goal.z) <= reach
+    && openBetween(game.layout, s, goal)) return true;
   if (!game.pathTo(s, goal)) return stall(s);
   // Not there, and no step left to take. See `stall`.
   if (!s.path?.length) return stall(s);
@@ -1594,7 +1668,20 @@ function goTo(game, s, goal, reach = 1.2) {
  * is whether the next line is gated on `near`, not whether it touches a shelf.
  */
 function goToShelf(game, s, shelf) {
-  if (Math.hypot(s.x - shelf.x, s.z - shelf.z) <= REACH) return true;
+  /**
+   * ...and the wall, which is the same argument said one axis over.
+   *
+   * The note above is about a hire parked inside the radius who never takes the
+   * step that would fix it, and a DIVIDER is the sharpest version of that: the
+   * far side of a stockroom wall is a tile 1.0 from the unit, so a hire who
+   * finishes an errand there is "arrived" at a shelf `Game.stockShelf` now
+   * refuses to let them touch. Asked here rather than only at the verb, or the
+   * refusal is a hire stood still reporting a walk they have already finished.
+   * With it they path to `browseAt` and go round, which is what they would have
+   * done had they never been on the wrong side.
+   */
+  if (Math.hypot(s.x - shelf.x, s.z - shelf.z) <= REACH
+    && openBetween(game.layout, s, shelf)) return true;
   if (!game.pathTo(s, shelf.browseAt ?? shelf)) return stall(s);
   // Standing on the far side of a working spot somebody has built on, with the
   // route already spent and the anchor still out of `REACH`. See `stall` — this
@@ -2792,6 +2879,30 @@ const bare = ({ room, cap }) => cap > 0 && room / cap >= 0.5;
  * good second choice it was never asked for. Skipping the claimed one fills two
  * boards in the time it used to take to fill one.
  */
+/**
+ * Is this armful genuinely spare, rather than on its way somewhere?
+ *
+ * The one thing that separates "nothing will take this" from "between things".
+ * A shelf is not the only place goods can be going: an appliance takes
+ * ingredients, and an ingredient is an item with property tags only — nothing
+ * ever puts one on a board, so every chef in the game is holding an armful
+ * `shelfFor` refuses. Walking those to the pad is the kitchen making nothing at
+ * all while a hire visibly carries something somewhere, which is the failure
+ * `verify:kitchen` caught the first time the dwell under the draw was skipped.
+ *
+ * ANY pile, not the biggest: hands hold three kinds, and one bean among five
+ * lettuce is still a bean somebody is fetching.
+ */
+function spare(game, s) {
+  const stations = game.layout.stations ?? [];
+  if (!stations.length) return true;
+  const piles = lotStacks(s.carry);
+  return !stations.some((st) => {
+    const w = wants(game, st);
+    return piles.some((k) => w.has(k.item_id));
+  });
+}
+
 function shelve(game, s) {
   if (!s.carry) return false;
   // Mid-errand for `merchandise`, which is two legs with a full pair of hands
@@ -2810,7 +2921,43 @@ function shelve(game, s) {
   const shelf = lotStacks(s.carry).sort((a, b) => b.qty - a.qty)
     .map((k) => shelfFor(game, k.item_id, c, spoken))
     .find(Boolean);
-  if (!shelf) return false;                        // `tidy` deals with that
+  /**
+   * NOTHING WILL TAKE THIS, so it is a remainder rather than a load.
+   *
+   * This line read `return false` and left it to `tidy`, which is true on paper
+   * — `tidy`'s first branch is `putDown` — and quietly false in a shop, because
+   * `tidy` is authored at weight 1 against `serve 6 / unload 4 / shelve 4`. A
+   * weight-1 job is never in the fallthrough tail (`FALLTHROUGH` floors at half
+   * the head's weight), so it only runs on the ticks it is drawn as head: about
+   * one decision in twenty.
+   *
+   * What that produces is the most convincing shape a bug can take, and it was
+   * reported exactly as it looks. `stockShelf` pours what fits and keeps the
+   * rest, so a hire who tops a board up to its cap keeps the remainder — and
+   * the remainder does not stop them working. `unload` sees free kind-slots and
+   * free capacity, tops the same hands up with something that DOES have a
+   * shelf, `shelve` walks that away, and round it goes. Every tick is a job
+   * taken, so `stepStaff` clears `idleFrom` on every one of them and the
+   * `putDown` under the draw — the thing written for precisely this state — is
+   * never reached. A live shop had a hand carrying lettuce for minutes on end,
+   * picking things up and putting them away the whole time, with both lettuce
+   * boards standing at exactly 10 of 10.
+   *
+   * So the job that owns what is in your hands answers the question rather than
+   * passing it along. It is the pad's own promise: the drop-off is the buffer,
+   * the goods end up somewhere visible, and `unload` brings them back in when a
+   * board frees — its `fit` scores a kind with no room at zero, so they are not
+   * picked straight back up.
+   *
+   * The one thing an armful can be that is neither shelvable nor spare is an
+   * INGREDIENT: a chef crossing the floor with beans is holding something no
+   * shelf wants and a machine does. `tidy` never asked (and would take them),
+   * which is a hole this is deliberately not widening — `shelve` runs four
+   * times as often, so it has to. A full hopper is not the same question and
+   * needs no test: `craft` declines, `shelve` declines, the whole draw declines,
+   * and `stuckFor` reaches `putDown` the way it always did.
+   */
+  if (!shelf) return spare(game, s) ? putDown(game, s) : false;
   claim(s, 'shelf', shelf.id);
   if (!goToShelf(game, s, shelf)) return true;
   game.stockShelf(s.id, shelf.id);
@@ -2934,6 +3081,7 @@ function tidy(game, s) {
     // verb and would take an armful of good stock with it — a hire arriving at
     // the skip holding rubbish in one hand and cheese in the other must lose
     // only the rubbish, and only this branch knows which is which.
+    game.discardWaste(s.haul);
     s.haul = null;
     s.cooldown = paceOf(s);
     return true;

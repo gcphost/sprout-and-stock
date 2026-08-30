@@ -84,12 +84,12 @@ export const REVEAL = {
   pen: 'first-harvest',
   paddock: 'first-harvest',
 
-  // The third kind of shelving, and the way out. Both are answers to a shop
-  // that has moved enough stock to have a spoilage problem — a hot counter is
-  // nothing to a shop that has sold ninety things, and a skip is a fixture
-  // whose whole job is what has already gone off.
+  // The third kind of shelving, and the way out. A hot counter still waits for
+  // a shop that has moved enough stock to need it, but rubbish can pile up
+  // long before one hundred sales. Let the skip arrive with the first $100 so
+  // there is a way to clear spoilage while the opening shop is still small.
   warmer: 'sold-100',
-  bin: 'sold-100',
+  bin: 'take-100',
   shutter: 'sold-100',
 
   // Making rather than buying, and the ground that brings people to the door.

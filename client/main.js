@@ -6,7 +6,7 @@ import {
   canPlaceEdges, edgeRun, canPaintGround, canPaintFaces, faceRun, faceKey,
   groundStroke, strokeThick, GROUND_STROKE_MAX, fixtureRunCells, BELT_RUN_MAX, RUN_KINDS, CONVEYOR_KINDS, canPlace, FIXTURES, CEILING, goesOverhead,
   faceAlong, isProp, isWalkableTile, workSpotOf, REACH, conveyorAt, groundIndex, rot4,
-  quadCells, footprint,
+  quadCells, footprint, openBetween,
 } from '../shared/build.js';
 import { E, SOLID, edgeBetween } from '../shared/edges.js';
 import { lotStacks, lotMain, lotRoom, lotTotal } from '../shared/lot.js';
@@ -1977,7 +1977,11 @@ const UNLOAD_REACH = 1.8;
 function inReachOf(at) {
   const me = ui.me();
   if (!me || !at) return false;
-  return Math.hypot(me.x - at.x, me.z - at.z) <= UNLOAD_REACH;
+  // ...and nothing solid in between, which the server now asks of every verb
+  // behind this (`reach`, server/sim/index.js). A radius has no opinion about
+  // walls, so without it the press looks legal, sends, and comes back red.
+  return Math.hypot(me.x - at.x, me.z - at.z) <= UNLOAD_REACH
+    && openBetween(scene.storeLayout, me, at);
 }
 
 /**
@@ -2036,7 +2040,10 @@ function myTile() {
 function nearFixture(f) {
   const me = ui.me();
   if (!me || !f) return false;
-  return Math.hypot(me.x - f.x, me.z - f.z) <= REACH;
+  // The wall too — see `inReachOf`. Both halves of the same rule, or a shelf on
+  // the far side of a stockroom divider lights up for a press the shop refuses.
+  return Math.hypot(me.x - f.x, me.z - f.z) <= REACH
+    && openBetween(scene.storeLayout, me, f);
 }
 
 /**
@@ -2069,7 +2076,8 @@ function atWorkSpotOf(f) {
   // and a decoration have no working spot, so the thing itself is the answer.
   const spots = ui.spotsFor(f);
   const at = spots.length ? spots : [workSpotOf(f)];
-  return at.some((s) => Math.hypot(me.x - s.x, me.z - s.z) <= REACH);
+  return at.some((s) => Math.hypot(me.x - s.x, me.z - s.z) <= REACH
+    && openBetween(scene.storeLayout, me, s));
 }
 
 /**
