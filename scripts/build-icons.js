@@ -246,6 +246,23 @@ const WANTED = {
   cheer: 'ph:confetti-fill',
   dance: 'ph:music-notes-fill',
   point: 'ph:hand-pointing-fill',
+  /**
+   * WHICH WAY GOODS CROSS ONE SIDE OF A MACHINE — see `handsAcross`.
+   *
+   * Four states of one thing, so they are chosen as a set and the set has one
+   * rule: the ARROW is the state and everything else is furniture. A door and a
+   * gate would each be a picture of a different noun at 15px, where two signs
+   * pointing opposite ways are the same sign said twice, which is what makes
+   * `in` and `out` readable side by side on tiles an inch apart.
+   *
+   * `off` is the odd one and has to be: it is the absence of an arrow rather
+   * than a fifth direction, and a barred circle is the one glyph in the library
+   * that says "not this one" without pointing anywhere.
+   */
+  wayBoth: 'ph:arrows-left-right-fill',
+  wayIn: 'ph:sign-in-fill',
+  wayOut: 'ph:sign-out-fill',
+  wayOff: 'ph:prohibit-fill',
 };
 
 const sets = {};

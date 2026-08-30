@@ -59,6 +59,7 @@ import {
   shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces, LIFT_WAYS,
   SORTER_ROUTES, sorterRoute, FAVOURING,
   MERGE_ROUTES, mergeRoute, conveyorFeeders, mergeStraight, CONVEYOR_KINDS,
+  SIDE_MODES, sideOut, sideIn,
   covers, footprintMid, footprint, paddockOf, pennedIn, openBetween,
 } from '../../shared/build.js';
 import {
@@ -13310,6 +13311,78 @@ export class Game {
     return ok({ id, mode });
   }
 
+  /**
+   * WHICH WAY GOODS MAY CROSS ONE SIDE OF ONE MACHINE.
+   *
+   * The setting is `shared/build.js`'s `handsAcross`, and everything here is
+   * plumbing around it — but three of the lines are decisions rather than
+   * ceremony.
+   *
+   * It is asked of any CONVEYOR CELL rather than of the loader, even though a
+   * loader is where the menu lives. Two lines meeting on a plain belt is the
+   * shape a run grows into first (`mergeRows` makes the same argument), and a
+   * belt is the cheapest way to say "the line goes past here, it does not go in
+   * there" — refusing it would mean buying a junction to express a refusal.
+   *
+   * `both` DELETES rather than storing the word, which is what keeps the field
+   * absent on every conveyor in every save that has not opened this menu. See
+   * `sidesOf` — the sparse shape is the opt-in, and a menu that wrote `'both'`
+   * on the way past would put the field on every cell you glanced at.
+   *
+   * And it bumps `layoutVersion` for `setArmMode`'s reason exactly, which is
+   * sharper here: a shut side stops wearing its chevron and a one-way side
+   * wears one arrow instead of two, and all of that is drawn out of
+   * `staticRoot`. Without the bump the rule takes effect in the sim on the next
+   * tick and the picture goes on showing the old one until the next wall you
+   * draw — a control that works and looks broken, which is worse than one that
+   * does nothing.
+   */
+  setConveyorSides(playerId, id, r, mode) {
+    const { f, error } = this.buildTarget(playerId, id);
+    if (error) return err(error);
+    if (!CONVEYOR_KINDS.includes(f.kind)) return err('that is not part of a line');
+    if (!SIDE_MODES.includes(mode)) return err('a side cannot do that');
+    const turn = rot4(Number(r) || 0);
+    if (!Number.isInteger(Number(r)) || Number(r) < 0 || Number(r) > 3) {
+      return err('that is not one of its sides');
+    }
+    const cell = f.ref ?? null;
+    const placement = this.placements.find((p) => p.id === id);
+    // Both copies, the way every other conveyor setting writes both: the record
+    // is what the sim reads this tick and the placement is what the next re-flow
+    // rebuilds the record from.
+    for (const on of [cell, placement]) {
+      if (!on) continue;
+      const next = { ...(on.sides ?? {}) };
+      if (mode === 'both') delete next[turn];
+      else next[turn] = mode;
+      on.sides = Object.keys(next).length ? next : null;
+    }
+    /**
+     * A RE-FLOW rather than a version bump, which is `setSorterRiser`'s call
+     * and not `setArmMode`'s, for the reason `setLiftWay` gives out loud.
+     *
+     * This is read inside `conveyorFlow`, and that map is cached against the
+     * four arrays it is made of BY IDENTITY — so mutating a record in place
+     * leaves every reader holding the map from before you pressed the button,
+     * until something else happens to rebuild the arrays. What that reads as is
+     * a setting that takes effect next Tuesday: the tile lights, the log line
+     * appears, and boxes go on down a side you just shut until you happen to
+     * lay another belt.
+     */
+    this.regenerateLayout();
+    this.persist();
+    const at = anchorTile(f.x, f.z, turn);
+    // The words are docs/tutorial.md §1's, said in the feed: box rather than
+    // crate or goods, and what it DOES rather than which flag moved.
+    const said = mode === 'in' ? `only takes boxes from ${at.x},${at.z} now`
+      : mode === 'out' ? `only gives boxes to ${at.x},${at.z} now`
+        : mode === 'off' ? `leaves ${at.x},${at.z} alone now`
+          : `takes and gives boxes at ${at.x},${at.z} again`;
+    this.pushLog(`That ${fixtureLabel(f.kind).toLowerCase()} ${said}.`);
+    return ok({ id, r: turn, mode });
+  }
+
   /** How long one cell takes this belt, at its tier. */
   /**
    * Is this crate buried — inside a span, with nothing to draw?
@@ -15683,7 +15756,28 @@ export class Game {
     // The cells this machine can reach — four beside it, or ONE beneath it.
     // `armReach` is the one spelling, because the two walks that say what a run
     // serves and the two loops that draw its chevrons ask the same question.
-    const sides = armReach(arm);
+    //
+    // ...and each carries the quarter turn it lies on, because that is what a
+    // side is NAMED by. `armReach` maps `[0,1,2,3]` in order, so the index is
+    // the turn — taken as read rather than re-derived, since deriving it from
+    // the tile is a second answer to a question that already has one.
+    const all = armReach(arm).map((s, r) => ({ ...s, r }));
+    /**
+     * The sides this machine will actually use, and which way across each.
+     *
+     * A loader serves every side it can reach, and that is what makes one
+     * between two units feed both without being told. It is also the whole of
+     * what goes wrong in a tight layout: a machine with a pad on one side, a
+     * shelf on the other and a line running past has three plausible jobs, and
+     * until now no sentence you could say to pick. See `handsAcross`.
+     *
+     * Two lists rather than one filter at each site, because the two directions
+     * are different questions asked in different branches — pouring reads `out`
+     * and lifting reads `in` — and a single "may I use this side" would make
+     * `in` mean "may also pour", which is the one thing you set it to prevent.
+     */
+    const sides = all.filter((s) => sideOut(arm, s.r));
+    const takes = all.filter((s) => sideIn(arm, s.r));
     const riding = this.armHolds(arm);
 
     // Which half of its job this one does. See `setArmMode`.
@@ -15724,7 +15818,13 @@ export class Game {
       // The vertical part of that transfer belongs to `armSend`; the target is
       // still the neighbouring fixture rather than the square under the duct.
       const facing = anchorTile(arm.x, arm.z, arm.rot);
-      const order = [facing, ...sides.filter((s) => s.x !== facing.x || s.z !== facing.z)];
+      // ...and the aim only leads while that side is still a way out. A side
+      // you shut and then turned the machine at is the two settings
+      // disagreeing, and the one that has to win is the one that says "not
+      // there" — an aim is a preference between sides, so honouring it over a
+      // refusal would make R a way of undoing this menu.
+      const first = sides.filter((s) => s.x === facing.x && s.z === facing.z);
+      const order = [...first, ...sides.filter((s) => s.x !== facing.x || s.z !== facing.z)];
       for (const s of order) {
         if (this.armTakes(arm, s, riding)) return this.armSend(arm, s, 1);
       }
@@ -15850,7 +15950,11 @@ export class Game {
     // is never off-ramped, so it is lifted from all four; see below.
     const out = anchorTile(arm.x, arm.z, arm.rot);
     const met = conveyorMeets(this.layout, arm);
-    for (const s of sides) {
+    // `takes` and not `sides`: this is the lifting half, so a side is offered
+    // here on its way IN. The two lists are usually the same four cells and
+    // differ exactly where somebody has said which way a side is for — which is
+    // the machine standing between a pad and a run, the build this exists for.
+    for (const s of takes) {
       // ...unless it never puts anything down, in which case there is no loop to
       // prevent and the exclusion is pure cost. A load-only loader aimed at the
       // yard it is standing on refuses to lift from that yard — which is the
@@ -19281,6 +19385,15 @@ export class Game {
       // swap which one is the main road, and a merge cleared by that turn is the
       // control undoing itself on the one gesture it was designed around.
       merge: from.merge,
+      // ...and which of its SIDES it uses. It rides along untouched, and that is
+      // a decision rather than the lazy option: a side is named by a compass
+      // turn, and what stands on that turn is a pad, a shelf or a line, none of
+      // which move when you press R. So "the west side is a way in" is a fact
+      // about the shop and stays true through the turn — where `reject` follows
+      // the aim because it *is* the aim. Turned WITH the machine it would be
+      // the one setting on this list that quietly re-points at a neighbour
+      // nobody named, which is what `reject` re-aiming exists to stop.
+      sides: from.sides,
       // ...and a shaft's direction, which is the one setting on this list whose
       // whole reason for not being `rot` is that R would clear it. Left out
       // here, R clears it anyway through the back door.

@@ -667,6 +667,27 @@ export const ShopRoom = (Base) => class extends Base {
       ));
     });
 
+    /**
+     * ...and which of its SIDES a machine uses, one side per press.
+     *
+     * Bulk like the rest of them, and the fold is the interesting half: a side
+     * is a compass turn, so picking six loaders and shutting "side 1" shuts the
+     * same *direction* on all six rather than the same neighbour. That is the
+     * honest reading of a batch — you are looking down an aisle at six machines
+     * standing the same way round — and it is why the summary names the turn
+     * rather than a tile, which would be right about one of the six.
+     */
+    this.onMessage('conveyor-sides', (client, m) => {
+      client.send('action-result', this.game.bulkFixtures(
+        targets(m),
+        (id) => this.game.setConveyorSides(client.sessionId, id, m?.r, m?.mode),
+        (n) => (m?.mode === 'in' ? `${n} machines only take boxes on that side.`
+          : m?.mode === 'out' ? `${n} machines only give boxes on that side.`
+            : m?.mode === 'off' ? `${n} machines leave that side alone.`
+              : `${n} machines take and give on that side again.`),
+      ));
+    });
+
     // ...and which way it sends what nothing wants. Build mode only, like
     // `sorter-auto` and for the same reason.
     this.onMessage('sorter-reject', (client, m) => {

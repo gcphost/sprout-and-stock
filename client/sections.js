@@ -3466,6 +3466,9 @@ function switchRows(ui) {
       button: {
         label: 'Replay',
         quiet: true,
+        // It shares the Tutorial row with its rocker, so it wears that rocker's
+        // footprint instead of becoming a larger, competing control.
+        toggleSize: true,
         run: () => {
           // The mark first, then the start. `maybeStart` reads it — so a Replay
           // that only called `start` would run the tutorial and then be refused

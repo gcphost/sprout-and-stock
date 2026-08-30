@@ -823,6 +823,9 @@
       border-radius: var(--r); background: var(--panel-solid);
       box-shadow: inset 0 0 0 1px var(--crease), 0 1px 0 var(--ink-line);
     }
+    .kmoney { border: 0; font: inherit; cursor: pointer; touch-action: manipulation; user-select: none; }
+    .kmoney:hover, .kmoney:focus-visible { background: #fff5d7; }
+    .kmoney:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     /* No well round the art. The tile IS the slot now that it has a crease box
        of its own — which inverts what the palette does and is the right way
        round both times: a `.tool` has a contour, so its art needs no frame; a
@@ -2087,6 +2090,10 @@
        same snapshot — no new server field — and capped at three, because a
        to-do list you can't finish is wallpaper rather than a prompt. */
     #todo { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+    #todo .todo-line, #todo .todo-alert {
+      display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+    }
+    #todo .todo-line { width: 100%; }
     /* `:has`, because the meter's rows are a child now and the panel itself is
        never empty — it holds its own close button. Without it an unfurnished
        shop draws an empty card with a ✕ on it before the first snapshot. */
@@ -2140,6 +2147,14 @@
     /* The one that is costing you money right now, rather than merely pending. */
     .todo.hot { background: #ffd66b; box-shadow: 0 2px 9px rgba(200,150,20,.32); }
     .todo.hot svg { opacity: .9; }
+    /* The shutters stop every other task, so this is a warning rather than an
+       amber suggestion: a distinct centered line, with the same red the shut
+       sign itself uses. */
+    .todo.shut {
+      background: #a8442f; color: #fff; font-size: 12.5px;
+      padding: 4px 11px 5px 9px; box-shadow: 0 3px 10px rgba(168,68,47,.35);
+    }
+    .todo.shut svg { opacity: .95; }
     /* A chip with something to press behind it (see `todoList`). It has to be
        INDISTINGUISHABLE from the ones without, so this is a reset and nothing
        else — the browser's own control has a border, an outline and a font of
@@ -3489,6 +3504,9 @@
     .row button.quiet {
       background: rgba(58,49,40,.10); color: var(--ink); font-weight: 600;
     }
+    /* The Tutorial replay is a companion to the row's switch, not a primary
+       action. Matching its exact footprint keeps the right edge visually even. */
+    .row button.quiet.toggle-size { width: 62px; height: 24px; padding: 0; }
     html.can-hover .row button.quiet:hover { background: rgba(58,49,40,.18); }
 
     /* ON or OFF, at the end of a row that is its own switch.
@@ -3663,6 +3681,10 @@
        the row to `center`, which would take the price, the count and the
        steppers with it. */
     .sec-row > .lead, .fx-act > .bico { align-self: center; }
+    /* The controls answer for the whole card, while its title and caption read
+       from the top. Keep the switch and its companion press on the card's
+       vertical middle rather than pinning them to the title line. */
+    .sec-row > .rule, .sec-row > button { align-self: center; }
     .sec-row .bico { font-size: 14px; line-height: 1.2; width: 19px; text-align: center; }
     /* A row whose lead is a PICTURE of the thing rather than a glyph for its
        kind — a shape in the fixture menu, drawn from the same catalog row the
@@ -4031,6 +4053,40 @@
     }
     html.can-hover .gsub:hover { opacity: 1; background: rgba(58,49,40,.22); }
     .gsub svg { display: block; width: 1em; height: 1em; }
+    /* THE SECOND PRESS AS A STRIP RATHER THAN A DOT.
+       `.gsub` above is a corner dot for the rare second verb, and the conveyor
+       side cards are the opposite case: the tile itself is the calm press (pick
+       this side, light it up in the shop) and the toggle on it is the one you
+       came to make. A 16px dot for the frequent press is the thing a thumb
+       misses every time.
+       So it is a bar along the foot of the card, wearing the state word that
+       used to sit there as text — it is already the right size and already says
+       what it would change, so it becomes the button rather than gaining one.
+       A SIBLING inside `.gcell`, never a child of the tile: `.gtile` is a
+       `<button>`, and a button inside a button is hoisted out by the parser, so
+       the nested version does not render wrong — it renders somewhere else. The
+       tile's own padding is what keeps its words clear of this. */
+    .gbar {
+      position: absolute; left: 5px; right: 5px; bottom: 5px;
+      border: 0; padding: 3px 2px; border-radius: var(--r); cursor: pointer;
+      background: rgba(58,49,40,.10); color: var(--ink);
+      font: inherit; font-size: 8px; font-weight: 800; letter-spacing: .05em;
+      text-transform: uppercase; opacity: .62;
+      --sil: inset 0 0 0 1px var(--crease);
+      --edge: var(--edge-sm); --press: var(--press-sm);
+      box-shadow: var(--sil), var(--edge);
+    }
+    html.can-hover .gbar:hover { opacity: 1; background: rgba(58,49,40,.2); }
+    /* On a lit card the strip is the loud part, because on those it is the
+       thing that is no longer the default — same argument `.gtile.on` makes
+       about the yellow. */
+    .gtile.on + .gbar, .gcell:has(.gtile.on) .gbar { opacity: .9; background: rgba(58,49,40,.16); }
+    /* ...and the tile gives up the room. The strip is laid over the card rather
+       than in it, so without this the words centre under it and the last line
+       reads through the bar — which looks like a rendering fault rather than a
+       spacing one. Scoped to cells that HAVE one, or every switch grid in the
+       game grows a hole at the bottom. */
+    .gcell:has(.gbar) .gtile { padding-bottom: 27px; }
 
     /* Icon over price, one narrow column. */
     .lead { display: flex; flex-direction: column; align-items: center; gap: 1px; width: 26px; flex: none; }
@@ -4433,6 +4489,16 @@
     }
     /* Its own border is the divider; the heading's would double it. */
     .pnl-foot .sep { border-top: 0; margin-top: 0; }
+    /* ...and the same doubling at the OTHER end, which is the identical fault
+       and was simply never looked at: `.pnl-head` closes with a border, and the
+       first heading in the scroller opens with one, so every fixture menu in the
+       game drew two rules four pixels apart under its own title. It reads as a
+       stray divider rather than as two correct borders meeting, which is why it
+       survived — you have to be looking at an empty band to see it, and until
+       the conveyor cards moved up there the first thing under the title was
+       always a heading with rows under it. Only the FIRST, so headings between
+       two lists keep the rule that separates them. */
+    .pnl-mid > .sep:first-child { border-top: 0; margin-top: 0; }
 
     /* The verbs, as one row of squares rather than five labelled lines.
        Deliberately the mirror of `.tabs` at the other end of the panel: the

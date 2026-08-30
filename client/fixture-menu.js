@@ -10,7 +10,7 @@
  * the snapshot and sends messages, not part of the HUD's own state.
  */
 
-import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, anchorTile, holdsGoods, shelfKind, sameFixture, sorterRoute, mergeRoute, conveyorFeeders, mergeStraight, CONVEYOR_KINDS } from '../shared/build.js';
+import { FIXTURES, FIXTURE_REFUND, STOCK_KINDS, anchorTile, holdsGoods, shelfKind, sameFixture, sorterRoute, mergeRoute, conveyorFeeders, mergeStraight, CONVEYOR_KINDS, conveyorAt, sideMode, GROUND, groundKindOfTile, deckOf } from '../shared/build.js';
 import { pieceFor } from '../shared/pieces.js';
 import { homeKind, departmentsOf, inDepartment, tagLabel } from '../shared/tags.js';
 import { LOT_KINDS, lotStacks, lotHas, lotLabel } from '../shared/lot.js';
@@ -1258,43 +1258,81 @@ const HANDS = [
  * nothing on the far side of it. Both fall back to the ordinary chooser when the
  * leg they favour is full — a preference is not a queue you wait in for ever.
  */
+/**
+ * ...and the WORDS are docs/tutorial.md §1, which is a rule about cards and is
+ * a rule about this too.
+ *
+ * A row is read in the same half-second a card is, by the same person, and the
+ * first draft of these broke the same two rules the cards break. `branch`,
+ * `leg` and `stray` are the shop's words for its own plumbing — "Down the
+ * branch" is a sentence you can only read if you already know what a branch is,
+ * which means it is a label for somebody who does not need one. And a name that
+ * is a NOUN PHRASE ("Wherever it fits", "Split evenly") describes a mechanic,
+ * where the thing being chosen is what the machine will DO with the next box.
+ *
+ * So every name is the instruction you are giving it, in the imperative, and
+ * every caption is one short sentence about a box. Say box, shelf, line — see
+ * the banned list.
+ */
 const SORTS = [
   {
     route: 'smart',
-    name: 'Wherever it fits',
-    sub: 'Each box goes down a line that can shelve it.',
+    name: 'Send it where it fits',
+    sub: 'Every box goes to a shelf that wants it.',
   },
   {
     route: 'straight',
-    name: 'Straight ahead',
+    name: 'Send it straight on',
     sub: 'Unless that line is full.',
   },
   {
     route: 'branch',
-    name: 'Down the branch',
-    sub: 'The way it points. Turn with R.',
+    name: 'Send it the way it points',
+    sub: 'Turn it with R.',
   },
   {
     route: 'alternate',
-    name: 'Split evenly',
-    sub: 'One box each way, whatever is in it.',
+    name: 'Send one each way',
+    sub: 'Take turns, whatever is in the box.',
   },
 ];
 
 function sortRows(ui, f, live, { lives = [live] } = {}) {
+  /**
+   * ...and WHICH WAY that is, as a tile — `rejectRows`' argument, arriving one
+   * heading up where it is needed more.
+   *
+   * "Send it the way it points" is a press you cannot make without knowing
+   * which way it points, and nothing on the machine says: the renderer draws a
+   * blade over EVERY branch (`conveyorBranches`), because every one of them is
+   * a way out, so the side `rot` names looks exactly like the two beside it.
+   * The row was therefore an instruction to aim at something invisible.
+   *
+   * Naming the tile is the only address that survives a camera that turns, and
+   * it is what the strays row two headings down already does — the two settings
+   * read the same field, so a menu that named the side for one of them and not
+   * for the other was answering the same question twice, differently.
+   *
+   * A selection of ONE, for `rejectRows`' reason exactly: six junctions have six
+   * different sides, so a named tile would be right about the one the menu
+   * happened to open on.
+   */
+  const one = (lives?.length ?? 1) === 1 ? (f ?? live) : null;
+  const rot = f?.rot ?? live?.rot ?? 0;
+  const at = one && Number.isFinite(one.x) ? anchorTile(one.x, one.z, rot) : null;
   return SORTS.map((s) => {
-    const at = allSay(lives, (l) => sorterRoute(l) === s.route);
+    const on = allSay(lives, (l) => sorterRoute(l) === s.route);
     return {
       icon: ICONS.stocker,
       name: s.name,
-      sub: s.sub,
-      picked: at,
+      sub: s.route === 'branch' && at ? `To ${at.x},${at.z}. Turn it with R.` : s.sub,
+      picked: on,
       // Through `withBuildMode` like every other verb the server gates on the
       // mode. Without it the row is offered, pressed, and refused with "you have
       // to be in build mode" — while the menu it was pressed in opened perfectly
       // well outside the mode, so the game is asking for a permission it never
       // said it needed and the switch reads as simply not working.
-      run: at ? null : () => ui.withBuildMode(
+      run: on ? null : () => ui.withBuildMode(
         () => ui.net.send('sorter-route', { ids: aimAt(ui, f), route: s.route }),
       ),
     };
@@ -1317,17 +1355,20 @@ function sortRows(ui, f, live, { lives = [live] } = {}) {
 const MERGES = [
   {
     merge: 'default',
-    name: 'First come, first served',
-    sub: 'Nearest box goes first.',
+    name: 'Let the nearest go first',
+    sub: 'Whichever box gets here first.',
   },
   {
     merge: 'straight',
-    name: 'Straight line first',
-    sub: 'The branch waits for a gap.',
+    name: 'Let the straight line go first',
+    sub: 'The side line waits for a gap.',
   },
   {
     merge: 'leg',
-    name: 'Branch first',
+    // "the side line" rather than the leg or the branch, in both rows and in
+    // both captions: it is the same two lines either way round, so a reader who
+    // has to learn one word to read one row has to learn it to read the pair.
+    name: 'Let the side line go first',
     sub: 'The straight line waits for a gap.',
   },
   {
@@ -1373,6 +1414,149 @@ function mergeRows(ui, f, live, { lives = [live], many = [f] } = {}) {
       ),
     };
   });
+}
+
+/**
+ * WHAT IS ON EACH SIDE OF THIS MACHINE, AND WHICH WAY GOODS MAY CROSS IT.
+ *
+ * A loader serves every side it can reach and a junction offers every way out
+ * it has, which is what makes a run work with nothing configured and is exactly
+ * what goes wrong once the pieces are close together: a machine with a pad on
+ * one side, a shelf on the other and a line running past has three plausible
+ * jobs and no sentence you could say to pick one. Tightening a layout meant
+ * moving pieces apart until the guess came out right.
+ *
+ * ONE CARD PER SIDE THAT HAS SOMETHING ON IT, and both halves of that are the
+ * design. What is attached is the thing you cannot see from a menu — the panel
+ * covers the machine, the shop is behind it, and "side 2" names nothing anybody
+ * can find — so the card is a picture of the NEIGHBOUR with the setting worn on
+ * it. And a side with bare floor beside it is left out entirely, because a
+ * control that decides nothing cannot be told from one that is broken; the four
+ * headings this menu already has each make the same argument.
+ *
+ * The press CYCLES rather than opening a sub-menu of four. Every state is one
+ * word on the tile you are already looking at, the whole set is four presses
+ * round, and the alternative is four rows per side — sixteen rows to say what a
+ * loader does. It is the same call the merge rows make about `default`.
+ *
+ * A SELECTION OF ONE, which is `rejectRows`' rule and is sharper here. Six
+ * loaders down an aisle have six different neighbours, so a card naming a shelf
+ * would be right about whichever machine the menu happened to open on and wrong
+ * about the other five. The message is bulk regardless — see `conveyor-sides`,
+ * which shuts the same compass side on every one it is given.
+ */
+const SIDE_SAY = {
+  // One voice across the four, which is what a CYCLE needs and a set of
+  // switches does not: you read these one after another off the same strip, so
+  // "Both ways" beside "Takes only" is two different sentences about one
+  // machine. All four say what it does to a box, in the same person.
+  both: { icon: 'wayBoth', word: 'Takes and gives', sub: 'boxes go both ways' },
+  in: { icon: 'wayIn', word: 'Takes only', sub: 'takes boxes from here' },
+  out: { icon: 'wayOut', word: 'Gives only', sub: 'gives boxes to here' },
+  off: { icon: 'wayOff', word: 'Leaves it alone', sub: 'never touches this one' },
+};
+
+/** both → in → out → off → both. One press each, four presses home. */
+const NEXT_SIDE = { both: 'in', in: 'out', out: 'off', off: 'both' };
+
+/**
+ * What is standing on a tile, as a word — or null for somewhere goods cannot go.
+ *
+ * Most specific first, the way `razeAim` aims: a conveyor cell is a thing on the
+ * square, a fixture is a thing on the square, and painted ground is what the
+ * square is MADE of, so the ground can only ever be the answer when nothing is
+ * standing on it. Bare floor is null rather than "Floor" — it is the absence
+ * this whole list is filtered on.
+ */
+function whatIsAt(ui, f, x, z) {
+  const L = ui.scene?.storeLayout;
+  if (!L) return null;
+  const deck = deckOf(f);
+  const cell = conveyorAt(L, x, z, deck);
+  if (cell) return FIXTURES[cell.kind]?.label ?? 'Line';
+  const on = ui.scene?.fixtureAt?.(x, z, deck);
+  if (on) return FIXTURES[on.kind]?.label ?? 'Fixture';
+  // Ground is only interesting where it is a JOB — a pad is somewhere goods
+  // live, and a loader beside one is the build this menu exists for. A floor,
+  // a road or a lawn is scenery, and a card offering to shut a side that faces
+  // a paving slab is the empty-side case wearing a colour.
+  const k = groundKindOfTile(tileOf(L, x, z));
+  return k && GROUND[k]?.pad ? GROUND[k].label : null;
+}
+
+/** The tile kind at a cell, or null off the map. `tileAt`'s client-side reach. */
+function tileOf(L, x, z) {
+  if (!L?.tiles || x < 0 || z < 0 || x >= L.w || z >= L.h) return null;
+  return L.tiles[z * L.w + x];
+}
+
+function sideRows(ui, f) {
+  const cells = [];
+  const acts = {};
+  for (const r of [0, 1, 2, 3]) {
+    const at = anchorTile(f.x, f.z, r);
+    const what = whatIsAt(ui, f, at.x, at.z);
+    if (!what) continue;
+    const mode = sideMode(f, r);
+    const say = SIDE_SAY[mode];
+    const picked = ui.sidePick?.r === r;
+    /**
+     * TWO PRESSES ON ONE CARD, and which is which is the point of the shape.
+     *
+     * The card is the calm one: it PICKS this side and lights the thing on it,
+     * because a strip of four cards reading "Sorter · Appliance · Loader ·
+     * Shelf" names four objects in a shop that holds eleven of each, and no
+     * wording fixes that — the only directions anybody could be given are
+     * compass ones and the camera turns, so "the north side" is a sentence with
+     * no meaning on screen. Lighting the thing itself is the answer that needs
+     * no reading at all.
+     *
+     * The strip along its foot is the loud one: it cycles the setting. That way
+     * round because the toggle is the press you came here to make and picking is
+     * the one you make to find your place, and a control you use every time must
+     * not be the small target.
+     */
+    acts[`pick${r}`] = (u) => {
+      u.setSidePick(picked ? null : { r });
+      // Redrawn on the press rather than left to the next snapshot: the yellow
+      // moving a tenth of a second after the tap reads as the tap having missed,
+      // which is the argument `syncPickMarkers` already makes about the thumb
+      // button.
+      showFixture(u, u.fixtureRef ?? f);
+    };
+    acts[`mode${r}`] = (u) => {
+      // ...and pressing the setting picks the side as well, or the one press
+      // that matters leaves the shop unlit and you are back to reading words.
+      u.setSidePick({ r });
+      u.withBuildMode(() => u.net.send('conveyor-sides', {
+        ids: aimAt(u, f), r, mode: NEXT_SIDE[mode],
+      }));
+    };
+    cells.push({
+      id: `pick${r}`,
+      icon: ICONS[say.icon],
+      // The NEIGHBOUR is the name, because that is the half you cannot see with
+      // the panel over the shop.
+      name: what,
+      // The tile is in the tooltip rather than on the face. It was on the face
+      // for one round and it is the wrong half of the answer: it only means
+      // anything with the tile grid switched on, where the highlight means
+      // something to everybody. Kept here because it is the one address in this
+      // game that does not turn when the camera does — `rejectRows`' argument.
+      title: `${what} at ${at.x},${at.z} — ${say.word.toLowerCase()} (${say.sub}). `
+        + `Press the card to find it; press the strip for `
+        + `${SIDE_SAY[NEXT_SIDE[mode]].word.toLowerCase()}.`,
+      // Lit for the side you are POINTING at rather than for one that is set,
+      // because the tile's own press is what picks it — a card lit for a reason
+      // its press does not change is two meanings on one yellow. What is set is
+      // written on the strip, in words, on every card at once.
+      on: picked,
+      extra: `<button class="gbar" data-act="mode${r}" `
+        + `title="${esc(`${say.word} — press for ${SIDE_SAY[NEXT_SIDE[mode]].word.toLowerCase()}`)}">`
+        + `${esc(say.word)}</button>`,
+    });
+  }
+  return cells.length ? [{ grid: cells, acts }] : [];
 }
 
 /**
@@ -1472,7 +1656,22 @@ function packerRows(ui, f, live, { lives = [live] } = {}) {
  * box splits across the junction exactly as it always did.
  */
 function rejectRows(ui, f, live, { lives = [live] } = {}) {
-  const rot = live?.rot ?? 0;
+  /**
+   * ...off `f` AND NOT off `live`, which is the trap the note below names and
+   * then walks straight into.
+   *
+   * A sorter reaches the wire as `id`, `auto`, `route`, `reject`, `riser` and
+   * `straight` — and NOT as `rot`, because every other reader of a junction's
+   * aim already has the layout. So `live.rot` is `undefined` on every sorter in
+   * every shop, `?? 0` answers east, and this row has named the tile east of
+   * the junction whatever it was actually pointing at. It is the worst shape a
+   * wrong answer comes in: a real tile, in the right shop, next to the right
+   * machine, so it reads as the setting being wrong rather than the label.
+   *
+   * `f` is the layout record and has it. The note under `one` was right about
+   * x/z for exactly this reason and stopped one field short.
+   */
+  const rot = f?.rot ?? live?.rot ?? 0;
   /**
    * ...and WHICH SIDE that is, as a tile.
    *
@@ -1503,9 +1702,15 @@ function rejectRows(ui, f, live, { lives = [live] } = {}) {
   const one = (lives?.length ?? 1) === 1 ? (f ?? live) : null;
   const at = one && Number.isFinite(one.x) ? anchorTile(one.x, one.z, rot) : null;
   const where = at ? `goes to ${at.x},${at.z}` : 'goes that way';
+  // `stray` is on docs/tutorial.md §1's banned list and it is the clearest case
+  // on it: it is the sim's word for a box no shelf on this network wants, and
+  // the row it named was the one row in the menu that could not be read without
+  // knowing that. The rows say what happens to the BOX instead — and the names
+  // are the instruction rather than a description of it, which is the other half
+  // of the same rule.
   return [
-    { set: null, name: 'Split the strays', sub: 'Shared across every line out.' },
-    { set: rot, name: 'Send strays that way', sub: `Anything no line can take ${where}.` },
+    { set: null, name: 'Share them out', sub: 'Boxes nothing wants go down every line.' },
+    { set: rot, name: 'Send them the way it points', sub: `Boxes nothing wants ${where}.` },
   ].map((r) => {
     const at = allSay(lives, (l) => (Number.isInteger(l?.reject) ? l.reject : null) === r.set);
     return {
@@ -1537,7 +1742,7 @@ function riserRows(ui, f, live, { lives = [live] } = {}) {
   const mouth = (f?.kind ?? live?.kind) === 'under';
   return (mouth ? [
     { on: false, name: 'Come up on the floor', sub: 'Hands on to the line it faces.' },
-    { on: true, name: `Come up to ${up}`, sub: 'Needs a run up there, or it stays down.' },
+    { on: true, name: `Come up to ${up}`, sub: 'Needs a line up there, or it stays down.' },
   ] : [
     { on: false, name: 'Stay on this storey', sub: 'Only the lines beside it.' },
     { on: true, name: `Also use ${up}`, sub: 'One more way out. A line that wants the box still wins.' },
@@ -1572,9 +1777,9 @@ function riserRows(ui, f, live, { lives = [live] } = {}) {
  */
 function liftRows(ui, f, live, { lives = [live] } = {}) {
   return [
-    { set: null, name: 'Work it out', sub: 'Goes whichever way the boxes come from.' },
-    { set: 'up', name: 'Always up', sub: 'To the ceiling run beside it.' },
-    { set: 'down', name: 'Always down', sub: 'To the floor run beside it.' },
+    { set: null, name: 'Follow the boxes', sub: 'Goes whichever way they come from.' },
+    { set: 'up', name: 'Always up', sub: 'To the ceiling line beside it.' },
+    { set: 'down', name: 'Always down', sub: 'To the floor line beside it.' },
   ].map((r) => {
     const at = allSay(lives, (l) => (l?.way ?? null) === r.set);
     return {
@@ -1647,6 +1852,29 @@ function settingRows(ui, f, live, sel = {}) {
     under('When it gets refilled', priorityRows(ui, f, live, sel));
     under('The shop hand', handRows(ui, f, live, sel));
   }
+  /**
+   * ...and FIRST, for any conveyor cell, what is standing round it.
+   *
+   * At the top because it is the only thing in this menu that is about the shop
+   * rather than about the piece: every other heading here is a rule the machine
+   * follows wherever it stands, and this one is four cards naming the four
+   * things you built it between. It is also the question you opened the menu
+   * with — a loader between a pad, a shelf and a line does three jobs and you
+   * came here to say which — so it goes above the answer to "which half of its
+   * job", which is a narrowing of it.
+   *
+   * A selection of ONE, and the cards say why — see `sideRows`.
+   *
+   * NO HEADING OF ITS OWN, which is the one thing here that is about the panel
+   * rather than about conveyors. `SETTINGS` is the group title and it was
+   * drawing over an empty band — the first thing under it was another heading —
+   * so a `sep` here made two captions in a row with nothing between them and
+   * pushed the cards down past the fold. The cards are the settings, so they go
+   * straight under the word that says so.
+   */
+  if (many.length === 1 && CONVEYOR_KINDS.includes(f?.kind)) {
+    rows.push(...sideRows(ui, f));
+  }
   if (many.every((g) => g.kind === 'arm')) {
     under('What it does', armRows(ui, f, live, sel));
   }
@@ -1676,8 +1904,8 @@ function settingRows(ui, f, live, sel = {}) {
     under('Where two lines meet', mergeRows(ui, f, live, sel));
   }
   if (many.every((g) => g.kind === 'sorter')) {
-    under('Which way it sends things', sortRows(ui, f, live, sel));
-    under('What nothing wants', rejectRows(ui, f, live, sel));
+    under('Which way it sends boxes', sortRows(ui, f, live, sel));
+    under('Boxes nothing wants', rejectRows(ui, f, live, sel));
     under('The other storey', riserRows(ui, f, live, sel));
   }
   if (many.every((g) => g.kind === 'lift')) {

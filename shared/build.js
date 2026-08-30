@@ -3325,6 +3325,24 @@ function conveyorFlow(L) {
     }
     return out;
   };
+  /**
+   * ...and may a box CROSS that side at all — see `handsAcross`.
+   *
+   * Asked here rather than inside `around`, because `around` is also how this
+   * function finds who is standing next to whom: a side somebody has shut is
+   * still a neighbour, still a straight continuation for `throughR`, and still
+   * something a merge has to know about. What it stops being is a way out.
+   *
+   * A neighbour that is NOT a conveyor gets the sender's half only. A belt
+   * pointing at a shelf has a flow of "that square" whatever is on it — the
+   * hand-off there is `armSwing`'s job rather than this map's — so demanding the
+   * far end's consent would be asking a shelf a question it has no field for.
+   */
+  const mayHand = (c, r) => {
+    const n = stepFrom(c, r);
+    const other = at.get(`${n.x},${n.z},${n.deck}`);
+    return other ? handsAcross(c, other, r) : sideOut(c, r);
+  };
   /** Is this neighbour known to hand TO us? Then it is not somewhere to hand on. */
   const feedsUs = (o, c) => {
     const to = map.get(o.cell.id);
@@ -3397,6 +3415,7 @@ function conveyorFlow(L) {
     const cameFrom = backR === null || backR === undefined ? null : rot4(backR + 2);
     const open = around(c).filter((o) => !feedsUs(o, c)
       && o.r !== cameFrom
+      && mayHand(c, o.r)
       && !(branch && o.x === branch.x && o.z === branch.z));
     /**
      * ...and with no way out ON THIS STOREY, the rise — docs/belts.md step 9.
@@ -3449,6 +3468,12 @@ function conveyorFlow(L) {
   // the way it came, and there is nothing in the game that says a word about it.
   const queue = [];
   for (const b of [...belts, ...packers]) {
+    // ...unless that side has been shut, in which case this is a terminus and
+    // has to be one HERE. A belt's rotation is a declaration, so there is
+    // nothing to derive and nothing downstream to walk: left in the map it
+    // would go on handing across a side somebody closed, which is a setting
+    // that does nothing on the one piece whose whole state is a direction.
+    if (!mayHand(b, b.rot)) continue;
     map.set(b.id, stepFrom(b, b.rot));
     queue.push(b);
   }
@@ -3484,6 +3509,11 @@ function conveyorFlow(L) {
     // Loaders only. A sorter's `rot` is the branch, so reading it as the output
     // here would make every sorter in the shop a belt pointing sideways.
     if (a.kind === 'sorter') continue;
+    // A shut side is not an output, and the shortcut is the one place that
+    // would otherwise talk straight past `choose` — this loop declares a
+    // loader's flow rather than deriving it, so the filter down there never
+    // runs for one that took it.
+    if (!mayHand(a, a.rot ?? 0)) continue;
     const f = stepFrom(a, a.rot ?? 0);
     const other = at.get(`${f.x},${f.z},${f.deck}`);
     if (!other) continue;
@@ -3865,7 +3895,29 @@ export function conveyorNext(L, cell) {
   // one of the four ways out up there, which is the same walk's answer. See
   // `liftTo` and `liftOut`.
   if (cell.kind === 'lift') return conveyorFlow(L).get(cell.id) ?? null;
-  if (!derivedFlow(cell.kind)) return stepFrom(cell, cell.rot);
+  /**
+   * A DECLARED flow answers here and never opens the flow map, which is what
+   * makes a shut side need saying twice.
+   *
+   * The line below is the whole reason: a belt and a packer know their own
+   * direction, so nothing about them is derived and this returns before
+   * `conveyorFlow` is ever called. Its seeding loop refuses the same side for
+   * the same reason — the cells downstream have to be walked from somewhere
+   * honest — and that refusal is invisible from here. Both, or shutting a
+   * belt's own way out is a setting the run obeys and the box does not.
+   *
+   * One RULE and two lookups: `handsAcross` is the rule, and the two sites
+   * resolve the far cell however they already can (this one through
+   * `conveyorAt`, the walk through the map it has just built). Sharing the
+   * lookup as well would put a linear scan inside a loop over every conveyor in
+   * the shop, four times per cell.
+   */
+  if (!derivedFlow(cell.kind)) {
+    const to = stepFrom(cell, cell.rot);
+    const other = conveyorAt(L, to.x, to.z, to.deck);
+    if (other ? !handsAcross(cell, other, cell.rot) : !sideOut(cell, cell.rot)) return null;
+    return to;
+  }
   return conveyorFlow(L).get(cell.id) ?? null;
 }
 
@@ -3909,6 +3961,11 @@ export function conveyorBranches(L, cell) {
     const n = stepFrom(cell, r);
     const other = conveyorAt(L, n.x, n.z, n.deck);
     if (!other) continue;
+    // A side somebody shut is not a way out, and it outranks the aimed one
+    // below: `rot` is the branch you asked for and this is you saying you
+    // changed your mind about it. Both ends, or closing a junction's way in
+    // from the cell you own would take two presses on two machines.
+    if (!handsAcross(cell, other, r)) continue;
     if (straight && n.x === straight.x && n.z === straight.z
       && deckOf(straight) === n.deck) continue;
     // The side you AIMED it at is a branch full stop — the one thing on this
@@ -4070,6 +4127,97 @@ export function mergeStraight(L, cell) {
 export const MERGE_ROUTES = ['default', 'straight', 'leg', 'alternate'];
 
 export const mergeRoute = (c) => (MERGE_ROUTES.includes(c?.merge) ? c.merge : 'default');
+
+/**
+ * WHICH OF ITS FOUR SIDES A MACHINE WILL USE, AND WHICH WAY ACROSS EACH.
+ *
+ * Everything else on a run is derived, and that is the whole design: you lay
+ * belt, the flow walks forward from whatever declared a direction, and a loader
+ * serves every side it can reach so that one machine between two units feeds
+ * both. It is right nearly always and it has exactly one failure, which is the
+ * shop you get when the pieces are close together — a loader with a pad on one
+ * side, a shelf on the other and a line running past it has three plausible
+ * jobs, the derivation picks the one it picks, and there is no sentence anywhere
+ * you can say to change your mind. Tightening a layout then means moving the
+ * pieces apart until the guess happens to be right, which is the opposite of
+ * what a tighter layout is.
+ *
+ * So a side may be SPOKEN FOR, and the vocabulary is deliberately about goods
+ * rather than about belts: `in` is a way in, `out` is a way out, `off` is a side
+ * this machine does not use at all. From the machine's own point of view in
+ * every case — a loader lifting a crate off a pad is that side being a way IN,
+ * exactly as a belt handing this cell a box is.
+ *
+ * `both` is every side of every conveyor in every save, and it is stored as
+ * ABSENT rather than as the word: a shop that has never opened one of these
+ * menus adds nothing to the record, nothing to the wire and nothing to the save,
+ * which is the assertion that decides whether any of this is opt-in.
+ *
+ * A PAIR, and it has to be. A hand-off is two machines agreeing — the one
+ * letting go and the one taking — so the side is asked of both ends, at its own
+ * quarter turn on each. Asked of the sender only, closing a way in would be a
+ * setting that does nothing until you happen to own the cell upstream; asked of
+ * the receiver only, the same is true the other way. `handsAcross` is the one
+ * spelling of the pair, and every reader that decides where a box may go asks
+ * it rather than reading `sides` itself.
+ */
+export const SIDE_MODES = ['both', 'in', 'out', 'off'];
+
+/** What this cell has been told about the side on its `r` quarter turn. */
+export const sideMode = (c, r) => {
+  const m = c?.sides?.[rot4(r)];
+  return SIDE_MODES.includes(m) ? m : 'both';
+};
+
+/** May goods LEAVE this cell across that side? */
+export const sideOut = (c, r) => {
+  const m = sideMode(c, r);
+  return m === 'both' || m === 'out';
+};
+
+/** May goods ARRIVE at this cell across that side? */
+export const sideIn = (c, r) => {
+  const m = sideMode(c, r);
+  return m === 'both' || m === 'in';
+};
+
+/**
+ * May `from` hand a box to `to`, given `to` lies on `from`'s `r` quarter turn?
+ *
+ * The opposite turn on the far end is the only arithmetic in here and it is the
+ * thing to get right: a side named `1` on the sender is side `3` on the
+ * receiver, and reading both as `r` makes every setting a statement about a
+ * different edge than the one on screen.
+ */
+export const handsAcross = (from, to, r) => sideOut(from, r) && sideIn(to, rot4(r + 2));
+
+/** Has anything at all been said about this cell's sides? */
+export const hasSides = (c) => [0, 1, 2, 3].some((r) => sideMode(c, r) !== 'both');
+
+/**
+ * The sides of `c`, normalised — or `null` when nothing has been said.
+ *
+ * Null rather than `{}` is the whole of what keeps this opt-in. A re-flow
+ * rebuilds every conveyor record from its placement (and build mode re-flows on
+ * every wall segment of a drag), so this is the one function that carries the
+ * setting across — and an empty object written onto every belt in the shop is a
+ * field on the save, a field on the wire and a field in every snapshot diff, in
+ * a shop where nobody has opened the menu. Which is every shop.
+ *
+ * Rebuilt key by key rather than passed through, for `surfaceOf`'s reason
+ * inverted: a value that arrives from a save, a message or another peer is not
+ * trusted to be one of four words on one of four turns.
+ */
+export const sidesOf = (c) => {
+  let out = null;
+  for (const r of [0, 1, 2, 3]) {
+    const m = sideMode(c, r);
+    if (m === 'both') continue;
+    out ??= {};
+    out[r] = m;
+  }
+  return out;
+};
 
 /**
  * Every cell a crate put on this one would visit, in order, ending wherever the

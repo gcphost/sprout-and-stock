@@ -27,7 +27,7 @@ import { E, eviOf, ehiOf, computeIndoor } from '../shared/edges.js';
 import {
   anchorTile, behindTile, queueAxis, queueLane, queueLanes, canPlace, canKeep, isProp,
   FLOOR_KIND, groundTile, padCells, ROAD_THICK, shelfKind, FIXTURE_KINDS, FIXTURES,
-  footprint, sizeOf, deckOf, CEILING, LIFT_WAYS, rot4, sorterRoute, mergeRoute,
+  footprint, sizeOf, deckOf, CEILING, LIFT_WAYS, rot4, sorterRoute, mergeRoute, sidesOf,
   standableSide,
 } from '../shared/build.js';
 import { LOT_KINDS } from '../shared/lot.js';
@@ -1023,6 +1023,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // so a setting left out here is one that clears itself behind you while
       // you are still drawing.
       belt.merge = mergeRoute(p);
+      // ...and WHICH SIDES it uses, on the same terms as the line above and
+      // with the same trap: this record is rebuilt from the placement on every
+      // re-flow, so a setting left out here is one that clears itself behind
+      // you while you are still dragging. Sparse — see `sidesOf`.
+      belt.sides = sidesOf(p);
       beltsOut.push(belt);
       // Nothing reserved. A belt has no working spot, so there is no tile the
       // generator has to keep clear for it.
@@ -1047,6 +1052,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // ...and who goes first where two lines meet on it, carried for the reason
       // the line above is carried — see the belt branch.
       under.merge = mergeRoute(p);
+      // ...and its sides, with the trap above — see `sidesOf`.
+      under.sides = sidesOf(p);
       undersOut.push(under);
     } else if (p.kind === 'lift') {
       // The one piece on both storeys, so it stamps and occupies the floor cell
@@ -1091,6 +1098,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // ...and its merge, on the same terms and for the same reason: a loader
       // stands IN a run, so it is a square two lines can arrive at.
       arm.merge = mergeRoute(p);
+      // ...and its sides, with the trap above — see `sidesOf`.
+      arm.sides = sidesOf(p);
       armsOut.push(arm);
       // Nothing occupied and nothing reserved — see `makeArm`.
     } else if (p.kind === 'sorter') {
@@ -1124,6 +1133,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // matters most here: a sorter is what people build where lines meet, so
       // this is the junction the setting is usually made on.
       sorter.merge = mergeRoute(p);
+      // ...and its sides, with the trap above — see `sidesOf`.
+      sorter.sides = sidesOf(p);
       sortersOut.push(sorter);
     } else if (p.kind === 'packer') {
       // A belt cell by its stamp, a machine by its footprint — the loader's
@@ -1145,6 +1156,8 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // ...and its merge, because a packer stands IN a run and is therefore a
       // square two lines can arrive at.
       packer.merge = mergeRoute(p);
+      // ...and its sides, with the trap above — see `sidesOf`.
+      packer.sides = sidesOf(p);
       packersOut.push(packer);
     } else if (p.kind === 'checkout') {
       occupy(p.x, p.z);

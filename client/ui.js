@@ -9,7 +9,7 @@
 import { variantsOf } from '../shared/model.js';
 import { fixtureLabel, pieceFor, kindOf, openOf } from '../shared/pieces.js';
 import {
-  spotsOf, deckOf, sameFixture, FIXTURES, CEILING, goesOverhead, overheadKinds,
+  spotsOf, deckOf, sameFixture, FIXTURES, CEILING, goesOverhead, overheadKinds, anchorTile,
 } from '../shared/build.js';
 import { lotStacks, lotTotal, lotQty } from '../shared/lot.js';
 import { clockLabel, weekdayLabel } from '../shared/clock.js';
@@ -2534,6 +2534,20 @@ export class UI {
    * all. Pass null for "no fixture menu open".
    */
   setFixtureRef(f, { keepPicked = false } = {}) {
+    // ...and the SIDE you had picked on the last machine, which is a selection
+    // inside a selection and has to go with it. It is a quarter turn — the same
+    // number means a different neighbour on the next piece — so left standing
+    // it would light a shelf across the shop the moment you opened another
+    // loader, with the card for it lit on a menu describing something else. A
+    // re-flow re-pointing the ref at the same fixture is exempt for the reason
+    // `keepPicked` is: nothing moved, so nothing was chosen.
+    // ...compared by TILE and not by id, which is this file's own rule and is
+    // load-bearing here rather than pedantic: setting a side re-flows, a re-flow
+    // re-mints ids, and `refreshFixture` then re-points the ref at the same
+    // machine wearing a new one. Compared by id, the side you just set would
+    // un-pick itself on every press — the shop going dark one frame after you
+    // lit it, which reads as the highlight flickering rather than as a lookup.
+    if (!keepPicked || !sameFixture(f, this.fixtureRef)) this.setSidePick(null);
     this.fixtureRef = f;
     // Picking a different thing starts a different selection. That is the rule
     // every multi-select in every program works to, and it is the only one that
@@ -2556,6 +2570,59 @@ export class UI {
     // Without this the line under a shelf you just picked still says "tap to
     // pick it", over a ring saying you already have.
     if (this.buildOn) this.renderBuildHint();
+  }
+
+  /**
+   * WHICH SIDE OF THE OPEN MACHINE YOU ARE POINTING AT.
+   *
+   * A setter rather than a field, which is the rule `setFixtureRef` states and
+   * is here for the same reason: what is lit in the shop and what is lit on the
+   * panel are two pictures of one fact, and a field assigned by hand is how
+   * they come apart. The mark is `kin` — the colour for *what is being
+   * offered* rather than for what you own — and it is a fourth marked set
+   * rather than a mode on the selection ring, because the ring is round the
+   * machine whose menu is open and this is round the thing beside it. Both are
+   * up at once, which is the whole point: you are looking at a pair.
+   *
+   * A side facing painted ground gets no mark and that is honest rather than a
+   * gap — a pad has no id and nothing to hang a cage on. The card is still
+   * selectable, so the toggle inside it still works; there is simply nothing in
+   * the world for a cage to go round.
+   */
+  setSidePick(at) {
+    // The TURN and nothing else. It was the neighbour's record for one round and
+    // that record is stale the moment anything re-flows — which setting a side
+    // does, every press — so the marker would be built against art that has been
+    // disposed and rebuilt under it. A quarter turn cannot go stale: the machine
+    // is where it was, and what is beside it is a lookup.
+    this.sidePick = Number.isInteger(at?.r) ? { r: at.r } : null;
+    this.syncSidePick();
+  }
+
+  /** Put the mark on whatever is currently on that side. See `setSidePick`. */
+  syncSidePick() {
+    const f = this.fixtureRef;
+    const r = this.sidePick?.r;
+    const at = f && Number.isInteger(r) ? anchorTile(f.x, f.z, r) : null;
+    const on = at ? this.scene?.fixtureAt?.(at.x, at.z, deckOf(f)) : null;
+    /**
+     * `aim` and not `kin`, which is the difference between an outline round the
+     * THING and a square painted on the floor.
+     *
+     * `kin` is the one look in the table with no `mark` channel, deliberately —
+     * it appears seventeen at a time while Shift is held, and seventeen
+     * contours is a shop you cannot read — so `markerFor` finds no hull for it
+     * and falls back to the tile frame. That is right for a set and wrong for
+     * one thing: a frame on the floor under a machine names the SQUARE, and the
+     * square under a loader has a belt on it too.
+     *
+     * Amber is also the honest colour here. Teal is "the one whose menu is
+     * open", which is the machine this menu is about; this is the thing beside
+     * it that the card under your finger is naming, which is the same sentence
+     * the aim frame says. The two sit inside one another exactly as they do
+     * when you point at a unit you have already opened.
+     */
+    this.scene?.setMarkedSet?.('side', on ? [{ f: on, mode: 'aim' }] : null);
   }
 
   /**
@@ -2839,6 +2906,11 @@ export class UI {
     })));
     // Never under the ones already picked: the same square wearing two frames
     // reads as a third state, and the thin one is the one that would win.
+    // ...and the side card's mark, which is resolved from the ref rather than
+    // stored, so a re-flow that re-mints every id puts it back on the same
+    // neighbour. Here because this is the one function every press, ref move and
+    // landing layout already calls.
+    this.syncSidePick();
     const taken = new Set(this.pickedFixtures().map((f) => f.id));
     this.scene.setMarkedSet('kin', this.kinOn
       ? this.kinOfSelection().filter((f) => !taken.has(f.id)).map((f) => ({ f, mode: 'kin' }))
@@ -3791,7 +3863,21 @@ export class UI {
              * and leaves the lit tile to say it, which is the same yellow and
              * the same fact `.sec-row.picked` carries.
              */
-            t.pick ? '' : `<span class="gstate">${t.on ? 'On' : 'Off'}</span>`}
+            /**
+             * ...and a tile that is one of SEVERAL states says which, in the
+             * same line the switch says On in.
+             *
+             * The third shape, and it is the one the other two cannot cover. A
+             * switch answers on/off about itself; a `pick` is one of a set, so
+             * the lit tile is the answer and printing a word under the others
+             * would be a lie about the shape. A tile that CYCLES is neither:
+             * one press moves it round a ring of four, so it is always exactly
+             * one of them and there is no sibling tile lit to read the answer
+             * off. Left to `pick` it would be a strip of glyphs whose state you
+             * can only get at by hovering, which no touchscreen can do.
+             */
+            t.state ? `<span class="gstate">${t.state}</span>`
+              : t.pick ? '' : `<span class="gstate">${t.on ? 'On' : 'Off'}</span>`}
           </button>`}
           ${t.extra ?? ''}
         </div>`).join('')}</div>`;
@@ -3862,7 +3948,7 @@ export class UI {
     // switch row, and in green it was the loudest thing on the tab by a mile,
     // sitting next to a tutorial nobody was buying.
     r.button.tag ? ` data-btn-tag="${r.button.tag}"` : ''}${
-    r.button.danger ? ' class="danger"' : r.button.quiet ? ' class="quiet"' : ''}>${r.button.label}</button>`
+    r.button.danger ? ' class="danger"' : r.button.quiet ? ` class="quiet${r.button.toggleSize ? ' toggle-size' : ''}"` : ''}>${r.button.label}</button>`
     // An empty cell under a head, for the rows that have nothing in that
     // column — a made-here item has no standing order and no buy button, and
     // dropping the cells rather than emptying them slides its count and its
@@ -4057,7 +4143,7 @@ export class UI {
         // under the same width) — a shortcut printed at somebody holding a phone
         // is a line of the sentence that cannot be acted on, and this chip is
         // the one that is up at the moment somebody has least idea what to do.
-        icon: 'shop', hot: true, text: `The shop is <b>shut</b> — open up${pillDrives() ? '' : ' (O)'}`,
+        icon: 'shop', shut: true, text: `The shop is <b>shut</b> — open up${pillDrives() ? '' : ' (O)'}`,
         run: () => this.setOpen(true),
       });
     }
@@ -4694,20 +4780,26 @@ export class UI {
       // A `<button>` where there is something to press and a `<span>` where
       // there is not, which is the pill's rule again: a chip that looks
       // pressable and is not is the green ghost with words on it.
-      this.el.todo.innerHTML = todo
-        .map((t, i) => {
+      const chips = todo.map((t, i) => {
           // A length rather than a fraction. It is a background on the chip
           // itself (`--pct`) rather than a child element, so a goal is still one
           // flat chip in a strip of flat chips.
-          const cls = `todo${t.hot ? ' hot' : ''}${t.pct === undefined ? '' : ' goal'}`;
+          const cls = `todo${t.hot ? ' hot' : ''}${t.shut ? ' shut' : ''}${t.pct === undefined ? '' : ' goal'}`;
           const style = t.pct === undefined ? '' : ` style="--pct:${(t.pct * 100).toFixed(1)}%"`;
           const tip = t.tip ? ` title="${t.tip}"` : '';
           return t.run
             ? `<button type="button" class="${cls}"${style}${tip} data-i="${i}">`
               + `${ICONS[t.icon]}${t.text}</button>`
             : `<span class="${cls}"${style}${tip}>${ICONS[t.icon]}${t.text}</span>`;
-        })
-        .join('');
+        });
+      // A shut shop is the condition that governs every ordinary to-do. Keep
+      // the latter in their familiar top strip and give the actionable warning
+      // its own, centered line directly beneath it.
+      const ordinary = chips.filter((_, i) => !todo[i].shut).join('');
+      const shut = chips.filter((_, i) => todo[i].shut).join('');
+      this.el.todo.innerHTML = shut
+        ? `${ordinary ? `<div class="todo-line">${ordinary}</div>` : ''}<div class="todo-alert">${shut}</div>`
+        : ordinary;
     }
 
     // The sections and the plot's seed picker read these when they paint, so

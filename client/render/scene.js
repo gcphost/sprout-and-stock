@@ -54,6 +54,7 @@ import {
   SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   faceKey, covers, footprintMid, sizeOf, deckOf, CEILING, armReach,
   conveyorLines, conveyorLoops, unitOn, armPorts, conveyorMeets,
+  sorterRoute, FAVOURING,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf, bodiesOf } from '../../shared/pieces.js';
 import { hash01 } from '../../shared/hash.js';
@@ -6466,6 +6467,51 @@ export class Scene {
      */
     this.sortReject = new Map((state.sorters ?? [])
       .filter((s) => Number.isInteger(s.reject)).map((s) => [s.id, s.reject]));
+    /**
+     * ...and WHICH WAY IT FAVOURS, which is the other setting on this machine
+     * that nothing in the world drew and is the one people actually change.
+     *
+     * "Send it the way it points" is a row you cannot act on without knowing
+     * which way it points, and nothing on the junction said: the blades come off
+     * `conveyorBranches`, so every way out wears an identical one and the side
+     * `rot` names looks exactly like the two beside it. The purple reject bar was
+     * the only direction on the roof, and it answers a different question — where
+     * the boxes NOBODY wants go — so a player reading the machine for its aim
+     * found either nothing or the wrong thing.
+     *
+     * Only the two routes whose behaviour is DEFINED by a side, which is what
+     * keeps this from being a shop full of lights reporting its own defaults:
+     * `branch` favours the leg it is aimed at, `straight` favours the line that
+     * carries on, and the other two do not favour anything — `smart` reads what
+     * is down each line and `alternate` takes turns, so a lamp on either would be
+     * claiming a preference the machine does not have. `rot` still breaks their
+     * ties, and a tie-break is not a direction worth a permanent light.
+     *
+     * The SIDE and not the field: for `branch` it is the aim, for `straight` it
+     * is `conveyorNext` — two different squares — and a bar that showed `rot` for
+     * both would be right half the time and wrong the other half, which is worse
+     * than the nothing it replaces.
+     *
+     * `route` comes off the SNAPSHOT for `sortReject`'s reason (`setSorterRoute`
+     * does not re-flow) and the side comes off the LAYOUT, because `rot` is not
+     * on the wire at all — see the same trap in `rejectRows`, which read
+     * `live.rot ?? 0` and named the square east of every junction in the game.
+     */
+    this.sortFavour = new Map();
+    const SL = this.storeLayout;
+    for (const s of state.sorters ?? []) {
+      const route = sorterRoute(s);
+      if (!FAVOURING(route)) continue;
+      const cell = (SL?.sorters ?? []).find((c) => c.id === s.id);
+      if (!cell) continue;
+      const to = route === 'branch'
+        ? anchorTile(cell.x, cell.z, cell.rot ?? 0)
+        : conveyorNext(SL, cell);
+      // A favoured side that is straight UP has no bar to light — the riser is
+      // what says that branch exists, which is the blade loop's own exception.
+      if (!to || (to.x === cell.x && to.z === cell.z)) continue;
+      this.sortFavour.set(s.id, { x: Math.sign(to.x - cell.x), z: Math.sign(to.z - cell.z) });
+    }
     /**
      * ...and which junctions have nothing to choose between — see `straight` on
      * the wire.
@@ -15165,16 +15211,30 @@ export class Scene {
         // is the more specific answer.
         const rej = this.sortReject?.get(id);
         const side = Number.isInteger(rej) ? anchorTile(0, 0, rej) : null;
-        // `rej` is in the key or a bar keeps whatever colour it was wearing
-        // when the setting changed — and this is the one readout here that can
-        // change with nothing else on the machine moving.
-        const key = `${lit ? `${lit.dx},${lit.dz},${lit.hue},${mv?.n ?? ''}` : ''}|${rej ?? ''}`;
+        // ...and the side it FAVOURS, which is the third resting colour and the
+        // one that answers "which way is it pointing" — see `sortFavour`.
+        //
+        // It loses to reject as reject loses to the live states, and the ladder
+        // is the same argument each rung down: an event beats a setting, and
+        // between two settings the more specific one wins. A junction that
+        // favours a leg AND rejects down it is one square doing two things, and
+        // the sharper of the two is that this is where the goods nothing wants
+        // end up — the aim is already implied by that bar being on a side at all.
+        const fav = this.sortFavour?.get(id);
+        // `rej` and `fav` are in the key or a bar keeps whatever colour it was
+        // wearing when the setting changed — and these are the readouts here
+        // that can change with nothing else on the machine moving.
+        const key = `${lit ? `${lit.dx},${lit.dz},${lit.hue},${mv?.n ?? ''}` : ''}`
+          + `|${rej ?? ''}|${fav ? `${fav.x},${fav.z}` : ''}`;
         if (body.pipLit !== key) {
           body.pipLit = key;
           for (const pip of body.pips) {
             const on = lit && pip.dx === lit.dx && pip.dz === lit.dz;
             const rejects = side && pip.dx === side.x && pip.dz === side.z;
-            pip.mesh.material.color.set(on ? lit.hue : (rejects ? LAMP_REJECT : LAMP_IDLE));
+            const favours = fav && pip.dx === fav.x && pip.dz === fav.z;
+            pip.mesh.material.color.set(on ? lit.hue
+              : rejects ? LAMP_REJECT
+                : favours ? LAMP_FAVOUR : LAMP_IDLE);
           }
         }
       }
@@ -16477,6 +16537,29 @@ const LAMP_PASS = '#d99b1f';
  * lights reporting nothing but its own configuration.
  */
 const LAMP_REJECT = '#8f7ad6';
+
+/**
+ * ...and the side a junction FAVOURS, which is the setting the reject bar was
+ * being read as.
+ *
+ * Purple was the only direction on a sorter's roof, and it answers a question
+ * nobody asks first: where the boxes nothing wants go. What you actually want
+ * off a junction is which way it sends the ordinary ones — "Send it the way it
+ * points" is unusable without it — and nothing said, because the blades come
+ * off `conveyorBranches` and every way out wears the same one.
+ *
+ * BLUE, and the choice is the same one `LAMP_REJECT` argues: the three lamps
+ * that mean something HAPPENED own the traffic-light end of the wheel, so a
+ * fourth colour near amber or green would be read as a dim pass. Blue is the
+ * far side of it from all three, and it is a step round the wheel from the
+ * violet beside it rather than a new vocabulary — the two are both settings and
+ * should read as a pair, which is what tells them apart from a flash.
+ *
+ * Quiet, for `LAMP_REJECT`'s reason exactly: every junction set to favour a leg
+ * wears one permanently, so a bright bar would be a shop reporting its own
+ * configuration at the same weight it reports its work.
+ */
+const LAMP_FAVOUR = '#5f93d6';
 
 /**
  * ...and the fifth, which is the only one that reports a MISTAKE.

@@ -137,11 +137,12 @@ async function loadPieces() {
  * the same answer the front door already gives a build with no worker art
  * authored: a grey silhouette is worse than a gap.
  */
-function kitTiles(t) {
-  const cash = `<div class="kitem kmoney">
-      <b>${money(t.cash)}</b><span><em>to start</em></span>
-    </div>`;
-  return cash + KIT.map(({ kind, one, many }) => {
+function kitTiles(t, cash = t.cash) {
+  const startingCash = `<button class="kitem kmoney" type="button" data-add-cash
+      title="Click or hold to add $1,000 starting cash" aria-label="Starting cash ${money(cash)}. Add $1,000">
+      <b>${money(cash)}</b><span><em>to start</em></span>
+    </button>`;
+  return startingCash + KIT.map(({ kind, one, many }) => {
     const n = t.fixtures[kind] ?? 0;
     if (!n) return '';
     const art = artForPiece(defaultPiece(pieces, kind), kind);
@@ -319,6 +320,13 @@ export class Menu {
     // it and a value living in a `.on` class somewhere is a value that goes
     // with the next repaint.
     this.tier = DEFAULT_TIER;
+    // The amount the new shop starts with. The first tile on the kit is a
+    // button: every press tops it up by $1,000, so choosing a little more
+    // runway never needs a keyboard or another control on the form.
+    this.cash = startTier(this.tier).cash;
+    this.cashHoldDelay = null;
+    this.cashHoldRepeat = null;
+    this.suppressCashClick = false;
     // The *creation* default, which is deliberately not the one a save with
     // nothing to say reads as — see shared/difficulty.js. The form offering
     // `relaxed` would quietly make the gentle game the one everybody keeps
@@ -501,15 +509,39 @@ export class Menu {
   pick(key, value) {
     if (!['tier', 'difficulty', 'surround'].includes(key)) return;
     this[key] = value;
+    // A tier is a complete starter kit, including its default cash. Changing
+    // it therefore starts its cash choice over; subsequent presses can add
+    // $1,000 again from that tier's own baseline.
+    if (key === 'tier') this.cash = startTier(this.tier).cash;
     this.openDrop = null;
     this.repaintForm();
+  }
+
+  addStartingCash() {
+    // Keep the menu's answer within the server's creation limit. At the cap a
+    // click is deliberately harmless rather than showing a value the server
+    // would silently change on its way into the new save.
+    this.cash = Math.min(1_000_000, this.cash + 1_000);
+    // Update the number in place so a keyboard user keeps focus on the same
+    // button and can press Enter or Space repeatedly.
+    const button = this.root.querySelector('[data-add-cash]');
+    if (!button) return;
+    button.querySelector('b').textContent = money(this.cash);
+    button.setAttribute('aria-label', `Starting cash ${money(this.cash)}. Add $1,000`);
+  }
+
+  stopAddingStartingCash() {
+    clearTimeout(this.cashHoldDelay);
+    clearInterval(this.cashHoldRepeat);
+    this.cashHoldDelay = null;
+    this.cashHoldRepeat = null;
   }
 
   repaintForm() {
     const drops = this.root.querySelector('.menu-drops');
     if (drops) drops.innerHTML = this.dropsInner();
     const kit = this.root.querySelector('.kitrow');
-    if (kit) kit.innerHTML = kitTiles(startTier(this.tier));
+    if (kit) kit.innerHTML = kitTiles(startTier(this.tier), this.cash);
     const art = this.root.querySelector('.menu-art');
     // `outerHTML`, because the band IS the `<svg>` — and it carries no listener,
     // which is what makes replacing the element rather than its contents safe.
@@ -536,6 +568,7 @@ export class Menu {
         tier: this.tier,
         difficulty: this.difficulty,
         surround: this.surround,
+        cash: this.cash,
       });
       // This browser made this shop, so this browser is the one that owes
       // somebody a tour of it. Marked HERE and not inferred from `day === 1`
@@ -662,7 +695,7 @@ export class Menu {
     return `
       <div class="menu-form">
         <div class="menu-drops">${this.dropsInner()}</div>
-        <div class="kit"><div class="kitrow">${kitTiles(startTier(this.tier))}</div></div>
+        <div class="kit"><div class="kitrow">${kitTiles(startTier(this.tier), this.cash)}</div></div>
         <!-- NO JOIN IN HERE. It lives on the row you got here from, one press
              away behind Cancel — and a third button under a decision you are
              part way through is an exit sitting where the answer goes. -->
@@ -827,6 +860,13 @@ export class Menu {
     this.rootWired = true;
 
     this.root.addEventListener('click', (e) => {
+      if (e.target.closest('[data-add-cash]')) {
+        // Pointer presses add on `pointerdown` so a hold can begin repeating;
+        // keyboard and assistive-technology clicks still use this path.
+        if (this.suppressCashClick) return;
+        this.addStartingCash();
+        return;
+      }
       const opt = e.target.closest('[data-drop-key]');
       if (opt) { this.pick(opt.dataset.dropKey, opt.dataset.dropVal); return; }
       const head = e.target.closest('[data-drop-open]');
@@ -837,6 +877,33 @@ export class Menu {
       }
       if (this.openDrop) { this.openDrop = null; this.repaintForm(); }
     });
+
+    this.root.addEventListener('pointerdown', (e) => {
+      const button = e.target.closest('[data-add-cash]');
+      if (!button || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      // Take the first $1,000 now; after a short pause it keeps ticking until
+      // release. Preventing the synthesized click avoids charging the first
+      // press twice.
+      e.preventDefault();
+      this.stopAddingStartingCash();
+      this.suppressCashClick = true;
+      button.setPointerCapture?.(e.pointerId);
+      this.addStartingCash();
+      this.cashHoldDelay = setTimeout(() => {
+        this.addStartingCash();
+        this.cashHoldRepeat = setInterval(() => this.addStartingCash(), 75);
+      }, 350);
+    });
+
+    const releaseCash = () => {
+      this.stopAddingStartingCash();
+      // A suppressed browser click, if one is emitted, arrives before this
+      // timer; a later keyboard click must remain a normal single increment.
+      setTimeout(() => { this.suppressCashClick = false; }, 0);
+    };
+    this.root.addEventListener('pointerup', releaseCash);
+    this.root.addEventListener('pointercancel', releaseCash);
+    this.root.addEventListener('lostpointercapture', releaseCash);
 
     // On the document, because the keyboard is not aimed at anything in
     // particular — and guarded on the menu being up, so it cannot answer an
