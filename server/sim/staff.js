@@ -2198,18 +2198,6 @@ function restock(game, s) {
         ?? (!game.shelfStacks(target).length && game.orders.assign
           ? pickItem(game, target, c) : null));
     if (!item) continue;
-    // Whoever has `craft` makes these, and the crew never spends your money on
-    // one. `pickItem` has always said so for a BARE board; this is the top-up
-    // half, which never had to say it — `buyStock` refused a recipe output
-    // outright, so the two paths agreed by accident. They stopped agreeing the
-    // day the van started selling everything again (see `Game.buyStock`), and
-    // what the gap looked like was a stocker ordering cheese at wholesale onto
-    // the board the preserving pot behind them was already filling: every step
-    // a worker restocking a thin shelf, and the appliance quietly never worth
-    // what it cost. Your own press is untouched — that is the whole point of
-    // the change this guards.
-    if (game.makesHere(item.id)) continue;
-
     const unit = wholesalePrice(item, game.folded(), game.season);
     // Orders arrive as a pallet, so they aren't capped by what one pair of hands
     // can hold — the worker just makes more trips. Against the BOARD's room less
@@ -3836,14 +3824,6 @@ function larderOrder(game, s, c, budget, yard = Infinity) {
         if (!item) continue;
         const rule = game.itemRule(id);
         if (rule.auto === false) continue;
-        // An ingredient the shop can make is one the shop makes. The same guard
-        // `restock` grew for the same reason, and it bites harder here: a chain
-        // is exactly the case where one machine's output is the next one's
-        // input, so an unguarded larder would answer every deep recipe by
-        // buying the intermediate — the mixer fed dough off the van, the mill
-        // idle beside it, and the chain that docs/production.md exists to make
-        // worth building paid for and never used.
-        if (game.makesHere(id)) continue;
         // ...and the same veto, because this path spends money too. An
         // ingredient the shop has given up on strands exactly as a product
         // does: `shelvesFor` refuses a dropped item BEFORE it asks about
@@ -4182,10 +4162,6 @@ function pickItem(game, shelf, c) {
 
   const scored = c.items
     .filter((it) => {
-      // A recipe in the catalogue is not production in this shop. If there is
-      // no chef working a matching appliance, the supplier treats the item as
-      // ordinary stock and may fill both its sales board and its reserve.
-      if (game.makesHere(it.id)) return false;
       if (!game.backRoomTakes(shelf, it.id, backTakes)) return false;
       // "Never order this" has to bite here as well as on the quantity, or the
       // shop keeps choosing a banned item for every bare shelf, orders nothing,

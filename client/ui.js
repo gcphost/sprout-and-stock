@@ -3847,7 +3847,7 @@ export class UI {
   r.bar != null ? `<span class="rbar"><i style="width:${Math.round(Math.max(0, Math.min(1, r.bar)) * 100)}%"></i></span>` : ''}</div>
       ${!stacked && r.right ? `<div class="price">${r.right}</div>` : ''}
       ${r.count ? `<span class="held ${r.countClass ?? ''}">${r.count}</span>` : ''}
-      ${r.rule ?? (cols ? '<span class="rule"></span>' : '')}
+      ${r.rule ?? ''}
       ${r.button ? `<button data-btn="${i}"${
     // What the press IS, for anything outside this file that has to NAME it —
     // the tutorial's pulse, today. `data-btn` cannot: it is an index into a

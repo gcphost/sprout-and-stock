@@ -1205,6 +1205,43 @@ Thirty sweeps, about a minute:
   constants become — which is how the waiver was caught rather than merged. It
   writes nothing at all: no content rows, no save, no cleanup.
 
+- `verify:gift` guards the one thing a milestone pays that can fail to arrive.
+  Cash lands in the till and the town is a term in `catchment`; goods need
+  somewhere to go, so `giftSupplies` bounds the free run by `bayRoom` for the
+  reason `buyStock` does. That bound used to be the end of it — what the yard
+  could not take on the tick the rung landed was dropped and nothing remembered
+  it — which is exactly wrong for a LADDER, because **milestones pile**: the
+  opening ten minutes meet six of them, every gift lands on the same small pad,
+  and each rung after the first was trimmed to whatever the stocker had cleared
+  in the meantime. Measured on a real day-2 save, `break-room` promises 18 units
+  and paid **2**. Nothing in it can be looked at twice over — a gift that was
+  trimmed and a gift that never came are the same empty pad, and the log line
+  ("2x Sugar Beet on the way, free") is *true* and says nothing about the
+  sixteen that are not — so it arrives as the reward being a lie, on precisely
+  the rungs a new shop is leaning on. Its control is a yard with room taking the
+  whole reward on the spot and owing nothing, which is every save in existence.
+  Its centrepiece is a PAIR worthless split in half: a full yard sends nothing
+  AND still owes it to the unit, since "sends nothing" was true before this
+  existed and "owes" means nothing if the crates never come — paired with the
+  sweep after the pad clears, which is where they land. Then the pile itself,
+  asserted as the TOTAL over a whole run rather than per rung, because which one
+  gets trimmed is a detail of sweep order (the mutation that drops the shortfall
+  reports 6 of 54 units delivered, which is the bug to the digit); that it is a
+  RATE and not a ceiling — a debt bigger than the pad drains over successive
+  runs and TERMINATES, or a shop has a van arriving for the rest of the save;
+  that nothing is delivered twice and no gift moves money in either direction;
+  and the pending half, which is the same bug with the sign flipped — two rungs
+  in one tick read the same empty pad, so without counting what is already on
+  its way each promises the whole of it and the pair buries the yard, costing
+  the shop its ordering rather than its reward. Its last claim is out and back,
+  which is where a fix like this dies: `Game.create` NAMES every field it keeps,
+  so `owed` dropped from the constructor is a shop that forgets what it was
+  short of on the next restart and drops the reward after all, one door along.
+  Four deliberate mutations were run against it — the shortfall dropped, the
+  retry never called, the pending half deleted and the constructor forgetting —
+  and each was caught on the assertion that names it. It writes one throwaway
+  save row and empties it on exit.
+
 - `verify:undo` guards the one thing in build mode that is meant to leave no
   trace, and every claim in it is invisible by construction: a shop you never
   touched and a shop you built in and undid are the same still frame — that IS

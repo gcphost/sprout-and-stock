@@ -901,23 +901,6 @@ function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
   const keptElse = new Set(others.flatMap((s) => s.assigned ?? []));
   const heldElse = new Set(others.flatMap((s) => (s.stacks ?? []).map((k) => k.item_id)));
   const crafted = craftedItems(ui);
-  // ...and of those, the ones the shop can actually make. A recipe names its
-  // appliance (`RecipeSchema.station`) and the shop either owns one of those or
-  // it does not — so an item whose machine you have not bought is not a board
-  // waiting to be filled, it is a board that will sit empty until you buy a
-  // fryer. Nothing said so: `restock` will not order a recipe output (it asks
-  // `isCrafted` — the van will sell you one, your crew never buy one) and no
-  // chef can produce it, so ticking it was the one choice in this panel with no
-  // outcome at all in either direction.
-  const owned = new Set((ui.state?.stations ?? []).map((s) => s.station));
-  const needsMachine = new Map();
-  for (const r of ui.catalog.recipes ?? []) {
-    // Two recipes for one output and one machine you own is an output you can
-    // make, whichever order the rows come in — so owning it always wins.
-    if (owned.has(r.station)) needsMachine.set(r.output_id, null);
-    else if (!needsMachine.has(r.output_id)) needsMachine.set(r.output_id, r.station);
-  }
-  const machineName = (id) => (ui.catalog.fixtures ?? []).find((x) => x.id === id)?.name ?? id;
   // What this particular unit would hold of it — tier included, and DIVIDED by
   // how many ways it is being shared, because that is the number the shop
   // actually fills to. Showing the undivided one would promise 12 on a shelf
@@ -954,16 +937,7 @@ function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
       // chain because Quick pick prints its own reason and must not talk over
       // this one — a shelf that already has the thing on it outranks any
       // argument for putting it there.
-      // No machine for it is the FIRST thing said, before anything about boards
-      // or vans, because it is the only one that means nothing will ever arrive.
-      // It is said on a ticked row too — the appliance can be sold back under a
-      // reservation you made when you had one, and "the kitchen makes it" over a
-      // shop with no kitchen is the panel lying about a board that will never
-      // fill.
-      const missing = needsMachine.get(it.id) ?? null;
-      const note = missing
-        ? `you have no ${machineName(missing).toLowerCase()} to make this`
-        : on
+      const note = on
         ? (here ? `kept for this — ${here.qty} on this board`
           // …and a van is never due for something the CREW will not order. They
           // leave every recipe output to the kitchen (`restock` asks
@@ -1026,7 +1000,7 @@ function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
         icon: crafted.has(it.id) ? ICONS.station : ICONS.crate,
         mark: crafted.has(it.id) ? {
           icon: ICONS.station,
-          title: `${it.name} is made here — your crew will never order it.`,
+          title: `${it.name} can be made here or ordered from the supplier.`,
         } : null,
         name: it.name,
         note,
@@ -1065,14 +1039,14 @@ function stockRows(ui, f, live, { many = [f], lives = [live] } = {}) {
         // Faded is for a row with nothing to press. Somewhere else keeping this
         // is not that — ticking here is the sanctioned way to give a thing a
         // second board — so it gets the lighter of the two weights.
-        dim: noRoom || !!missing,
+        dim: noRoom,
         soft: !on && !here && (keptElse.has(it.id) || heldElse.has(it.id)),
         // Every row is live, including the ticked ones — pressing a ticked row
         // unticks it, which is what a checkbox is. The dead rows are the two
-        // with no outcome either way: no board to give it, and no machine to
-        // make it. A ticked row survives the second one on purpose — selling the
-        // fryer must leave you able to untick the board you kept for chips.
-        run: (noRoom || (missing && !on)) ? null
+        // with no outcome either way: no board to give it. A recipe output can
+        // always be supplied by an order, whether or not the shop owns the
+        // appliance that could also make it.
+        run: noRoom ? null
           : () => ui.net.send('assign', { ids: aimAt(ui, f), itemId: it.id, on: !on }),
       };
     });
@@ -2108,7 +2082,7 @@ function fixtureDetail(ui, f, live) {
           : 'This board is full.')
           : madeHere
             ? `Order ${want}× ${name} — it lands at the bay on the next van. `
-              + 'An appliance makes it cheaper, and your crew will never order it.'
+              + 'An appliance can make it more cheaply.'
             : `Order ${want}× ${name} — it lands at the bay on the next van.`;
 
       // The goods themselves, at the head of their own row. A unit holding three
@@ -2294,6 +2268,97 @@ function fixtureDetail(ui, f, live) {
       .filter((i) => i.item_id === id)
       .reduce((m, i) => Math.max(m, i.qty), 0), 0) * batches;
 
+    /**
+     * ORDERING WHAT THE ROW IS ALREADY TELLING YOU IS MISSING.
+     *
+     * The crew do buy ingredients on their own (`larderOrder`), and that pass is
+     * deliberately narrow on three counts: the machine's OUTPUT has to have a
+     * board, the shop has to have NONE of the input anywhere, and somebody has
+     * to be free to draw the job. So the commonest thing to be looking at on
+     * this row is a recipe you set a minute ago, `0/4` in red, and a shop that
+     * is never going to buy the beans — with nothing on the menu to press. The
+     * supplier could always do it, at the price of leaving the machine, opening
+     * a second panel and searching for a name you only know because it is drawn
+     * right here.
+     *
+     * Same button, same message and the same arithmetic as a board row's Order:
+     * the room LESS what is already on the van, clamped to what the bay will
+     * take. `null` bay room is "the snapshot didn't say", which means don't
+     * clamp — a missing field read as 0 would grey every one of these out and
+     * blame the yard for it.
+     */
+    const coming = comingByItem(ui);
+    let bayLeft = ui.state?.orders?.bayRoom ?? null;
+    /**
+     * ...and what is standing in a crate, which is the half `coming` stops
+     * counting the moment the van unloads.
+     *
+     * The hopper is what the chips are drawn against and it is not what the
+     * shop OWNS: a van lands eight potatoes on the bay, a hire carries two of
+     * them in, and the row would go straight back to offering the other six —
+     * so the button buys the same crate over and over for as long as you keep
+     * pressing it, each order perfectly correct on its own. That is the "shelf
+     * reads as bare, order another case" bug with a finger on it instead of a
+     * stocker's.
+     *
+     * Crates and NOT the boards, deliberately, which is where this parts
+     * company with `larderOrder`: that pass will not buy an ingredient the shop
+     * has anywhere at all, boards included, and being unable to say "no, buy me
+     * some flour, the flour on the shelf is for selling" is most of why this
+     * button had to exist. Rubbish is skipped for the reason `mayRide` skips it
+     * — a crate of rot is not supply.
+     */
+    const inCrates = new Map();
+    for (const d of ui.state?.deliveries ?? []) {
+      if (d.waste) continue;
+      for (const k of d.stacks ?? []) inCrates.set(k.item_id, (inCrates.get(k.item_id) ?? 0) + k.qty);
+    }
+    // What a row ABOVE has already offered to buy. There is one hopper, so two
+    // heads set to recipes sharing an ingredient want it once — without this,
+    // pressing both buttons buys the milk twice and the second van has nowhere
+    // to put it.
+    const booked = new Map();
+    // Called once per row, in the order the rows are drawn, and it books what it
+    // offers as it goes — hence a loop rather than a pure map: the fourth row's
+    // answer depends on the three above it.
+    // Three ways this button can be dead and they are three different
+    // sentences, which is the whole of what the board row's Order taught: a
+    // machine that has everything, one whose flour is on the four o'clock van,
+    // and one with nowhere at the bay to land another crate are one grey button
+    // apart, and a greyed-out button that never says why is the thing that reads
+    // as broken. So `onVan` and `missing` are kept alongside what to buy.
+    const shortOf = (recipe) => {
+      const list = [];
+      const onVan = [];
+      const here = [];
+      let missing = false;
+      for (const i of recipe.inputs) {
+        if (list.some((x) => x.id === i.item_id)) continue;
+        const due = coming.get(i.item_id) ?? null;
+        const need = wants(i.item_id) - held(i.item_id) - (booked.get(i.item_id) ?? 0);
+        if (need <= 0) continue;
+        // Bought and standing in the yard. A different sentence from the van
+        // again, and the useful one: the goods are here, so what is missing is
+        // somebody to carry them in.
+        if (need - (inCrates.get(i.item_id) ?? 0) <= 0) { here.push({ id: i.item_id }); continue; }
+        const want = need - (due?.qty ?? 0) - (inCrates.get(i.item_id) ?? 0);
+        // Short of it, and already bought. Not a reason to press anything, and
+        // very much a reason to be told — this is the state the machine spends
+        // the whole wait for the van in.
+        if (want <= 0) { onVan.push({ id: i.item_id, due }); continue; }
+        // Short of it whatever the bay says, so a machine that has everything
+        // and a machine with nowhere to put another crate get different
+        // sentences under a button that is grey either way.
+        missing = true;
+        const qty = bayLeft == null ? want : Math.min(want, bayLeft);
+        if (qty <= 0) continue;
+        list.push({ id: i.item_id, qty });
+        booked.set(i.item_id, (booked.get(i.item_id) ?? 0) + qty);
+        if (bayLeft != null) bayLeft -= qty;
+      }
+      return { list, onVan, here, missing };
+    };
+
     // One row of chips rather than a row per ingredient. What each chip has to
     // keep is the pair of numbers — `have/need` is the whole question, and the
     // colour is the answer at a glance — so the NAME is what the picture takes
@@ -2301,7 +2366,33 @@ function fixtureDetail(ui, f, live) {
     // words. `held >= i.qty` is the per-batch test the original made and stays
     // that: `wants` is the hopper's ceiling across every head, so colouring
     // against it would read as short on a machine that can run right now.
-    const body = heads.filter((h) => h.recipe).map((h) => `
+    const body = heads.filter((h) => h.recipe).map((h) => {
+      const { list, onVan, here, missing } = shortOf(h.recipe);
+      // Words rather than a count, because the count is the thing you are
+      // pressing the button to change. `base_cost` is the item's own price and
+      // the van charges what the season and the world's events make of it, so
+      // the figure is "about" — the same number and the same honesty the item
+      // menu's own order line has.
+      const names = (l) => {
+        const each = l.map((x) => (x.qty ? `${x.qty}× ` : '') + ui.itemName(x.id));
+        return each.length > 1
+          ? `${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}` : each[0];
+      };
+      const spend = list.reduce((n, x) => n + (ui.itemById(x.id)?.base_cost ?? 0) * x.qty, 0);
+      const why = list.length
+        ? `Order ${names(list)} — about ${money(spend)}, and it lands at the bay on the next van.`
+        // Goods it is waiting on, nearest first: in the yard, then on the van,
+        // then nowhere to put another crate. Whichever is on its way says when,
+        // the way a board row's does — one `comingWhy` for a list of them, since
+        // they were ordered together and are on the same van.
+        : here.length
+          ? `${names(here)} already in a crate — somebody has to carry it in.`
+          : onVan.length
+            ? `${names(onVan)} on the way — ${comingWhy(onVan[0].due)}`
+            : missing
+              ? 'No room at the bay for another order.'
+              : 'This one has everything it needs.';
+      return `
       <div class="fx-recipe">
         <span class="fx-recipe-h">
           <span>${esc(h.recipe.name)}</span>
@@ -2312,7 +2403,12 @@ function fixtureDetail(ui, f, live) {
     `${held(i.item_id)}/${wants(i.item_id)}`,
     held(i.item_id) >= i.qty ? 'ok' : 'short',
   )).join(''))}
-      </div>`).join('');
+        <button class="fx-take fx-order"
+          ${list.length
+    ? `data-orders="${esc(JSON.stringify(list.map((x) => [x.id, x.qty])))}"` : 'disabled'}
+          title="${esc(why)}" aria-label="Order what it needs">${ICONS.supplier}</button>
+      </div>`;
+    }).join('');
 
     // What is waiting to be picked up, which used only ever to be one batch and
     // so was never worth its own line. It is the reason to walk over now — and
@@ -2442,6 +2538,21 @@ function wireFixtureMenu(ui, f, live) {
     el.onclick = () => send('buy-stock', {
       itemId: el.dataset.order, qty: Number(el.dataset.qty) || 1,
     });
+  });
+
+  // The same button on a recipe row, where what is missing is two or three
+  // things rather than one. The singular message sent per ingredient rather
+  // than a bulk one, which is the honest shape here for two reasons: an order
+  // is its own line on the van whoever asks for it — the crew place them one
+  // item at a time as well — and the FEED already folds them, so three presses
+  // of the server come back as one "Ordered 8x Potatoes, 4x Cooking Oil, 1x Sea
+  // Salt — on the 4pm van". What the row does instead of the server is stay
+  // inside the bay's room as it goes, so the second and third are orders the
+  // shop can take rather than refusals arriving as a stack of toasts.
+  ui.el.panelBody.querySelectorAll('[data-orders]').forEach((el) => {
+    el.onclick = () => {
+      for (const [itemId, qty] of JSON.parse(el.dataset.orders)) send('buy-stock', { itemId, qty });
+    };
   });
 
   // Through `withBuildMode`, unlike Take beside it: this is Empty in the foot

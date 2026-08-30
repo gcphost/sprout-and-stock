@@ -1959,7 +1959,7 @@ function itemRows(ui) {
         ? {
           icon: ICONS.station,
           title: `Made in the ${applianceName(madeBy.get(it.id))}. `
-            + 'You can order it too — your crew never will, because making it is cheaper.',
+            + 'It can also be ordered from the supplier.',
         }
         : (!homeless && !inbound && !short && !hot && held > 0)
           ? { icon: ICONS.crate, title: `On ${on} shelf${on === 1 ? '' : 'ves'}.` }
@@ -2060,15 +2060,17 @@ function itemRows(ui) {
       // in one list, so what used to be their positions has to ride on the row.
       // See `TODO`.
       todo: dropped ? TODO.DROPPED
-        : crafted ? TODO.NONE
-          : short ? TODO.SHORT
-            : (hot && held <= 0) ? TODO.WANTED : TODO.NONE,
+        : short ? TODO.SHORT
+          : (hot && held <= 0) ? TODO.WANTED : TODO.NONE,
       // Soonest back first inside the tab, so the list is a queue that empties
       // rather than an alphabet. Everything else in the panel gets the same
       // finite stand-in `dueIn` uses and falls straight through to the keys it
       // always sorted on.
       backIn: dropped ? dropped.left : 1e9,
-      dim: homeless || cash < it.base_cost * 6,
+      // A missing home is a warning, not a refusal: manual supplier orders can
+      // still be received and held in the yard. Only insufficient cash mutes a
+      // row, because that is the one condition that makes this order fail.
+      dim: cash < it.base_cost * 6,
       /**
        * THE ROW OPENS THE ITEM.
        *

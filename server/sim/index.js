@@ -1976,6 +1976,16 @@ export class Game {
     this.milestones = {
       done: [...(state.milestones?.done ?? [])],
       known: [...(state.milestones?.known ?? state.milestones?.done ?? [])],
+      /**
+       * Free stock a rung promised that the yard had no room for, in units.
+       *
+       * Named here as well as written, or the constructor's `??` answers 0 and
+       * the next `persist()` writes that back over what was owed — CLAUDE.md's
+       * named-field trap, whose quiet half is that the save looks right in
+       * between. A shop that has never been short reads 0, which is every save
+       * that predates it, and 0 is exactly the old behaviour.
+       */
+      owed: state.milestones?.owed ?? 0,
     };
     this.totals = { revenue: 0, sold: 0, harvested: 0, shelved: 0, ...(state.totals ?? {}) };
     /**

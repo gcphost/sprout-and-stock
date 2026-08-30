@@ -848,7 +848,10 @@ export function milestoneReach(g) {
  */
 export function silenceMilestones(g) {
   const all = MILESTONES.map((m) => m.id);
-  g.milestones = { done: all, known: [...all] };
+  // `owed` with them, or a sweep that silences the ladder still ships whatever
+  // a shop it borrowed was short of — which is a van, a pallet and a log line
+  // arriving in the middle of somebody else's assertion.
+  g.milestones = { done: all, known: [...all], owed: 0 };
 }
 
 /** What the shop has done and what is left, as the panel reads it. */
@@ -915,6 +918,11 @@ export function checkMilestones(g) {
    * no sales nothing on the ladder is true yet — which is why this needs no
    * special case for a new world.
    */
+  // Anything a rung promised that the yard had no room for on the day. Asked
+  // first, so a gift that has been waiting goes out ahead of whatever this
+  // sweep is about to award — see `payOwed`.
+  payOwed(g);
+
   const known = new Set(g.milestones.known ?? []);
   const done = earned(g);
   const banked = [];
@@ -963,9 +971,14 @@ function award(g, m) {
     got.push(`the town grew to ${round(g.catchment())} in reach`);
   }
 
+  // What the yard could not take today, which the card has to say — see
+  // `giftSupplies`. Read after it runs, because it is what that call owed.
+  let owed = 0;
   if (m.reward.supplies > 0) {
+    const before = g.milestones.owed ?? 0;
     const sent = giftSupplies(g, m.reward.supplies);
     if (sent) got.push(sent);
+    owed = Math.max(0, (g.milestones.owed ?? 0) - before);
   }
 
   g.pushLog(`Milestone: ${m.name}${got.length ? ` — ${got.join(', ')}.` : '.'}`);
@@ -988,6 +1001,10 @@ function award(g, m) {
     // rung and the sound it makes cannot drift apart in two files.
     sound: m.sound ?? null,
     got,
+    // How much of the free stock is still waiting on room at the yard. The card
+    // draws its own rows off `reward` rather than off `got`, so without this it
+    // would promise the full run and the van would bring part of it.
+    owed,
     // What the town is now, for every award rather than only the ones that grew
     // it: the modal is where anybody ever finds out this number exists.
     catchment: round(g.catchment()),
@@ -1006,15 +1023,37 @@ function award(g, m) {
  * stocker puts it away, and the whole feature is four fields.
  *
  * Bounded by `bayRoom` with the rest of the guards, because a run that turns up
- * with more than the pad can hold has nowhere to land — and a shop with no bay
- * at all simply gets the rest of the reward and a line saying so.
+ * with more than the pad can hold has nowhere to land.
+ *
+ * **THE YARD IS THE RATE AND NOT THE CEILING**, which is `buyStock`'s own
+ * sentence arriving for a reward. That bound used to be the end of it: what the
+ * pad could not take on the tick the rung landed was dropped, and nothing
+ * anywhere remembered it. Which is exactly wrong for a ladder, because
+ * milestones PILE — the opening ten minutes of a shop meet six of them, each
+ * gift lands on the same small pad, and every rung after the first was trimmed
+ * to whatever the stocker happened to have cleared. Measured on a real day-2
+ * shop: `break-room` promises 18 units and paid **2**, `take-100` promises 12
+ * and paid 10. Nothing logs a shortfall, and a gift that was trimmed and a gift
+ * that never came are the same empty pad — so it reads as the reward being a
+ * lie, on precisely the rungs a new shop is leaning on.
+ *
+ * So the shortfall is OWED (`milestones.owed`, on the save) and `payOwed` ships
+ * it on a later run as the bay clears. Which also makes the bound honest in the
+ * other direction: pending orders count against the room, because a gift is a
+ * promise of a van rather than of a crate, and two rungs in one tick would
+ * otherwise each promise the whole pad and both land on it.
+ *
+ * A shop with no bay at all owes the lot and gets it the day it paints one.
  */
 function giftSupplies(g, units) {
-  const room = g.bayRoom();
-  const take = Math.min(units, Math.max(0, room));
-  if (take <= 0) return null;
-
-  const picks = giftItems(g, take);
+  const take = Math.min(units, Math.max(0, bayFree(g)));
+  const picks = take > 0 ? giftItems(g, take) : [];
+  const total = picks.reduce((n, p) => n + p.qty, 0);
+  // Everything the yard could not take, including a gift that found no item to
+  // send at all — the shelves it would have stocked are a fact about the shop
+  // right now, and the shop is a different shop by the next van.
+  const short = Math.max(0, units - total);
+  if (short > 0) g.milestones.owed = (g.milestones.owed ?? 0) + short;
   if (!picks.length) return null;
 
   const c = content();
@@ -1036,11 +1075,59 @@ function giftSupplies(g, units) {
       gift: true,
     });
   }
-  const total = picks.reduce((n, p) => n + p.qty, 0);
   const what = picks.length === 1
     ? `${total}x ${c.byId.items[picks[0].id]?.name ?? picks[0].id}`
     : `${total} units of stock`;
-  return `${what} on the way, free`;
+  return `${what} on the way, free${short > 0 ? `, ${short} more to follow` : ''}`;
+}
+
+/**
+ * How much a van may bring, which is not how much is standing on the pad.
+ *
+ * `bayRoom` is what is there NOW; a gift is a promise of a lorry, and every
+ * order already placed is a lorry ahead of it. Two rungs landing in one tick
+ * both read the same empty pad, so without the pending half each would promise
+ * the whole of it and the pair would bury the yard — which is the same bug as
+ * the one above with the sign flipped, and it costs the shop its ordering
+ * rather than its reward.
+ */
+function bayFree(g) {
+  const coming = (g.orders?.pending ?? []).reduce((n, o) => n + (o.qty ?? 0), 0);
+  return g.bayRoom() - coming;
+}
+
+/**
+ * The rest of a gift, on a later van.
+ *
+ * Asked once a second with the rest of the sweep, and it is a **rate**: it
+ * sends whatever the yard can take now and keeps the remainder owed, so a shop
+ * whose pad is smaller than the reward fills up over successive runs rather
+ * than never. `GIFT_MIN` is the only thing stopping that being a trickle of
+ * one-unit orders every time a stocker lifts a case — under it, the gift waits
+ * for a gap worth sending into.
+ *
+ * The log line is deliberately its own sentence rather than the milestone's:
+ * the card was read and dismissed days ago, and a van arriving now with nothing
+ * to connect it to is the free stock reading as a delivery you did not order.
+ */
+const GIFT_MIN = 6;
+
+function payOwed(g) {
+  const owed = g.milestones.owed ?? 0;
+  if (owed <= 0) return;
+  const room = Math.max(0, bayFree(g));
+  if (room < Math.min(owed, GIFT_MIN)) return;
+
+  // Through the ordinary gift, so what to send and the yard's own bound are
+  // decided in one place — it books whatever will not go straight back as owed,
+  // which is why only the part being attempted comes off first.
+  const want = Math.min(owed, room);
+  g.milestones.owed = owed - want;
+  const sent = giftSupplies(g, want);
+  if (!sent) { g.milestones.owed = owed; return; }
+
+  g.pushLog(`Milestone stock: ${sent}.`);
+  g.persist();
 }
 
 /**

@@ -264,11 +264,24 @@ function rewardHtml(won, revealOn) {
     rows.push(['🏘️', `+${r.town} in reach`, 'more of the town walks past']);
   }
   if (r.supplies > 0) {
-    // What actually got sent, if it did. A bay with no room takes the gift and
-    // the card must not promise crates that are never coming.
+    /**
+     * What actually got sent, if it did — a yard with no room takes the gift and
+     * the card must not promise crates that are never coming.
+     *
+     * `owed` is the other half of that sentence, and it is why this row is not
+     * simply `r.supplies`: what the yard could not take is kept and sent on a
+     * later van (`payOwed` in server/sim/goals.js), so the honest line is the
+     * amount that is coming NOW and a note about the rest. Promising the whole
+     * reward here and delivering two units is the shortfall the card was
+     * hiding, and it reads as the reward being a lie.
+     */
     const sent = (won.got ?? []).find((g) => g.includes('free'));
-    rows.push(['📦', sent ? sent.replace(', free', '') : `${r.supplies} units of stock`,
-      sent ? 'free, on the next van' : 'nowhere at the bay to land it']);
+    const owed = won.owed ?? 0;
+    const big = sent ? sent.replace(/, free.*$/, '') : `${r.supplies} units of stock`;
+    rows.push(['📦', big,
+      !sent ? 'the bay is full — it comes when you clear it'
+        : owed > 0 ? `free, on the next van — ${owed} more when the bay clears`
+          : 'free, on the next van']);
   }
   /**
    * ...and what has just turned up on the bar, which is the one reward here

@@ -353,7 +353,7 @@ function facts(ui, it, { held, due, shelf, price, crafted }) {
   inbound ? `<i class="coming">+${inbound}</i>` : ''}`)}
     ${crafted
     ? line('Made in', esc(crafted),
-      `Made in the ${crafted}. Your crew leave it to the kitchen — you can still order it.`)
+      `Made in the ${crafted}, or ordered from the supplier.`)
     : ''}
     ${line('Costs you', money(cost))}
     ${margin != null ? line('Margin', `${money(margin)}${

@@ -4976,6 +4976,16 @@ export class Scene {
       // older than the mesh.
       span('model');
       prop.userData.fixture = f.id;
+      // ...and which wall face it goes with, for anything BOLTED to one. A
+      // `hangs: 'head'` piece is not standing on the floor, it is fixed to the
+      // masonry — so a frontage the camera cuts away leaves its signs, clocks
+      // and brackets hanging in mid-air over the aisle behind it, which reads
+      // as the cut being broken rather than as the sign being missed. The face
+      // is read off the placement's own rotation, because that is what decides
+      // which wall it was hung on.
+      if (this.pieceOf(f)?.hangs === 'head') {
+        prop.userData.cutawayFace = ['x+', 'z+', 'x-', 'z-'][rot4(f.rot ?? 0)];
+      }
       // ...and kept, so a marker can be built out of the art rather than out of
       // a guess at where the art is. Stamped here for `userData.fixture`'s own
       // reason: this is the one place that knows, because the group is built
@@ -15444,11 +15454,6 @@ export class Scene {
     const { x, z } = this.camOffset;
     const cut = !this.fpv && !this.wallCutHeld
       && this.viewTiles() <= this.wallCutView();
-    // The view axis on the ground, pointing TOWARD the camera, and how deep a
-    // wall reaches along it — both fixed for the frame rather than per batch,
-    // since a few dozen batches ask the same two questions about one camera.
-    const flat = Math.hypot(x, z) || 1;
-    const look = { hx: x / flat, hz: z / flat, deep: this.wallHides() };
     // What each WALL FACE decided, before anything that merely stands on one is
     // asked. Corners and door piers follow the masonry they cap rather than
     // answering for themselves, and the difference is not a nicety: `inTheWay`
@@ -15464,7 +15469,7 @@ export class Scene {
       const f = o.userData.outward;
       if (!f) continue;
       const facing = f.always || f.fx * x + f.fz * z > 0;
-      if (cut && this.inTheWay(o.userData.spots, look, facing)) byWall.set(o.userData.face, true);
+      if (cut && facing) byWall.set(o.userData.face, true);
     }
     /**
      * What a corner's masonry follows: the walls meeting it, ORed.
@@ -15482,6 +15487,13 @@ export class Scene {
       return (fx ? byWall.get(`x${fx > 0 ? '+' : '-'}`) : false)
         || (fz ? byWall.get(`z${fz > 0 ? '+' : '-'}`) : false) || false;
     };
+    // Anything BOLTED to a face goes with it, on the same answer the masonry
+    // came to — `follows`, unchanged, because a hung piece is judged by the
+    // wall it is on and never by itself.
+    for (const p of this.fixtureProps.values()) {
+      const face = p.userData.cutawayFace;
+      if (face) p.visible = !follows(face);
+    }
     for (const o of this.edgeGroup.children) {
       const f = o.userData.outward;
       if (!f) continue;
