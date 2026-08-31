@@ -190,9 +190,10 @@ there is a duct over it.
 - A **lift** hands to a cell *beside* it on the other deck, never its own
   square. `way` picks the deck, `rot` prefers the side, and both fall back
   rather than pin.
-- **Up is a fifth way out** and only two things ever look: a junction told to
-  (`riser`), and a loader that has run out of aisle. A plain belt never does,
-  or a duct laid across the shop would silently join every run it crossed.
+- **Up is a fifth way out** and only two things ever look, both of them told to
+  (`riser`, off on every piece ever built): a junction, and a loader that has
+  run out of aisle. A plain belt never does, or a duct laid across the shop
+  would silently join every run it crossed.
 
 ### 3. Which way does THIS box take? (`sorterOut`, junctions only)
 
@@ -1578,10 +1579,19 @@ was keen and a third of everything went up the return leg to park at the end of
 it. Every box that arrived arrived correctly, which is the "sorter that does not
 sort" report exactly.
 
-**A loader with nowhere else**, which is `choose`'s last resort and the endcap.
-Last, and that is the whole opt-in: a loader mid-aisle with a duct crossing over
-it carries straight on exactly as it did, so the only machine that ever looks up
-is one that has run out of shop.
+**A loader told to, with nowhere else**, which is `choose`'s last resort and the
+endcap. Two rules and they are not a rename of each other. LAST means a loader
+mid-aisle with a duct crossing over it carries straight on exactly as it did, so
+the only machine that ever looks up is one that has run out of shop. TOLD is the
+same field the junction carries, and it arrived for the same reason a step
+later: "nowhere else to hand on" is a machine that has *chosen*, and it is still
+a guess made about the one axis nobody can see from a chair. A duct is drawn four
+metres over a floor the camera looks straight through, so an endcap that rises
+and one that stops are the same still frame — and a return leg laid home across
+the shop re-pointed every endcap it flew over with nobody pressing anything,
+which is the junction's own bug arriving at the piece next door. Off is every
+loader ever built, and that is the one part of it that is not free: an aisle that
+was handing its overflow to the duct overhead wants the switch pressed once.
 
 **And an aisle made entirely of loaders is the shape that found the hole.** "A
 loader emptying into a unit hands on to nobody" is a rule from step 2 and it is
@@ -2004,13 +2014,40 @@ person. Every box arrives correctly, which is what makes it invisible.
 
 ### The shape
 
-A fixture on a run that **holds one crate and fills it from the crates going
-past.** A box arrives, it takes what it wants, the remainder carries on, and
-when the held box is worth a journey it is released onto the line.
+A fixture on a run that **holds one freight crate and fills it from the crates
+going past.** It accepts ordinary crates as well as part-crates, and lets a
+remainder carry on. When compatible crates are still approaching on the same
+route, it waits for them; when the run goes quiet, the freight crate is released
+onto the line.
 
 Dock → packer → run. What comes off the van is consolidated once, at the one
-place in the shop where everything is guaranteed to pass, and every trip after
-that is a full box.
+place in the shop where everything is guaranteed to pass.
+
+**How much it folds is its LADDER** (`packerCrates`), and that is the one thing
+about the piece that changed after it shipped. It went out with three rungs
+selling `speed_mult` and nothing else, which is a machine that swings faster at
+exactly the same box: every rung folded three crate-loads, the fold is the thing
+the piece is *for*, and the ladder moved no number a player could point at. It
+is docs/fixtures.md's own trap and the generated table could not catch it —
+`speed_mult` is a knob the sim really does read, so the row looked healthy
+throughout.
+
+So a rung is **one crate-load, two, three**. Tier 1 folds a dock of part-crates
+into one trip, which is the pitch above and is what the piece is worth before
+anybody spends anything; tier 3 folds three full crates. It is
+`capacity_mult` — the column the ladder already had — floored at 1 and capped
+at `PACKER_CRATE_MAX`, so a rung authored before the ladder existed (and a piece
+that resolves to no row at all) builds an ordinary crate, which is the safe
+direction. The ceiling is the yard: `looseRoom` credits a conveyor cell
+`CRATES_PER_CELL` crate-loads and charges it whatever really stands there, so a
+box authored at the schema's own limit of ten would close the shop's allowance
+while its run is visibly clear.
+
+`verify:packer` §15 is the sweep, and its control is §4a — a rung with no
+`capacity_mult` folds one crate-load. Its centrepiece is that the **release**
+reads the rung, asserted as a pair in one shop: `packerLot` answering 24 while
+`packerReady` goes on letting go at 12 is a ladder that takes money and changes
+nothing, and it draws exactly like the machine working.
 
 It is the **sorter read backwards**, and that is the argument for it being a
 piece at all. A sorter is one line in and several out, deciding by where the

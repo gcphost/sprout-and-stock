@@ -945,8 +945,25 @@ export const FixtureSchema = z.object({
     capacity_mult: z.number().min(0.1).max(10).default(1),
     /** How long goods last on it, x this. Freezers mostly. */
     keeps_mult: z.number().min(0.1).max(20).default(1),
-    /** How fast it works, x this. Appliances, crops in a plot, and a till. */
-    speed_mult: z.number().min(0.1).max(10).default(1),
+    /**
+     * How fast it works, x this. Appliances, crops in a plot, and a till.
+     *
+     * The ceiling is 32 rather than 10 because a LIFT is not paced like the
+     * things this number was written for. An appliance's multiplier is against
+     * a batch measured in seconds and 10 is already absurd there; a shaft's is
+     * against `BELT_SECONDS`, and its whole cycle measures about 2.5 cell-times
+     * — so a lift needs ×8 just to pass boxes as fast as the tier-3 belt run
+     * feeding it, and anything above that is a shaft that can serve more than
+     * one run, which is what a vertical link on a loop is for.
+     *
+     * Measured, unlimited feed: ×4.95 → 0.302 s/box, ×8 → 0.201, ×10 → 0.150,
+     * against a tier-3 belt run at 0.202. It scales cleanly the whole way, so
+     * the old cap was the only thing holding it — and it read as "lifts are
+     * just slow" rather than as a validation bound, because nothing refuses a
+     * tier: `.max()` rejects the WRITE, so an over-range ladder never lands and
+     * the piece silently keeps the one it had.
+     */
+    speed_mult: z.number().min(0.1).max(32).default(1),
     /**
      * What share of that speed it manages with NOBODY behind it. Checkouts.
      *

@@ -381,6 +381,27 @@ export function inDepartment(piece, item) {
   return want.some((d) => item?.tags?.includes(d));
 }
 
+/**
+ * Is this piece stockroom shelving — a unit bought to stand out the back?
+ *
+ * A TAG rather than a column, and `back-of-house` rather than a new word,
+ * because the vocabulary already has that word for the same idea one table
+ * over: a hire tagged `back-of-house` is one who works out the back, and a
+ * pallet rack is a unit that does. It is inert everywhere else a fixture's
+ * `tags` are read — `departmentsOf` filters to the category group, and the
+ * palette's sub-tabs to the decor one — which is the property that lets a
+ * piece's tags mean several things without any of them being a booby trap.
+ *
+ * What it answers is what the piece is FOR, and never what the unit IS. `boh`
+ * stays a decision somebody made about one unit (`setBackOfHouse`), and this
+ * only decides which way it starts, or the same shelving could not be a shop
+ * fitting out front and a pantry in the kitchen — which is the whole argument
+ * for `boh` living on the placement rather than on the row.
+ */
+export function backOfHouse(piece) {
+  return piece?.tags?.includes('back-of-house') === true;
+}
+
 /** How many shelf slots one stack of this item occupies. */
 export function shelfSlots(item) {
   return item.tags.includes('bulky') ? 2 : 1;

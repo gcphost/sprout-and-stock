@@ -2693,6 +2693,22 @@
       display: flex; align-items: center; gap: 8px;
     }
     #boardtip.show { opacity: 1; transform: translateY(0); }
+    /* One heap: art on the left, name and numbers beside it. The card was this
+       row and nothing else for as long as it could only be about a board, which
+       is one heap by definition — a crate is up to three of them in one box, so
+       the row became the unit and a board card is a list of one. */
+    #boardtip .bt-row { display: flex; align-items: center; gap: 8px; }
+    /* A BOX reads down, and only a box does. Sideways is right for one heap and
+       wrong for three: three names side by side are wider than the shop is, and
+       what you are doing with this card is running your eye down a list to find
+       out whether the thing you want is in that box. */
+    #boardtip.stack { flex-direction: column; align-items: stretch; gap: 5px; }
+    /* A hairline between heaps rather than more space, which is the call `#peek`
+       already makes about its own rows: two rows a gap apart read as two cards
+       once the card is the size of three of them. */
+    #boardtip.stack .bt-row + .bt-row {
+      padding-top: 5px; border-top: 1px solid rgba(255,252,245,.16);
+    }
     /* The item, drawn from its own model — `artForModel`, the same art the heap
        on the shelf is built from. A glyph here would be the five-floors-one-grey-
        icon bug again: goods differ by their art and by nothing else.
@@ -6074,6 +6090,23 @@
        are things you read *while pressing something*, so they have to move with
        the bar; the feed is not. */
     #carry, #prompt, #emotes { bottom: calc(var(--nav-top) + var(--build-h) + 8px); }
+
+    /* ...and in FIRST PERSON, two of those corners go away entirely.
+       `#carry` because the shop is now saying it properly: the crate or the
+       armful is drawn in your hands at the bottom of the frame (see `HELD_DIST`
+       in render/scene.js), and a card in the far corner repeating it is the
+       same fact said twice, in the place the complaint was that nobody looks.
+       The one thing the card had that the hands do not is the COUNT, and that
+       is a number rather than a state — it is on the shelf menu and on the
+       pill, and it is not what you glance down to check.
+       `#log` because the feed is a thing you read over the top of an
+       overhead view. At eye level it is a stack of cards a foot from your face
+       across the middle of the aisle, which is the one place in the game where
+       the view IS the thing you are using. Nothing in it is ever urgent — a
+       toast is what the game uses when it needs you, and toasts are untouched.
+       `#prompt` deliberately stays: it is the answer to "what would a press do",
+       which is more use in here than anywhere, not less. */
+    body.fpv #carry, body.fpv #log { display: none; }
 
     /* ---- the emote strip ---------------------------------------------------
        Held up by V, gone on the release. It sits exactly where `#prompt` does

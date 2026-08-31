@@ -700,12 +700,13 @@ export const ShopRoom = (Base) => class extends Base {
       ));
     });
 
-    // ...and whether a junction's fifth way out — the other storey — counts.
-    // Build mode only, like the rest of the conveyor settings.
+    // ...and whether the other storey is a way out at all. Build mode only,
+    // like the rest of the conveyor settings.
     //
-    // A TUNNEL MOUTH answers it too, and the fold says the pieces rather than
-    // one of them: a batch is one message, so "3 pieces" is the only honest
-    // summary of a pick that could hold both.
+    // A TUNNEL MOUTH and a LOADER answer it too — three pieces, one sentence —
+    // and the fold says the pieces rather than one of them: a batch is one
+    // message, so "3 pieces" is the only honest summary of a pick that could
+    // hold all three.
     this.onMessage('sorter-riser', (client, m) => {
       client.send('action-result', this.game.bulkFixtures(
         targets(m),

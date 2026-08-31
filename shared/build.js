@@ -2407,6 +2407,15 @@ export const GOODS_PADS = ['bay', 'drop'];
  * @param {object[]} cells  [{x, z}], from `groundStroke`
  * @param {?string} kind    which ground kind to lay, or null to take it up
  * @param {?string} piece   which design of that kind
+ * @returns {object} the verdict, and on an `ok` one a `moves` list: which of
+ *   the cells this stroke actually does something to. A stroke is a rectangle
+ *   and most of one usually already says what it is being asked to say, so the
+ *   two are rarely the same list — see `showFloorDrag`, which draws the second
+ *   rather than the first so the eraser's preview cannot promise squares the
+ *   press leaves alone. Asked HERE rather than worked out again by whoever
+ *   wants it, for this function's own reason: `groundPaint` owns what a stroke
+ *   does to a cell, and a second opinion about it is the green-ghost bug with a
+ *   paintbrush.
  */
 export function canPaintGround(L, cells, kind = null, piece = null) {
   if (!cells?.length) return no('nothing to lay');
@@ -2445,6 +2454,10 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
   for (const k of PAD_KINDS) padWas.set(k, padCells(L, k).length);
 
   let changed = 0;
+  // ...and WHICH ones, for the preview. Kept beside the count rather than
+  // derived from it afterwards: they are the same answer, and the one thing a
+  // caller must never have to do is ask `groundPaint` a second time.
+  const moves = [];
   let bared = 0;
   // Cells of the border ring this stroke would leave with nothing on wheels
   // able to cross them — see `onRing` and the warning at the foot.
@@ -2534,7 +2547,7 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
         piece,
         bareAt(x, z),
       );
-      if (next) changed++;
+      if (next) { changed++; moves.push({ x, z }); }
       continue;
     }
 
@@ -2595,6 +2608,7 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
      */
     if (tile !== ground && blockedAt(L, x, z)) return no('something is standing on it');
     changed++;
+    moves.push({ x, z });
 
     // Two consequences, and both are about the TILE for the same reason: a cell
     // that ends up indoors and is not floor is one nothing can ever be built or
@@ -2617,7 +2631,7 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
     if (onRing && !DRIVABLE.has(tile)) severed++;
   }
 
-  if (!changed) return { ok: true, unchanged: true };
+  if (!changed) return { ok: true, unchanged: true, moves };
 
   const warns = [];
 
@@ -2654,7 +2668,7 @@ export function canPaintGround(L, cells, kind = null, piece = null) {
       : `that blocks ${severed} squares of the road round the outside — vans and cars drive on it`);
   }
 
-  return warns.length ? { ok: true, warn: warns.join('; ') } : { ok: true };
+  return warns.length ? { ok: true, warn: warns.join('; '), moves } : { ok: true, moves };
 }
 
 const groundIsBusy = (ground) => {
@@ -3378,8 +3392,27 @@ function conveyorFlow(L) {
    */
   const risesTo = (c) => {
     if (c.kind === 'lift') return null;
-    // A junction only looks up when it has been TOLD to — see `conveyorBranches`.
-    if (c.kind === 'sorter' && c.riser !== true) return null;
+    /**
+     * NOTHING LOOKS UP UNLESS IT HAS BEEN TOLD TO — see `conveyorBranches`.
+     *
+     * It was the junction's rule alone for a while, and the loader's rise was
+     * automatic: run out of aisle with a duct over you and the box went up.
+     * That is the right guess often enough to be worth having and it is still a
+     * GUESS, made about the one axis you cannot see from a chair — a duct is
+     * drawn four metres over a floor the camera looks straight through, so a
+     * loader that rises and a loader that stops are the same still frame.
+     *
+     * The argument for a switch is the one that made a junction's rise a switch:
+     * a belt beside a loader was laid AT the loader, and a duct over one is a
+     * route across the shop that happens to pass over it. A return leg passes
+     * over everything, and "everything" now includes every endcap it flies past.
+     *
+     * `derivedFlow` is a loader and a junction, so those two are the whole of
+     * who this asks. Off is every loader ever built, which is the one thing
+     * about it that is not free: an aisle that used to hand its overflow to the
+     * duct overhead needs the switch pressed once. See `setSorterRiser`.
+     */
+    if (c.riser !== true) return null;
     const n = acrossFrom(c);
     const other = at.get(`${n.x},${n.z},${n.deck}`);
     if (!other || other.id === c.id || other.kind === 'lift') return null;
@@ -4220,6 +4253,40 @@ export const sidesOf = (c) => {
 };
 
 /**
+ * The same four words, moved round by `by` quarter turns — R, said about them.
+ *
+ * A quarter turn of the piece is a quarter turn of everything drawn on it, and
+ * these are drawn on it: the hood, the blade, the aim and the four bars along
+ * its edges all swing together, so a setting that stayed put would be the one
+ * mark on the machine that silently came to mean a different edge. A loader
+ * between a pad and a shelf came out of one press taking from the shelf and
+ * giving to the pad, with nothing anywhere saying a setting had moved.
+ *
+ * Takes a DELTA rather than a new rotation, because `repositionFixture` is also
+ * how a restyle and both rungs of the tier ladder land — none of those is a
+ * turn, and a function given the absolute angle would rewrite the sides from
+ * turn zero on every one of them.
+ *
+ * Sparse in and sparse out, which is what keeps the whole setting opt-in: a
+ * piece nobody has spoken for turns into `null` rather than into four words
+ * saying nothing. Rebuilt through `sideMode` for `sidesOf`'s reason — a value
+ * off a save, a message or a peer is not trusted to be one of four words on one
+ * of four turns.
+ */
+export const turnSides = (s, by) => {
+  const step = rot4(by);
+  if (!s || !step) return sidesOf({ sides: s });
+  let out = null;
+  for (const r of [0, 1, 2, 3]) {
+    const m = sideMode({ sides: s }, r);
+    if (m === 'both') continue;
+    out ??= {};
+    out[rot4(r + step)] = m;
+  }
+  return out;
+};
+
+/**
  * Every cell a crate put on this one would visit, in order, ending wherever the
  * run ends.
  *
@@ -4886,16 +4953,35 @@ export function conveyorMeets(L, cell) {
   };
   for (const c of conveyorRun(L, cell)) {
     if (c.kind !== 'arm') continue;
-    for (const n of armReach(c)) {
-      take(out.shelves, L?.shelves, n);
-      take(out.stations, L?.stations, n);
-      take(out.bins, L?.bins, n);
+    /**
+     * ...ON THE SIDES IT WILL ACTUALLY USE, which is the whole of what a shut
+     * side is for and was missing from this walk from the day it could be said.
+     *
+     * `armReach` maps `[0,1,2,3]` in order, so the index is the quarter turn —
+     * taken as read here exactly as `armSwing` takes it. And the direction is
+     * read per CATEGORY rather than as one flag, because that is the split this
+     * function's own note below already makes: a bin is somewhere goods GO, a
+     * pen and a bed are somewhere they come FROM, and shelving and an appliance
+     * are both. Asked as "is this side used at all", a loader told to only take
+     * from the pad it sits on would still report the skip behind it as a place
+     * rubbish can end, which is the one answer that lets waste ride for ever.
+     */
+    armReach(c).forEach((n, r) => {
+      const gives = sideOut(c, r);
+      const gets = sideIn(c, r);
+      if (gives || gets) {
+        take(out.shelves, L?.shelves, n);
+        take(out.stations, L?.stations, n);
+      }
+      if (gives) take(out.bins, L?.bins, n);
       // The farm. These two are the only entries in here a loader takes goods
       // OUT of and never puts any in — a pen and a bed produce, so there is
       // nothing to fill them with.
-      takeBig(out.pens, L?.pens, n);
-      take(out.plots, L?.plots, n);
-    }
+      if (gets) {
+        takeBig(out.pens, L?.pens, n);
+        take(out.plots, L?.plots, n);
+      }
+    });
   }
   had.byCell.set(cell.id, out);
   return out;
@@ -4907,10 +4993,15 @@ export function conveyorServes(L, cell) {
   const seen = new Set();
   for (const c of conveyorRun(L, cell)) {
     if (c.kind !== 'arm') continue;
-    for (const n of armReach(c)) {
+    // ...across the sides it will GIVE on — see `conveyorMeets`. This one is
+    // only ever asked about pouring (what a crate on this cell could still be
+    // unloaded into), so it is `sideOut` alone rather than that function's
+    // per-category pair.
+    armReach(c).forEach((n, r) => {
+      if (!sideOut(c, r)) return;
       const u = units.find((sh) => sh.x === n.x && sh.z === n.z);
       if (u && !seen.has(u.id)) { seen.add(u.id); out.push(u); }
-    }
+    });
   }
   return out;
 }

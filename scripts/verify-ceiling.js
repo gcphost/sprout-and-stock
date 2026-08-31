@@ -223,6 +223,27 @@ function put(g, spec) {
 }
 
 /**
+ * TELL A PIECE THE OTHER STOREY COUNTS — the press, and never the field.
+ *
+ * A loader's rise is a switch rather than a derivation now, so every claim in
+ * section 10 onward is a claim about a machine somebody has SAID that to. It
+ * goes through `setSorterRiser` for `verify:ferry`'s reason: a sweep that writes
+ * `cell.riser = true` itself passes while the real press is refused, and it
+ * would also skip the re-flow the setting is read behind.
+ *
+ * The record is re-read afterwards, because `regenerateLayout` rebuilds every
+ * conveyor record from its placement — a cell captured before the press is
+ * detached, and `riser` written onto it goes nowhere.
+ */
+function riseOn(g, cell, on = true) {
+  const res = g.setSorterRiser('me', cell.id, on);
+  check(res.ok, `the ${cell.kind} is told to use the other storey`, res.error ?? '');
+  const back = g.beltAt(cell.x, cell.z, deckOf(cell));
+  eq(back?.riser === true, on, 'and the setting lands on the piece');
+  return back;
+}
+
+/**
  * A straight east-west row of `n` cells where a floor run, a ceiling run AND a
  * lift are all legal.
  *
@@ -1558,14 +1579,49 @@ for (const dir of ['up', 'down']) {
   eq(`${along?.x},${along?.z}`, `${x0 + 2},${z}`, 'along the floor');
   eq(deckOf(conveyorNext(g.layout, overMid)), CEILING, 'and the duct over it is a run of its own');
 
-  // ...AND THE ENDCAP DOES. Same machine, same duct, one difference: there is
-  // no more aisle. This is the complaint step 9 was written for — a run down an
+  /**
+   * ...AND NOR DOES THE ENDCAP, UNTIL IT IS ASKED. This is the control the
+   * whole section now turns on, and it is the junction's own control said about
+   * the second piece that can look up.
+   *
+   * The rise was automatic here for a while, on the argument that a machine with
+   * nowhere left to hand on has chosen. It is a guess, made about the one axis
+   * nobody can see from a chair — a duct is drawn four metres over a floor the
+   * camera looks straight through — so an endcap that rises and one that stops
+   * are the same still frame, and a return leg laid home across the shop
+   * re-pointed every endcap it flew over with nobody pressing a thing.
+   *
+   * Off is every loader ever built, which is what this assertion is for.
+   */
+  eq(conveyorNext(g.layout, end), null,
+    'a loader at the end of the line does NOT hand up until it is asked');
+
+  // ...AND IT DOES ONCE IT IS. Same machine, same duct, one press between the
+  // two answers. This is the complaint step 9 was written for — a run down an
   // aisle used to stop dead here, because the only way back is a shaft and a
   // shaft wants the square the endcap is standing on.
-  const up = conveyorNext(g.layout, end);
+  const told = riseOn(g, end);
+  const up = conveyorNext(g.layout, told);
   eq(deckOf(up), CEILING, 'a loader at the end of the line hands UP');
   eq(`${up?.x},${up?.z}`, `${overEnd.x},${overEnd.z}`, 'onto its own square, one storey along');
   check(!!on, 'the run behind it is still there');
+
+  // ...and the switch says nothing about the loader that still has aisle in
+  // front of it, which is the pair to the mid-run claim above: telling one to
+  // use the other storey must not take it off its own. Either half alone is
+  // satisfied by a flag nothing reads.
+  const midTold = riseOn(g, g.beltAt(x0 + 1, z));
+  const stillAlong = conveyorNext(g.layout, midTold);
+  eq(`${stillAlong?.x},${stillAlong?.z},${deckOf(stillAlong)}`, `${x0 + 2},${z},0`,
+    'a loader told to use the other storey still carries along while it can');
+
+  // ...and R must not forget it — `repositionFixture` names every field it
+  // keeps, and R is the press a loader gets most of all, since aiming it at the
+  // unit it stocks is what the key is for.
+  for (let i = 0; i < 4; i++) g.rotateFixture('me', g.beltAt(x0 + 3, z).id);
+  eq(g.beltAt(x0 + 3, z)?.riser, true, 'and turning a loader does not forget');
+  g.regenerateLayout();
+  eq(g.beltAt(x0 + 3, z)?.riser, true, 'nor does a re-flow');
 }
 
 // ---------------------------------------------------------------------------
@@ -1600,7 +1656,8 @@ for (const dir of ['up', 'down']) {
   eq((g.layout.belts ?? []).length, 0, 'and the run has no plain belt anywhere in it');
   const overEnd = put(g, { kind: 'belt', x: x0 + 2, z, rot: 0, deck: CEILING });
 
-  const up = conveyorNext(g.layout, arms[2]);
+  const told = riseOn(g, arms[2]);
+  const up = conveyorNext(g.layout, told);
   eq(`${up?.x},${up?.z},${deckOf(up)}`, `${overEnd.x},${overEnd.z},${CEILING}`,
     'the endcap of a beltless row hands up all the same');
   // ...and the two with no duct over them are UNTOUCHED, which is the control
@@ -1631,6 +1688,12 @@ for (const dir of ['up', 'down']) {
 //
 // So this is a claim about SIX cells that must NOT rise, which is the shape of
 // every regression worth writing down.
+//
+// It survives the switch, and it is SHARPER for it: every one of the five is
+// told to use the other storey, so the ordering is the only thing left standing
+// between this aisle and a row of five lifts. The rise being a last resort and
+// the rise being asked for are two rules, and a sweep that only pressed the
+// endcap would be asserting the second while claiming the first.
 // ---------------------------------------------------------------------------
 {
   const g = fresh();
@@ -1647,6 +1710,8 @@ for (const dir of ['up', 'down']) {
     aisle.push(put(g, { kind: 'arm', x: x0 + i, z, rot: 1 }));
   }
   for (let i = 0; i <= 5; i++) put(g, { kind: 'belt', x: x0 + i, z, rot: 0, deck: CEILING });
+  // Every one of them told to use the duct — see the note above.
+  for (let i = 1; i <= 5; i++) riseOn(g, g.beltAt(x0 + i, z));
 
   const rises = aisle.filter((a) => {
     const to = conveyorNext(g.layout, a);
@@ -1693,6 +1758,11 @@ for (const build of ['duct', 'bare', 'shelf']) {
     eq(isWalkableTile(g.layout, face.x, face.z), true,
       `${build}: the tile it faces is bare walkable floor`);
   }
+  // ...and the machine is TOLD the duct counts, in all three builds — which is
+  // what keeps this a claim about the ladder rather than about the switch. The
+  // `bare` and `shelf` arms have the setting on and no rise to take, so a rung
+  // that answered the flag rather than the duct would fail them both.
+  riseOn(g, g.beltAt(x0 + 2, z));
 
   const crate = crateOn(g, g.beltAt(x0, z), 4);
   const held = units(g);
@@ -1867,8 +1937,13 @@ for (const keen of [false, true]) {
   const row = roofRow(g, 4);
   const z = row[0].z;
   const x0 = row[0].x;
-  const low = put(g, { kind: 'arm', x: x0, z, rot: 1 });
-  const high = put(g, { kind: 'arm', x: x0, z, rot: 1, deck: CEILING });
+  put(g, { kind: 'arm', x: x0, z, rot: 1 });
+  put(g, { kind: 'arm', x: x0, z, rot: 1, deck: CEILING });
+  // BOTH of them told to use the other storey, or the guard is satisfied by two
+  // machines that were never going to look up in the first place — which is
+  // what the switch would otherwise quietly turn this whole section into.
+  const low = riseOn(g, g.beltAt(x0, z));
+  const high = riseOn(g, g.beltAt(x0, z, CEILING));
   const a = conveyorNext(g.layout, low);
   const b = conveyorNext(g.layout, high);
   const points = (from, to) => !!from && from.x === to.x && from.z === to.z
@@ -1886,10 +1961,14 @@ for (const keen of [false, true]) {
   const x0 = row[0].x;
   const start = put(g, { kind: 'belt', x: x0, z, rot: 0 });
   const queued = put(g, { kind: 'belt', x: x0 + 1, z, rot: 0 });
-  const rise = put(g, { kind: 'arm', x: x0 + 2, z, rot: 0 });
+  put(g, { kind: 'arm', x: x0 + 2, z, rot: 0 });
   put(g, { kind: 'belt', x: x0 + 2, z, rot: 2, deck: CEILING });
   put(g, { kind: 'belt', x: x0 + 1, z, rot: 2, deck: CEILING });
-  const drop = put(g, { kind: 'arm', x: x0, z, rot: 1, deck: CEILING });
+  put(g, { kind: 'arm', x: x0, z, rot: 1, deck: CEILING });
+  // The two machines that change storey are the two that have been told to —
+  // one at each end of the ring, which is the press a return leg costs.
+  const rise = riseOn(g, g.beltAt(x0 + 2, z));
+  const drop = riseOn(g, g.beltAt(x0, z, CEILING));
 
   eq(deckOf(conveyorNext(g.layout, rise)), CEILING, 'the endcap loader lifts the box');
   const back = conveyorNext(g.layout, drop);

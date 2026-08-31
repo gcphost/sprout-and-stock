@@ -1126,7 +1126,9 @@ function onBreak(game, s, evenCarrying = false, bored = false, chore = false) {
   if (spot && !goTo(game, s, spot, 1.2)) { s.job = 'break'; return true; }
 
   // Buying is the *reason* for some breaks, not a condition of them: no stock,
-  // no snack, but they still get their five minutes.
+  // no snack, but they still get their five minutes. Which is why switching the
+  // snack off (`STAFF_BUY_SNACKS`, robots do not eat) changes no break anybody
+  // takes — the call is left here so the two halves stay one press apart.
   buySnack(game, s, pick);
 
   s.pastime = pick.id;
@@ -1405,6 +1407,23 @@ function roamTiles(L) {
 }
 
 /**
+ * Switched OFF, and kept rather than deleted.
+ *
+ * Every hire is a machine — that has been true of the art since workers became
+ * content, and true of the words since the rebrand — and a robot does not buy a
+ * sandwich off the shelf on its charge. So `buySnack` is left standing and never
+ * runs: the argument below is still a good one about *people*, and the day
+ * anything in this shop is one again it is one flag rather than an archaeology
+ * dig. Flip this to re-enable.
+ *
+ * Nothing else has to move for it. `choosePastime` has never asked about `buys`,
+ * so a break is chosen, walked to and taken exactly as it was — what stops is
+ * the sale at the end of the walk. The `buys` column stays on `pastimes` and
+ * stays authored (two rows use it) for the same reason the function does.
+ */
+const STAFF_BUY_SNACKS = false;
+
+/**
  * A worker on their break buys the snack off your own shelf.
  *
  * The same money a shopper would have paid, into the same day's takings — so
@@ -1414,6 +1433,7 @@ function roamTiles(L) {
  * one step along, and costs no new machinery.
  */
 function buySnack(game, s, p) {
+  if (!STAFF_BUY_SNACKS) return;
   if (!p.buys?.length) return;
   const items = content().byId.items;
   // A board, not a unit — somebody on their break browses the same way a
@@ -2245,9 +2265,17 @@ function restock(game, s) {
       // it lands on the pad and stays.
       // The shop floor stays consolidated. A stockroom is deliberately the
       // opposite: once its current home is full, the next compatible empty unit
-      // is real reserve capacity and the buyer may fill it.
+      // is real reserve capacity and the buyer may fill it — one unit at a
+      // time. `reserveFull` is that ceiling and this is the half that spends
+      // the money: "the home is full" stays true however many reserve boards
+      // fill up behind it, so unbounded this buys a van for every stockroom
+      // unit in the shop rather than for the next one. Asked only of a board
+      // that would be NEW — an existing reserve board still gets its van, or
+      // depth is something you can open and never keep stocked. The same pair
+      // `shelvesFor` asks, or the buyer fills a unit the crew would refuse.
       if (!homedAt(target, id)
-          && !(target.boh === true && game.homeFull(id, true, homesFor(id)))) return 0;
+          && !(target.boh === true && game.homeFull(id, true, homesFor(id))
+            && (game.shelfStack(target, id) || game.reserveFull(id, homesFor(id))))) return 0;
       // ...and the same for a back room whose machines have no use for it, with
       // the same reservation override. Asked here as well as in `shelvesFor`
       // because this is the half that spends money: a board in the stockroom
@@ -3174,6 +3202,13 @@ function merchandise(game, s) {
   // rather than about what the shop wants — the same reason `shelvesFor` lives
   // here and `restockQueue` doesn't.
   const hands = carryOf(s);
+  // One walk per item rather than per board: `homeShelves` sweeps every shelf
+  // in the shop and the loop below asks it per stack per unit per tick.
+  const homeCache = new Map();
+  const homesFor = (id) => {
+    if (!homeCache.has(id)) homeCache.set(id, game.homeShelves(id));
+    return homeCache.get(id);
+  };
   for (const shelf of game.layout.shelves) {
     if (busy.has(key('shelf', shelf.id))) continue;
     // The unit's own switch. Asked of the SOURCE here and of the target below,
@@ -3185,16 +3220,46 @@ function merchandise(game, s) {
       // Set aside for it is the veto, the same one `staleBoards` honours: a
       // decision the shop quietly undoes is not a decision.
       if (kept.includes(stack.item_id)) continue;
-      // One trip or it isn't worth starting. A board bigger than a pair of
-      // hands would be walked across the shop in instalments, and half a board
-      // in each of two places is the state this exists to get rid of.
-      if (!(stack.qty > 0) || stack.qty > hands) continue;
+      if (!(stack.qty > 0)) continue;
+      /**
+       * A BOARD IS NOT A PAIR OF HANDS, and this used to insist it was: *one
+       * trip or it isn't worth starting*, skipping anything over `hands`.
+       *
+       * That was true of the shop it was written in and is false of every shop
+       * that has upgraded a shelf. Hands are six. A tier-4 unit holds 41 of a
+       * thing, and the boards this job exists to consolidate are the ones that
+       * have been quietly filling for a week — measured on a live save: carrot
+       * split across six shop-floor boards of 41, 41, 41, 41, 82 and 41, and
+       * veg juice across ten of 11 to 30. **Not one board in that shop was
+       * small enough for the job to look at.** Which is the worst shape a guard
+       * can have: it works on the boards that barely matter and switches itself
+       * off on exactly the ones it was written for, so the verb reads as doing
+       * nothing while every individual refusal is correct.
+       *
+       * So it goes in instalments — and what made "one trip" load-bearing was
+       * never the trip, it was that a partial move leaves the same item on two
+       * boards, which is the state this is meant to remove and a state two
+       * hires can shuffle back and forth for ever. The file's own answer to
+       * that is the right one: *a job whose verbs all point the same way cannot
+       * oscillate and needs no latch.* So the merge is given a DIRECTION rather
+       * than a size limit — goods move to the item's HOME and never away from
+       * it. The home is the fullest board (`homeShelves`), a home is never a
+       * source, and every trip strictly empties the board it came off, so the
+       * thing terminates and cannot run backwards however many hires are on it.
+       *
+       * A full home is not a target at all: `shelvesFor` drops a unit with no
+       * room, so `better` comes back undefined and a legitimate spill board is
+       * left exactly where it is until the home has space for it.
+       */
+      const homes = homesFor(stack.item_id);
+      if (game.homedAt(shelf, stack.item_id, homes)) continue;
       // Where it would go if it weren't here. `shelvesFor` already ranks
       // reserved-for-it above already-holding-it above priority, so the head of
       // the list IS "the better unit" — asking any other way is a second
       // opinion that would drift from the one `shelve` works to.
       const better = shelvesFor(game, stack.item_id, c, inbound(game, s))
         .find((sh) => sh.id !== shelf.id && !!game.shelfStack(sh, stack.item_id)
+          && game.homedAt(sh, stack.item_id, homes)
           && !busy.has(key('shelf', sh.id)) && game.handMayTouch(sh));
       if (!better) continue;
       if (game.shelfCapacity(better, c.byId.items[stack.item_id]) === 0) continue;
@@ -4164,9 +4229,17 @@ function shelvesFor(game, itemId, c, spoken = null) {
     // was marked for: reserve capacity. That distinction is also what keeps a
     // belt from ejecting a paid-for crate beside an empty stockroom unit while
     // preserving one visible home for the item out front.
+    //
+    // ...but the back's privilege has a CEILING, or "the next compatible empty
+    // unit" quietly means every unit in the room: `spill.back` is a fact about
+    // the home, so filling one reserve board leaves it just as true and the
+    // item takes the whole stockroom a board at a time, with `restock` buying a
+    // van for each. `reserveFull` is the same sentence one unit wider. Topping
+    // up a board it already lives on never asks it, either side.
     const side = sh.boh === true ? 'back' : 'floor';
     if (!game.homedAt(sh, itemId, homes)
-        && !(spill[side] && (side === 'back' || game.shelfStack(sh, itemId)))) return false;
+        && !(spill[side] && (game.shelfStack(sh, itemId)
+          || (side === 'back' && game.reserveFull(itemId, homes))))) return false;
     // Set aside for something else is a no even when it's bare — otherwise a
     // stocker with an armful fills the shelf you reserved and the reservation
     // only means anything until the next delivery lands. A LIST of reservations

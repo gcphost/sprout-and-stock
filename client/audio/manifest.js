@@ -21,6 +21,9 @@ import milestone from './sfx/milestone.ogg';
 import pickup from './sfx/pickup.ogg';
 import putdown from './sfx/putdown.ogg';
 import crate from './sfx/crate.ogg';
+import bin from './sfx/bin.ogg';
+import load from './sfx/load.ogg';
+import collect from './sfx/collect.ogg';
 import coins from './sfx/coins.ogg';
 import harvest from './sfx/harvest.ogg';
 import sale from './sfx/sale.ogg';
@@ -94,6 +97,31 @@ export const SOUNDS = [
   { id: 'pickup', url: pickup, gain: 0.8, name: 'Goods picked up', ...KENNEY },
   { id: 'putdown', url: putdown, gain: 0.7, name: 'Goods set down', ...KENNEY },
   { id: 'crate', url: crate, gain: 0.8, name: 'Crate landing', ...KENNEY },
+  // The three verbs that were silent by OMISSION rather than by decision.
+  // `ON_FINISH` is a table, so a kind nobody added to it makes no noise and
+  // nothing anywhere says so — which is `capacity_mult` on a kind that never
+  // reads it wearing a sound, and is why `verify:audio` is meant to sweep the
+  // kinds rather than trust this list.
+  //
+  // All three are yours and only yours: they hang off `p.acted`, the shop's own
+  // count of actions YOU finished, so none of them can be fired by a hire, a
+  // loader or a belt. That is the whole reason they are safe to add and the
+  // crate thud diffed off `dropGoods` was not — see the note in `events.js`.
+  // A skip full of rot is emptied by the crew all day and says nothing.
+  //
+  // Tin for the bin, because a skip is the one thing in the shop made of it and
+  // a metal clatter is the only noise in the set that could not be mistaken for
+  // putting something away. It is the loudest of the three on purpose: throwing
+  // stock out is the one goods gesture in the game you do not get back.
+  { id: 'bin', url: bin, gain: 0.75, name: 'Thrown in the skip', ...KENNEY },
+  // Goods going into a hopper — soft, because it lands on what is already in
+  // there, and quiet because loading a machine is a thing you do repeatedly and
+  // in a row.
+  { id: 'load', url: load, gain: 0.55, name: 'Machine loaded', ...KENNEY },
+  // ...and the tray coming back out. Deliberately NOT `pickup`, which is the
+  // general "goods are now in your hands" blip: what a collect reports is that
+  // the machine finished, which is the half you were waiting on.
+  { id: 'collect', url: collect, gain: 0.6, name: 'Batch collected', ...KENNEY },
   { id: 'coins', url: coins, gain: 0.7, name: 'Coins', ...KENNEY },
   { id: 'harvest', url: harvest, gain: 0.9, name: 'Crop picked', ...KENNEY },
   // Quiet on purpose: this is the most frequent sound in the game by a long way

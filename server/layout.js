@@ -1095,6 +1095,11 @@ function compose(req, storeW, storeH, allowDrops = true) {
       // `auto`, or every wall segment you drag hands the shop's loaders back
       // their pickup behind you.
       arm.mode = p.mode === 'load' || p.mode === 'unload' ? p.mode : 'both';
+      // ...and whether the storey above (or below) is one of its ways out — the
+      // junction's own field, on the second piece that can look up. Carried
+      // across a re-flow with the rest, or every wall segment you drag pins the
+      // shop's loaders back to their own storey behind you.
+      arm.riser = p.riser === true;
       // ...and its merge, on the same terms and for the same reason: a loader
       // stands IN a run, so it is a square two lines can arrive at.
       arm.merge = mergeRoute(p);
@@ -1891,6 +1896,12 @@ function makeArm(id, x, z, rot) {
     rot,
     // Both halves, which is every loader ever built — see `setArmMode`.
     mode: 'both',
+    // ...and whether the square on the OTHER STOREY is a way out at all. False
+    // on every loader ever built, and asked rather than derived for the reason
+    // a junction's is: a belt beside a loader was laid at the loader, where a
+    // duct over one is a route across the shop that happens to pass over it.
+    // See `risesTo`.
+    riser: false,
   };
 }
 

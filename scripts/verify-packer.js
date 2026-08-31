@@ -113,6 +113,28 @@ const PACKER = {
   model: { parts: [{ shape: 'box', color: '#4a7c8c', pos: [0, 0.4, 0], scale: [0.9, 0.8, 0.9] }] },
   tiers: [{ name: 'Standard', cost: 0 }],
 };
+/**
+ * ...and a second piece that HAS a capacity ladder, for §15.
+ *
+ * Its own row rather than rungs added to `PACKER`, because the piece above is
+ * the control for every claim in this file: a machine whose rung says nothing
+ * about capacity must go on folding one ordinary crate-load, and a sweep that
+ * climbed the same piece would be asserting the ladder and its own control on
+ * one row, where they fail as each other.
+ *
+ * The fourth rung is authored PAST the ceiling deliberately — `PACKER_CRATE_MAX`
+ * is the clamp, and a rung nobody ever exceeds cannot prove there is one.
+ */
+const LADDER = {
+  id: 'zz-pack-ladder', kind: 'packer', name: 'Test Ladder Packer', cost: 40,
+  model: { parts: [{ shape: 'box', color: '#8c4a7c', pos: [0, 0.4, 0], scale: [0.9, 0.8, 0.9] }] },
+  tiers: [
+    { name: 'One', cost: 0, capacity_mult: 1 },
+    { name: 'Two', cost: 10, capacity_mult: 2 },
+    { name: 'Three', cost: 20, capacity_mult: 3 },
+    { name: 'Over the top', cost: 30, capacity_mult: 6 },
+  ],
+};
 /** An ordinary stocker, for the one claim a sweep over the Game cannot make. */
 const STOCKER = {
   id: 'zz-pack-stocker', name: 'Test Stocker', color: '#6b8fb5',
@@ -123,12 +145,13 @@ const STOCKER = {
 
 process.on('exit', () => {
   for (const [t, id] of [['items', A.id], ['items', B.id],
-    ['fixtures', BELT.id], ['fixtures', PACKER.id], ['workers', STOCKER.id]]) {
+    ['fixtures', BELT.id], ['fixtures', PACKER.id], ['fixtures', LADDER.id],
+    ['workers', STOCKER.id]]) {
     try { remove(t, id); } catch { /* best effort */ }
   }
 });
 for (const [kind, row] of [['item', A], ['item', B], ['fixture', BELT],
-  ['fixture', PACKER], ['worker', STOCKER]]) {
+  ['fixture', PACKER], ['fixture', LADDER], ['worker', STOCKER]]) {
   const res = writeContent(kind, row, 'verify');
   check(res.ok, `the catalog accepts the test ${kind} ${row.id}`, res.error ?? '');
 }
@@ -198,11 +221,11 @@ function row(g, len) {
 }
 
 /** Lay a run of belts east, with a packer at `packAt` along it. */
-function lay(g, cells, packAt) {
+function lay(g, cells, packAt, packPiece = PACKER.id) {
   const ids = [];
   cells.forEach((c, i) => {
     const kind = i === packAt ? 'packer' : 'belt';
-    const piece = i === packAt ? PACKER.id : BELT.id;
+    const piece = i === packAt ? packPiece : BELT.id;
     const res = g.placeFixture('me', { kind, piece, x: c.x, z: c.z, rot: 0 });
     check(res.ok, `cell ${i} of the run goes down`, res.error ?? '');
     ids.push(res.placed ?? null);
@@ -363,16 +386,23 @@ const riding = (g) => g.deliveries.filter((d) => d.belt);
 // 4. IT LETS GO. Full, satisfied, and STALE.
 // ---------------------------------------------------------------------------
 {
-  // 4a. FULL. A crate's worth is a trip by definition.
+  // 4a. FULL — and the CONTROL for the ladder in §15, which is the assertion
+  // that decides whether that ladder is opt-in.
+  //
+  // `PACKER` is authored with one rung and no `capacity_mult` on it, which is
+  // every packer rung ever written before the ladder existed and is what
+  // `fixtureStats` answers 1 for. So the safe direction is the ordinary crate:
+  // a machine nobody has upgraded still folds a dock of part-crates into one
+  // trip, which is the whole pitch, and no shop is quietly handed a box three
+  // times the size of the one it was built with.
   const g = fresh();
   const cells = row(g, 6);
   lay(g, cells, 2);
   const k = packerOf(g);
   const cap = g.crateLot().cap;
+  eq(g.packerLot(k).cap, cap, 'a rung that says nothing about capacity holds one crate-load');
   g.setPackerItems('me', k.id, [A.id, B.id]);
-  // Fed as part-crates, or there is nothing to fold: a box that already beats an
-  // armful rides through this machine untouched, so a single full crate would
-  // satisfy the assertion below by simply going past.
+  // Fed in small boxes so the test watches the packer combine multiple arrivals.
   const bit = Math.max(1, Math.floor(g.carryCapacity() / 2));
   let outAt = false;
   for (let i = 0; i < 3000 && !outAt; i++) {
@@ -382,7 +412,7 @@ const riding = (g) => g.deliveries.filter((d) => d.belt);
     g.step(0.1);
     outAt = g.deliveries.some((d) => d.belt && !d.packer && lotTotal(d) >= cap);
   }
-  check(outAt, 'a box filled to the brim is put on the line');
+  check(outAt, 'a packed freight box is put on the line');
   check(!boxOf(g) || lotTotal(boxOf(g)) < cap, '...and the machine is not still holding it');
 }
 {
@@ -890,24 +920,11 @@ const riding = (g) => g.deliveries.filter((d) => d.belt);
 }
 
 // ---------------------------------------------------------------------------
-// 14. A BOX ALREADY WORTH A JOURNEY RIDES THROUGH UNTOUCHED.
+// 14. AN ORDINARY CRATE JOINS THE PACK.
 // ---------------------------------------------------------------------------
 //
-// The machine exists to fold PART-crates. A box that already beats an armful is
-// already a trip, so taking it apart and reassembling it moves the same goods to
-// the same shelf down the same run — the only thing that changed is that it
-// stopped on the way.
-//
-// It is the only fault in this piece a screen could show you, and it showed:
-// a full crate off a van went up onto the tray and came straight back down a
-// second later, every time. Not a stutter and not a loss — the goods arrive
-// correctly — but a machine visibly doing nothing, which cannot be told from one
-// that is broken.
-//
-// A PAIR, and the second half is what stops the fix being "the packer is off":
-// the same machine, same run, same item, still folds a box that is under the
-// bar. Written as a comparison of the two, because a value would be satisfied by
-// a packer that had simply stopped working.
+// The machine exists to cut down crate traffic, so it must accept ordinary
+// crates as well as leftovers small enough for a worker to carry by hand.
 {
   const g = fresh();
   const cells = row(g, 6);
@@ -916,12 +933,12 @@ const riding = (g) => g.deliveries.filter((d) => d.belt);
   const arms = g.carryCapacity();
   g.setPackerItems('me', k.id, [A.id]);
 
-  // Over the bar: nothing may come out of it.
+  // An ordinary crate joins the packer's freight crate.
   const big = feed(g, cells[0], [{ id: A.id, qty: arms + 1 }]);
   run(g, 200);
-  check(!boxOf(g), 'a crate already worth a journey is not taken apart');
-  eq(lotQty(big, A.id), arms + 1, '...and rides on with every unit it arrived with');
-  check(big.belt != null, '...still on the line');
+  check(!g.deliveries.some((d) => d.id === big.id), 'an ordinary crate is tipped into the packer');
+  const packed = g.deliveries.find((d) => d.belt && !d.packer && lotQty(d, A.id) === arms + 1);
+  check(!!packed, '...and comes back out as the packed crate');
 
   // Under it: the same machine folds, so the rule above is a threshold rather
   // than the machine being switched off.
@@ -930,6 +947,130 @@ const riding = (g) => g.deliveries.filter((d) => d.belt);
   check(took, 'a part-crate on the same run IS folded');
   eq(lotTotal(boxOf(g)), arms - 1, '...all of it');
   check(!g.deliveries.some((d) => d.id === small.id), '...and the empty box is gone');
+}
+
+// ---------------------------------------------------------------------------
+// 15. THE LADDER. What a rung buys is HOW MANY CRATES FOLD INTO ONE.
+// ---------------------------------------------------------------------------
+//
+// Invisible twice over, like everything else in this file: a box that went out
+// holding one crate-load and one that went out holding three are the same crate
+// on the same line, and the shop afterwards is the same shop — only the number
+// of journeys moved.
+//
+// And what it replaced was worse than invisible. The piece shipped with three
+// rungs selling `speed_mult` and nothing else, so what a player bought was a
+// machine that swings faster at exactly the same box: every rung folded three
+// crates, the fold is the thing the piece is FOR, and the ladder moved no
+// number anybody could point at. That is docs/fixtures.md's own trap, and the
+// generated table could not catch it — `speed_mult` is a knob the sim really
+// does read, so the row looked healthy the whole time.
+//
+// Its control is §4a, which is the assertion that decides whether any of this
+// is opt-in: a rung with no `capacity_mult` on it — every packer rung authored
+// before now — still folds one ordinary crate-load.
+{
+  const g = fresh();
+  const cells = row(g, 6);
+  lay(g, cells, 2, LADDER.id);
+  const cap = g.crateLot().cap;
+  eq(g.packerLot(packerOf(g)).cap, cap, 'rung 1 of the ladder folds one crate-load');
+
+  /**
+   * Climbed with a real PRESS rather than by writing `tier`, and the machine is
+   * found again after each one: `upgradeFixture` goes through
+   * `repositionFixture`, which re-mints the record, so a packer captured before
+   * the press is a detached object and every number read off it afterwards is
+   * last rung's.
+   */
+  const up2 = g.upgradeFixture('me', packerOf(g).id);
+  check(up2.ok, 'the packer takes a rung', up2.error ?? '');
+  eq(g.packerLot(packerOf(g)).cap, cap * 2, '...and rung 2 folds two crate-loads');
+
+  const up3 = g.upgradeFixture('me', packerOf(g).id);
+  check(up3.ok, '...and another', up3.error ?? '');
+  eq(g.packerLot(packerOf(g)).cap, cap * 3, '...and rung 3 folds three');
+
+  /**
+   * The CEILING, which is the yard rather than a tidy-up — and the schema will
+   * take a `capacity_mult` of 10, so nothing else stands between one authored
+   * row and a box of 120 units parked on a single conveyor cell. `looseRoom`
+   * credits that cell `CRATES_PER_CELL` crate-loads and charges it whatever is
+   * really standing there, so the allowance closes in a shop whose run is
+   * visibly clear and the supplier stops buying with nothing anywhere to say
+   * why.
+   *
+   * Clamped rather than refused at the content write, because a row turned down
+   * by `writeContent` is a rung somebody authored on Tuesday failing on Friday
+   * — and the failure would land on the fixture, not on the number.
+   */
+  const up4 = g.upgradeFixture('me', packerOf(g).id);
+  check(up4.ok, '...and the fourth rung is bought', up4.error ?? '');
+  eq(g.packerLot(packerOf(g)).cap, cap * 3,
+    '...and a rung authored past the ceiling is clamped to it');
+}
+{
+  /**
+   * ...AND THE RELEASE READS IT, which is the half a getter can never prove.
+   *
+   * `packerLot` answering 24 while `packerReady` goes on letting go at 12 is a
+   * ladder that takes money and changes nothing, and it draws exactly like the
+   * machine working: the boxes go past, the shelves fill, and the trips you
+   * paid to fold are still being made one at a time.
+   *
+   * A PAIR asserted in one breath, because either half alone is satisfied by a
+   * machine that is simply broken — "rung 1 lets go at one crate-load" passes
+   * on a packer that cannot hold anything, and "rung 3 goes out at three"
+   * passes on one that never lets go at all until the run is buried.
+   */
+  const most = (rungs) => {
+    const g = fresh();
+    const cells = row(g, 6);
+    lay(g, cells, 2, LADDER.id);
+    for (let i = 0; i < rungs; i++) {
+      const u = g.upgradeFixture('me', packerOf(g).id);
+      check(u.ok, `the ladder packer takes rung ${i + 2}`, u.error ?? '');
+    }
+    const k = packerOf(g);
+    /**
+     * TWO kinds ticked and only one of them ever fed, which is §4a's own setup
+     * and is load-bearing here rather than a copy.
+     *
+     * With a list of one, "satisfied" is true the moment a pile bigger than an
+     * armful lands, so the box goes out at whatever the first crate held and
+     * the rung is never reached — which is the piece's own §4b bug wearing a
+     * sweep, and it read as the ladder doing nothing.
+     */
+    g.setPackerItems('me', k.id, [A.id, B.id]);
+    const cap = g.crateLot().cap;
+    /**
+     * Fed as WHOLE ordinary crates, and the two arms differ by the rung alone.
+     *
+     * Part-crates are the bay this piece exists for, but they take three of
+     * them to make a crate-load and the wait in `packerReady` runs from the
+     * first pile added rather than from the last — so a rung-3 box fed in
+     * threes goes out on the quiet clock at whatever it has reached, which is a
+     * sweep measuring `PACK_QUIET_SECONDS` and calling it a ladder. Three full
+     * crates arrive well inside that wait, so what is measured is the cap.
+     */
+    const fed = new Set();
+    let best = 0;
+    for (let i = 0; i < 1500; i++) {
+      if (i % 25 === 0 && i / 25 < 4) fed.add(feed(g, cells[0], [{ id: A.id, qty: cap }]).id);
+      g.step(0.1);
+      for (const d of g.deliveries) {
+        // A box the MACHINE made, and never one that was handed to it. An
+        // arrival is a crate-load by construction here, so a sweep that counted
+        // those would report `cap` on a packer that had done nothing whatever —
+        // which is exactly the failure the rung-1 arm is supposed to catch.
+        if (d.belt && !d.packer && !fed.has(d.id)) best = Math.max(best, lotTotal(d));
+      }
+    }
+    return best;
+  };
+  const cap = Game.create({ worldId: 'verify-packer', seed: 'pack', ephemeral: true }).crateLot().cap;
+  eq(most(0), cap, 'rung 1 puts a box of one crate-load on the line');
+  eq(most(2), cap * 3, '...and rung 3 holds past that and sends three in one box');
 }
 
 // ---------------------------------------------------------------------------

@@ -1081,7 +1081,10 @@ let razeShown = false;
 function razeSay(aim) {
   if (aim.kind === 'fixture') return `Tear out the ${ui.fixtureName(aim.f).toLowerCase()} — click it`;
   if (aim.kind === 'face') return 'Strip the paint off this wall — click it';
-  if (aim.kind === 'edge') return 'Knock this wall through — click it';
+  // The one rung that names TWO presses, because it is the one that comes in
+  // runs — see the wall branch of `pointerdown`. A gesture nothing says out loud
+  // is a gesture nobody finds, and this line is the only place it could be said.
+  if (aim.kind === 'edge') return 'Knock this wall through — click it, or drag along it';
   return 'Take this ground up — click it';
 }
 
@@ -1609,7 +1612,45 @@ function refreshGhost(force = false) {
     // every unit you crossed.
     const tipOn = pillDrives() || ui.paused || ui.paletteArmed
       ? null : (aim?.fixture ?? null);
-    ui.setBoardTip(shelfById(tipOn?.id), aim?.board ?? null, pointer.x, pointer.y);
+    /**
+     * ...and the same card said about a BOX, which is the other place in this
+     * shop goods stand in heaps.
+     *
+     * It began as the answer for the one container that cannot caption itself. A
+     * crate names its own contents on its front, pile by pile — and the one that
+     * does not is the one riding a conveyor, because a name sliding across the
+     * aisle is a name nobody can read and a run of belt would be a row of them
+     * gliding past layered over each other. So a line of twelve identical boxes
+     * had nothing anywhere saying which one has the bread in it.
+     *
+     * It is every crate now, and the captions STAY — those are how you find
+     * something in a yard from across the shop, and the card is how you settle
+     * it. They are two readouts answering two questions, which is the same
+     * division `#peek` and this card already make about a shelf: one is a shop
+     * you can read at a glance and one is the heap under the pointer. Three
+     * things the caption cannot do, all of which happen in the yard: it fades
+     * out with distance and zoom (`fadeCrateLabels`), a buried box wears a
+     * smaller one on its own front between two crates, and a bay eight boxes
+     * deep is eight captions over each other — which is the screenshot that
+     * asked for this.
+     *
+     * It is deliberately NOT suppressed while the clock is stopped, which is the
+     * one clause it does not share with the board card above. That card is off
+     * because there is nothing to be about to do with what it names; this is the
+     * only way to be sure what is in the box at all, and a paused shop is
+     * exactly when a box on a moving line holds still long enough to point at.
+     * The rest of the list it keeps: `aim.crate` is `crateTakes`' answer, so the
+     * palette, an armful of fixture and the bulldozer each take it away, and the
+     * pill drives on a phone, where a card pinned to the last tap would name a
+     * box that has ridden off up the run.
+     *
+     * One or the other and never both, because they are one element: called in
+     * turn, whichever went last would win, and pointing at a crate standing in
+     * front of a shelf would flicker between the two of them at 60Hz.
+     */
+    const tipCrate = pillDrives() ? null : liveCrate(aim?.crate?.id);
+    if (tipCrate) ui.setCrateTip(tipCrate, pointer.x, pointer.y);
+    else ui.setBoardTip(shelfById(tipOn?.id), aim?.board ?? null, pointer.x, pointer.y);
     // The other half of "you can press this", the way it is for a hire: the cage
     // says which pile, the cursor says there is one to take at all. A crate gets
     // no cursor because a crate is a whole object you can see you are on; a board
@@ -2733,7 +2774,17 @@ function dropLook() {
  * grabbed at one of those three is a mode that looks around on some ways in and
  * not others.
  */
-scene.onFpv = (on) => { if (on) grabLook(); else dropLook(); };
+scene.onFpv = (on) => {
+  if (on) grabLook(); else dropLook();
+  // ...and the two corners of the HUD that first person answers for itself —
+  // see the `body.fpv` rules in index.html. It is a class rather than a second
+  // hook because the whole of what changes is which things are drawn, and it
+  // is `scene.fpv` rather than `body.looking`: the mouse can be handed back
+  // (Escape) without leaving the mode, and a card that reappeared the moment
+  // you released the pointer would be the HUD flickering on a key that has
+  // nothing to do with it.
+  document.body.classList.toggle('fpv', on);
+};
 
 /**
  * The look. `mousemove` and not `pointermove`, which is the one compatibility
@@ -2997,11 +3048,35 @@ function showFaceDrag(cx, cy) {
 }
 
 function showEdgeDrag(cx, cy) {
-  const { segs, to, spec } = edgeDragRun(cx, cy);
+  const run = edgeDragRun(cx, cy);
+  const { to, spec } = run;
+  // A RUN THAT REMOVES SHOWS THE WALLS IT WOULD TAKE OUT, AND NOTHING ELSE.
+  //
+  // `faceRun`'s rule about a gap ("you are dragging along a wall that is already
+  // there, so a gap in it is a gap, not a mistake") said one axis over — and it
+  // is the server's own behaviour rather than a second opinion about it:
+  // `buildEdge` skips any segment that already IS what you asked for, so a
+  // demolition dragged past a doorway, or round a corner onto a bare line,
+  // deletes nothing there whatever the ghost promised. Drawn unfiltered it
+  // promises it anyway, in wall-height outline, over open air — which is the
+  // green-ghost bug with the colours swapped.
+  //
+  // Red, because that is already what the bulldozer's own hover paints a wall it
+  // is about to knock through (`refreshGhost`), and a run is the same sentence
+  // said about several of them.
+  //
+  // And the SIZE comes off the layout rather than off the kind — `null`, never
+  // 0. `setEdgeGhost` reads its shape from whatever it is handed and falls back
+  // to the boundary's own; 0 is the absence of a wall and has no height, so
+  // passing it previews a demolished fence at wall height.
+  const gone = edgeDrag.kind === E.NONE;
+  const segs = gone
+    ? run.segs.filter((s) => kindAt(scene.storeLayout, s) !== E.NONE)
+    : run.segs;
   if (!segs.length) { scene.setEdgeGhost(null, null); return null; }
   const verdict = canPlaceEdges(scene.storeLayout, segs, edgeDrag.kind);
-  const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
-  scene.setEdgeGhost(segs, state, edgeDrag.kind);
+  const state = !verdict.ok || gone ? 'no' : (verdict.warn ? 'warn' : 'ok');
+  scene.setEdgeGhost(segs, state, gone ? null : edgeDrag.kind);
   ui.setBuildVerdict(verdict);
   // `to` is where the POINTER is, not the tail of the run — the same
   // distinction `showFloorDrag` makes about its far corner, and the wall drag
@@ -3558,7 +3633,16 @@ function pipette() {
   refreshGhost(true);
 }
 
-/** Get rid of whatever `razeAim` named. One press, four kinds of target. */
+/**
+ * Get rid of whatever `razeAim` named — the two rungs a CLICK is the whole of.
+ *
+ * A fixture is one object and a finish is one side of one segment, so there is
+ * nothing a drag could add to either. The other two rungs come in runs and are
+ * taken out by the drag they are laid with, up in `pointerdown`: a wall along
+ * its line, ground over its area. The wall still arrives here as well, because
+ * its drag needs a corner and a tile to start and either can miss; ground never
+ * does, since the cell `razeAim` named is a `pickTile` hit already.
+ */
 function doRaze(aim) {
   if (aim.kind === 'fixture') {
     scene.ripple(aim.f.x, aim.f.z, 'no');
@@ -3566,8 +3650,7 @@ function doRaze(aim) {
     return;
   }
   if (aim.kind === 'face') { stripFace(aim.face); return; }
-  if (aim.kind === 'edge') { razeEdge(aim.seg); return; }
-  scrapeGround(aim.cell);
+  if (aim.kind === 'edge') razeEdge(aim.seg);
 }
 
 /** Take the finish off one side of one wall — the paint brush's null entry. */
@@ -3579,18 +3662,6 @@ function stripFace(at) {
   net.send('paint-face', {
     o: at.o, x: at.x, z: at.z, s: at.s, piece: '', to: null,
   });
-}
-
-/** Take one cell back to bare ground, judged and reported the way a run is. */
-function scrapeGround(at) {
-  const verdict = canPaintGround(scene.storeLayout, [at], null, null);
-  if (!verdict.ok) { ui.toast(verdict.reason, true); return; }
-  if (verdict.warn) ui.toast(verdict.warn);
-  scene.ripple(at.x, at.z, 'no');
-  // No `to`, for `razeEdge`'s reason: a null far end is what `groundStroke`
-  // reads as a stroke of one on the server as well as here, so the cell charged
-  // for is the cell the verdict was taken over.
-  net.send('build-ground', { x: at.x, z: at.z, piece: '', to: null });
 }
 
 /** Knock one segment through, judged and reported the way a drag's run is. */
@@ -3753,8 +3824,29 @@ function showFloorDrag(cx, cy) {
   // The empty string is Bare Ground, which is a real choice; null is what
   // `canPaintGround` reads as "take it up".
   const verdict = canPaintGround(scene.storeLayout, cells, floorDrag.kind, floorDrag.piece || null);
-  const state = verdict.ok ? (verdict.warn ? 'warn' : 'ok') : 'no';
-  scene.setFloorGhost(cells, state);
+  // A STROKE THAT TAKES GROUND UP SHOWS THE SQUARES IT WOULD TAKE, AND NO
+  // OTHERS — `showEdgeDrag`'s rule about a demolished run, said about an area.
+  //
+  // It matters more here than it does along a wall, because a brush is a
+  // RECTANGLE: a drag that scrapes one room corner to corner covers every bare
+  // cell between the bits you painted, and the press does nothing at all to
+  // those. Drawn unfiltered the ghost promises the lot, which is the green-ghost
+  // bug with the colours swapped — and worse than the wall's version of it,
+  // since a floor ghost is what tells you how far the drag has reached.
+  //
+  // `verdict.moves` and never a second walk of the cells: `groundPaint` decides
+  // what a stroke does and it has already been asked once. On a refusal there is
+  // no list — there is no stroke — so the whole rectangle is drawn red under the
+  // reason, which is what the verdict readout is for.
+  //
+  // Red, because that is what the bulldozer's own hover already paints a cell it
+  // is about to scrape (`refreshGhost`), and a drag is the same sentence said
+  // about several of them.
+  const gone = floorDrag.kind == null;
+  const shown = gone && verdict.moves ? verdict.moves : cells;
+  if (!shown.length) { scene.setFloorGhost(null, null); ui.setBuildVerdict(null); return null; }
+  const state = !verdict.ok || gone ? 'no' : (verdict.warn ? 'warn' : 'ok');
+  scene.setFloorGhost(shown, state);
   ui.setBuildVerdict(verdict);
   // `to` is where the pointer is, not the last cell of the rectangle. Those are
   // the same corner only when you drag down and right — the other way round the
@@ -3902,6 +3994,69 @@ canvas.addEventListener('pointerdown', (e) => {
   if ((e.ctrlKey || e.metaKey) && !ui.holding) {
     setRaze(true);
     const aim = razeAim(e.clientX, e.clientY);
+    // A WALL IS THE ONE THING ON THE LADDER THAT COMES IN RUNS.
+    //
+    // The other three rungs are each one object — a fixture, the finish on one
+    // face, a cell of ground — and a click is the whole of what the key can mean
+    // about them. A wall is a LINE, and taking a line out one segment at a time
+    // is the same press repeated along it, which is a gesture the wall tool
+    // already answers with a drag. So it is borrowed whole rather than rebuilt:
+    // same `edgeDrag`, same `edgeRun`, same one message carrying two ends, and
+    // `kind: E.NONE` is the entire difference — no second verb and no erase flag
+    // on the wire, exactly as Bare Ground is an empty piece rather than a bit.
+    //
+    // A CLICK IS STILL A CLICK, which is what lets this take the press ahead of
+    // `doRaze` without changing what Ctrl has always done. A press that has not
+    // travelled is the run's degenerate case: `edgeDragRun` keeps the incumbent
+    // line on a tie and the far end lands on the segment you pressed, so the
+    // message is the single `build-edge` `razeEdge` was sending by hand.
+    //
+    // Ctrl let go mid-drag is deliberately not a cancel. You said which gesture
+    // this was on the way down, and `razeDown` is mirrored off every pointermove
+    // — so a key released while the run is still being drawn would abandon it
+    // under a finger that never lifted.
+    if (aim?.kind === 'edge') {
+      const corner = scene.pickCorner(e.clientX, e.clientY);
+      const from = scene.pickTile(e.clientX, e.clientY, 0.55);
+      if (corner && from) {
+        edgeDrag = { start: aim.seg, corner, from, kind: E.NONE, id: e.pointerId };
+        canvas.setPointerCapture(e.pointerId);
+        showEdgeDrag(e.clientX, e.clientY);
+        return;
+      }
+    }
+    // ...AND THE GROUND IS THE OTHER RUNG THAT COMES IN RUNS.
+    //
+    // The sentence above about a wall is a sentence about a floor with one word
+    // changed: a wall is laid by dragging along a line and ground by dragging
+    // over an area, so taking either up one press at a time is that same gesture
+    // repeated. Which leaves the fixture and the finish on a face as the two
+    // rungs a click really is the whole of — one is an object, and the other is
+    // one side of one segment.
+    //
+    // Borrowed whole, exactly as the wall's is: same `floorDrag`, same
+    // `groundStroke`, same one `build-ground` carrying two corners, and the
+    // empty piece is the entire difference. That is not a new spelling for this
+    // gesture — `scrapeGround` has always sent it, with a null far end for a
+    // stroke of one — so the server, the undo step and the pricing learn
+    // nothing: `buildGround` has read a `to` beside an empty piece since the
+    // brush existed, and nobody had a way to send one.
+    //
+    // A CLICK IS STILL A CLICK, for the wall's reason: a press that has not
+    // travelled makes a rectangle of one cell, which is the message `doRaze`
+    // was sending by hand. So this takes the press ahead of it without changing
+    // what Ctrl has always done to a square of floor.
+    //
+    // Started on ground worth taking up, and never on bare grass — `razeAim`
+    // has already asked, which is what stops a drag beginning on the half of
+    // the shop the marker never lit for.
+    if (aim?.kind === 'ground') {
+      floorDrag = { start: aim.cell, kind: null, piece: '', id: e.pointerId };
+      canvas.setPointerCapture(e.pointerId);
+      showFloorDrag(e.clientX, e.clientY);
+      clickLog('down: ground raze drag started', { start: aim.cell });
+      return;
+    }
     if (aim) { doRaze(aim); return; }
     // Nothing to get rid of, and the bar is up: the press is spent. Falling
     // through would be the one Ctrl-click in the mode that BUILDS something,
@@ -4511,6 +4666,11 @@ function endPress(e) {
       // the server runs the same `groundStroke` and trims it to the same
       // rectangle, so clamping twice could only ever disagree.
       const to = drawn.to ? { x: drawn.to.x, z: drawn.to.z } : null;
+      // The bulldozer's own knock, kept where the single press used to make it —
+      // ONE, on the corner you started at, for the reason a marquee makes one:
+      // a ripple per cell over a scraped room is a puddle. Only on the way up,
+      // since a drag is one gesture however far it reached.
+      if (!piece) scene.ripple(start.x, start.z, 'no');
       clickLog('SEND build-ground', { from: `${start.x},${start.z}`, to: to && `${to.x},${to.z}`, piece });
       net.send('build-ground', { x: start.x, z: start.z, piece, to });
     }
@@ -5120,6 +5280,20 @@ const shelfById = (id) => (id
   ? latestState?.shelves?.find((s) => s.id === id) ?? null
   : null);
 
+/**
+ * A crate's live record — what is actually in that box right now.
+ *
+ * The same distinction `shelfById` draws one line up, and it matters more here:
+ * what the pointer answers with is a POSITION and an id (`pickPallet` raycasts
+ * meshes and hands back neither the piles nor their counts), so anything that
+ * wants to say what a box is holding has to come back to the snapshot for it.
+ * Null the moment the box stops existing, which for a crate is every time
+ * somebody empties one.
+ */
+const liveCrate = (id) => (id
+  ? (ui.state?.deliveries ?? []).find((d) => d.id === id) ?? null
+  : null);
+
 /** How many of that item are actually standing on that unit, right now. */
 const boardQty = (f, board) => (f && board
   ? shelfById(f.id)?.stacks?.find((k) => k.item_id === board)?.qty ?? 0
@@ -5228,7 +5402,7 @@ function noteTap(cx, cy) {
 /** ...resolved against the shop as it is now, in `pickAim`'s own shape. */
 function tappedAim() {
   if (tapped.crate) {
-    const c = (ui.state?.deliveries ?? []).find((d) => d.id === tapped.crate);
+    const c = liveCrate(tapped.crate);
     if (c) {
       const x = Math.round(c.x);
       const z = Math.round(c.z);

@@ -233,3 +233,29 @@ export function lotLabel(lot, items = {}) {
 export function lotOf(itemId, qty) {
   return norm([{ item_id: itemId, qty }]);
 }
+
+/**
+ * IS THIS BOX IN TRANSIT — on a conveyor, or held inside a machine?
+ *
+ * A fact about where the crate IS rather than about what is in it, which is the
+ * one thing in this file that is, and it is here because both readers of it are
+ * somewhere else. It is a crate's own field either way (`d.belt` is the cell it
+ * is riding, `d.packer` the machine holding it), and it rides the snapshot on
+ * the same sparse terms as `waste` — sent only when true, because every crate in
+ * every shop that has never built a belt is neither.
+ *
+ * What it decides is one thing: **a box that is moving wears no caption.** A run
+ * of belt was a row of labels gliding past, each legible for about a second and
+ * all of them layered over the aisle behind, and reading is the one thing you
+ * cannot do to a word that will not hold still. `syncDeliveries` is the only
+ * reader today, and it is a named test rather than the two fields written out
+ * because the pair means something — "in transit" — that neither field says on
+ * its own, and because the next thing to want it will want the same answer.
+ *
+ * The half that hands the name BACK is the hover card (`setCrateTip`), and it
+ * deliberately does not ask this: it is offered for every box, moving or not,
+ * because a caption and a card answer two different questions. See its header.
+ */
+export function crateRides(d) {
+  return !!(d && (d.belt || d.packer));
+}

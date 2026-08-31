@@ -5773,60 +5773,94 @@ export class UI {
     return { row, ico, count };
   }
 
-  setBoardTip(shelf, itemId, px = 0, py = 0) {
+  /**
+   * One heap on the card: the item's art, its name, and the numbers under it.
+   *
+   * The card was one of these welded into `setBoardTip` for as long as it could
+   * only ever be about a board, which is one heap by definition. A crate is up
+   * to `LOT_KINDS` of them in one box, so the row is the unit now and the card
+   * is a list of rows — which costs the board card nothing, because a list of
+   * one draws exactly what it drew.
+   */
+  tipRow() {
+    const row = document.createElement('div');
+    row.className = 'bt-row';
+    const ico = document.createElement('span');
+    ico.className = 'bt-ico';
+    const name = document.createElement('div');
+    name.className = 'bt-name';
+    const sub = document.createElement('div');
+    sub.className = 'bt-sub';
+    const count = document.createElement('span');
+    const dot = document.createElement('span');
+    dot.className = 'bt-dot';
+    dot.textContent = '·';
+    const price = document.createElement('span');
+    sub.append(count, dot, price);
+    const words = document.createElement('div');
+    words.append(name, sub);
+    row.append(ico, words);
+    return {
+      row, ico, name, count, dot, price, item: null,
+    };
+  }
+
+  /**
+   * THE CARD UNDER THE POINTER, whichever of the two things it is about.
+   *
+   * One element and one placement for both, because they are one sentence said
+   * about two containers — "here is what that heap of goods is" — and two cards
+   * would be two of them fighting over the same corner of the screen: whichever
+   * was written last would take the element, so pointing at a crate standing in
+   * front of a shelf would flicker between them at 60Hz.
+   *
+   * Rebuilt only when the SHAPE changes — a different number of rows — rather
+   * than on every call. This runs off `pointermove`, which is sixty times a
+   * second while you sweep along a shelf, and an `innerHTML` here throws a
+   * card's worth of DOM away every frame. Text nodes for everything but the art,
+   * so nothing has to be escaped on the way in.
+   */
+  tipCard(rows, px = 0, py = 0) {
     const el = this.el.boardtip;
     if (!el) return;
-    const stack = itemId
-      ? (shelf?.stacks ?? []).find((k) => k.item_id === itemId)
-      : null;
-    if (!stack) {
+    if (!rows?.length) {
       // `classList` and never `className`: the string form drops `hud`, and
       // with it `position: fixed` — see `toast` for the four years that cost.
       el.classList.remove('show');
       return;
     }
 
-    // Built once and then written into, rather than re-parsed. This runs off
-    // pointermove, which is sixty times a second while you sweep along a
-    // shelf — an `innerHTML` here throws a card's worth of DOM away every
-    // frame, and text nodes mean nothing has to be escaped on the way in.
-    if (!this._tip) {
-      const ico = document.createElement('span');
-      ico.className = 'bt-ico';
-      const name = document.createElement('div');
-      name.className = 'bt-name';
-      const sub = document.createElement('div');
-      sub.className = 'bt-sub';
-      const count = document.createElement('span');
-      const dot = document.createElement('span');
-      dot.className = 'bt-dot';
-      dot.textContent = '·';
-      const price = document.createElement('span');
-      sub.append(count, dot, price);
-      const words = document.createElement('div');
-      words.append(name, sub);
-      el.replaceChildren(ico, words);
-      this._tip = { ico, name, count, price, item: null };
+    if (!this._tip || this._tip.length !== rows.length) {
+      this._tip = rows.map(() => this.tipRow());
+      el.replaceChildren(...this._tip.map((r) => r.row));
     }
+    // More than one heap means a box, and a box reads DOWN. One is the card
+    // exactly as it was, so a board never pays for the class.
+    el.classList.toggle('stack', rows.length > 1);
 
-    // The item, drawn from its own model — the same art the heap on the shelf
-    // is built from, so the card cannot show one thing while the board shows
-    // another. Written only when the ITEM changes, not when its count does:
-    // this is the one line in here that parses HTML, and the pointer crossing a
-    // shelf calls the rest of it sixty times a second.
-    if (this._tip.item !== stack.item_id) {
-      this._tip.item = stack.item_id;
-      this._tip.ico.innerHTML = artForModel(this.itemById(stack.item_id)?.model) ?? '';
-    }
-
-    // `cap` rides on the stack itself — the fixture menu's board rows read the
-    // same field, so "8/8" here and there can never disagree about what a tier
-    // holds.
-    const cap = stack.cap ?? 0;
-    this._tip.name.textContent = this.itemName(stack.item_id);
-    this._tip.count.textContent = cap > 0 ? `${stack.qty}/${cap}` : `${stack.qty}`;
-    this._tip.count.className = cap > 0 && stack.qty >= cap ? 'full' : '';
-    this._tip.price.textContent = money(stack.price ?? 0);
+    rows.forEach((r, i) => {
+      const rec = this._tip[i];
+      // The item, drawn from its own model — the same art the heap on the shelf
+      // is built from, so the card cannot show one thing while the board shows
+      // another. Written only when the ITEM changes, not when its count does:
+      // this is the one line in here that parses HTML, and the pointer crossing
+      // a shelf calls the rest of it sixty times a second.
+      if (rec.item !== r.itemId) {
+        rec.item = r.itemId;
+        rec.ico.innerHTML = r.itemId ? artForModel(this.itemById(r.itemId)?.model) ?? '' : '';
+      }
+      rec.name.textContent = r.name;
+      rec.count.textContent = r.count ?? '';
+      rec.count.className = r.full ? 'full' : '';
+      // A crate has no price of its own — what a thing costs is a fact about the
+      // board it ends up on, and quoting one here would be the shop naming a
+      // number it has not decided yet. The separator goes with it, or the row
+      // ends in a dot pointing at nothing — and so does the empty span itself,
+      // or the `gap` either side of it is trailing air the card is sized to.
+      rec.price.textContent = r.price ?? '';
+      rec.dot.hidden = !r.price;
+      rec.price.hidden = !r.price;
+    });
 
     // Below and right of the cursor by default, which is where a pointer is
     // not. Measured rather than assumed, because the name is as long as the
@@ -5846,6 +5880,55 @@ export class UI {
     el.style.left = `${Math.max(6, x)}px`;
     el.style.top = `${Math.max(6, y)}px`;
     el.classList.add('show');
+  }
+
+  setBoardTip(shelf, itemId, px = 0, py = 0) {
+    const stack = itemId
+      ? (shelf?.stacks ?? []).find((k) => k.item_id === itemId)
+      : null;
+    if (!stack) return this.tipCard(null);
+    // `cap` rides on the stack itself — the fixture menu's board rows read the
+    // same field, so "8/8" here and there can never disagree about what a tier
+    // holds.
+    const cap = stack.cap ?? 0;
+    return this.tipCard([{
+      itemId: stack.item_id,
+      name: this.itemName(stack.item_id),
+      count: cap > 0 ? `${stack.qty}/${cap}` : `${stack.qty}`,
+      full: cap > 0 && stack.qty >= cap,
+      price: money(stack.price ?? 0),
+    }], px, py);
+  }
+
+  /**
+   * WHAT IS IN THAT BOX.
+   *
+   * `setBoardTip`'s sentence said about the other place goods stand in heaps,
+   * and it is offered for every crate rather than only for the ones with no
+   * caption. A crate names itself on its front and those captions STAY: they are
+   * how you find something in a yard from across the shop, where this is how you
+   * settle it — the same division `#peek` and this card already make about a
+   * shelf. Three things a caption cannot do and this can: it is legible at any
+   * distance and zoom (a caption fades — `fadeCrateLabels`), a buried box has
+   * room only for a smaller one on its own front, and a bay eight boxes deep is
+   * eight of them drawn over each other.
+   *
+   * `qty` and no price, and the rows are the crate's own piles in the crate's
+   * own order, so the card and the box's own front are the same sentence in the
+   * same order.
+   */
+  setCrateTip(crate, px = 0, py = 0) {
+    const piles = lotStacks(crate).filter((s) => (s.qty ?? 0) > 0);
+    if (!crate) return this.tipCard(null);
+    // An empty box still answers. Nothing in the shop makes one, but a card that
+    // silently fails to appear is indistinguishable from a hover that missed —
+    // and "there is nothing in it" is the one thing you cannot see by looking.
+    if (!piles.length) return this.tipCard([{ itemId: null, name: 'Empty box' }], px, py);
+    return this.tipCard(piles.map((s) => ({
+      itemId: s.item_id,
+      name: this.itemName(s.item_id),
+      count: `x${s.qty}`,
+    })), px, py);
   }
 
   // ---- panels --------------------------------------------------------------

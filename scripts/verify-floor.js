@@ -959,6 +959,76 @@ function grassPatch(g, w = 2, h = 2) {
   eq(groundAt(g, indoors.x, indoors.z), T.BELT, '...and the run is still a run');
 }
 
+// ---------------------------------------------------------------------------
+// 11. TAKING IT UP COMES IN A RUN, AND THE GHOST SHOWS THE SQUARES THAT GO.
+//
+// Laying ground is a drag and taking it up was a click, which is a gesture and
+// a half: a room laid in one press had to be scraped one cell at a time. The
+// wire never needed anything — `buildGround` has read a `to` beside an empty
+// piece since the brush existed — so what this is about is the SHAPE of the
+// stroke and the promise the preview makes about it.
+//
+// That promise is the half worth a sweep, and it is invisible twice over: a
+// rectangle dragged across a room covers every bare cell between the bits
+// somebody painted, and the press does nothing whatsoever to those. A cell the
+// ghost lit and the press left alone and a cell it lit and took up are the same
+// square from a chair — you would have to know what was under it. So `moves` is
+// what the eraser's preview draws, and the claim is that it names exactly the
+// cells the press changes: the ghost and the press asking `groundPaint` twice
+// and getting two answers is the green-ghost bug with a paintbrush.
+//
+// Its control is the assertion that decides whether the preview says anything
+// at all: a stroke over ground nobody has painted moves NOTHING, so the drag
+// draws no square and sends no message. Without it "the ghost shows what goes"
+// is satisfied by a red rectangle over every lawn cell in the shop.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const spot = grassPatch(g, 3, 1);
+  check(!!spot, 'there is a three-wide run of grass');
+  const cells = [0, 1, 2].map((dx) => ({ x: spot.x + dx, z: spot.z }));
+
+  // Two of the three painted, with a gap in the middle — which is the shape a
+  // real room is in and the one a rectangle cannot avoid crossing.
+  for (const c of [cells[0], cells[2]]) {
+    g.buildGround('me', { ...c, piece: 'verify-floor-cheap' });
+  }
+  eq(groundIndex(g.layout).get(`${cells[1].x},${cells[1].z}`), undefined,
+    'the middle cell was never painted');
+
+  // WHAT THE GHOST WOULD DRAW, off the same call the preview makes.
+  const stroke = groundStroke(cells[0], cells[2], GROUND_STROKE_MAX, 1, g.layout);
+  eq(stroke.length, 3, 'the drag covers all three cells');
+  const verdict = canPaintGround(g.layout, stroke, null, null);
+  check(verdict.ok, 'a run of it may be taken up', verdict.reason ?? '');
+  eq(verdict.moves?.length, 2, 'and the preview names the two painted cells');
+  eq(verdict.moves?.some((c) => c.x === cells[1].x && c.z === cells[1].z), false,
+    'never the bare one between them');
+
+  // ...AND WHAT THE PRESS DOES, which is the other half and the whole point of
+  // asserting both in one breath: either alone is satisfied by a ghost and a
+  // press that agree with each other and not with the shop.
+  const res = g.buildGround('me', { ...cells[0], piece: '', to: { x: cells[2].x, z: cells[2].z } });
+  check(res.ok, 'the whole run comes up in one press', res.error ?? '');
+  eq(res.laid, verdict.moves?.length, 'taking up exactly the cells the ghost lit');
+  for (const c of [cells[0], cells[2]]) {
+    eq(groundIndex(g.layout).get(`${c.x},${c.z}`), undefined, 'a painted cell is bare again');
+    eq(groundAt(g, c.x, c.z), T.GRASS, '...and back to grass, being outdoors');
+  }
+
+  // THE CONTROL. Nothing painted, nothing to take up, and the drag must say so
+  // rather than promising three squares and scraping none.
+  const bare = grassPatch(g, 3, 1);
+  const none = canPaintGround(g.layout,
+    groundStroke(bare, { x: bare.x + 2, z: bare.z }, GROUND_STROKE_MAX, 1, g.layout), null, null);
+  eq(none.unchanged, true, 'a stroke over bare grass changes nothing');
+  eq(none.moves?.length, 0, '...so the preview draws no square at all');
+  const cash = g.cash;
+  const noop = g.buildGround('me', { ...bare, piece: '', to: { x: bare.x + 2, z: bare.z } });
+  eq(noop.laid, 0, 'and the press takes nothing up');
+  eq(g.cash, cash, '...and no money moves in either direction');
+}
+
 function round2(n) { return Math.round(n * 100) / 100; }
 
 // ---------------------------------------------------------------------------

@@ -1505,6 +1505,49 @@ turn the view, back out of a tool, put a thing down, walk, and the two razes —
 one of which was the only destructive press in the mode, so the same reflex that
 closes a picker took a wall down.
 
+**Two of those four rungs come in runs, and the key drags for both.** A fixture
+is one object and a finish is one side of one segment, so a click is the whole
+of what Ctrl can mean about either. A wall is a *line* and ground is an *area*,
+and both are laid by dragging — so taking either out a press at a time is that
+same gesture repeated, which is this section's own four-rules-for-one-idea
+complaint said inside the fix. Ground was the last of the two to get it, and the
+gap it left is the one worth naming: a room laid in one drag had to be scraped a
+square at a time.
+
+Both borrow the tool's own drag **whole** rather than growing a second one. The
+wall reuses `edgeDrag` with `kind: E.NONE`; the ground reuses `floorDrag` with
+an empty piece; each sends the one message it always sent with two ends on it,
+and there is no erase flag anywhere on the wire — an empty piece is the eraser,
+exactly as Bare Ground and Bare Wall are on the bar. Nothing on the server
+learns a verb: `buildGround` has read a `to` beside an empty piece since the
+brush existed, and until now nobody had a way to send one. It is one `undoStep`
+either way, so a scraped room comes back on one Ctrl+Z.
+
+**A click is still a click**, which is what lets the drag take the press ahead
+of `doRaze` without changing what the key has always done. A press that never
+travelled is the run's degenerate case — one segment, or a rectangle of one cell
+— so the message is the single one that was already being sent. The wall still
+falls through to the click when its drag cannot start (it needs a corner *and* a
+tile, and either can miss); ground never does, since the cell `razeAim` named is
+a `pickTile` hit already, and `scrapeGround` retired with the chore.
+
+**The preview shows the squares that go, and not the ones inside the box.** A
+brush is a rectangle, so a drag that scrapes a room corner to corner covers
+every bare cell between the bits somebody painted — and the press does nothing
+whatever to those. Drawn unfiltered the ghost promises the lot, which is the
+green-ghost bug with the colours swapped, and it is worse here than along a wall
+because a floor ghost is the only thing telling you how far the drag has
+reached. So `canPaintGround` hands back the cells it *would* change (`moves`)
+and the eraser draws those, in red — the colour the hover already paints a cell
+it is about to take up. Asked of that function rather than worked out again by
+whoever wants it, for the reason `groundPaint` exists at all: two opinions about
+what a stroke does to a cell is the green-ghost bug with a paintbrush.
+`verify:floor` §11 pins the two against each other in one press, because a ghost
+and a press that agree with each other and not with the shop pass either half
+alone — and its control is a stroke over ground nobody has painted, which must
+draw no square and send no message rather than lighting up every lawn cell it
+crossed.
+
 ### The curtain, which is a way through you do not open
 
 **Built** — step 20, and it is step 15 pointed at a room whose partition wants to

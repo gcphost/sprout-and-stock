@@ -73,7 +73,7 @@ import { Game } from '../server/sim/index.js';
 import { writeContent, refresh, content } from '../server/content.js';
 import { remove } from '../server/db.js';
 import { MILESTONES } from '../server/sim/goals.js';
-import { canPlace, anchorTile, isWalkableTile, edgeAt, runCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, conveyorNext, tunnelExit, TUNNEL_SPAN, conveyorFeeders, mergeStraight, mergeRoute, CEILING, FIXTURE_REFUND } from '../shared/build.js';
+import { canPlace, anchorTile, isWalkableTile, edgeAt, runCells, BELT_RUN_MAX, conveyorBranches, conveyorMeets, conveyorServes, conveyorNext, tunnelExit, TUNNEL_SPAN, conveyorFeeders, mergeStraight, mergeRoute, sideMode, armReach, rot4, CEILING, FIXTURE_REFUND } from '../shared/build.js';
 import { E, canStep, shopperCanCross } from '../shared/edges.js';
 import { T } from '../shared/tiles.js';
 import { lotQty, lotTotal, lotStacks } from '../shared/lot.js';
@@ -85,6 +85,7 @@ const check = (ok, label, detail = '') => {
   if (!ok) failures.push(`${label}${detail ? ` — ${detail}` : ''}`);
 };
 const eq = (a, b, label) => check(a === b, label, `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
+const round2 = (n) => Math.round(n * 100) / 100;
 /** ...and the same for a distance along a line, which is arithmetic on floats. */
 const near = (a, b, label, eps = 1e-6) => check(Math.abs(a - b) <= eps, label,
   `expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`);
@@ -105,6 +106,15 @@ const BELT = {
   id: 'zz-belt-piece', kind: 'belt', name: 'Test Belt', cost: 10,
   model: { parts: [{ shape: 'box', color: '#3b3f46', pos: [0, 0.06, 0], scale: [0.9, 0.12, 0.9] }] },
   tiers: [{ name: 'Standard', cost: 0 }],
+  // A second shape, for §27's delta claim and nothing else: a restyle is the
+  // cheapest press that goes through `repositionFixture` and is NOT a turn,
+  // which is the only way to ask whether the sides move on a rotation or on
+  // every call.
+  variants: [{
+    id: 'zz-shape',
+    name: 'Test Shape',
+    model: { parts: [{ shape: 'box', color: '#3b3f46', pos: [0, 0.07, 0], scale: [0.8, 0.14, 0.8] }] },
+  }],
 };
 const ARM = {
   id: 'zz-belt-arm', kind: 'arm', name: 'Test Arm', cost: 50,
@@ -726,8 +736,31 @@ function armIntoShelf(g, { item = GOODS, prep = null, turn = 0, past = false, lo
   }
 }
 {
-  // The same again for the one-home rule: an arm is AIMED, so a unit that is
-  // not the item's home is exactly where you said to put it.
+  /**
+   * The same again for the one-home rule: an arm is AIMED, so a unit that is
+   * not the item's home is exactly where you said to put it.
+   *
+   * ⚠️ This looks like a rule that is MISSING and it is load-bearing. It was
+   * tried the other way — a loader asking `shelvesFor`'s home test, on the good
+   * evidence that an aisle of loaders otherwise gives one item a board on every
+   * unit in the shop (a live save: carrot on 19 boards, 763 units against 707
+   * of capacity, 82 rotting in a night). Every assertion in this file passed and
+   * the shop was **jammed solid inside a day**.
+   *
+   * The reason is the shape of a run rather than the rule. A hire refused by
+   * `shelvesFor` puts the box down — `putDown`, the drop-off, a crate on the
+   * floor — so the goods leave the system and the rule costs a walk. A loader
+   * has no such ending on a RING: `armSwing` only sets a box down when the run
+   * has run out (see §16b), and a loop never runs out, so a refused crate goes
+   * round again, and again. Refuse most of the boards and every box on the
+   * network becomes a permanent passenger — including the ones that DO have a
+   * home, because they are stuck behind the ones that do not.
+   *
+   * So the one-home rule belongs to whoever can decline: the crew, and the
+   * buyer. `shelvesFor` and `restock` both ask it. A machine standing in a loop
+   * fills what it is bolted to, and the spread that causes is a real cost paid
+   * on purpose — the alternative is a shop that stops moving at all.
+   */
   const g = fresh();
   const other = (g.layout.shelves ?? [])[1];
   if (other) {
@@ -1257,6 +1290,141 @@ function armIntoShelf(g, { item = GOODS, prep = null, turn = 0, past = false, lo
 }
 
 // ---------------------------------------------------------------------------
+// 11c. ...and you can take one back OFF, because a box you have hold of stops.
+//
+// §11 is a hand putting goods ON a run. This is the same hand the other way
+// round, and it did not work — not "was refused", which would at least have said
+// something. Every crate in this shop is taken with a ring: `take` names the box,
+// `errandAction` arms a lift, and `stepActions` winds `ACTION_TIMES.crate`. That
+// is 0.65s. `BELT_SECONDS` is 0.6, so the box travels MORE THAN A CELL in the
+// time it takes to pick one up, and the reach test is against where it is now —
+// so it slid out of `UNLOAD_REACH` half way through, the candidate came back
+// null, and the charge was binned. Silently, and then again, for as long as you
+// stood there holding the button.
+//
+// Nothing about it is visible: a ring that fills a bit and resets and a ring you
+// are not winding properly are the same picture. And it was INTERMITTENT by
+// geometry — a box travelling across you stays about as far off and lifts fine,
+// one travelling away does not — so the same press on the same box worked on one
+// aisle and not on the next, which reads as the shop being fussy rather than as
+// arithmetic.
+//
+// So the box stops while you have hold of it (`handHeld`), which is a jam you
+// caused and is drawn as one. Its control is the whole question of whether that
+// is opt-in: a run with NOBODY's hands on it must move exactly as it did, or
+// the fix is "belts stop". And its pair is the release — a hold abandoned has
+// to let the box go, or a run can be frozen for the rest of the save by a press
+// nobody remembers making.
+// ---------------------------------------------------------------------------
+{
+  const g = fresh();
+  const cells = beltRun(g, 4);
+  const belts = lay(g, cells);
+  const me = g.players.me;
+  // Shopkeeping, not building: `take` refuses outright while the palette is up,
+  // and a sweep that left build mode on would be asserting about that refusal
+  // rather than about the belt.
+  me.build = { on: false };
+  const box = crateOn(g, belts[0], GOODS, 4);
+  const total = units(g);
+
+  // BEHIND the run, and this is the sweep rather than a detail of it.
+  //
+  // Which way the box travels relative to your feet is the whole of whether the
+  // bug happens: a crate crossing IN FRONT of you stays about as far off for the
+  // whole ride, so the reach test never fails and the lift works perfectly with
+  // nothing holding the box at all. Stood at the head of the run it goes
+  // straight away from you — 1.0 tiles to 2.08 over one 0.65s ring, against an
+  // `UNLOAD_REACH` of 1.8 — which is the press that silently did nothing. A
+  // sweep written the other way round passes on the bug, and this one did:
+  // the mutation that deletes the hold was caught by the "stands still" line
+  // alone while the lift went on succeeding.
+  const behind = { x: belts[0].x - 1, z: belts[0].z };
+  const ok = isWalkableTile(g.layout, behind.x, behind.z);
+  check(ok, 'there is somewhere to stand at the head of the run');
+  if (ok) {
+    Object.assign(me, { x: behind.x, z: behind.z, path: null, input: { dx: 0, dz: 0 } });
+    me.pressing = true;
+    const res = g.take('me', { palletId: box.id });
+    check(res.ok, 'a box on a moving run can be named', res.error ?? '');
+
+    // One tick first, because the hold begins a tick after the press and the
+    // sweep has to say so rather than round it away. `stepBelts` runs BEFORE
+    // `stepActions` inside one `step`, so on the tick the errand is named there
+    // is no `p.action` yet for `handHeld` to see and the box gets one tick of
+    // travel — a sixth of a cell, which is why it is worth a comment and not a
+    // fix. The claim is about what happens once the ring is TURNING.
+    g.step(0.1);
+    check(!!me.action, 'the ring is winding on it', 'nothing armed');
+    const at = { ...g.deliveries.find((d) => d.id === box.id) };
+    g.step(0.1);
+    g.step(0.1);
+    const still = g.deliveries.find((d) => d.id === box.id);
+    if (still) {
+      eq(Math.round(still.x * 1e6), Math.round(at.x * 1e6),
+        '...and the box stands still while you have hold of it');
+    }
+
+    // ...and the ring FINISHES, which is the claim the whole section is for.
+    // `ACTION_TIMES.crate` is 0.65s, so this is comfortably past it and would
+    // still fail on the bug, because the failure is not slowness — it is a
+    // charge that never banks.
+    run(g, 12);
+    check(!!me.haul, 'the box ends up on your shoulder');
+    eq(lotTotal(me.haul ?? { stacks: [] }), 4, '...with everything that was in it');
+    check(!g.deliveries.some((d) => d.id === box.id), '...and off the run');
+    eq(units(g) + lotTotal(me.haul ?? { stacks: [] }), total,
+      '...with nothing created or destroyed');
+  }
+}
+{
+  // THE CONTROL, and it is the assertion that decides whether any of this is
+  // opt-in: the same run, the same box, the same seconds, and nobody touching
+  // it. If this moves less than a cell the feature has stopped being "the box
+  // you are holding" and started being "the belt".
+  const g = fresh();
+  const cells = beltRun(g, 4);
+  const belts = lay(g, cells);
+  g.players.me.build = { on: false };
+  // Well away from it, or `errandAction` is not the thing being controlled for.
+  const box = crateOn(g, belts[0], GOODS, 4);
+  run(g, 14);
+  const now = g.deliveries.find((d) => d.id === box.id);
+  check(!!now?.belt && now.belt !== belts[0].id,
+    'a run nobody has hold of carries its box exactly as it did');
+}
+{
+  // ...and IT LETS GO. A hold abandoned half way through must hand the box back
+  // to the run — without this, a press made and forgotten is a line stopped for
+  // the rest of the save, with every box on it correct and none of them moving,
+  // which is precisely the jam this whole file exists to tell from a bug.
+  const g = fresh();
+  const cells = beltRun(g, 4);
+  const belts = lay(g, cells);
+  const me = g.players.me;
+  me.build = { on: false };
+  const box = crateOn(g, belts[0], GOODS, 4);
+  const behind = { x: belts[0].x - 1, z: belts[0].z };
+  if (isWalkableTile(g.layout, behind.x, behind.z)) {
+    Object.assign(me, { x: behind.x, z: behind.z, path: null, input: { dx: 0, dz: 0 } });
+    me.pressing = true;
+    g.take('me', { palletId: box.id });
+    g.step(0.1);
+    g.step(0.1);
+    // Let go, the way a player does: the button comes up and the charge is
+    // thrown away. The errand goes with it, or the next tick re-arms and the
+    // box is held by a press that is over.
+    me.pressing = false;
+    me.errand = null;
+    run(g, 14);
+    const now = g.deliveries.find((d) => d.id === box.id);
+    check(!!now, 'the box you let go of is still on the run');
+    check(!!now?.belt && now.belt !== belts[0].id, '...and moving again');
+    check(!me.haul, '...and never reached your shoulder');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 12. One swing stocks every side, not the first one that takes something.
 //
 // Invisible in play and invisible in a still frame: a loader that served two
@@ -1568,7 +1736,7 @@ const ROUNDING = 0.02;
  * break. `jump` is ordinary distance across the floor, which is the number a
  * teleport would break.
  */
-function smooth(g, label, crates, ticks, at = {}) {
+function smooth(g, label, crates, ticks, at = {}, travel = TRAVEL) {
   const state = new Map();
   const seat = (d) => {
     if (!state.has(d.id)) state.set(d.id, { base: 0, x: d.x, z: d.z, line: null });
@@ -1587,7 +1755,7 @@ function smooth(g, label, crates, ticks, at = {}) {
       if (s.gone) continue;
       const jump = Math.hypot(live.x - s.x, live.z - s.z);
       biggest = Math.max(biggest, jump);
-      if (jump > TRAVEL + ROUNDING) {
+      if (jump > travel + ROUNDING) {
         jumped ??= `${jump.toFixed(3)} tiles at t=${(i * 0.1).toFixed(1)}`;
       }
       s.x = live.x; s.z = live.z;
@@ -1607,7 +1775,7 @@ function smooth(g, label, crates, ticks, at = {}) {
     }
   }
   check(!jumped, `${label}: no box ever jumps further than one tick of travel`,
-    jumped ? `${jumped}, against ${TRAVEL.toFixed(3)}` : '');
+    jumped ? `${jumped}, against ${travel.toFixed(3)}` : '');
   check(!back, `${label}: no box ever goes backwards along the path`, back ?? '');
   check(biggest > 0.01, `${label}: ...and they did in fact move`);
 }
@@ -1711,7 +1879,8 @@ function smooth(g, label, crates, ticks, at = {}) {
       feed();
       const at = {};
       for (let i = 8; i <= 100; i += 8) at[i] = feed;
-      smooth(g, 'junction', fed, 130, at);
+      const junctionTravel = 0.1 / g.beltSeconds(g.beltAt(cells[1].x, cells[1].z));
+      smooth(g, 'junction', fed, 130, at, junctionTravel);
       check(fed.length >= 4, '...with real traffic through it', `${fed.length} boxes`);
     }
   }
@@ -4999,6 +5168,418 @@ const bedAt = (g) => (at) => {
         '...and stores nothing at all when it is');
       check(!g.snapshot().sorters?.find((s) => s.id === turned.id)?.merge,
         '...and says nothing on the wire, the way the belts do');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 27. THE SIDE THAT IS SPOKEN FOR.
+//
+// Everything else on a run is derived, and a loader serves every side it can
+// reach — which is right nearly always and fails on exactly the shop a tight
+// layout produces. `sides` is the one sentence you can say to change its mind,
+// and every claim about it is invisible twice over: a loader that ignored the
+// setting and one that never had it are the same machine standing in the same
+// aisle, and the shop afterwards is the same shop. Only which edge the goods
+// crossed moved.
+//
+// It shipped with NO sweep at all, which is `verify:ceiling`'s lesson arriving
+// on the piece one square along, and the bill came in the same way: the sim
+// honoured it and the two walks that say what a run REACHES did not, so a skip
+// behind a shut side still counted as somewhere rubbish could end. Reported
+// from a chair as "the legs don't seem to do anything", because the only place
+// the answer is written down is the picture, and the picture was reading the
+// shop as it stood before the menu was opened.
+//
+// Its control is doubled and is the pair that decides whether any of this is
+// opt-in: a shop nobody has spoken for answers `both` on every side of every
+// cell, stores nothing anywhere, and fills the shelf exactly as §7 says it
+// does. Every refusal below is PAIRED with the same gesture on an open side —
+// each one of them passes perfectly in a shop where the loader is simply
+// broken.
+// ---------------------------------------------------------------------------
+{
+  // --- the control ---------------------------------------------------------
+  {
+    const g = fresh();
+    const set = armIntoShelf(g);
+    check(!!set, 'the rig stands up');
+    if (set) {
+      const sides = [0, 1, 2, 3].map((r) => sideMode(set.loader, r));
+      eq(sides.join(','), 'both,both,both,both',
+        'a loader nobody has spoken for takes and gives on all four sides');
+      check(!g.placements.find((p) => p.id === set.loader.id)?.sides,
+        '...and carries no field at all, so no save in existence moves');
+      check(!set.loader.sides, '...nor on the record the sim reads');
+      run(g, 60);
+      const on = (set.shelf.stacks ?? []).reduce((n, s) => n + (s.qty ?? 0), 0);
+      check(on > 0, '...and it fills the shelf beside it, which is the old game', `${on} units`);
+    }
+  }
+
+  /**
+   * The quarter turn the shelf is on, from the loader's own point of view.
+   *
+   * `armReach` maps `[0,1,2,3]` in order, which is the same thing `armSwing`
+   * relies on and the same thing the menu names a card by — so a sweep that
+   * derived it any other way would be asserting about a different edge than the
+   * one a press writes.
+   */
+  const turnTo = (loader, unit) => armReach(loader)
+    .findIndex((t) => t.x === unit.x && t.z === unit.z);
+
+  // --- the pair, and it is worthless split in half -------------------------
+  //
+  // "The shelf stays empty" is satisfied by a loader that does nothing at all,
+  // which is the commonest way to get this wrong and reads as the machine being
+  // broken rather than as a rule. So the goods have to still BE somewhere: what
+  // does not go on the board stays in the box, rather than being destroyed or
+  // tipped on the floor.
+  {
+    const g = fresh();
+    const set = armIntoShelf(g);
+    if (set) {
+      const r = turnTo(set.loader, set.shelf);
+      check(r >= 0, 'the shelf is on one of the loader\'s four sides', `turn ${r}`);
+      const total = units(g);
+      const shut = g.setConveyorSides('me', set.loader.id, r, 'off');
+      check(shut.ok, 'a side can be told to leave its neighbour alone', shut.error ?? '');
+
+      const loader = g.beltAt(set.loader.x, set.loader.z);
+      const unit = (g.layout.shelves ?? []).find((sh) => sh.x === set.shelf.x && sh.z === set.shelf.z);
+      eq(sideMode(loader, r), 'off', '...and the record says so afterwards');
+      run(g, 120);
+      const on = (unit?.stacks ?? []).reduce((n, s) => n + (s.qty ?? 0), 0);
+      eq(on, 0, 'nothing crosses a side that has been shut');
+      eq(units(g), total, '...and the goods are still in the shop rather than destroyed');
+      // In a BOX rather than on a board. Which box is not the claim — this is a
+      // terminus with nowhere to hand on, so the off-ramp sets the crate down
+      // on one of the sides that IS open, which is the rule working rather than
+      // a leak. What matters is that all four units are still loose stock a
+      // stocker could pick up, and none of them reached the shelf next door.
+      eq(g.deliveries.reduce((n, d) => n + lotTotal(d), 0), 4,
+        '...all four of them still in a box on the floor');
+    }
+  }
+
+  // --- ...and the two walks that say what a run REACHES ---------------------
+  //
+  // This is the half that shipped missing, and it is the one nothing could
+  // report: `conveyorMeets` and `conveyorServes` enumerate all four sides of
+  // every loader downstream, and they are what decide whether rubbish may ride
+  // and whether the shop believes a board is fed from a line. A shut side left
+  // in those two is a loader that provably never pours, standing next to a
+  // shelf the whole shop still thinks it fills.
+  //
+  // Both directions in one shop: reported across an open side, gone across a
+  // shut one. Either half alone is satisfied by a function that answers the
+  // same thing whatever it is asked.
+  {
+    const g = fresh();
+    const set = armIntoShelf(g);
+    if (set) {
+      const r = turnTo(set.loader, set.shelf);
+      const named = (list) => list.some((u) => u.x === set.shelf.x && u.z === set.shelf.z);
+      check(named(conveyorServes(g.layout, set.loader)),
+        'an open side reports the shelf as somewhere a crate could still go');
+      check(named(conveyorMeets(g.layout, set.loader).shelves),
+        '...and as somewhere the run meets');
+
+      g.setConveyorSides('me', set.loader.id, r, 'off');
+      const loader = g.beltAt(set.loader.x, set.loader.z);
+      check(!named(conveyorServes(g.layout, loader)),
+        '...and a shut one reports neither');
+      check(!named(conveyorMeets(g.layout, loader).shelves),
+        '...in the walk the waste gate and the room rule both read');
+    }
+  }
+
+  // --- the aim does not beat the refusal -----------------------------------
+  //
+  // `rot` is a preference between sides and this is you saying "not there", so
+  // turning the machine at a side you shut must not be a way of undoing the
+  // menu. Which is the one case where the two settings disagree out loud, and
+  // the one where honouring the aim would look completely correct.
+  {
+    const g = fresh();
+    const set = armIntoShelf(g);
+    if (set) {
+      const r = turnTo(set.loader, set.shelf);
+      // Aim it at the shelf FIRST and shut that side afterwards, which is the
+      // order a player would do it in — and the only order that can pose the
+      // question at all now that a turn carries the sides round with it. Turn
+      // second and the shut side travels with the machine, so it is never the
+      // side being aimed at. `rotateFixture` steps one quarter at a time and
+      // re-mints the id, so the record is re-read each press.
+      let at = g.beltAt(set.loader.x, set.loader.z);
+      for (let i = 0; i < 4 && rot4(at?.rot ?? 0) !== r; i++) {
+        g.rotateFixture('me', at.id, 1);
+        at = g.beltAt(set.loader.x, set.loader.z);
+      }
+      eq(rot4(at?.rot ?? 0), r, 'the loader is aimed straight at the shelf');
+      g.setConveyorSides('me', at.id, r, 'off');
+      at = g.beltAt(set.loader.x, set.loader.z);
+      eq(sideMode(at, r), 'off', '...and then told to leave that very side alone');
+      run(g, 120);
+      const unit = (g.layout.shelves ?? []).find((sh) => sh.x === set.shelf.x && sh.z === set.shelf.z);
+      const on = (unit?.stacks ?? []).reduce((n, s) => n + (s.qty ?? 0), 0);
+      eq(on, 0, '...and it still does not pour, because an aim is a preference and this is a no');
+    }
+  }
+
+  // --- a PAIR, and it has to be --------------------------------------------
+  //
+  // A hand-off is two machines agreeing, so the side is asked of both ends at
+  // its own quarter turn on each. Asked of the sender alone, closing a way IN
+  // would be a setting that does nothing until you happened to own the cell
+  // upstream — and the arithmetic that makes it work is the opposite turn on
+  // the far end, which is the one thing here that is easy to get wrong and
+  // impossible to see: read as `r` on both, every setting is a statement about
+  // a different edge than the one on screen.
+  {
+    const g = fresh();
+    const cells = beltRun(g, 3);
+    check(!!cells, 'there is room for a three-cell run');
+    if (cells) {
+      const belts = lay(g, cells);
+      const [a, b] = belts;
+      const east = aim(cells[0], cells[1]);
+      const next = conveyorNext(g.layout, a);
+      check(!!next && next.x === b.x && next.z === b.z,
+        'the first belt hands to the second, which is every run ever laid');
+
+      // Shut the RECEIVER's way in. Nothing is said to the sender at all.
+      const shut = g.setConveyorSides('me', b.id, rot4(east + 2), 'off');
+      check(shut.ok, 'the far end can refuse a way in', shut.error ?? '');
+      const from = g.beltAt(cells[0].x, cells[0].z);
+      eq(conveyorNext(g.layout, from), null,
+        'a belt whose neighbour has shut its way in is a terminus, though nobody spoke to it');
+
+      // And the control, which is the same edge opened again.
+      const to = g.beltAt(cells[1].x, cells[1].z);
+      g.setConveyorSides('me', to.id, rot4(east + 2), 'both');
+      const back = conveyorNext(g.layout, g.beltAt(cells[0].x, cells[0].z));
+      check(!!back && back.x === b.x && back.z === b.z, '...and opening it again joins them back up');
+    }
+  }
+
+  // --- `both` is stored as ABSENT ------------------------------------------
+  //
+  // The whole of what keeps this opt-in. A menu that wrote the word on the way
+  // past would put a field on every cell anybody glanced at — on the save, on
+  // the wire and in every snapshot diff — in a shop where nothing has been
+  // decided.
+  {
+    const g = fresh();
+    const cells = beltRun(g, 2);
+    if (cells) {
+      const belts = lay(g, cells);
+      const one = belts[0];
+      g.setConveyorSides('me', one.id, 1, 'in');
+      eq(g.placements.find((p) => p.id === one.id)?.sides?.[1], 'in',
+        'a side that has been spoken for is stored');
+      g.setConveyorSides('me', one.id, 1, 'both');
+      check(!g.placements.find((p) => p.id === one.id)?.sides,
+        '...and handing it back stores nothing at all, rather than the word');
+      check(!g.beltAt(cells[0].x, cells[0].z)?.sides,
+        '...on the record either, which is what the wire carries');
+    }
+  }
+
+  // --- out and back, which is where a fix like this dies -------------------
+  //
+  // `repositionFixture` NAMES every field it keeps and R is the press that runs
+  // it, so a setting left out is not merely not copied — it is reset by the
+  // re-flow at the bottom of that same call. Every other conveyor setting has
+  // sprung this trap at least once. And a re-flow on its own is the other door:
+  // build mode re-flows on every wall segment of a drag, so a setting that did
+  // not ride the placement would clear itself behind you while you were still
+  // dragging.
+  {
+    const g = fresh();
+    const cells = beltRun(g, 2);
+    if (cells) {
+      const belts = lay(g, cells);
+      const put = g.setConveyorSides('me', belts[0].id, 1, 'out');
+      check(put.ok, 'a side is set', put.error ?? '');
+
+      g.regenerateLayout();
+      eq(sideMode(g.beltAt(cells[0].x, cells[0].z), 1), 'out',
+        'a re-flow rebuilds the record with the setting still on it');
+
+      const was = rot4(g.beltAt(cells[0].x, cells[0].z).rot ?? 0);
+      const spun = g.rotateFixture('me', g.beltAt(cells[0].x, cells[0].z).id, 1);
+      check(spun.ok, 'the cell can be turned', spun.error ?? '');
+      const turned = g.beltAt(cells[0].x, cells[0].z);
+      const step = rot4(rot4(turned.rot ?? 0) - was);
+      eq(step, 1, 'one press is one quarter turn');
+      // ...AND IT TURNS WITH THE MACHINE, which is the half R is the press for.
+      // Everything else drawn on the piece swings — the hood, the blade, the
+      // aim — so a word that stayed put would be the one mark that silently
+      // came to mean a different edge, and a loader between a pad and a shelf
+      // would come out of one press taking from the shelf and giving to the
+      // pad. Both halves in one breath, or "it moved" is satisfied by R having
+      // cleared it and "it is still there" by R having done nothing.
+      eq(sideMode(turned, rot4(1 + step)), 'out',
+        'R carries the setting round onto the side that is now there');
+      eq(sideMode(turned, 1), 'both', '...and off the side it has left behind');
+      // ...and the DELTA, not the new angle. A restyle and both rungs of the
+      // tier ladder come through the same call and none of them is a turn, so a
+      // piece that has never been rotated must not have its sides rewritten
+      // from turn zero the first time one of those lands.
+      const styled = g.styleFixture('me', turned.id, 'zz-shape');
+      check(styled.ok, 'a press that is not a turn goes through', styled.error ?? '');
+      const restyled = g.beltAt(cells[0].x, cells[0].z);
+      eq(rot4(restyled.rot ?? 0), rot4(turned.rot ?? 0), '...without turning anything');
+      eq(sideMode(restyled, rot4(1 + step)), 'out', '...and moves the sides not at all');
+    }
+  }
+
+  // --- and it is asked of any cell of a run, not only of a loader ----------
+  //
+  // Two lines meeting on a plain belt is the shape a run grows into first, and
+  // a belt is the cheapest way to say "the line goes past here, it does not go
+  // in there". Refusing it would mean buying a junction to express a refusal.
+  {
+    const g = fresh();
+    const cells = beltRun(g, 2);
+    if (cells) {
+      const belts = lay(g, cells);
+      const res = g.setConveyorSides('me', belts[1].id, 3, 'off');
+      check(res.ok, 'a plain belt can have a side spoken for', res.error ?? '');
+      eq(sideMode(g.beltAt(cells[1].x, cells[1].z), 3), 'off', '...and it sticks');
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 28. THE SWAP, MADE BY MOVING RATHER THAN BY BUILDING.
+//
+// You lay a run first and then decide which cells stock a shelf, so a conveyor
+// dropped onto another one REPLACES it — one press for one idea. `placeFixture`
+// has taken the old cell out since the day that existed. `repositionFixture`
+// never did, and `canPlace` answers the same to both, because `conveyorSwap` is
+// about the cell and does not know who is asking.
+//
+// So the move was allowed and put a SECOND conveyor on one square, and there is
+// no error anywhere: `compose` walks placements in order, the belt was laid
+// first, it stamps `T.BELT`, and the piece you have just dragged fails
+// `canKeep` — where `conveyorSwap` bails on `keeping`, correctly — and is shed.
+// Refunded, so nothing reads as stolen. What you watch is your sorter vanish
+// onto a rail that is still standing, on a press the ghost had called fine, and
+// what it reads as is the move having deleted the wrong thing.
+//
+// Its centrepiece is therefore a PAIR that is worthless split in half, asserted
+// in one press: the piece you moved is THERE and the one under it is GONE.
+// "The belt went" is satisfied by a press that deleted both, and "the sorter is
+// standing" by a press that swapped nothing and left two cells of run.
+//
+// Its control is the same gesture onto BARE ground, which is every move anybody
+// has ever made, and the batch — because a rigid shift ALONG a run has every
+// member landing on the cell its neighbour has not vacated yet, and a swap that
+// did not read `ignores` would demolish the aisle it is moving.
+// ---------------------------------------------------------------------------
+{
+  // Somewhere OFF the run a sorter may stand, one step from `to`. The empty
+  // test is the whole of it: `canPlace` says yes to a conveyor cell — that is
+  // what a swap IS — so a helper that only asked it would set the junction down
+  // by demolishing the run it is about to be moved along, and every count below
+  // would then be measuring a shop one cell shorter for a reason unconnected to
+  // the press under test.
+  const beside = (g, to) => {
+    for (const r of [0, 1, 2, 3]) {
+      const c = anchorTile(to.x, to.z, r);
+      if (g.beltAt(c.x, c.z)) continue;
+      if (canPlace(g.layout, { kind: 'sorter', x: c.x, z: c.z, rot: 0 }).ok) {
+        return { x: c.x, z: c.z, dx: to.x - c.x, dz: to.z - c.z };
+      }
+    }
+    return null;
+  };
+
+  // --- the control: a move onto ground is the move it always was -----------
+  {
+    const g = fresh();
+    const cells = beltRun(g, 4);
+    if (cells) {
+      lay(g, cells.slice(0, 1));
+      const from = beside(g, cells[2]);
+      check(!!from, 'there is somewhere off the run to stand a junction');
+      if (from) {
+        g.placeFixture('me', { kind: 'sorter', piece: 'sorter', x: from.x, z: from.z, rot: 0 });
+        const was = g.cash;
+        const id = g.beltAt(from.x, from.z).id;
+        const res = g.shiftFixtures('me', [id], from.dx, from.dz);
+        check(res.ok, 'it moves onto bare ground', res.error ?? '');
+        check(!!g.beltAt(cells[2].x, cells[2].z), '...and is standing where it was sent');
+        eq(round2(g.cash - was), 0, '...and nothing was demolished on the way');
+      }
+    }
+  }
+
+  // --- the pair: what you moved stays, what was under it goes --------------
+  {
+    const g = fresh();
+    const cells = beltRun(g, 3);
+    if (cells) {
+      const belts = lay(g, cells);
+      const under = belts[1].id;
+      const from = beside(g, cells[1]);
+      check(!!from, 'there is somewhere off the run to stand a junction');
+      if (from) {
+        const built = g.placeFixture('me',
+          { kind: 'sorter', piece: 'sorter', x: from.x, z: from.z, rot: 0 });
+        check(built.ok, 'a junction goes up beside the run', built.error ?? '');
+        const was = g.cash;
+        const id = g.beltAt(from.x, from.z).id;
+        const res = g.shiftFixtures('me', [id], from.dx, from.dz);
+        check(res.ok, 'it may be moved onto the run', res.error ?? '');
+
+        const landed = g.beltAt(cells[1].x, cells[1].z);
+        eq(landed?.kind ?? 'nothing', 'sorter',
+          'THE JUNCTION IS STANDING ON THE CELL IT WAS SENT TO');
+        check(!g.placements.some((p) => p.id === under),
+          '...AND THE BELT THAT WAS UNDER IT IS GONE');
+        // One cell, not two: the shed would have left the run whole and eaten
+        // the junction, which is the same count read the other way round.
+        eq((g.layout.belts ?? []).length + (g.layout.sorters ?? []).length, 3,
+          '...and the run is still three cells long');
+        // A swap costs what a sell-and-rebuy costs, and the move itself is free
+        // — so the only money that may move is the belt's own refund.
+        eq(round2(g.cash - was), round2(g.fixtureUnitCost('belt', null, BELT.id) * FIXTURE_REFUND),
+          '...and exactly half the belt came back, no more');
+      }
+    }
+  }
+
+  // --- ...and a member of the BATCH is never what gets swapped away --------
+  {
+    const g = fresh();
+    const cells = beltRun(g, 4);
+    if (cells) {
+      const belts = lay(g, cells.slice(0, 3));
+      const was = g.cash;
+      const ids = belts.map((b) => b.id);
+      const res = g.shiftFixtures('me', ids, cells[1].x - cells[0].x, cells[1].z - cells[0].z);
+      check(res.ok, 'a run shifts one square along itself', res.error ?? '');
+      eq((g.layout.belts ?? []).length, 3, '...with every cell of it still standing');
+      eq(round2(g.cash - was), 0, '...and nothing refunded, because nothing was replaced');
+    }
+  }
+
+  // --- and a belt onto a belt is still nothing at all ----------------------
+  //
+  // `conveyorSwap` is only ever between two DIFFERENT kinds — a belt over a
+  // belt is a press that takes money and changes the shop not at all — so the
+  // tile stamp refuses it, exactly as it refuses one built there.
+  {
+    const g = fresh();
+    const cells = beltRun(g, 3);
+    if (cells) {
+      const belts = lay(g, [cells[0], cells[2]]);
+      const res = g.shiftFixtures('me', [belts[0].id], cells[2].x - cells[0].x, cells[2].z - cells[0].z);
+      check(!res.ok, 'a belt may not be moved onto another belt');
+      eq((g.layout.belts ?? []).length, 2, '...and both are still there');
     }
   }
 }

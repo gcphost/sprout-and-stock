@@ -1551,6 +1551,20 @@ function sideRows(ui, f) {
       // its press does not change is two meanings on one yellow. What is set is
       // written on the strip, in words, on every card at once.
       on: picked,
+      /**
+       * ...and it is ONE OF A SET, which is the word `pick` exists to drop.
+       *
+       * Without it the tile prints the generic `On`/`Off` under the neighbour's
+       * name, and here that word is a lie twice over. It answers "is this the
+       * card you tapped", which is not a question anybody came to this menu
+       * with — and `off` is one of the four things a side can be *set* to, so
+       * the card read `Loader / OFF` directly above a strip reading `TAKES AND
+       * GIVES`. Two contradictory words, one card, and the bigger of the two is
+       * the one that is not about the setting at all: what it reads as is a
+       * side you have shut, on the machine you are trying to work out why the
+       * setting has not taken on.
+       */
+      pick: true,
       extra: `<button class="gbar" data-act="mode${r}" `
         + `title="${esc(`${say.word} — press for ${SIDE_SAY[NEXT_SIDE[mode]].word.toLowerCase()}`)}">`
         + `${esc(say.word)}</button>`,
@@ -1739,10 +1753,18 @@ function riserRows(ui, f, live, { lives = [live] } = {}) {
   // same switch. A junction gains a fifth way out and still weighs it against
   // the four it had; a tunnel has exactly one way out and this moves it — the
   // span surfaces onto the duct instead of onto the floor in front of it.
-  const mouth = (f?.kind ?? live?.kind) === 'under';
-  return (mouth ? [
+  const kind = f?.kind ?? live?.kind;
+  // A LOADER SAYS IT DIFFERENTLY AGAIN, because the rise is its last resort
+  // rather than one way out among five: it goes along the line while there is
+  // any line left, and only looks up at the end of one. Left unsaid, the row
+  // reads as a promise to send everything up, which is the one thing an aisle
+  // full of these must not do.
+  return (kind === 'under' ? [
     { on: false, name: 'Come up on the floor', sub: 'Hands on to the line it faces.' },
     { on: true, name: `Come up to ${up}`, sub: 'Needs a line up there, or it stays down.' },
+  ] : kind === 'arm' ? [
+    { on: false, name: 'Stay on this storey', sub: 'Boxes it cannot pass on are set down.' },
+    { on: true, name: `Send the last one to ${up}`, sub: 'Only when the line ends here.' },
   ] : [
     { on: false, name: 'Stay on this storey', sub: 'Only the lines beside it.' },
     { on: true, name: `Also use ${up}`, sub: 'One more way out. A line that wants the box still wins.' },
@@ -1877,6 +1899,10 @@ function settingRows(ui, f, live, sel = {}) {
   }
   if (many.every((g) => g.kind === 'arm')) {
     under('What it does', armRows(ui, f, live, sel));
+    // ...and whether the end of the line is a way UP. The junction's own switch
+    // on the second piece that can look up — see `riserRows`, and `risesTo` for
+    // why a loader has to be told rather than working it out.
+    under('The other storey', riserRows(ui, f, live, sel));
   }
   /**
    * ...and a conveyor gets rows only where two lines actually MEET.

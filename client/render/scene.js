@@ -54,9 +54,11 @@ import {
   SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   faceKey, covers, footprintMid, sizeOf, deckOf, CEILING, armReach,
   conveyorLines, conveyorLoops, unitOn, armPorts, conveyorMeets,
+  sideOut, sideIn, sideMode,
   sorterRoute, FAVOURING,
 } from '../../shared/build.js';
 import { pieceFor, surfaceOf, bodiesOf } from '../../shared/pieces.js';
+import { crateRides } from '../../shared/lot.js';
 import { hash01 } from '../../shared/hash.js';
 // Only for the wall's own thickness, which the paint ghost has to stand proud
 // of — see `setFaceGhost`. Everything else in here reads edge kinds as the raw
@@ -329,6 +331,73 @@ const FPV_PITCH_MAX = 68 * (Math.PI / 180);
 const FPV_LOOK = 0.0046;
 
 /**
+ * ...and the thing in your hands, drawn in the corner of the frame.
+ *
+ * The shop already draws what somebody is holding — `syncHaul` hangs the real
+ * `buildPallet` crate off the shoulder and `syncCarry` blocks the armful into
+ * the hands — and first person is the one view where none of that is on screen,
+ * because `showEye` hides the body the camera is inside and every child goes
+ * with it. What is left saying you are carrying anything is a card in the
+ * far corner, diagonally away from where you are looking, which people
+ * genuinely do not notice. So the held thing comes back the way every
+ * first-person game says it: near the lens, low and to one side, moving with
+ * you.
+ *
+ * It is a SECOND PICTURE of the same goods, and the rule that keeps that
+ * honest is the one `client/thumb.js` follows — it comes out of the same
+ * builders, so a crate held here and a crate set down are the same box, and a
+ * change to either is a change to both. `buildArmful` was cut out of
+ * `syncCarry` for exactly that reason and both callers now share it.
+ *
+ * No near-plane trick and no second render pass, which is what this usually
+ * costs: `FPV_NEAR` is 0.06 of a tile — about an inch of shop, chosen so the
+ * shelf you are standing at is not clipped away — so a box half a tile out is
+ * simply in the scene, lit by the same sun and outlined by the same ink as the
+ * one on the floor.
+ *
+ * Everything below is a share of the FRUSTUM rather than a distance, because
+ * `FPV_FOV` is somebody's preference and the aspect is their window: an offset
+ * in tiles would sit in the corner at 65° and halfway up the screen at 50°.
+ * `HELD_DIST` is the only number here in tiles, and it is the one thing the
+ * frustum is measured AT.
+ */
+const HELD_DIST = 0.5;
+/** How tall it stands, as a share of half the frame — so about a third of the
+ *  screen's height. */
+const HELD_FILL = 0.62;
+/** ...and no wider than this share of half the frame, or a long crate held at
+ *  a wide aspect reaches across the whole bottom of the screen. */
+const HELD_WIDE = 0.62;
+/** How much of it hangs off the corner. A held thing whose every edge is on
+ *  screen reads as an object floating in front of you rather than as one you
+ *  are holding — the frame has to cut it. */
+const HELD_BLEED = 0.28;
+/** Turned so you see a corner of the box rather than a flat face. */
+const HELD_TILT = [0.12, -0.42, 0.08];
+/**
+ * How fast it catches up with your head, per 60Hz frame through `gainFor`.
+ *
+ * The lag IS the effect: the position is copied off the camera exactly and only
+ * the rotation eases, so a turn swings the item across the corner and it
+ * settles back — which is the whole difference between something you are
+ * carrying and something painted on the lens. Tight enough (a third of the gap
+ * a frame) that it is never more than a moment behind.
+ */
+const HELD_SWAY = 0.3;
+/** The walk bob, as a share of half the frame. Up-and-down on every step,
+ *  side-to-side on every other one, which is what a stride is. */
+const HELD_BOB = 0.085;
+/** Radians of bob per tile walked, so the rhythm is the WALK's rather than the
+ *  clock's — the same argument `animateStations` makes about a blade, and the
+ *  reason a bob read off `now` keeps swinging while you stand still. */
+const HELD_BOB_RATE = 7.2;
+/** Tiles a second that counts as a full stride, for scaling the bob down to
+ *  nothing as you slow. Ordinary walking pace; sprinting simply pegs it. */
+const HELD_BOB_FULL = 3;
+/** ...and what it does standing still, so the frame is never quite dead. */
+const HELD_BREATH = 0.018;
+
+/**
  * HOW HARD THE VIEW CHASES WHAT IT IS AIMED AT, per frame, and the same four
  * numbers again for somebody with a capture running.
  *
@@ -561,6 +630,77 @@ const BED_MAX = 12;
  * are stops reading as carried.
  */
 const CARRY_SHOWN = 4;
+
+/**
+ * An armful of goods, as a block of little models with a count beside it.
+ *
+ * Cut out of `syncCarry` when first person grew a held item (see `HELD_DIST`),
+ * because that is a second picture of the same armful and a second picture
+ * drawn by a second piece of code goes wrong the moment either changes —
+ * `client/thumb.js`'s argument about a palette button, said about your own
+ * hands. `syncCarry` still owns where it HANGS; this owns what it looks like.
+ *
+ * The units are dealt out ROUND-ROBIN across the kinds, not kind by kind: four
+ * tomatoes and a cheese would otherwise spend the whole pile on tomatoes, and
+ * "they picked up a cheese" is exactly the fact this is here to show. Past
+ * `CARRY_SHOWN` the count does the talking.
+ *
+ * Answers `null` rather than an empty group when nothing in it resolved —
+ * every item deleted out from under somebody is the orphan case, and a group
+ * with nothing in it floating at chest height is worse than no armful at all.
+ * The label comes back beside the group rather than being looked up later,
+ * because `weld` re-hangs the sprite somewhere inside the block and this is the
+ * only moment anybody holds a reference to it.
+ */
+function buildArmful(lines, items, { label = true } = {}) {
+  // Deal one of each kind, then go round again, until the pile is full or
+  // there is nothing left to deal.
+  const left = lines.map((l) => l.qty);
+  const pile = [];
+  for (let round = 0; pile.length < CARRY_SHOWN; round++) {
+    let dealt = false;
+    for (let i = 0; i < lines.length && pile.length < CARRY_SHOWN; i++) {
+      if (left[i] <= 0) continue;
+      left[i]--;
+      pile.push(lines[i].item_id);
+      dealt = true;
+    }
+    if (!dealt) break;
+  }
+
+  const held = new THREE.Group();
+  let n = 0;
+  for (const itemId of pile) {
+    const item = items[itemId];
+    if (!item) continue;
+    const one = buildModel(item.model, { castShadow: false });
+    one.scale.setScalar(0.5);
+    // Two by two, not four in a column. `CARRY_SHOWN` at 0.15 apart is a
+    // 0.45-tall tower, which on a body 0.78 high starts at the arms and ends
+    // above the head — an armful drawn as a totem pole, and the reason carried
+    // goods read as floating rather than as held. A block is what an armful
+    // looks like.
+    one.position.set(((n % 2) - 0.5) * 0.17, Math.floor(n / 2) * 0.13,
+      ((Math.floor(n / 2) % 2) - 0.5) * 0.08);
+    held.add(one);
+    n++;
+  }
+  // Nothing in the catalog answered to any of it.
+  if (!n) return null;
+
+  let tag = null;
+  const total = lines.reduce((s, l) => s + l.qty, 0);
+  if (label && total > 1) {
+    tag = buildTextSprite(`x${total}`, { fill: '#fff3cf', scale: 0.62 });
+    tag.position.set(0.28, 0.16 + Math.floor((n - 1) / 2) * 0.13, 0);
+    held.add(tag);
+  }
+  // Welded, like stock and crops: an armful is up to `CARRY_SHOWN` little
+  // models nailed to one another, and everybody in the shop is carrying one.
+  // The label rides along untouched — `weld` re-hangs a sprite rather than
+  // trying to merge it.
+  return { group: weld(held), tag };
+}
 /*
  * How far off the centre line a kit has to be authored before it counts as
  * held in ONE hand rather than in both — see `syncKit`. A shoulder sits at
@@ -2204,6 +2344,42 @@ export class Scene {
     this.crowd = new CrowdBatch(CROWD_CAP);
     this.actorRoot.add(this.crowd.mesh.cast, this.crowd.mesh.flat);
 
+    /**
+     * The thing in your hands in first person — see `HELD_DIST`.
+     *
+     * Two groups because they are posed by two different things and one would
+     * have to fight itself. The ROOT is the head: it takes the camera's
+     * position exactly and eases onto its rotation, which is what makes a turn
+     * swing the item. The HOLD is where in the frame it sits, in the root's own
+     * space, and that is recomputed every frame off the frustum because the
+     * lens is a stored preference and the window is a window.
+     *
+     * Under `actorRoot` rather than parented to the camera. Three reasons and
+     * each is a real one: a camera is not in the scene graph, so its children
+     * are never traversed by `render`; `inkNoCrease` names this root, so a held
+     * crate gets its outline and not its creases, exactly as the one on a
+     * shoulder does; and `composeWorld` clears `staticRoot` wholesale while
+     * taking things out of this one BY NAME, so a re-flow leaves it alone.
+     */
+    this.heldRoot = new THREE.Group();
+    this.heldRoot.visible = false;
+    this.heldHold = new THREE.Group();
+    this.heldRoot.add(this.heldHold);
+    this.actorRoot.add(this.heldRoot);
+    /** What whoever the camera is riding has in their hands, kept whether or
+     *  not we are in there to see it — see `syncHeld`. */
+    this.heldHands = null;
+    /** What is drawn in it, what shape that turned out to be, and the key that
+     *  says whether it is still the right picture. */
+    this.heldItem = null;
+    this.heldSize = new THREE.Vector3(1, 1, 1);
+    this.heldKey = null;
+    /** The walk, for the bob: where the follow point was last frame, how far
+     *  through a stride we are, and how much of one is being taken. */
+    this.heldAt = new THREE.Vector3();
+    this.heldPhase = 0;
+    this.heldGait = 0;
+
     // Where the shoppers have been. Its own root beside those two, and never
     // under `staticRoot`, which `buildWorld` disposes wholesale: a fortnight of
     // watching must not be thrown away because somebody laid a wall — and
@@ -3002,6 +3178,11 @@ export class Scene {
     } else {
       this.showEye(true);
     }
+    // What is in your hands moves from the body to the frame and back — see
+    // `buildHeld`, which is a no-op in either direction when your hands are
+    // empty. Built from the record it already has rather than left to the next
+    // snapshot, or stepping in with a crate is a tenth of a second of nothing.
+    this.buildHeld();
     // Last, and after the body is back: the hook takes the mouse away and gives
     // it back (see `onFpv`), and a lock grabbed while the view still had the old
     // pose would spend its first frames looking around a camera that is mid-step.
@@ -6609,7 +6790,7 @@ export class Scene {
       const body = this.movingFixtures.get(id);
       if (body && body.moveN !== m.n) { body.moveN = m.n; body.moveAt = stamp; }
     }
-    this.syncDeliveries(state.deliveries ?? [], this.crateCap);
+    this.syncDeliveries(state.deliveries ?? [], this.crateCap, state.packers ?? []);
     this.syncVehicles(state.van ?? null, state.cars ?? []);
     this.syncStations(state.stations ?? []);
     this.syncActionRings(state.players, myId);
@@ -6669,6 +6850,10 @@ export class Scene {
       // the round trip is exact rather than off by however far you had walked.
       if (this._wantCentre) { this.takeCentre(); this._wantCentre = null; }
     }
+    // ...and what is in their hands, for the corner of the frame — see
+    // `syncHeld`. Outside the `if`, because empty-handed and nobody-to-be are
+    // both "draw nothing" and only one of them is reached from in there.
+    this.syncHeld(eye ?? null);
 
     // The day cycle. `daylight` is 0 at open and close, 1 at midday.
     //
@@ -7312,8 +7497,16 @@ export class Scene {
    * the only ordering that stays put — the snapshot's array order changes as
    * crates are taken and the tower must not shuffle underneath your pointer.
    */
-  syncDeliveries(deliveries, cap = 6) {
+  syncDeliveries(deliveries, cap = 6, packers = []) {
     const seen = new Set();
+    // How full a PACKER's box is drawn against, which is a fact about the
+    // machine holding it rather than about crates. Its rung says how many
+    // ordinary crate-loads it folds into one, so a tier-1 box and a tier-3 box
+    // are the same three piles against two different totals — read off the
+    // shop's own answer (`full`, sent per packer) rather than multiplied here,
+    // for `crateCap`'s reason above: a client with its own copy of the
+    // arithmetic goes back to being wrong the day somebody re-authors a rung.
+    const packerFull = new Map(packers.map((k) => [k.id, k.full]));
     const stacks = new Map();
     // Which conveyor cells are carrying something, which is what a loader's lamp
     // is wired to. `motion` runs while its fixture is WORKING and always runs on
@@ -7437,7 +7630,13 @@ export class Scene {
       // `waste` is in the key because it is in the picture: a crate the shop
       // gave up on is drawn in a different wood, and a box that changed hands
       // between the two without a redraw would keep whichever it was built as.
-      const key = `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${cap}:${at}:${covered ? 'c' : 'o'}${d.waste ? ':w' : ''}${d.belt || d.packer ? ':b' : ''}`;
+      // A packer builds one freight crate from as many ordinary crate-loads as
+      // its rung buys. Giving it the ordinary cap makes a full packed box draw
+      // as an inexplicable overflow instead of the clearly fuller box on its
+      // tray. `?? cap` is the packer that has not reached the client yet, which
+      // is one frame of a box drawn a little too full rather than a crash.
+      const crateCap = d.packer ? (packerFull.get(d.packer) ?? cap) : cap;
+      const key = `${piles.map((s) => `${s.item_id}:${s.qty}`).join(',')}/${crateCap}:${at}:${covered ? 'c' : 'o'}${d.waste ? ':w' : ''}${d.belt || d.packer ? ':b' : ''}`;
       const existing = this.deliveryProps.get(d.id);
       const drawn = d;
       if (existing && existing.userData.key === key) {
@@ -7466,7 +7665,10 @@ export class Scene {
         disposeGroup(existing);
       }
       const obj = buildPallet(piles, {
-        covered, cap, waste: d.waste === true, label: !d.belt && !d.packer,
+        // `crateRides` and not the two fields, because the hover card is the
+        // other half of this sentence — see its header. A box that says nothing
+        // here is the box the pointer has to be able to ask.
+        covered, cap: crateCap, waste: d.waste === true, label: !crateRides(d),
       });
       // Sat on the deck of the belt rather than on the floor. `at` is 0 for
       // anything belted (it is in no pile), so this is the belt's own height and
@@ -7488,7 +7690,8 @@ export class Scene {
       // goods on it and the same label rules, seen in transit. `BELT_DECK` is
       // measured to the carriers so the foot stays on the track — a scale about
       // the group's own origin lifts nothing, because that origin is the foot.
-      if (d.belt || d.packer) obj.scale.setScalar(BELT_CRATE);
+      if (d.packer) obj.scale.setScalar(BELT_CRATE * 1.22);
+      else if (d.belt) obj.scale.setScalar(BELT_CRATE);
       // A hand's turn per crate, so a tower reads as boxes somebody put there
       // rather than as one extruded box, and each one's edges stay findable to
       // point at. Alternating rather than random: a prop rebuilt on every
@@ -9173,9 +9376,22 @@ export class Scene {
     // between seed and harvest without a re-flow, a move or a new id — so keyed
     // on the record alone the ring would keep the shape the bed had when the
     // pointer arrived and stop agreeing with the crop while you watch it.
+    //
+    // ...and a CRATE's own art key is the same argument a third time, and the
+    // one where getting it wrong is not a cosmetic fault. A contour BORROWS the
+    // geometry it is cut from (`buildContour` re-uses `o.geometry` rather than
+    // cloning it), and `syncDeliveries` disposes a crate's group the moment its
+    // key moves — which it does every time somebody takes a unit out of the box
+    // you are pointing at. Keyed without it, the marker would be left holding
+    // geometry that has been freed.
+    //
+    // Where it moves is NOT in here, deliberately: a box on a belt moves every
+    // frame and rebuilding a contour at 60Hz to chase it would be the whole
+    // outline re-cut for a translation. `followAim` walks it instead.
     const art = board
       ? this.shelfProps.get(f?.id)?.key ?? ''
-      : this.plotProps.get(f?.id)?.key ?? '';
+      : this.plotProps.get(f?.id)?.key
+        ?? this.deliveryProps.get(f?.id)?.userData.key ?? '';
     const key = f ? `${f.id}:${mode}:${f.y ?? 0}:${board ?? ''}:${art}:${this.reflows}` : null;
     if (this.aimKey === key) return;
     this.aimKey = key;
@@ -9384,7 +9600,29 @@ export class Scene {
       // alike — see `buildContour`. It comes back null for a look with no
       // `hull` (`kin`, which appears seventeen at a time) and for a fixture
       // whose art has not been built yet, and both of those keep the frame.
-      const at = new THREE.Vector3(f.x, f.y ?? this.fixtureBaseY(f), f.z);
+      // A CRATE IS ART TOO, and it was the one thing you can point at that got
+      // the floor instead.
+      //
+      // Everything else in the shop is outlined round its own model
+      // (`buildContour`), and a crate fell through to the tile frame for one
+      // reason: it is not a fixture, so `fixtureProps` has never heard of it and
+      // the hull came back null. What that draws is a yellow diamond lying on
+      // the floor a box happens to be standing on — which says "this square"
+      // about a thing that is emphatically not a square, and on a conveyor it
+      // reads as the pointer having selected the BELT rather than the box, since
+      // a belt is exactly what the square underneath it is.
+      //
+      // Its position comes off the group rather than off `f`, which is the whole
+      // reason this is two lines and not one: `pickPallet` rounds its answer to
+      // the cell, and a contour cut round the box and then hung on the cell
+      // centre is the outline sitting a third of a tile off the thing it is
+      // round — worst on a belt, where a box is between two cells for most of
+      // its life. See `followAim` for the other half, which is that the box goes
+      // on moving after the outline is cut.
+      const crate = this.deliveryProps.get(f.id) ?? null;
+      const at = crate
+        ? crate.position.clone()
+        : new THREE.Vector3(f.x, f.y ?? this.fixtureBaseY(f), f.z);
       // A Set of the MESHES, which is `collectEdges`' own spelling one call
       // along: the record is `{mesh, ...}` and testing the record against an
       // object is a skip that never fires, so the hull would quietly include
@@ -9393,7 +9631,7 @@ export class Scene {
       const skip = spin?.length ? new Set(spin.map((m) => m.mesh)) : null;
       // ...taken at REST, or a fixture you have just put down is outlined
       // where the drop animation had it. See `atRest`.
-      const art = this.fixtureProps.get(f.id);
+      const art = crate ?? this.fixtureProps.get(f.id);
       // A plot is the one fixture whose art is in two places. Its FRAME is the
       // catalog model in `staticRoot`; its bed — soil, ridges, what is growing
       // in it — is built by `syncPlots` into `actorRoot`, and that is the part
@@ -9667,12 +9905,36 @@ export class Scene {
    * @returns {?{ok: boolean, reason?: string}}
    */
   /**
-   * Which quarter turn a conveyor cell's DECK should lie along.
+   * Which quarter turn a loader or a sorter is DRAWN along.
    *
-   * For a belt that is simply its facing. For a loader it is the run it is part
-   * of, worked out from `conveyorNext` — and it falls back to the cell that
-   * FEEDS it, because the last loader on a line has nothing downstream and its
-   * deck still has to lie along the belt rather than across it.
+   * Only those two ask — everything else on a run has a `rot` that says where it
+   * points, and this is the pair whose direction is derived instead. Mid-run the
+   * answer is the run: the cell it hands on to, so the deck lies along the belt
+   * rather than across it.
+   *
+   * A TERMINUS IS AIMED, and that is the half this got wrong. There is no way on
+   * from the last machine on a line, so the run cannot answer — and what stood
+   * here instead was a guess dressed as a rule: its own note claimed it fell back
+   * to "the cell that FEEDS it", and the code took the first adjacent conveyor in
+   * enum order and pointed away from that. Adjacency is not connection, which is
+   * a trap this file names twice elsewhere, and it fails hardest on exactly the
+   * build a loader is bought for — one standing between a line and a pad, with
+   * two belts going past on the other axis that have nothing to do with it. A
+   * measured case: a loader fed by a sorter to its west and dropping onto Storage
+   * to its east drew facing NORTH, at a belt running west, at every one of its
+   * four rotations bar one. Three presses of R drew the same machine and the
+   * fourth drew it pointing south, so the one direction it could never be drawn
+   * in was the one it was doing its job in.
+   *
+   * Nothing about that is a sim bug and that is what makes it expensive: the
+   * goods went where they were aimed the whole time. What it reads as is R not
+   * working, because the art is the only place the aim is written down.
+   *
+   * So: the run while there is one, and the AIM once the run has run out —
+   * `armSwing`'s own reading of `rot`, which is the side served first and the
+   * side the off-ramp uses. Aim it back at whatever feeds it and it is drawn
+   * facing its feeder, which is an honest picture of a silly aim rather than a
+   * fourth guess.
    */
   conveyorFacing(L, cell) {
     const to = conveyorNext(L, cell);
@@ -9683,11 +9945,7 @@ export class Scene {
       });
       if (r !== undefined) return r;
     }
-    for (const r of [0, 1, 2, 3]) {
-      const n = anchorTile(cell.x, cell.z, r);
-      if (conveyorAt(L, n.x, n.z, deckOf(cell))) return rot4(r + 2);
-    }
-    return cell.rot ?? 0;
+    return rot4(cell.rot ?? 0);
   }
 
   /**
@@ -11224,8 +11482,26 @@ export class Scene {
     // The same four neighbours `armReach` hands to in the simulation. Overhead
     // those are floor fixtures on either side of the aisle; the spur and its
     // drop collar are drawn separately below.
-    for (const s of armReach(c)) {
-      if (conveyorAt(L, s.x, s.z, deckOf(c))) continue;
+    armReach(c).forEach((s, r) => {
+      /**
+       * ...AND ONLY THE SIDES IT WILL GIVE ON — `armSwing`'s own `sideOut`
+       * filter, which this loop is the picture of.
+       *
+       * A machine that draws a track, an opening and a chevron into a side it
+       * has been told to leave alone is the green-ghost bug wearing a loader:
+       * every mark on it promises a hand-over the sim refuses, and the one
+       * thing on screen that could report the setting agrees with the version
+       * of the shop that existed before you pressed anything. What that reads
+       * as is the menu not having worked — there is no other way to read it,
+       * because the arrows are the only place the answer is written down.
+       *
+       * `armReach` maps `[0,1,2,3]` in order, so the index is the quarter turn
+       * the side is named by. Taken as read rather than re-derived from the
+       * tile, exactly as `armSwing` takes it, or the two disagree about which
+       * edge a word was said about.
+       */
+      if (!sideOut(c, r)) return;
+      if (conveyorAt(L, s.x, s.z, deckOf(c))) return;
       // `armPorts` rather than a list of kinds. This was three lines naming
       // shelves, stations and bins, which is one of the three copies of that
       // list `armPorts` exists to retire — see its note. A pad is not a fixture
@@ -11233,7 +11509,7 @@ export class Scene {
       const takes = armPorts(L, s.x, s.z).pour
         || GOODS_PADS.some((k) => isPadAt(L, k, s.x, s.z));
       if (takes) out.push(s);
-    }
+    });
     return out;
   }
 
@@ -11302,14 +11578,19 @@ export class Scene {
     if (c.mode === 'unload') return [];
     const faced = anchorTile(c.x, c.z, c.rot ?? 0);
     const out = [];
-    for (const s of armReach(c)) {
+    armReach(c).forEach((s, r) => {
+      // ...and only the sides it will TAKE on, which is `armSwing`'s `sideIn`
+      // exactly as the pour half above is its `sideOut`. Both, or the setting
+      // is honoured in one direction and the machine draws an intake rail off a
+      // pad it has been told to leave alone — see `conveyorPours`.
+      if (!sideIn(c, r)) return;
       // The side it unloads onto is never a side it lifts from — three sides in,
       // one side out, which is what stops the off-ramp being a loop. A load-only
       // loader has no off-ramp, so there is no loop and the exclusion would just
       // cost it the pad it is pointing at. Mirrors `armSwing`, or the arrow says
       // one thing and the machine does another.
-      if (c.mode !== 'load' && s.x === faced.x && s.z === faced.z) continue;
-      if (conveyorAt(L, s.x, s.z, deckOf(c))) continue;
+      if (c.mode !== 'load' && s.x === faced.x && s.z === faced.z) return;
+      if (conveyorAt(L, s.x, s.z, deckOf(c))) return;
       // A unit of shelving is the one kind whose take port is conditional, and
       // the condition is `armPull`'s: back of house only, or a loader empties
       // the aisle it was bought to fill and the two directions undo each other
@@ -11319,7 +11600,7 @@ export class Scene {
       const source = GOODS_PADS.some((k) => isPadAt(L, k, s.x, s.z))
         || (shelving ? shelving.boh === true : armPorts(L, s.x, s.z).take);
       if (source) out.push(s);
-    }
+    });
     return out;
   }
 
@@ -13420,9 +13701,14 @@ export class Scene {
           || (c.x === focus.x && c.z === focus.z && deckOf(c) === deckOf(focus)))
         // `armReach` and `covers`, which is `conveyorMeets`' own pair: a loader
         // fills whatever is beside it rather than only the side it is aimed at,
-        // and a pen is four cells with its record on the min corner.
+        // and a pen is four cells with its record on the min corner. Not across
+        // a side somebody shut, or picking a shelf lights every run that merely
+        // passes a machine which has been told to leave it alone — the reachable
+        // set is most of the shop before the subject narrows it, so a false
+        // seed here is a route drawn to somewhere goods provably never go.
         : line.cells.some((c) => c.kind === 'arm'
-          && armReach(c).some((t) => covers(focus, t.x, t.z)))));
+          && armReach(c).some((t, r) => sideMode(c, r) !== 'off'
+            && covers(focus, t.x, t.z)))));
       if (!seeds.length) return;
 
       // How many hand-offs upstream each line is. BREADTH first — `shift` and
@@ -13892,9 +14178,18 @@ export class Scene {
     for (const c of (L.arms ?? [])) {
       const bad = tugged.has(c.id);
       const colour = bad ? BAD : (litCell(c.id) ? OK : OFF);
-      for (const t of armReach(c)) {
+      // ...on the sides it uses at all, which is the coarse half of the pair
+      // `conveyorPours` and `conveyorIntake` split by direction. This overlay
+      // answers "where do goods leave the network", and a unit is either end of
+      // that depending on what it is — a shelf is poured into, a vat and a rack
+      // are taken out of — so `off` is the one answer it can act on without
+      // re-deciding which way each kind flows. A side somebody shut is not a
+      // way out of the network, and drawing it is this trace promising a
+      // hand-over the machine has been told not to make.
+      armReach(c).forEach((t, r) => {
+        if (sideMode(c, r) === 'off') return;
         if (unitOn(L, t.x, t.z)) spur(c, t, colour);
-      }
+      });
     }
     for (const c of (L.sorters ?? [])) rejectArm(c, litCell(c.id) ? DEAD : OFF);
 
@@ -14179,58 +14474,16 @@ export class Scene {
     rec.carryTag = null;
     if (!key) return;
 
-    // Deal one of each kind, then go round again, until the pile is full or
-    // there is nothing left to deal.
-    const left = lines.map((l) => l.qty);
-    const pile = [];
-    for (let round = 0; pile.length < CARRY_SHOWN; round++) {
-      let dealt = false;
-      for (let i = 0; i < lines.length && pile.length < CARRY_SHOWN; i++) {
-        if (left[i] <= 0) continue;
-        left[i]--;
-        pile.push(lines[i].item_id);
-        dealt = true;
-      }
-      if (!dealt) break;
-    }
-
-    const held = new THREE.Group();
-    let n = 0;
-    for (const itemId of pile) {
-      const item = this.catalog.items[itemId];
-      if (!item) continue;
-      const one = buildModel(item.model, { castShadow: false });
-      one.scale.setScalar(0.5);
-      // Two by two, not four in a column. `CARRY_SHOWN` at 0.15 apart is a
-      // 0.45-tall tower, which on a body 0.78 high starts at the arms and ends
-      // above the head — an armful drawn as a totem pole, and the reason
-      // carried goods read as floating rather than as held. A block is what an
-      // armful looks like.
-      one.position.set(((n % 2) - 0.5) * 0.17, Math.floor(n / 2) * 0.13,
-        ((Math.floor(n / 2) % 2) - 0.5) * 0.08);
-      held.add(one);
-      n++;
-    }
+    const built = buildArmful(lines, this.catalog.items);
     // Nothing in the catalog answered to any of it — better to draw nothing
     // than an empty group floating at chest height.
-    if (!n) return;
-
-    const total = lines.reduce((s, l) => s + l.qty, 0);
-    if (total > 1) {
-      const label = buildTextSprite(`x${total}`, { fill: '#fff3cf', scale: 0.62 });
-      label.position.set(0.28, 0.16 + Math.floor((n - 1) / 2) * 0.13, 0);
-      held.add(label);
-      // Kept, because it is a CAPTION on a body and every other caption in the
-      // game fades — see `fadeCrateLabels`. Stashed here rather than looked up
-      // later: `weld` re-hangs the sprite somewhere inside the armful, so the
-      // only moment it is a thing anybody holds a reference to is now.
-      rec.carryTag = label;
-    }
-    // Welded, like stock and crops: an armful is up to `CARRY_SHOWN` little
-    // models nailed to one another, and everybody in the shop is carrying one.
-    // The label rides along untouched — `weld` re-hangs a sprite rather than
-    // trying to merge it.
-    const armful = weld(held);
+    if (!built) return;
+    // Kept, because it is a CAPTION on a body and every other caption in the
+    // game fades — see `fadeCrateLabels`. Stashed now rather than looked up
+    // later: `weld` has re-hung the sprite somewhere inside the armful, so the
+    // only moment it is a thing anybody holds a reference to is here.
+    rec.carryTag = built.tag;
+    const armful = built.group;
     // In the HANDS, which is where `animateActors` puts them the moment there
     // is something to hold — see `armLift`. It used to sit at chest height and
     // a third of a tile out in front, on the reasoning that it should read as
@@ -14309,11 +14562,21 @@ export class Scene {
    * also the fact the player needs — set it down and *that* is what appears —
    * so the sample inside and the count on the front both carry over for free.
    *
-   * Held high and forward, at the height a box is carried rather than the chest
-   * height an armful is: the two have to be tellable apart across the shop,
-   * because they are the difference between hands you can use and hands you
-   * cannot. Scaled down slightly so a crate does not read as wider than the
-   * person under it.
+   * Held forward and a little higher than an armful: the two have to be
+   * tellable apart across the shop, because they are the difference between
+   * hands you can use and hands you cannot. Scaled down slightly so a crate
+   * does not read as wider than the person under it.
+   *
+   * The height is arithmetic on the body rather than taste, and it shipped
+   * wrong. `ARM_LIFT_HAUL` swings the arm 1.18 radians forward off a shoulder
+   * pivot at 0.50, which puts the HANDS at y 0.43 — so a box whose base sat at
+   * 0.52 was floating 0.09 above the fingers holding it, and 0.72 of a crate is
+   * 0.12 tall with two rows of goods over that, which took the top of the load
+   * to about 0.70. The head is a 0.21 box centred at 0.655, so it spans
+   * 0.55–0.76: the crate was drawn straight through the face, and from this
+   * camera (which looks DOWN at a body 0.3 of a tile behind it) that reads as a
+   * box worn on the chin. At the hands it spans 0.38–0.50 against a torso of
+   * 0.38–0.55, which is a box carried against the chest with the arms under it.
    */
   syncHaul(rec, haul, cap) {
     const piles = (haul?.stacks ?? []).map((s) => ({
@@ -14344,9 +14607,169 @@ export class Scene {
     // is the only way to tell that the box is doing three jobs at once.
     const box = buildPallet(piles, { covered: false, cap, waste });
     box.scale.setScalar(0.72);
-    box.position.set(0, 0.52, 0.3);
+    box.position.set(0, 0.38, 0.3);
     rec.obj.add(box);
     rec.haul = box;
+  }
+
+  /**
+   * ...and the same two things again, in the corner of the frame, for the one
+   * view where the body holding them is not drawn. See `HELD_DIST`.
+   *
+   * Told about whoever the camera is riding rather than about "you", because
+   * `_eyeId` has three answers — you, a hire you are watching, a thief the
+   * camera cut to — and being inside somebody is being inside their hands.
+   *
+   * The record is stashed whether or not the mode is on, and the BUILD is what
+   * asks. That split is the whole of what makes it free out of first person: a
+   * shop full of shoppers still only ever reaches this for one of them, and
+   * three quarters of an armful of geometry is not built for a view nobody is
+   * in. It also means stepping in is instant rather than a tenth of a second
+   * late, because `setFirstPerson` has the last record to hand and can build
+   * from it without waiting for the next snapshot.
+   */
+  syncHeld(p) {
+    this.heldHands = p ? { haul: p.haul ?? null, carry: p.carry ?? null } : null;
+    this.buildHeld();
+  }
+
+  /**
+   * What that comes out as, and whether it has changed.
+   *
+   * Keyed the way `syncHaul` and `syncCarry` are keyed — the piles, the crate's
+   * capacity and whether it is rubbish, all of which are in the picture — so
+   * the geometry is built on the tick your hands change and on no other. A
+   * crate is keyed apart from an armful (`h`/`c`) because they are two
+   * different objects rather than two poses, and `null` covers three states
+   * that all draw nothing: empty hands, nobody to be, and not being in there.
+   */
+  buildHeld() {
+    const src = this.fpv ? (this.heldHands?.haul ?? this.heldHands?.carry ?? null) : null;
+    const stacks = src?.stacks ?? [];
+    const key = stacks.length
+      ? `${this.heldHands.haul ? 'h' : 'c'}|${stacks.map((s) => `${s.item_id}:${s.qty}`).join(',')}`
+        + `|${this.crateCap}${this.heldHands.haul?.waste === true ? ':w' : ''}`
+      : null;
+    if (key === this.heldKey) return;
+    this.heldKey = key;
+
+    if (this.heldItem) {
+      this.heldHold.remove(this.heldItem);
+      disposeGroup(this.heldItem);
+      this.heldItem = null;
+    }
+    this.heldRoot.visible = false;
+    if (!key) return;
+
+    const haul = this.heldHands.haul;
+    // The same builders the body uses, which is the rule this whole thing rests
+    // on: a crate held here and a crate set down are the same box, so setting
+    // one down is visibly the same object arriving on the floor. `covered:
+    // false` for `syncHaul`'s reason — what is in the box is the question.
+    const item = haul
+      ? buildPallet(
+        stacks.map((s) => ({
+          ...s,
+          model: this.catalog.items[s.item_id]?.model ?? null,
+          name: this.catalog.items[s.item_id]?.name ?? '',
+        })),
+        // No LABEL, which is the one thing that could not come across. A crate's
+        // caption is a sprite, and a sprite half a tile from a perspective
+        // camera is a wall of text across the whole screen — it is sized for
+        // being read from over there. What it says is on the pill and the card
+        // anyway, which is where a number belongs.
+        { covered: false, cap: this.crateCap, waste: haul.waste === true, label: false },
+      )
+      : buildArmful(stacks, this.catalog.items, { label: false })?.group;
+    if (!item) return;
+
+    // Turned before it is measured, so the extents below are the ones actually
+    // facing the screen — a crate at 24° is wider than a crate square on, and
+    // fitting the square-on box would let the near corner off the side of the
+    // frame.
+    item.rotation.set(...HELD_TILT);
+    const box = new THREE.Box3().setFromObject(item);
+    box.getSize(this.heldSize);
+    // Hung off its own CENTRE, because everything below places it by its middle
+    // and a crate's origin is somewhere down by its foot. Doing it here rather
+    // than per frame is what keeps the pose to two multiplies.
+    item.position.sub(box.getCenter(new THREE.Vector3()));
+
+    // No shadow, for the reason nothing on a person casts one — the body
+    // already does. Here it is worse than redundant: the body is hidden, so
+    // what the sun would lay on the floor is a box-shaped shadow cast by
+    // nobody, gliding along a tile in front of you.
+    // ...and never CULLED, because it is deliberately hung off the corner of
+    // the frame: a bounding sphere mostly outside the frustum is one a cull can
+    // honestly reject, and a held item that blinks out when you look up is the
+    // classic way this is got wrong.
+    item.traverse((o) => { o.castShadow = false; o.frustumCulled = false; });
+    this.heldHold.add(item);
+    this.heldItem = item;
+    this.heldRoot.visible = true;
+    // Where the walk is, so the first frame with something in your hands is not
+    // a stride taken from wherever the camera last happened to be.
+    this.heldAt.copy(this.camLook);
+  }
+
+  /**
+   * ...and where it sits this frame.
+   *
+   * Everything here is a share of the frustum measured AT `HELD_DIST`, so the
+   * item keeps the same place on screen at any lens and any window — see the
+   * constants. The alternative is an offset in tiles, which sits in the corner
+   * at one FOV and halfway up the screen at another, and the FOV is a menu row.
+   *
+   * The ROTATION eases and the POSITION does not, and that pairing is the
+   * effect rather than a saving. Easing both would let the item drift away from
+   * the eye on a fast turn — it would swing round you like a conker — where
+   * easing the rotation alone pivots it about your own head, which is a thing
+   * held out in front of somebody turning round.
+   */
+  poseHeld(dt, now) {
+    if (!this.heldRoot.visible) return;
+
+    const halfH = HELD_DIST * Math.tan((this.persp.fov * Math.PI) / 360);
+    const halfW = halfH * this.persp.aspect;
+
+    // How far through a stride we are, accumulated off DISTANCE WALKED rather
+    // than off the clock: a bob read off `now` keeps swinging while you stand
+    // still, which is the same argument `animateStations` makes about a blade.
+    // `camLook` is the follow point, so this is the body's own movement and not
+    // the camera's — looking around does not make you bob.
+    const step = Math.hypot(this.camLook.x - this.heldAt.x, this.camLook.z - this.heldAt.z);
+    this.heldAt.copy(this.camLook);
+    this.heldPhase += step * HELD_BOB_RATE;
+    // Eased, or the bob snaps to full on the first frame of a walk and to
+    // nothing on the frame a route ends — which reads as the item jolting.
+    const gait = clamp(dt > 0 ? (step / dt) / HELD_BOB_FULL : 0, 0, 1);
+    this.heldGait += (gait - this.heldGait) * gainFor(0.18, dt);
+
+    // Down on every step and across on every other one, which is what a stride
+    // is: the sideways swing is half the frequency of the vertical drop.
+    const bobY = -Math.abs(Math.sin(this.heldPhase)) * HELD_BOB * this.heldGait
+      // ...and what it does standing still, so the frame is never quite dead.
+      + Math.sin(now / 1100) * HELD_BREATH * (1 - this.heldGait);
+    const bobX = Math.sin(this.heldPhase / 2) * HELD_BOB * 0.7 * this.heldGait;
+
+    // Stand it as tall as the frame allows, then take the width back off if it
+    // is a long box — a crate is wider than it is high, and fitting on height
+    // alone reaches across the bottom of a wide window.
+    const fit = Math.min(
+      (HELD_FILL * halfH) / Math.max(1e-3, this.heldSize.y),
+      (HELD_WIDE * halfW) / Math.max(1e-3, this.heldSize.x),
+    );
+    const w = this.heldSize.x * fit;
+    const h = this.heldSize.y * fit;
+    this.heldHold.scale.setScalar(fit);
+    this.heldHold.position.set(
+      halfW - w * (0.5 - HELD_BLEED) + bobX * halfH,
+      -halfH + h * (0.5 - HELD_BLEED) + bobY * halfH,
+      -HELD_DIST,
+    );
+
+    this.heldRoot.position.copy(this.camera.position);
+    this.heldRoot.quaternion.slerp(this.camera.quaternion, gainFor(HELD_SWAY, dt));
   }
 
   /**
@@ -15402,6 +15825,39 @@ export class Scene {
    * a distance and a compare per crate, on the same list `syncDeliveries`
    * already walks.
    */
+  /**
+   * THE OUTLINE WALKS WITH THE THING IT IS ROUND.
+   *
+   * Every other target in the shop stands still — a shelf moves on a re-flow and
+   * `this.reflows` is in the marker's key, so the mark being written once when
+   * it is built has been the whole truth since there have been markers. A crate
+   * on a conveyor is the first thing you can point at that moves on its OWN, and
+   * it slides under a pointer that has not gone anywhere.
+   *
+   * Written as a translation rather than as a rebuild, which is the only reason
+   * it is affordable: `buildContour` cuts a mesh per part of the box, and doing
+   * that at sixty frames a second to chase a box across an aisle is the whole
+   * outline re-made for three numbers that changed. So the key holds what the
+   * marker is CUT FROM (`setAimTarget`) and this holds where it IS.
+   *
+   * Both markers, because they are two channels naming the same kind of thing:
+   * the aim follows the pointer and the pick stays on what you pressed, and a
+   * pick that stayed on the cell where you pressed while the box rode away would
+   * be the same bug wearing the other colour.
+   */
+  followAim() {
+    const walk = (marker, id) => {
+      if (!marker || !id) return;
+      const crate = this.deliveryProps.get(id);
+      if (crate) marker.position.copy(crate.position);
+    };
+    // The id is the front of the key, which is where `setAimTarget` put it —
+    // read back rather than stored a second time, or the two can disagree about
+    // which box the mark on screen is round.
+    walk(this.aimMarker, this.aimKey?.split(':')[0]);
+    walk(this.pickedMarker, this.pickedKey?.split(':')[0]);
+  }
+
   fadeCrateLabels() {
     // The zoom half is one number for the whole shop, so it is asked once and
     // multiplied in rather than recomputed per box. Any half at zero is gone:
@@ -16215,6 +16671,12 @@ export class Scene {
     // is, so it belongs to the frame rather than to the 10Hz sync — a caption
     // that only faded ten times a second reads as flicker while you pan.
     this.fadeCrateLabels();
+    // ...and the outline round the box you are pointing at goes where the box
+    // goes. Here rather than in the sync for the reason above and one more:
+    // `animateStations` slides a crate down a loader's spur between snapshots,
+    // so the shop's own last word on where that box is is already stale by the
+    // time this runs.
+    this.followAim();
     this.fadeBubbles();
     // ...and the walls between you and the shop. Same input again — `camOffset`
     // is `camAngle` posed, and the ease above has just moved it.
@@ -16249,6 +16711,13 @@ export class Scene {
     // redraw over MCP, a rejoin — and a visibility set once on a group that has
     // since been thrown away is a person who quietly comes back.
     this.showEye(!this.fpv);
+    // ...and what that body is holding, put back in front of the lens. Here
+    // rather than with the other per-frame animators for one reason: it reads
+    // the camera's own pose, which the branch directly above has just written,
+    // so anywhere higher it would be a frame behind the head it is attached to
+    // — which on a turn is the item lagging by a whole frame MORE than the sway
+    // it is supposed to have.
+    this.poseHeld(dt, now);
     // Onto the texel grid rather than onto the look point — see
     // `snapToShadowTexel`. The light's DIRECTION is untouched by it (both ends
     // move together, and `SUN_OFFSET` is what separates them), so nothing in

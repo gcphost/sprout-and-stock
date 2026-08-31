@@ -52,6 +52,17 @@ const ON_FINISH = {
   // on the pad you were walking to.
   setdown: 'crate',
   serve: 'sale',
+  // Throwing something away, loading a machine and taking its tray back off.
+  // All three were silent for as long as they have existed, and by omission
+  // rather than by decision — this is a table, so a verb nobody adds a row for
+  // is one that makes no noise and reports nothing anywhere. `collect` was the
+  // quiet one of the three: it fills your hands, so it LOOKS covered by the
+  // `carry` diff below, and that diff is guarded on `!this.action` precisely
+  // because an action already has this table — so it fell down the gap between
+  // the two.
+  bin: 'bin',
+  load: 'load',
+  collect: 'collect',
 };
 
 /**

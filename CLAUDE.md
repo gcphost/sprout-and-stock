@@ -210,6 +210,21 @@ Thirty sweeps, about a minute:
   look" has quietly become "it lays anything", and the mutation that drops it
   does not merely paint a lie: the cell becomes `T.DROP`, the re-flow sheds the
   conveyor standing on it, and the run is refunded away.
+  Since the bulldozer learned to drag over ground the way it already dragged
+  along a wall, its §11 guards the promise the preview makes about a stroke that
+  takes ground UP — which is invisible twice over, since a cell the ghost lit and
+  the press left alone and one it lit and scraped are the same square from a
+  chair. A brush is a RECTANGLE, so a drag across a room covers every bare cell
+  between the bits somebody painted and the press does nothing whatever to those:
+  `canPaintGround` hands back the cells it would change (`moves`) and the eraser
+  draws exactly that list. Its centrepiece is the pair asserted in one press —
+  what the ghost would draw against what the press did — because either half
+  alone is satisfied by a ghost and a press that agree with each other and not
+  with the shop, and a rectangle with a bare cell in the middle of it is the
+  shape the naive answer gets wrong. Its control is a stroke over ground nobody
+  has painted: no square drawn, nothing taken up, no money moved, or "the ghost
+  shows what goes" has become a red rectangle over every lawn cell it crossed.
+  The mutation that over-reports one cell fails both halves of the pair at once.
 - `verify:yard` guards the delivery bay and the drop-off, which stopped being
   generated furniture and became ground you paint. Four claims, none of them
   visible in a screenshot because a seeded pad and a generated one look
@@ -794,7 +809,29 @@ Thirty sweeps, about a minute:
   perfectly and is emptied by the crew it exists to replace. Its control is
   doubled again for the same reason: no belt at all, and a belt that goes
   NOWHERE, since a hire who read "there is a belt" rather than "the belt serves
-  this" would walk every delivery onto a dead-ended run. It authors two items,
+  this" would walk every delivery onto a dead-ended run. And since a box could
+  be taken back OFF one, the claim that reads as a fussy shop and is arithmetic:
+  every crate in the game is taken with a ring, `ACTION_TIMES.crate` is 0.65s
+  and `BELT_SECONDS` is 0.6, so a box travels **more than a cell** in the time it
+  takes to pick one up — and `errandAction` measures `UNLOAD_REACH` against where
+  it is *now*, so the crate slid out of arm's length half way through, the
+  candidate came back null and `stepActions` binned the charge. Silently, and
+  then again, for as long as you stood there. Nothing about it is visible (a ring
+  that fills a bit and resets and a ring you are not holding properly are the
+  same picture) and it was INTERMITTENT by geometry — a box travelling across
+  you stays about as far off and lifts fine, one travelling away does not — so
+  the same press on the same box worked on one aisle and not the next. So the
+  box stops while you have hold of it (`handHeld`), which is a jam you caused
+  and is drawn as one. **BEHIND the run is the sweep rather than a detail of
+  it**, and it was written the other way round first: stood beside the belt the
+  mutation that deletes the hold was caught by the "stands still" line alone
+  while the lift went on succeeding, because the box never left reach. Its
+  control is the assertion that decides whether it is opt-in — the same run, the
+  same box, the same seconds, nobody touching it, still carried — or the fix has
+  stopped being "the box you are holding" and become "the belt". Paired with the
+  RELEASE, because a hold abandoned that kept the box is a line stopped for the
+  rest of the save with every crate on it correct and none of them moving. It
+  authors two items,
   two fixture rows and a worker, and removes them on exit. Since the strip
   curtain it also guards a claim that is a PAIR and is worthless split in half:
   that a crate rides *under* a partition a shopper cannot cross. Either half
@@ -885,6 +922,52 @@ Thirty sweeps, about a minute:
   re-flow, and R — which is the press this piece gets most of all, since aiming
   the branch is what R is for, and `merge` was missing from
   `repositionFixture`'s named fields from the day it shipped.
+  And §27, the SIDE THAT IS SPOKEN FOR — which shipped with no sweep at all,
+  and is this file's `verify:ceiling` lesson arriving one piece along. Every
+  claim about it is invisible twice over: a loader that ignored the setting and
+  one that never had it are the same machine in the same aisle, and only which
+  edge the goods crossed moved. Its control is doubled — every side of every
+  cell answers `both`, nothing is stored on the record, the placement or the
+  wire, and the loader fills the shelf exactly as §7 says. Its centrepiece is a
+  PAIR worthless split in half: the shut side pours nothing AND all four units
+  are still loose stock, since "the shelf stayed empty" is satisfied by a
+  machine that is simply broken. Then the half that shipped MISSING and that
+  nothing could report: `conveyorMeets` and `conveyorServes` walk all four
+  sides of every loader downstream, and they are what decide whether rubbish
+  may ride and whether the shop believes a board is fed — so a skip behind a
+  shut side still counted as somewhere rot could end, and a loader that
+  provably never pours stood beside a shelf the whole shop still thought it
+  filled. Asserted both ways in one shop, or the function answers the same
+  thing whatever it is asked. Plus that the AIM does not beat the refusal (`rot`
+  is a preference between sides and this is a no, so turning the machine at a
+  side you shut must not be a way of undoing the menu); that it is a PAIR at the
+  wall — shutting the *receiver's* way in makes the sender a terminus though
+  nobody spoke to it, which is `handsAcross`' opposite-turn arithmetic and the
+  one thing here that is impossible to see wrong; that `both` stores nothing at
+  all rather than the word; and out and back through a re-flow and an R, where
+  it TURNS WITH THE MACHINE — both halves in one breath, or "it moved" is
+  satisfied by R having cleared it and "it is still there" by R having done
+  nothing. It rode untouched for a step on an argument that is true and about
+  the wrong thing (a side is named by a compass turn, and what stands on that
+  turn does not move when you press R): every word of that describes the SHOP,
+  where what you have hold of when you press R is the MACHINE, whose hood, blade
+  and aim all swing — so a loader set up between a pad and a shelf came out of
+  one quarter turn taking from the shelf and giving to the pad, silently, with
+  no press that could have said so. `turnSides` takes a DELTA, and the sweep
+  pins that with a restyle: a restyle and both rungs of the tier ladder come
+  through `repositionFixture` too and none of them is a turn, so handed the
+  absolute angle a piece that had never been rotated would have its sides
+  rewritten from turn zero the first time one of those landed. Six deliberate
+  mutations were run against it — the two walks not asking, the far end read at
+  the same turn as the near one, `sides` dropped from `repositionFixture`, the
+  shut side pouring anyway, the sides riding a turn untouched, and the turn
+  taken as an absolute angle — and each was caught on the assertion that names
+  it. What it cannot reach is the PICTURE, and that is
+  where the bug was found from a chair: `conveyorPours` and `conveyorIntake` are
+  `armSwing`'s two filters said in the renderer and neither asked, so a machine
+  drew a track, an opening and a chevron into a side it had been told to leave
+  alone — the green-ghost bug wearing a loader, and the only place the answer is
+  written down.
 
 - `verify:packer` guards the box that stands still, and it is the only piece on
   a run that changes what is IN one rather than where one is. Every claim is
@@ -957,7 +1040,17 @@ Thirty sweeps, about a minute:
   run it crossed. So a plain belt never looks up, a loader with a run in front of
   it never looks up, and the only two that do are a junction — the piece whose
   whole job is choosing between ways out — and a loader that has run out of
-  aisle. All three are asserted in one shop that differs by nothing else — and
+  aisle AND been told the duct counts. That second half is `riser` arriving at
+  the loader a step after the junction, and it is the same argument: "nowhere
+  else to hand on" is a machine that has chosen, and it is still a guess about
+  the one axis nobody can see, so an endcap that rises and one that stops are the
+  same still frame and a return leg laid home re-pointed every endcap it flew
+  over with nobody pressing anything. The sweep's control is that pair in one
+  shop one press apart, and its §10c is SHARPER for the switch rather than
+  weaker: all five loaders of the aisle are told, so the ORDERING is the only
+  thing left between that build and a row of five lifts — a sweep that pressed
+  only the endcap would be asserting "the rise is asked for" while claiming "the
+  rise is last". All three are asserted in one shop that differs by nothing else — and
   again in a row made ENTIRELY of loaders, which is the shape "belts on the
   corners, loaders down the straights" produces and the one that found the hole:
   a beltless row never reaches the forward walk, so its endcap was declared a
@@ -3680,6 +3773,30 @@ what the next step was meant to be.
   shape: **a derivation with no answer must be allowed to say so**, or the
   guess it makes up gets read by everything downstream as a fact somebody
   stated.
+- **…and a TERMINUS is drawn by its aim, because there is no run left to draw
+  it by.** A loader and a sorter are the two pieces whose direction is derived
+  rather than stated, so `conveyorFacing` turns their art — the whole prop, the
+  deck, the housing, the mouth — off `conveyorNext` and never off `rot`. That is
+  right mid-run and has no answer at the end of one, and what stood in the gap
+  was a guess dressed as a rule: the note said it fell back to "the cell that
+  FEEDS it" and the code took the first adjacent conveyor in **enum order** and
+  pointed away from that. Adjacency is not connection — this file's own trap,
+  arriving on the picture instead of on the flow — and it fails hardest on the
+  build a loader is bought for: one between a line and a pad, with two belts
+  going past on the other axis that neither feed it nor are fed by it. Measured:
+  a loader fed by a sorter to its west, off-ramping onto Storage to its east,
+  drew facing NORTH at three of its four rotations and south at the fourth, so
+  the one direction it could never be drawn in was the one it was working in.
+  **Nothing in the sim is wrong, which is what makes it expensive** — the goods
+  went where they were aimed the whole time, every crate arrived correctly, and
+  the only thing that could have reported the aim was agreeing with a belt it has
+  nothing to do with. What it reads as is the R key not working, because the art
+  is the only place `rot` is written down. So: the run while there is one, and
+  the AIM once the run has run out. Aim it back at its own feeder and it is drawn
+  facing its feeder, which is an honest picture of a silly aim rather than a
+  fourth guess. It is unswept for `computeBuildTools`' reason — `scene.js` pulls
+  three.js, so no `verify:*` can load it — and that is written down rather than
+  skipped quietly.
 - **…and a crate may not REST on the rails, which is a rule and not a plea.**
   The square being part of a run and the box being ON the run are two claims,
   and a box could satisfy the first without the second for as long as there have
@@ -3707,13 +3824,24 @@ what the next step was meant to be.
   teleports and read as one that works. So `acrossFrom` (the same square, the
   other deck) is its own function and every place that enumerates ways out asks
   for it **by name**, which is what keeps the list of askers short enough to
-  argue about. Two ask. A **junction**, and that is not a special case: you do
-  not aim a branch today either — `conveyorBranches` takes every neighbour that
-  is not the straight-on and is not feeding it, and `rot` only ever decided which
-  goes first. And a **loader with nowhere else**, which is `choose`'s last resort
-  and is the whole opt-in: a loader mid-aisle with a duct crossing over it
-  carries straight on exactly as it always did, so the only machine that ever
-  looks up is one that has run out of shop. Three things about the rest of it.
+  argue about. Two ask, and both of them have to have been TOLD (`riser`, off on
+  every piece ever built). A **junction**, which shipped automatic on the
+  argument that you do not aim a branch — `conveyorBranches` takes every
+  neighbour that is not the straight-on and is not feeding it, and `rot` only
+  ever decided which goes first — and a real shop found that wrong the same
+  afternoon. And a **loader with nowhere else**, which is `choose`'s last resort:
+  a loader mid-aisle with a duct crossing over it carries straight on exactly as
+  it always did, so the only machine that ever looks up is one that has run out
+  of shop. That last resort was the whole opt-in for a step, and it is not enough
+  of one, for the junction's own reason said one piece along: a duct is drawn
+  four metres over a floor the camera looks straight through, so an endcap that
+  rises and one that stops are the same still frame, and a return leg laid home
+  across the shop re-pointed every endcap it flew past with nothing pressed and
+  nothing on screen to say so. **Two rules and not a rename of each other** —
+  LAST is which machine may look up, TOLD is whether it does — and one field
+  answers for all three pieces that can (`setSorterRiser`, one message, one
+  menu row), because a `loader-riser` beside a `sorter-riser` would be two
+  spellings of the same sentence. Three things about the rest of it.
   `throughR` is never asked of a rise and must not be — a cell carrying on
   straight up because the cell below is a conveyor is a *column*, not a line.
   A **lift** is excluded at both ends, because its own square on the far deck is

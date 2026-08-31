@@ -425,9 +425,9 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 
 30 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass · 6 parts move always
 
-1. **Sorter** — free, as built
-2. **Quick sorter** — $140, speed ×1.9
-3. **Maglev sorter** — $330, speed ×3.2
+1. **Sorter** — free, speed ×1.5
+2. **Quick sorter** — $140, speed ×2.85
+3. **Maglev sorter** — $330, speed ×4.8
 
 ### `packer`
 
@@ -440,8 +440,8 @@ Indoors or out, owns its cell (people walk around it), nobody stands at it, rota
 34 parts · 3 stages, driven by tier · no `surface` boards — goods pile on its roof · has glass
 
 1. **Packer** — free, as built
-2. **Quick packer** — $160, speed ×1.9
-3. **Maglev packer** — $380, speed ×3.2
+2. **Double packer** — $160, holds ×2, speed ×1.9
+3. **Triple packer** — $380, holds ×3, speed ×3.2
 
 ### `under`
 
@@ -467,9 +467,9 @@ Indoors only, owns its cell (people walk around it), nobody stands at it, rotate
 
 33 parts · no `surface` boards — goods pile on its roof · has glass
 
-1. **Standard** — free, as built
-2. **Quick hoist** — $60, speed ×1.8
-3. **Maglev hoist** — $150, speed ×3
+1. **Standard** — free, speed ×1.65
+2. **Quick hoist** — $60, speed ×2.97
+3. **Maglev hoist** — $150, speed ×4.95
 
 ## Decorations
 

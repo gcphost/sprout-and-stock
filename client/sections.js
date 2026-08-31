@@ -151,10 +151,24 @@ export const BUILD_GROUPS = [
   // Outdoors, which is what widened the blurb: a dock is not something that
   // moves stock, it is where the moving starts. See `bay` in `KIND_TOOLS` for
   // the argument.
+  //
+  // ...and then the two racks, which is the first time a GROUP has asked for a
+  // tag — see `filedIn`. `run` and `blurb` ride with the ask because a piece
+  // filed here is filed *against* what its kind says, and the kind is where
+  // both of those otherwise come from. The blurb, because shelving is "browsed
+  // from the side it faces", which is the one thing a unit nobody is allowed to
+  // browse does not do. And the run, because the kind's would split the two of
+  // them into a Shelves of one and a Cold of one: they are the same answer to
+  // the same question here — somewhere out the back to put a lot of stock —
+  // and which of them takes frozen goods is what the tile and its blurb are
+  // for. A third rack authored tomorrow joins the run rather than opening one.
   {
     id: 'logistics',
     name: 'Logistics',
     icon: ICONS.crate,
+    tags: ['back-of-house'],
+    run: 'Racks',
+    blurb: 'Crew only, out the back. The shop keeps it full and your crew carry it out front.',
   },
   {
     id: 'shell',
@@ -287,6 +301,31 @@ const subIdFor = (g, t) => g.subs.find((s) => inSub(t, s.id))?.id
   ?? g.subs.find((s) => s.tags?.some((tag) => t.tags?.includes(tag)))?.id
   ?? g.subs.find((s) => !s.tags)?.id
   ?? g.subs[0]?.id ?? null;
+
+/**
+ * Which GROUP an entry sits on — `subIdFor`'s question one level up, with the
+ * two answers in the OTHER order, and the swap is the whole of it. It hands
+ * back the group rather than its id, because a group that took an entry by tag
+ * has something to say about it that the entry's own kind gets wrong.
+ *
+ * A sub-tab that is named wins over one asked for by tag, because down there
+ * naming is the exception: only Building names its own. Up here every kind
+ * names a group (`KIND_TOOLS`), so a tag that lost to the name could never win
+ * at all, and the tag would be a word that files nothing.
+ *
+ * The two racks are why it exists. `pallet-rack` is `kind: shelf` and
+ * `cold-rack` is `kind: freezer`, so both filed with the gondolas under Shop —
+ * and neither is a shop fitting: you buy them to stand out the back, beside the
+ * dock and the belts. Nothing about the KIND can say that, since the same
+ * shelving is a shop fitting out front and a pantry in the kitchen, and the row
+ * that knows already says so — `back-of-house` is the same tag that starts the
+ * unit in the back when you place it (`backOfHouse`, shared/tags.js).
+ */
+const filedIn = (kind, tags) => BUILD_GROUPS
+  .find((g) => g.tags?.some((tag) => tags?.includes(tag)))
+  // A kind nobody grouped lands in the shop rather than nowhere: an entry in no
+  // group is one no tab shows, which is the same as not existing.
+  ?? { id: KIND_TOOLS[kind]?.group ?? 'shop' };
 
 /** Which sub-tab a palette entry is found on, for a selection made elsewhere. */
 export function subOfTool(t, groupId) {
@@ -1012,6 +1051,8 @@ function computeBuildTools(ui) {
       // and one flag meaning both would put a floor ghost on a wall.
       const paint = isGround(kind);
       const face = isPaint(kind);
+      // Which tab, asked of the ROW first and the kind second — see `filedIn`.
+      const tab = filedIn(kind, p.tags);
       pieces.push({
         id: p.id,
         kind,
@@ -1033,9 +1074,7 @@ function computeBuildTools(ui) {
         ...(paint ? { paint: true } : {}),
         ...(face ? { face: true } : {}),
         icon: KIND_TOOLS[kind]?.icon ?? ICONS.fixtures,
-        // A kind nobody grouped lands in the shop rather than nowhere: an entry
-        // in no group is one no tab shows, which is the same as not existing.
-        group: KIND_TOOLS[kind]?.group ?? 'shop',
+        group: tab.id,
         sub: KIND_TOOLS[kind]?.sub,
         // What the row says it IS, which is the only thing that can file two
         // pieces of one kind apart — see `DECOR_SUBS` and `subIdFor`. Off the
@@ -1051,9 +1090,11 @@ function computeBuildTools(ui) {
         // make one line down: a run is a claim about the RULES (this is where
         // frozen goods live), so every design of a freezer is in it, and a
         // second shelf design must not be able to open a section of its own.
-        run: KIND_TOOLS[kind]?.run ?? '',
+        run: tab.run ?? KIND_TOOLS[kind]?.run ?? '',
         name: p.name,
-        blurb: KIND_TOOLS[kind]?.blurb ?? '',
+        // The kind's, unless a tab took this entry off its kind and said what
+        // one of these is — see `filedIn`.
+        blurb: tab.blurb ?? KIND_TOOLS[kind]?.blurb ?? '',
       });
     }
   }
@@ -1277,12 +1318,17 @@ export function buildGroups(ui) {
  * A strip in runs, each run wearing its name in the gap before it.
  *
  * The same mechanism the roster uses (`head`, see `staffGroups` and `bar.js`)
- * pointed at the palette, and for the same complaint: Shop is thirteen tiles of
- * furniture in five families, and sorting them put every family together
- * without saying anywhere that a family is what you are looking at. Two racks
- * six tiles apart read as an unsorted strip even when the strip is sorted —
- * `pallet-rack` is shelving and `cold-rack` is a freezer, which is the one thing
- * about them the pictures cannot say and a two-letter caption can.
+ * pointed at the palette, and for the same complaint: Shop is a strip of
+ * furniture in several families, and sorting them put every family together
+ * without saying anywhere that a family is what you are looking at. Two units
+ * six tiles apart read as an unsorted strip even when the strip is sorted, and
+ * which of the two takes frozen goods is the one thing about them the pictures
+ * cannot say and a two-letter caption can.
+ *
+ * A tab that took an entry by TAG names the run instead (`filedIn`), and it has
+ * to: a kind's run is a claim about the rules, so the two racks would arrive on
+ * Logistics as a Shelves of one and a Cold of one — two captions over two tiles,
+ * which is a heading saying what the tile already says.
  *
  * THE ORDER IS NOT THIS FUNCTION'S JOB, and that is the trap to know about
  * before adding a run to anything. A label is put on the FIRST entry of each

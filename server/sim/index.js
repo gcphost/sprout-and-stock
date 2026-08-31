@@ -31,7 +31,7 @@ import {
 } from './economy.js';
 import {
   spoilRate, homeKind, desireFor, impulsePull, tagLabel, DEPARTMENTS,
-  departmentsOf, inDepartment,
+  departmentsOf, inDepartment, backOfHouse,
 } from '../../shared/tags.js';
 import { makeRng } from '../../shared/rng.js';
 import { hash01 } from '../../shared/hash.js';
@@ -51,7 +51,7 @@ import { checkMilestones, milestoneProgress, milestoneReach } from './goals.js';
 import { undoStep, recordUndo, undoLast, redoLast, specOf } from './undo.js';
 import {
   FIXTURES, FIXTURE_KINDS, canPlace, rot4, FIXTURE_REFUND, anchorTile, behindTile,
-  deckOf, CEILING, BASEMENT, armReach, goesOverhead,
+  deckOf, CEILING, BASEMENT, armReach, goesOverhead, ignores,
   conveyorNext, conveyorAt, conveyorServes, conveyorsOf, conveyorBranch, conveyorBranches, conveyorRun, conveyorMeets, conveyorLines, alongPath, tunnelExit, derivedFlow, fixtureRunCells, runFollows, BELT_RUN_MAX, RUN_KINDS, SPUR_UNIT_REACH, SPUR_OPEN_REACH,
   canPlaceEdge, canPlaceEdges, edgeRun, isProp, fixturesOf, insideStore, queueLanes,
   canPaintGround, groundPaint, groundStroke, strokeThick, GROUND_STROKE_MAX, quadCells,
@@ -59,7 +59,7 @@ import {
   shelfKind, holdsGoods, isPaint, faceKey, faceOf, faceRun, canPaintFaces, LIFT_WAYS,
   SORTER_ROUTES, sorterRoute, FAVOURING,
   MERGE_ROUTES, mergeRoute, conveyorFeeders, mergeStraight, CONVEYOR_KINDS,
-  SIDE_MODES, sideOut, sideIn,
+  SIDE_MODES, sideOut, sideIn, turnSides,
   covers, footprintMid, footprint, paddockOf, pennedIn, openBetween,
 } from '../../shared/build.js';
 import {
@@ -463,6 +463,19 @@ const UNLOAD_REACH = 1.8;      // how close you stand to unload a pallet
  * shop rather than on a row somebody can edit into an imbalance.
  */
 const CRATE_UNITS = 12;
+
+/**
+ * The most a packer's freight crate can ever hold, whatever its ladder says.
+ *
+ * A ceiling and not the number — how many crate-loads one holds is its TIER
+ * (`packerCrates`), because a rung that moves no number is the trap
+ * docs/fixtures.md is generated to catch and the piece shipped with three of
+ * them selling swing speed alone. This is `LOT_KINDS`' sibling: a box that
+ * holds ten crates is one board's worth of goods standing on a conveyor cell,
+ * and `looseRoom` credits a belt cell `CRATES_PER_CELL` boxes — so an authored
+ * `capacity_mult` of 9 would be a yard allowance the shop cannot see.
+ */
+const PACKER_CRATE_MAX = 3;
 
 /**
  * How many different things one crate holds, and one pair of hands.
@@ -3787,6 +3800,11 @@ export class Game {
         // these in every shop is `default`, and `mergeRoute` reads a miss as
         // exactly that.
         ...(mergeRoute(a) !== 'default' ? { merge: mergeRoute(a) } : {}),
+        // ...and whether the storey above (or below) is one of its ways out. On
+        // the wire for the reason a junction's is: the menu is drawn from the
+        // snapshot, so a control whose state never reaches it is a row that
+        // cannot tick.
+        riser: a.riser === true,
         ...shaftWire(a.id),
       })),
       sorters: (this.layout.sorters ?? []).map((s) => ({
@@ -3859,7 +3877,7 @@ export class Game {
           rot: k.rot ?? 0,
           assigned: toList(k.assigned),
           holds: lotStacks(box),
-          full: this.crateLot().cap,
+          full: this.packerLot(k).cap,
           // ...and whether it is WAITING on something that is not coming, which
           // is the one state of this machine a still frame cannot show. A box
           // part built and a box about to go out are the same box. Sparse — it
@@ -7236,6 +7254,52 @@ export class Game {
       // Both questions, the way `shelvesFor` asks them: a unit can be out of
       // BOARDS while every board on it has space, and either one is room this
       // item cannot use.
+      if (!this.shelfHasRoomFor(sh, itemId)) continue;
+      if (this.shelfCapacity(sh, item) - (this.shelfStack(sh, itemId)?.qty ?? 0) > 0) return false;
+    }
+    return true;
+  }
+
+  /**
+   * ...and is the RESERVE out of room too, which is the ceiling `homeFull` has
+   * no way to be.
+   *
+   * A stockroom may open the next board for something its home can no longer
+   * hold, and that is what the room is FOR: reserve depth. The trouble is what
+   * "the home is full" does once it becomes true. It is a fact about the HOME,
+   * so filling a second unit does not make it any less true, and a third unit
+   * reads exactly the permission the second did. The gate stands open for every
+   * stockroom unit in the shop at once, for ever — so an item does not gain a
+   * reserve board, it gains all of them, and `restock` then buys a van for each
+   * one. Measured on a live save: carrot on eleven back boards, 815 units held
+   * against a home that holds 137, and 82 of them rotting in a night. Every
+   * order correct, no refusal anywhere, and what it reads as is the crew
+   * hoarding rather than as a rule with no upper end.
+   *
+   * So the question is asked of the reserve rather than of the home: a NEW
+   * board opens only once the home and every back unit already holding it are
+   * all full. Same sentence, one unit wider — the room grows a board at a time
+   * and stops the moment demand does, which is what "the next compatible empty
+   * unit" was always meant to say.
+   *
+   * Topping up a board it already lives on is NOT this question and must never
+   * ask it: that is `homeFull` alone, exactly as on the shop floor, or reserve
+   * depth becomes something you can open and then never keep stocked.
+   */
+  reserveFull(itemId, homes = null) {
+    const h = homes ?? this.homeShelves(itemId);
+    if (!this.homeFull(itemId, true, h)) return false;
+    const item = content().byId.items[itemId];
+    if (!item) return false;
+    for (const sh of this.layout.shelves) {
+      if (sh.boh !== true) continue;
+      // The home itself is what `homeFull` has just answered for.
+      if (h.back?.has(sh.id)) continue;
+      // A BARE unit is the thing being decided about, not evidence against it.
+      // Counting one as room would make the answer always "no", and the gate
+      // this bounds would never open at all — a stockroom with exactly one
+      // reserve board in it for ever.
+      if (!this.shelfStack(sh, itemId)) continue;
       if (!this.shelfHasRoomFor(sh, itemId)) continue;
       if (this.shelfCapacity(sh, item) - (this.shelfStack(sh, itemId)?.qty ?? 0) > 0) return false;
     }
@@ -11216,6 +11280,56 @@ export class Game {
     return { cap: this.crateCapacity(), kinds: CRATE_KINDS };
   }
 
+  /**
+   * How many ordinary crate-loads this machine's freight box holds — which is
+   * what its tier ladder sells, and used to be a constant.
+   *
+   * Three rungs sold `speed_mult` and nothing else, so what a player bought was
+   * a machine that swung faster at exactly the same box: the trip it folds was
+   * three crates into one on every rung, and the ladder was a tier that changes
+   * no number wearing a stopwatch. One crate, two, three is the thing you can
+   * point at from across the shop — tier 1 folds a dock of part-crates into one
+   * trip, tier 3 folds three full ones.
+   *
+   * ROUNDED, FLOORED AT ONE AND CAPPED, and each of the three is a different
+   * failure. `fixtureStats` answers 1 for every rung authored before this
+   * existed and for a piece that resolves to no row at all, so the floor is the
+   * safe direction: an unauthored packer builds an ordinary crate, which still
+   * folds the three part-crates the pitch is about. A fraction is a crate cap
+   * nothing else in the game can express — `lotAdd` counts whole units.
+   *
+   * And the ceiling is the YARD, which is the one worth stating properly
+   * because the schema will take a `capacity_mult` of 10. `looseRoom` credits a
+   * conveyor cell `CRATES_PER_CELL` crate-loads and charges it whatever
+   * actually stands there in units, so a freight box already out-runs its own
+   * cell at three — bounded, and the shop goes on ordering. At ten it is 120
+   * units parked on one square, which closes the allowance in a shop whose run
+   * is visibly clear, and what that reads as is the supplier refusing to buy
+   * anything with nothing anywhere to say why. Three is also the most a player
+   * can COUNT: the box is drawn as one crate and the menu says "n of N", so
+   * beyond the pitch's own number there is nothing on screen that says which
+   * rung a machine is on.
+   */
+  packerCrates(p) {
+    const mult = Math.round(this.fixtureStats(p).capacity_mult || 1);
+    return Math.max(1, Math.min(PACKER_CRATE_MAX, mult));
+  }
+
+  /**
+   * The larger crate a packer sends down its own line.
+   *
+   * It takes the MACHINE rather than answering for packers in general, and that
+   * is the whole of the change: three callers ask it — the release test, the
+   * fill, and the number the menu draws the box over — and a shop with a plain
+   * packer beside an upgraded one has two answers at once. A default here would
+   * be worse than none, because a caller that forgot to say which machine would
+   * silently get tier 1's box and a tier-3 packer would let go three times too
+   * early, which draws as a machine working perfectly.
+   */
+  packerLot(p) {
+    return { ...this.crateLot(), cap: this.crateCapacity() * this.packerCrates(p) };
+  }
+
   /** ...and the same pair for a pair of hands, which a rucksack still moves. */
   carryLot(p = null) {
     return { cap: this.carryCapacity(p), kinds: CARRY_KINDS };
@@ -13178,19 +13292,31 @@ export class Game {
    * spellings of a switch that means exactly the same thing, which is the split
    * this whole step exists to close.
    */
+  /**
+   * ...and a LOADER answers it too, which is the third piece and the one the
+   * switch was taken away from.
+   *
+   * Its rise used to be automatic — run out of aisle with a duct overhead and
+   * the box went up — on the argument that a machine with nowhere left to hand
+   * on is a machine that has chosen. That is a guess, and it is made about the
+   * one axis nobody can see: a duct is drawn four metres over a floor the camera
+   * looks through, so an endcap that rises and one that stops are the same still
+   * frame, and a return leg laid home across the shop re-pointed every endcap it
+   * flew over without anybody pressing anything. One field, one message and one
+   * row, for the reason the mouth shares them — see `risesTo`.
+   */
   setSorterRiser(playerId, id, on) {
     const { f, error } = this.buildTarget(playerId, id);
     if (error) return err(error);
-    if (f.kind !== 'sorter' && f.kind !== 'under') return err('that has no other storey to use');
-    const cell = (f.kind === 'under' ? this.layout.unders : this.layout.sorters ?? [])
-      .find((s) => s.id === id);
+    const lists = { under: this.layout.unders, arm: this.layout.arms, sorter: this.layout.sorters };
+    const cell = (lists[f.kind] ?? []).find((s) => s.id === id);
     if (!cell) return err('that has no other storey to use');
     cell.riser = on === true;
     const placement = this.placements.find((p) => p.id === id);
     if (placement) placement.riser = cell.riser;
     this.regenerateLayout();
     this.persist();
-    const what = f.kind === 'under' ? 'tunnel' : 'sorter';
+    const what = { under: 'tunnel', arm: 'loader' }[f.kind] ?? 'sorter';
     this.pushLog(cell.riser
       ? `That ${what} can send things to the other storey now.`
       : `That ${what} keeps everything on its own storey.`);
@@ -13549,6 +13675,56 @@ export class Game {
     }
   }
 
+  /**
+   * A BOX SOMEBODY HAS HOLD OF STANDS STILL.
+   *
+   * Every crate in this shop is taken with a ring: you point at it, the charge
+   * winds, and the goods move when it fills — which is the one gesture the whole
+   * shop floor is built out of, and the one gesture a conveyor was quietly
+   * exempt from. `ACTION_TIMES.crate` is 0.65s and `BELT_SECONDS` is 0.6, so a
+   * box travels **more than a cell** in the time it takes to pick one up, and
+   * `errandAction` measures `UNLOAD_REACH` against where it is *now*: the crate
+   * you named slid out of arm's length half way through, the candidate came back
+   * null, and `stepActions` binned the charge. Nothing is refused and nothing is
+   * logged, so what you watch is a ring that fills a bit and gives up, over and
+   * over, on a box you are standing next to.
+   *
+   * It was worse than simply not working, because whether it worked depended on
+   * which way the run was pointing — a box travelling *across* you stays about
+   * as far away and lifts fine, one travelling *away* does not — so the same
+   * press on the same kind of box worked on one aisle and not on the next.
+   *
+   * The fix is not a longer reach or a shorter ring. Both spend the gesture's
+   * own grammar to buy something a conveyor already has a word for: **the box
+   * stops**. Reaching for one is a jam you caused, the run backs up behind it
+   * exactly as it does behind anything else in the way, and it lets go the tick
+   * you do — which makes the one thing there was no signal for the most legible
+   * thing on the line. `stepBelts`' `cap` is how every other hold in here is
+   * spelled (a loader's swing, a lift's stroke, a tunnel mouth), so this is that
+   * word said about a pair of hands rather than a new mechanism.
+   *
+   * Only while the ring is actually TURNING (`elapsed > 0`). A candidate is
+   * armed and sent at zero progress just to light the prompt up, so a run that
+   * stopped for a pointer resting on it would be a conveyor you can jam by
+   * looking at it — and with no button down there is nothing on screen that
+   * would say why.
+   *
+   * Any action naming the crate, rather than a list of the kinds that can:
+   * `lift` and `unload` are the two today and a list of the current members of
+   * a category is how the second one gets left out (see `SHIFTERS`). Hires are
+   * skipped because they never lift a riding box in the first place —
+   * `floorCrates` is what a job loop is offered — so a set built from them could
+   * only ever hold nothing.
+   */
+  handHeld() {
+    const out = new Set();
+    for (const p of Object.values(this.players)) {
+      if (p.staff || !p.action || !(p.action.elapsed > 0)) continue;
+      if (p.action.target) out.add(p.action.target);
+    }
+    return out;
+  }
+
   stepBelts(dt) {
     const net = this.beltLines();
     // ...and a shop with no run left in it remembers nothing about junctions.
@@ -13559,6 +13735,9 @@ export class Game {
     // Before anything moves, or a box sitting on the rails waits a tick to be
     // noticed and the run steps around it.
     this.clearRails();
+    // Whose hands are on a box right now — see `handHeld`. Read once, because
+    // the answer is the same for every line and there are usually none of them.
+    const held = this.handHeld();
 
     /**
      * Where every box is, in the coordinates of the line it is on.
@@ -14509,6 +14688,15 @@ export class Game {
         // whatever else arrives on the line it is crossing into — which is what
         // `barrier` counting it as already there is for.
         cap = Math.max(cap, at);
+
+        // ...and a pair of hands on it is the last word — see `handHeld`. Below
+        // the line above rather than folded into the clamps further up, because
+        // it has to beat every one of them and it must never push the box back:
+        // `cap` is already at least `at` here, so this is exactly "stay where
+        // you are". A crate part way across a seam holds there too, which is
+        // right — it has committed to the hand-off, and the far line already
+        // counts it as arriving.
+        if (held.has(crate.id)) cap = at;
 
         // A tunnel's two piston clocks lived here — one counting a stroke down
         // and back, one for the rise at the far end, both spending part of the
@@ -16617,7 +16805,9 @@ export class Game {
    * THREE ANSWERS AND NOT ONE, and the third is the one that will feel wrong to
    * write and is doing all the work.
    *
-   * *Full* is the obvious one — `crateLot().cap` is a trip by definition.
+   * *Full* is the obvious one — a freight crate holds as many ordinary crates
+   * as the machine's rung says (`packerCrates`), so reaching that cap is that
+   * many trips becoming one.
    *
    * *Satisfied* is the pitch: every kind it was ticked for is in there. It can
    * only ever be asked of a packer that WAS ticked, because a derived list is a
@@ -16649,10 +16839,11 @@ export class Game {
    */
   packerReady(p, box) {
     if (!box || !lotTotal(box)) return false;
-    if (lotTotal(box) >= this.crateLot().cap) return true;
+    if (lotTotal(box) >= this.packerLot(p).cap) return true;
+    const inbound = this.packerInbound(p);
     const list = this.packerList(p);
     if (list && lotTotal(box) > this.carryCapacity()
-      && list.every((id) => lotQty(box, id) > 0)) return true;
+      && list.every((id) => lotQty(box, id) > 0) && !inbound) return true;
     /**
      * ...and the WAIT, whose length is the one thing the machine now looks up
      * the line to decide.
@@ -16664,16 +16855,16 @@ export class Game {
      * three boxes of four, which is the piece switched off. Every folding claim
      * in `verify:packer` failed on exactly that.
      *
-     * So: something coming is a reason to wait LONGER, not a gate. On a quiet
-     * run a part box goes out in `PACK_QUIET_SECONDS` instead of holding stock
-     * for three quarters of a minute on behalf of nobody; on a busy one the long
-     * backstop is what it always was, because a box upstream is not a box that
-     * will arrive — it can jam, or be sent down another leg at a junction
-     * between there and here.
+     * So: something coming is a reason to wait LONGER, not a gate. A selected
+     * set that is already present also waits while compatible traffic is still
+     * approaching, letting the packer make one freight crate instead of sending
+     * the first ordinary crate straight back out. On a quiet run it goes out in
+     * `PACK_QUIET_SECONDS`; on a busy one the long backstop is what it always
+     * was, because a box upstream can jam or turn away before it arrives.
      */
     const since = this.packWait?.get(p.id);
     if (since == null) return false;
-    const wait = this.packerInbound(p) ? Game.PACK_STALE_SECONDS : Game.PACK_QUIET_SECONDS;
+    const wait = inbound ? Game.PACK_STALE_SECONDS : Game.PACK_QUIET_SECONDS;
     return this.elapsed - since >= wait;
   }
 
@@ -16786,30 +16977,8 @@ export class Game {
      * backpressure being tipped again on every tick it waits.
      */
     if (feed.armDone === p.id) return false;
-    /**
-     * ...AND NEVER A BOX THAT IS ALREADY WORTH A JOURNEY.
-     *
-     * This machine exists to fold PART-crates. A box that already beats an
-     * armful is already a trip — taking it apart and reassembling it moves the
-     * same goods to the same shelf down the same run, and the only thing that
-     * changed is that it stopped on the way.
-     *
-     * What that looks like is the tell, and it is what a full crate off a van
-     * does every single time: the box goes up onto the tray and comes straight
-     * back down a second later. Not a stutter and not a bug you could point at —
-     * the goods arrive correctly — but a machine visibly doing nothing, which is
-     * indistinguishable from one that is broken.
-     *
-     * `carryCapacity` is the bar for the same reason it is the bar in
-     * `packerReady`: `wholeCrate` has meant "worth more than one armful" since a
-     * hire could shoulder a box, and a packer that used a different number would
-     * be a second opinion about the one question this shop already answers.
-     *
-     * It also makes the piece cheap where it does nothing. A dock that lands
-     * full crates is a dock a packer passes through untouched, which is what
-     * lets you put one at the front of the run without thinking about it.
-     */
-    if (lotTotal(feed) > this.carryCapacity()) return false;
+    // Ordinary crates belong here too: a packer reduces crate traffic by
+    // combining up to three of them, not merely by tidying armful-sized scraps.
     return this.packerFill(p, feed);
   }
 
@@ -16837,7 +17006,7 @@ export class Game {
    * because it is the same operation.
    */
   packerFill(p, feed) {
-    const opts = this.crateLot();
+    const opts = this.packerLot(p);
     let box = this.packerBox(p);
     let took = 0;
 
@@ -19030,6 +19199,10 @@ export class Game {
     const piece = this.pieceId(kind, spec.piece);
     if (!piece) return err('nothing in the catalog builds that');
 
+    // The catalog row, hoisted because two things below want it — which way
+    // this unit starts, and what to call it in the log.
+    const row = this.fixtureContent({ kind, piece, station });
+
     const placement = {
       id: `fx-${this.nextFixtureId}`,
       kind,
@@ -19049,6 +19222,23 @@ export class Game {
       // Which shape you picked off the palette. Costs the same as any other:
       // a variant is a look, and the price is the piece's.
       variant: this.fixtureHasVariant({ kind, piece }, spec.variant) ? (spec.variant ?? '') : '',
+      // ...and stockroom shelving starts out the back.
+      //
+      // A pallet rack is bought to BE a stockroom, so a unit that lands on the
+      // shop floor and has to be switched over is a second press for the one
+      // thing you meant — and it is the press nobody makes, because a rack on
+      // the floor works: shoppers browse it, the boards fill, and what you
+      // notice a week later is that your stockroom never backed anything up.
+      // A default and never a lock: the switch is still there both ways.
+      //
+      // Written only when it is true, the way `deck` is, so a spec is
+      // byte-identical to what it has always been for every other piece — the
+      // clipboard, the undo stack and the save all carry `specOf` wholesale.
+      //
+      // `holdsGoods` guards it because `boh` is only ever read off a shelving
+      // record (`applyPlacements`), so a conveyor whose row happened to carry
+      // the tag would be handed a field nothing anywhere reads.
+      ...(holdsGoods(kind) && backOfHouse(row) ? { boh: true } : {}),
     };
     const check = canPlace(this.layout, placement);
     if (!check.ok) return err(check.reason);
@@ -19071,8 +19261,11 @@ export class Game {
     // itself for the same reason: you bought a planter, not a "decoration".
     const what = station
       ? (this.stationUpgrade(station)?.name ?? station).toLowerCase()
-      : (this.fixtureContent(placement)?.name ?? FIXTURES[kind].label).toLowerCase();
-    this.pushLog(`Built a ${what} for $${cost.toFixed(2)}.`);
+      : (row?.name ?? FIXTURES[kind].label).toLowerCase();
+    // Said out loud, or the one thing that makes this unit different from the
+    // shelving beside it is a switch you would have to open the menu to find.
+    this.pushLog(`Built a ${what} for $${cost.toFixed(2)}.${
+      placement.boh ? ' It goes in the back.' : ''}`);
     // Carried back out so anything driving this headlessly — the API, MCP, a
     // bot — is told what it just did to the shop, rather than only the player
     // who saw the ghost turn amber.
@@ -19121,7 +19314,7 @@ export class Game {
       rot: spec.rot ?? held.rot,
       tier: held.tier,
       variant: held.variant ?? '',
-    });
+    }, { by: playerId });
     if (!res.ok) {
       // The only way this fixture can be gone is if it was removed under us —
       // in which case there is nothing left to be carrying.
@@ -19188,7 +19381,7 @@ export class Game {
         rot: f.rot ?? 0,
         tier: this.fixtureTier(f),
         variant: this.fixtureVariant(f),
-      }, { ignore: all });
+      }, { ignore: all, by: playerId });
     }, (n) => `Moved ${n} fixtures.`);
   }
 
@@ -19235,7 +19428,7 @@ export class Game {
     // outright — a till whose serving spot is already claimed by another till.
     // That is physics, and stepping over it beats refusing to turn.
     for (const rot of tries) {
-      const res = this.repositionFixture(id, spec(rot));
+      const res = this.repositionFixture(id, spec(rot), { by: playerId });
       if (res.ok) return ok({ rotated: res.id, rot });
     }
     return err('nowhere for it to turn to');
@@ -19316,7 +19509,7 @@ export class Game {
    * `shiftFixtures`, and `ignores` in shared/build.js for why forgiving the
    * whole set at once is safe rather than merely convenient.
    */
-  repositionFixture(id, spec, { ignore = null } = {}) {
+  repositionFixture(id, spec, { ignore = null, by = null } = {}) {
     const from = this.findFixture(id);
     if (!from) return err('that fixture is gone');
 
@@ -19385,15 +19578,35 @@ export class Game {
       // swap which one is the main road, and a merge cleared by that turn is the
       // control undoing itself on the one gesture it was designed around.
       merge: from.merge,
-      // ...and which of its SIDES it uses. It rides along untouched, and that is
-      // a decision rather than the lazy option: a side is named by a compass
-      // turn, and what stands on that turn is a pad, a shelf or a line, none of
-      // which move when you press R. So "the west side is a way in" is a fact
-      // about the shop and stays true through the turn — where `reject` follows
-      // the aim because it *is* the aim. Turned WITH the machine it would be
-      // the one setting on this list that quietly re-points at a neighbour
-      // nobody named, which is what `reject` re-aiming exists to stop.
-      sides: from.sides,
+      /**
+       * ...and which of its SIDES it uses, TURNED WITH THE MACHINE.
+       *
+       * It rode along untouched for a step, on an argument that is true and is
+       * about the wrong thing: a side is named by a compass turn, and what
+       * stands on that turn is a pad, a shelf or a line, none of which move
+       * when you press R — so "the west side is a way in" stays true through
+       * the turn, and turning the setting re-points it at a neighbour nobody
+       * named. Every word of that holds and it is still the wrong answer,
+       * because it describes the shop rather than the gesture. What you have
+       * hold of when you press R is the MACHINE. Its hood turns, its blade
+       * turns, the aim it aims by turns, and the one thing that did not was the
+       * four words you had just written on its four faces — so a loader set up
+       * against a pad and a shelf came out of a single quarter turn taking from
+       * the shelf and giving to the pad, silently, with nothing on screen
+       * saying a setting had changed and no press that could have said so.
+       *
+       * A quarter turn of the piece is a quarter turn of everything drawn on
+       * it, which is the sentence a player can hold. Wanting the old behaviour
+       * is wanting to re-aim one side, and that is one press of the card the
+       * side is on — where recovering from the drift was reading four cards and
+       * working out which two had swapped.
+       *
+       * The DELTA and not the new rotation, or a piece that has never been
+       * turned would have its sides rewritten from turn zero the first time
+       * anything else on this list changed — a restyle and both rungs of the
+       * tier ladder come through here too, and none of them is a turn.
+       */
+      sides: turnSides(from.sides, rot4(Number(spec.rot) || 0) - rot4(from.rot ?? 0)),
       // ...and a shaft's direction, which is the one setting on this list whose
       // whole reason for not being `rot` is that R would clear it. Left out
       // here, R clears it anyway through the back door.
@@ -19406,6 +19619,45 @@ export class Game {
     };
     const check = canPlace(this.layout, placement, { ignoreId: ignore ?? id });
     if (!check.ok) return err(check.reason);
+
+    /**
+     * A conveyor MOVED onto another one swaps it, exactly as one PLACED there
+     * does.
+     *
+     * `placeFixture` has taken the old cell out since the day swapping existed,
+     * and this path never did — while `canPlace` answers the same to both,
+     * because `conveyorSwap` is about the cell and does not know who is asking.
+     * So the move was allowed and landed a SECOND conveyor on one square, and
+     * `compose` walks placements in order: the belt was laid first, stamps
+     * `T.BELT`, and the piece you just dragged then fails `canKeep` — where
+     * `conveyorSwap` bails on `keeping`, correctly — and is shed. Refunded, so
+     * nothing reads as stolen; what you watch is your sorter disappear onto a
+     * rail that is still standing, on a press the ghost had called fine.
+     *
+     * Never a member of the BATCH, or an aisle shifted one square along itself
+     * demolishes the neighbour it is stepping onto — which is the whole reason
+     * `ignores` takes a set. Itself is covered by the same test, which is what
+     * keeps R and the two ladders from selling the piece they are turning.
+     *
+     * A refusal rather than a silent skip if the removal will not go, because
+     * carrying on from here is precisely the bug: the shed is what eats the
+     * fixture, and it does it after the press has been called a success.
+     */
+    if (FIXTURES[placement.kind]?.flow) {
+      const deck = deckOf(placement);
+      const spared = (c) => !c || ignores(ignore ?? id, c.id) || c.kind === placement.kind;
+      const under = this.beltAt(placement.x, placement.z, deck);
+      // ...and a SHAFT takes the storey above with it, which is `conveyorSwap`'s
+      // own note said at the press: a duct cell left standing on a lift's square
+      // is a cell nothing in the game can address again.
+      const over = placement.kind === 'lift'
+        ? this.beltAt(placement.x, placement.z, CEILING) : null;
+      for (const c of [under, over]) {
+        if (spared(c)) continue;
+        const gone = this.removeFixture(by, c.id);
+        if (!gone.ok) return gone;
+      }
+    }
 
     // The PLACEMENT rather than `from`, which is the layout record — they carry
     // the same fields today and only one of them is what a rebuild reads. This
